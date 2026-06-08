@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社会福祉法人 光志福祉会 ネムの木 PR動画</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    font-family: 'Hiragino Kaku Gothic ProN', 'ヒラギノ角ゴ ProN W3', 'Meiryo', sans-serif;
+    overflow: hidden;
+    width: 100vw;
+    height: 100vh;
+    cursor: none;
+  }
+
+  #stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+  }
+
+  /* ===== SCENE BASE ===== */
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    pointer-events: none;
+  }
+  .scene.active { opacity: 1; pointer-events: all; }
+
+  /* ===== COLOR PALETTE ===== */
+  :root {
+    --green:  #2e8b57;
+    --light-green: #5cb85c;
+    --gold:   #d4a017;
+    --white:  #ffffff;
+    --soft-bg: #0a1a10;
+    --accent: #7ecfa0;
+  }
+
+  /* ===== SCENE 0: オープニング ===== */
+  #s0 {
+    background: radial-gradient(ellipse at center, #0d2b18 0%, #000 70%);
+  }
+  #s0 .logo-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    animation: fadeUp 1.2s ease forwards;
+  }
+  #s0 .logo-circle {
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--green), var(--light-green));
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 0 60px rgba(46,139,87,0.6), 0 0 120px rgba(46,139,87,0.2);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  #s0 .logo-text-inside {
+    color: #fff;
+    font-size: 28px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    line-height: 1.2;
+    text-align: center;
+  }
+  #s0 .org-name {
+    color: var(--accent);
+    font-size: 15px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+  }
+  #s0 .facility-name {
+    color: #fff;
+    font-size: 56px;
+    font-weight: 900;
+    letter-spacing: 8px;
+    text-shadow: 0 0 40px rgba(126,207,160,0.5);
+  }
+  #s0 .tagline {
+    color: var(--gold);
+    font-size: 18px;
+    letter-spacing: 6px;
+    margin-top: 10px;
+  }
+  #s0 .particles {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .particle {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(126,207,160,0.3);
+    animation: float linear infinite;
+  }
+
+  /* ===== SCENE 1: 理念 ===== */
+  #s1 {
+    background: linear-gradient(135deg, #0a1a10 0%, #0f2d1a 50%, #061209 100%);
+  }
+  #s1 .label {
+    color: var(--accent);
+    font-size: 13px;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    margin-bottom: 30px;
+    animation: fadeDown 0.8s ease forwards;
+  }
+  #s1 .big-quote {
+    color: #fff;
+    font-size: clamp(22px, 3.5vw, 42px);
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.6;
+    max-width: 800px;
+    padding: 0 40px;
+    position: relative;
+  }
+  #s1 .big-quote::before {
+    content: '❝';
+    font-size: 80px;
+    color: var(--green);
+    position: absolute;
+    top: -40px;
+    left: 20px;
+    opacity: 0.4;
+  }
+  #s1 .quote-line {
+    display: block;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.6s ease;
+  }
+  #s1 .quote-line.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #s1 .sub-text {
+    margin-top: 40px;
+    color: rgba(255,255,255,0.5);
+    font-size: 15px;
+    letter-spacing: 3px;
+    opacity: 0;
+    transition: opacity 0.8s 1.2s ease;
+  }
+  #s1 .sub-text.show { opacity: 1; }
+  #s1 .deco-line {
+    width: 60px; height: 2px;
+    background: var(--green);
+    margin: 20px auto;
+    opacity: 0;
+    transition: opacity 0.6s 0.5s, width 0.8s 0.5s;
+  }
+  #s1 .deco-line.show { opacity: 1; width: 120px; }
+
+  /* ===== SCENE 2: 数字インパクト ===== */
+  #s2 {
+    background: #000;
+    overflow: hidden;
+  }
+  #s2 .bg-number {
+    position: absolute;
+    font-size: 400px;
+    font-weight: 900;
+    color: rgba(46,139,87,0.04);
+    pointer-events: none;
+    user-select: none;
+  }
+  #s2 .section-label {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 50px;
+    text-transform: uppercase;
+  }
+  #s2 .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 40px;
+    max-width: 900px;
+    width: 90%;
+  }
+  .stat-card {
+    background: rgba(46,139,87,0.08);
+    border: 1px solid rgba(46,139,87,0.2);
+    border-radius: 16px;
+    padding: 36px 20px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(40px);
+    transition: all 0.6s ease;
+  }
+  .stat-card.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--green), var(--accent));
+  }
+  .stat-card .icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .stat-card .num {
+    font-size: clamp(36px, 5vw, 60px);
+    font-weight: 900;
+    color: var(--accent);
+    line-height: 1;
+    display: block;
+  }
+  .stat-card .unit {
+    font-size: 18px;
+    color: var(--light-green);
+    font-weight: bold;
+  }
+  .stat-card .label {
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    margin-top: 10px;
+    line-height: 1.4;
+  }
+
+  /* ===== SCENE 3: 施設・規模 ===== */
+  #s3 {
+    background: linear-gradient(180deg, #050f08 0%, #0a1e12 100%);
+  }
+  #s3 .top-label {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 40px;
+  }
+  #s3 .title {
+    color: #fff;
+    font-size: clamp(28px, 4vw, 50px);
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 50px;
+  }
+  #s3 .title span { color: var(--light-green); }
+  #s3 .facilities-row {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 900px;
+    width: 90%;
+  }
+  .fac-chip {
+    background: rgba(46,139,87,0.15);
+    border: 1px solid rgba(92,184,92,0.4);
+    border-radius: 40px;
+    padding: 12px 24px;
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: 1px;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.4s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .fac-chip.show { opacity: 1; transform: scale(1); }
+  .fac-chip .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  #s3 .locations {
+    margin-top: 40px;
+    display: flex;
+    gap: 30px;
+    align-items: center;
+  }
+  .loc-badge {
+    background: linear-gradient(135deg, var(--green), var(--light-green));
+    border-radius: 12px;
+    padding: 14px 28px;
+    color: #fff;
+    font-weight: bold;
+    font-size: 15px;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease;
+    box-shadow: 0 8px 30px rgba(46,139,87,0.3);
+  }
+  .loc-badge.show { opacity: 1; transform: translateY(0); }
+
+  /* ===== SCENE 4: 働きやすさ詳細 ===== */
+  #s4 {
+    background: #000;
+  }
+  #s4 .section-label {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 20px;
+    text-transform: uppercase;
+  }
+  #s4 .title {
+    color: #fff;
+    font-size: clamp(24px, 3.5vw, 44px);
+    font-weight: 900;
+    margin-bottom: 50px;
+    text-align: center;
+  }
+  #s4 .title span { color: var(--light-green); }
+  #s4 .benefit-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 700px;
+    width: 90%;
+  }
+  .benefit-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 18px 24px;
+    opacity: 0;
+    transform: translateX(-30px);
+    transition: all 0.5s ease;
+  }
+  .benefit-row.show { opacity: 1; transform: translateX(0); }
+  .benefit-row .ico { font-size: 26px; flex-shrink: 0; }
+  .benefit-row .txt { flex: 1; }
+  .benefit-row .txt strong {
+    color: var(--accent);
+    font-size: 16px;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .benefit-row .txt span {
+    color: rgba(255,255,255,0.55);
+    font-size: 12px;
+  }
+  .benefit-row .badge-green {
+    background: linear-gradient(135deg, var(--green), var(--light-green));
+    color: #fff;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 4px 12px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+
+  /* ===== SCENE 5: 受賞・実績 ===== */
+  #s5 {
+    background: radial-gradient(ellipse at 50% 60%, #1a0f00 0%, #000 70%);
+  }
+  #s5 .top-label {
+    color: var(--gold);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+  }
+  #s5 .award-title {
+    color: #fff;
+    font-size: clamp(22px, 3vw, 38px);
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 50px;
+    line-height: 1.4;
+  }
+  #s5 .award-title span { color: var(--gold); }
+  #s5 .trophy-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  #s5 .trophy-icon {
+    font-size: 80px;
+    animation: trophyBounce 1.5s ease-in-out infinite;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  #s5 .trophy-icon.show { opacity: 1; }
+  #s5 .trophy-text {
+    color: var(--gold);
+    font-size: clamp(28px, 5vw, 64px);
+    font-weight: 900;
+    letter-spacing: 4px;
+    text-shadow: 0 0 30px rgba(212,160,23,0.5);
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.6s 0.3s ease;
+  }
+  #s5 .trophy-text.show { opacity: 1; transform: scale(1); }
+  #s5 .trophy-sub {
+    color: rgba(255,255,255,0.7);
+    font-size: 16px;
+    letter-spacing: 3px;
+    opacity: 0;
+    transition: opacity 0.6s 0.6s ease;
+  }
+  #s5 .trophy-sub.show { opacity: 1; }
+  #s5 .award-detail {
+    margin-top: 30px;
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.6s 0.9s ease;
+  }
+  #s5 .award-detail.show { opacity: 1; }
+  .gold-line {
+    width: 100px; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold), transparent);
+    margin: 20px auto;
+    opacity: 0;
+    transition: opacity 0.5s 0.5s ease;
+  }
+  .gold-line.show { opacity: 1; }
+
+  /* ===== SCENE 6: 成長・教育 ===== */
+  #s6 {
+    background: linear-gradient(135deg, #04100a 0%, #091a0f 100%);
+  }
+  #s6 .top-label {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 30px;
+    text-transform: uppercase;
+  }
+  #s6 .title {
+    color: #fff;
+    font-size: clamp(24px, 3.5vw, 44px);
+    font-weight: 900;
+    text-align: center;
+    margin-bottom: 50px;
+    line-height: 1.4;
+  }
+  #s6 .title span { color: var(--light-green); }
+  #s6 .career-path {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 800px;
+  }
+  .career-step {
+    background: rgba(46,139,87,0.15);
+    border: 2px solid rgba(92,184,92,0.3);
+    border-radius: 14px;
+    padding: 24px 28px;
+    text-align: center;
+    min-width: 140px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.5s ease;
+  }
+  .career-step.show { opacity: 1; transform: translateY(0); }
+  .career-step .grade {
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 3px;
+    margin-bottom: 8px;
+  }
+  .career-step .role {
+    color: #fff;
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+  .career-step .desc {
+    color: rgba(255,255,255,0.45);
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .career-arrow {
+    color: var(--green);
+    font-size: 28px;
+    margin: 0 8px;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+  }
+  .career-arrow.show { opacity: 1; }
+  #s6 .support-items {
+    display: flex;
+    gap: 20px;
+    margin-top: 40px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .support-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.7);
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .support-item.show { opacity: 1; }
+  .support-item::before {
+    content: '✓';
+    color: var(--light-green);
+    font-weight: bold;
+  }
+
+  /* ===== SCENE 7: スタッフの声 ===== */
+  #s7 {
+    background: #000;
+  }
+  #s7 .top-label {
+    color: var(--accent);
+    font-size: 12px;
+    letter-spacing: 10px;
+    margin-bottom: 40px;
+    text-transform: uppercase;
+  }
+  #s7 .voices-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    max-width: 800px;
+    width: 90%;
+  }
+  .voice-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 28px;
+    position: relative;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease;
+  }
+  .voice-card.show { opacity: 1; transform: translateY(0); }
+  .voice-card::before {
+    content: '❝';
+    position: absolute;
+    top: 12px; left: 16px;
+    font-size: 40px;
+    color: var(--green);
+    opacity: 0.3;
+    line-height: 1;
+  }
+  .voice-card .voice-text {
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+    line-height: 1.7;
+    padding-top: 20px;
+  }
+  .voice-card .voice-name {
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: bold;
+    margin-top: 14px;
+    letter-spacing: 1px;
+  }
+
+  /* ===== SCENE 8: クロージング ===== */
+  #s8 {
+    background: radial-gradient(ellipse at center, #0d2b18 0%, #000 65%);
+  }
+  #s8 .main-msg {
+    color: #fff;
+    font-size: clamp(28px, 5vw, 66px);
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.3;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.8s ease;
+    max-width: 800px;
+    padding: 0 30px;
+  }
+  #s8 .main-msg.show { opacity: 1; transform: translateY(0); }
+  #s8 .main-msg span { color: var(--light-green); }
+  #s8 .sub-msg {
+    color: rgba(255,255,255,0.5);
+    font-size: 16px;
+    letter-spacing: 4px;
+    margin-top: 30px;
+    opacity: 0;
+    transition: opacity 0.8s 0.5s ease;
+  }
+  #s8 .sub-msg.show { opacity: 1; }
+  #s8 .url-badge {
+    margin-top: 40px;
+    background: rgba(46,139,87,0.15);
+    border: 1px solid rgba(46,139,87,0.4);
+    border-radius: 40px;
+    padding: 14px 36px;
+    color: var(--accent);
+    font-size: 16px;
+    letter-spacing: 2px;
+    opacity: 0;
+    transition: opacity 0.8s 0.8s ease;
+  }
+  #s8 .url-badge.show { opacity: 1; }
+  #s8 .cta-btn {
+    margin-top: 30px;
+    background: linear-gradient(135deg, var(--green), var(--light-green));
+    border: none;
+    border-radius: 50px;
+    padding: 18px 60px;
+    color: #fff;
+    font-size: 18px;
+    font-weight: bold;
+    letter-spacing: 3px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.8s 1.1s ease, transform 0.2s;
+    box-shadow: 0 10px 40px rgba(46,139,87,0.4);
+  }
+  #s8 .cta-btn.show { opacity: 1; }
+  #s8 .cta-btn:hover { transform: scale(1.05); }
+  #s8 .logo-small {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.2);
+    font-size: 12px;
+    letter-spacing: 4px;
+  }
+
+  /* ===== PROGRESS BAR ===== */
+  #progress-bar {
+    position: fixed;
+    bottom: 0; left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--green), var(--accent));
+    transition: width 0.3s ease;
+    z-index: 100;
+  }
+
+  /* ===== SLIDE NAV ===== */
+  #nav-dots {
+    position: fixed;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+  .nav-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+  .nav-dot.active {
+    background: var(--accent);
+    transform: scale(1.4);
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* ===== CONTROLS ===== */
+  #controls {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 100;
+    background: rgba(0,0,0,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 40px;
+    padding: 10px 24px;
+    backdrop-filter: blur(10px);
+  }
+  .ctrl-btn {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #fff;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .ctrl-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--accent); }
+  #slide-counter {
+    color: rgba(255,255,255,0.5);
+    font-size: 12px;
+    letter-spacing: 2px;
+    min-width: 50px;
+    text-align: center;
+  }
+  #auto-indicator {
+    color: var(--accent);
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  /* ===== ANIMATIONS ===== */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(40px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 60px rgba(46,139,87,0.6), 0 0 120px rgba(46,139,87,0.2); }
+    50%       { box-shadow: 0 0 80px rgba(46,139,87,0.9), 0 0 160px rgba(46,139,87,0.35); }
+  }
+  @keyframes float {
+    0%   { transform: translateY(110vh) scale(0); opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+  }
+  @keyframes trophyBounce {
+    0%, 100% { transform: translateY(0) rotate(-3deg); }
+    50%       { transform: translateY(-10px) rotate(3deg); }
+  }
+  @keyframes scanline {
+    0%   { background-position: 0 0; }
+    100% { background-position: 0 100%; }
+  }
+
+  /* ===== CINEMATIC BARS ===== */
+  #bar-top, #bar-bot {
+    position: fixed;
+    left: 0; right: 0;
+    height: 60px;
+    background: #000;
+    z-index: 50;
+    transition: height 0.5s ease;
+  }
+  #bar-top { top: 0; }
+  #bar-bot { bottom: 0; }
+  body.no-bars #bar-top,
+  body.no-bars #bar-bot { height: 0; }
+</style>
+</head>
+<body>
+<!-- Cinematic bars -->
+<div id="bar-top"></div>
+<div id="bar-bot"></div>
+
+<!-- Progress bar -->
+<div id="progress-bar" style="width:0%"></div>
+
+<!-- Navigation dots -->
+<div id="nav-dots"></div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="ctrl-btn" id="prev-btn">‹</button>
+  <span id="slide-counter">1 / 9</span>
+  <button class="ctrl-btn" id="play-btn">⏸</button>
+  <button class="ctrl-btn" id="next-btn">›</button>
+  <span id="auto-indicator">AUTO</span>
+</div>
+
+<div id="stage">
+
+  <!-- SCENE 0: オープニング -->
+  <div class="scene active" id="s0">
+    <div class="particles" id="particles"></div>
+    <div class="logo-wrap">
+      <div class="logo-circle">
+        <div class="logo-text-inside">ネム<br>の木</div>
+      </div>
+      <div class="org-name">社会福祉法人 光志福祉会</div>
+      <div class="facility-name">ネムの木</div>
+      <div class="tagline">― 香川県で介護と福祉に向き合う、17の施設 ―</div>
+    </div>
+  </div>
+
+  <!-- SCENE 1: 理念 -->
+  <div class="scene" id="s1">
+    <div class="label">OUR PHILOSOPHY</div>
+    <div class="big-quote">
+      <span class="quote-line" id="q0">「自分の家族にできない介護は</span>
+      <span class="quote-line" id="q1" style="transition-delay:0.4s">　行わない。」</span>
+    </div>
+    <div class="deco-line" id="deco1"></div>
+    <div class="sub-text" id="sub1">
+      年を重ねても、障害があっても、<br>一人ひとりが意欲と生きがいを持って生活できるように。<br>
+      スタッフが誇りを持ち、<br>大切な人を自信を持って預けられる施設でありたい。
+    </div>
+  </div>
+
+  <!-- SCENE 2: 数字で見る働きやすさ -->
+  <div class="scene" id="s2">
+    <div class="bg-number">17</div>
+    <div class="section-label">WORK-LIFE BALANCE IN NUMBERS</div>
+    <div class="stats-grid">
+      <div class="stat-card" id="st0">
+        <span class="icon">⏱️</span>
+        <span class="num">1.8</span><span class="unit">時間</span>
+        <div class="label">月平均残業時間<br><small style="opacity:.6">業界平均の約1/5</small></div>
+      </div>
+      <div class="stat-card" id="st1" style="transition-delay:0.15s">
+        <span class="icon">🌿</span>
+        <span class="num">10.8</span><span class="unit">日</span>
+        <div class="label">年間有給取得日数<br><small style="opacity:.6">しっかり休める環境</small></div>
+      </div>
+      <div class="stat-card" id="st2" style="transition-delay:0.3s">
+        <span class="icon">👶</span>
+        <span class="num">100</span><span class="unit">%</span>
+        <div class="label">育休後職場復帰率<br><small style="opacity:.6">女性スタッフ全員復帰</small></div>
+      </div>
+      <div class="stat-card" id="st3" style="transition-delay:0.45s">
+        <span class="icon">🏢</span>
+        <span class="num">17</span><span class="unit">施設</span>
+        <div class="label">法人内施設数<br><small style="opacity:.6">香川県5拠点</small></div>
+      </div>
+      <div class="stat-card" id="st4" style="transition-delay:0.6s">
+        <span class="icon">🏥</span>
+        <span class="num">2</span><span class="unit">回</span>
+        <div class="label">年間健康診断<br><small style="opacity:.6">夜勤スタッフは年2回</small></div>
+      </div>
+      <div class="stat-card" id="st5" style="transition-delay:0.75s">
+        <span class="icon">💴</span>
+        <span class="num">2</span><span class="unit">回</span>
+        <div class="label">賞与支給（年）<br><small style="opacity:.6">6月・12月</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 3: 施設・拠点 -->
+  <div class="scene" id="s3">
+    <div class="top-label">OUR FACILITIES</div>
+    <div class="title">香川県内 <span>5拠点 · 17施設</span> で地域を支える</div>
+    <div class="facilities-row" id="fac-row">
+      <div class="fac-chip" style="transition-delay:0.0s"><div class="dot"></div>介護付有料老人ホーム</div>
+      <div class="fac-chip" style="transition-delay:0.1s"><div class="dot"></div>特別養護老人ホーム</div>
+      <div class="fac-chip" style="transition-delay:0.2s"><div class="dot"></div>デイサービス</div>
+      <div class="fac-chip" style="transition-delay:0.3s"><div class="dot"></div>グループホーム</div>
+      <div class="fac-chip" style="transition-delay:0.4s"><div class="dot"></div>居宅介護支援事業所</div>
+      <div class="fac-chip" style="transition-delay:0.5s"><div class="dot"></div>児童デイサービス</div>
+      <div class="fac-chip" style="transition-delay:0.6s"><div class="dot"></div>短期入所（ショートステイ）</div>
+      <div class="fac-chip" style="transition-delay:0.7s"><div class="dot"></div>保育所</div>
+      <div class="fac-chip" style="transition-delay:0.8s"><div class="dot"></div>就労継続支援B型</div>
+    </div>
+    <div class="locations">
+      <div class="loc-badge" style="transition-delay:0.9s">📍 高松市</div>
+      <div class="loc-badge" style="transition-delay:1.0s">📍 丸亀市</div>
+      <div class="loc-badge" style="transition-delay:1.1s">📍 観音寺市</div>
+    </div>
+  </div>
+
+  <!-- SCENE 4: 福利厚生 -->
+  <div class="scene" id="s4">
+    <div class="section-label">EMPLOYEE BENEFITS</div>
+    <div class="title">スタッフを<span>本気で大切に</span>する職場</div>
+    <div class="benefit-list">
+      <div class="benefit-row" id="b0">
+        <div class="ico">📋</div>
+        <div class="txt">
+          <strong>資格取得を全力バックアップ</strong>
+          <span>介護福祉士・実務者研修・喀痰吸引・認知症ケア専門員など</span>
+        </div>
+        <div class="badge-green">費用支援あり</div>
+      </div>
+      <div class="benefit-row" id="b1" style="transition-delay:0.15s">
+        <div class="ico">👥</div>
+        <div class="txt">
+          <strong>マンツーマン指導制度（約3ヶ月）</strong>
+          <span>未経験でも安心。先輩が一対一でしっかりサポート</span>
+        </div>
+        <div class="badge-green">新人も安心</div>
+      </div>
+      <div class="benefit-row" id="b2" style="transition-delay:0.3s">
+        <div class="ico">📈</div>
+        <div class="txt">
+          <strong>人事考課・昇給制度</strong>
+          <span>年2回考課（6月・12月）、昇給は毎年4月</span>
+        </div>
+        <div class="badge-green">頑張りが給与に</div>
+      </div>
+      <div class="benefit-row" id="b3" style="transition-delay:0.45s">
+        <div class="ico">🏠</div>
+        <div class="txt">
+          <strong>法人内異動・キャリアアップ</strong>
+          <span>高松・丸亀・観音寺の17施設でキャリアを広げられる</span>
+        </div>
+        <div class="badge-green">成長できる</div>
+      </div>
+      <div class="benefit-row" id="b4" style="transition-delay:0.6s">
+        <div class="ico">🤝</div>
+        <div class="txt">
+          <strong>育児・介護との両立支援</strong>
+          <span>産休・育休制度完備、復帰後の職場環境サポートも万全</span>
+        </div>
+        <div class="badge-green">復帰率100%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 5: 受賞・実績 -->
+  <div class="scene" id="s5">
+    <div class="top-label">AWARD &amp; ACHIEVEMENT</div>
+    <div class="award-title">
+      香川県介護技術大会<br><span>香川県知事賞 受賞</span>
+    </div>
+    <div class="trophy-block">
+      <div class="trophy-icon" id="trophy">🏆</div>
+      <div class="trophy-text" id="trophyText">3年連続受賞</div>
+      <div class="gold-line" id="goldLine"></div>
+      <div class="trophy-sub" id="trophySub">KAGAWA CARE CHAMPIONSHIP</div>
+      <div class="award-detail" id="awardDetail">
+        介護技術で香川No.1の称号を3年連続獲得。<br>
+        高い専門性と技術力が、公式に認められた職場です。
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 6: 成長・キャリア -->
+  <div class="scene" id="s6">
+    <div class="top-label">CAREER PATH</div>
+    <div class="title">未経験でも<span>確実に成長</span>できる仕組み</div>
+    <div class="career-path">
+      <div class="career-step" id="cs0">
+        <div class="grade">ENTRY</div>
+        <div class="role">介護職 グレード1</div>
+        <div class="desc">マンツーマン指導<br>3ヶ月間の丁寧サポート</div>
+      </div>
+      <div class="career-arrow" id="ca0">→</div>
+      <div class="career-step" id="cs1" style="transition-delay:0.2s">
+        <div class="grade">INTERMEDIATE</div>
+        <div class="role">介護職 グレード2</div>
+        <div class="desc">専門研修・<br>認知症ケア習得</div>
+      </div>
+      <div class="career-arrow" id="ca1" style="transition-delay:0.3s">→</div>
+      <div class="career-step" id="cs2" style="transition-delay:0.4s">
+        <div class="grade">SENIOR</div>
+        <div class="role">介護職 グレード3</div>
+        <div class="desc">昇給・リーダーへ<br>マネジメント研修</div>
+      </div>
+    </div>
+    <div class="support-items" id="support-items">
+      <div class="support-item" style="transition-delay:0.8s">介護福祉士取得支援</div>
+      <div class="support-item" style="transition-delay:0.9s">実務者研修受講支援</div>
+      <div class="support-item" style="transition-delay:1.0s">マネジメント研修</div>
+      <div class="support-item" style="transition-delay:1.1s">月次面談制度</div>
+    </div>
+  </div>
+
+  <!-- SCENE 7: スタッフの声 -->
+  <div class="scene" id="s7">
+    <div class="top-label">STAFF VOICES</div>
+    <div class="voices-grid">
+      <div class="voice-card" id="v0">
+        <div class="voice-text">
+          「残業がほとんどなく、プライベートも大切にできます。子どもが熱を出した時も快く休ませてもらえます。」
+        </div>
+        <div class="voice-name">介護スタッフ・30代女性</div>
+      </div>
+      <div class="voice-card" id="v1" style="transition-delay:0.2s">
+        <div class="voice-text">
+          「未経験で入職しましたが、先輩が丁寧に教えてくれました。資格取得のサポートがあり、働きながら介護福祉士を取れました。」
+        </div>
+        <div class="voice-name">介護スタッフ・20代男性</div>
+      </div>
+      <div class="voice-card" id="v2" style="transition-delay:0.4s">
+        <div class="voice-text">
+          「育休から復帰しても、同じポジションで働けています。職場全体で子育てを応援してくれる雰囲気があります。」
+        </div>
+        <div class="voice-name">介護スタッフ・30代女性（育休復帰）</div>
+      </div>
+      <div class="voice-card" id="v3" style="transition-delay:0.6s">
+        <div class="voice-text">
+          「香川県知事賞を3年連続で受賞したとき、本当に誇らしかった。技術を磨ける環境が整っています。」
+        </div>
+        <div class="voice-name">介護スタッフ・40代男性</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 8: クロージング -->
+  <div class="scene" id="s8">
+    <div class="main-msg" id="mainMsg">
+      あなたの「<span>やさしさ</span>」が<br>
+      誰かの「<span>生きがい</span>」になる。
+    </div>
+    <div class="sub-msg" id="subMsg">社会福祉法人 光志福祉会 ネムの木</div>
+    <div class="url-badge" id="urlBadge">www.koushi-f.or.jp</div>
+    <button class="cta-btn" id="ctaBtn" onclick="window.location.href='https://www.koushi-f.or.jp'">
+      採用情報を見る
+    </button>
+    <div class="logo-small">KOUSHI FUKUSHIKAI · NEMU NO KI · KAGAWA</div>
+  </div>
+
+</div><!-- /stage -->
+
+<script>
+  // ===== CONFIG =====
+  const TOTAL_SCENES = 9;
+  const AUTO_INTERVAL = 6000; // 6秒ごとに自動遷移
+
+  let currentScene = 0;
+  let autoPlay = true;
+  let timer = null;
+
+  // ===== PARTICLES =====
+  function createParticles() {
+    const container = document.getElementById('particles');
+    for (let i = 0; i < 20; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      const size = Math.random() * 6 + 2;
+      p.style.cssText = `
+        width: ${size}px; height: ${size}px;
+        left: ${Math.random() * 100}%;
+        animation-duration: ${Math.random() * 8 + 6}s;
+        animation-delay: ${Math.random() * 8}s;
+      `;
+      container.appendChild(p);
+    }
+  }
+  createParticles();
+
+  // ===== NAV DOTS =====
+  const dotsContainer = document.getElementById('nav-dots');
+  for (let i = 0; i < TOTAL_SCENES; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+    dot.onclick = () => goTo(i);
+    dotsContainer.appendChild(dot);
+  }
+
+  function updateDots() {
+    document.querySelectorAll('.nav-dot').forEach((d, i) => {
+      d.classList.toggle('active', i === currentScene);
+    });
+  }
+
+  function updateProgress() {
+    const pct = ((currentScene) / (TOTAL_SCENES - 1)) * 100;
+    document.getElementById('progress-bar').style.width = pct + '%';
+    document.getElementById('slide-counter').textContent = (currentScene + 1) + ' / ' + TOTAL_SCENES;
+  }
+
+  // ===== SCENE ANIMATIONS =====
+  function animateScene(idx) {
+    const delay = (ms) => new Promise(r => setTimeout(r, ms));
+
+    if (idx === 1) {
+      setTimeout(() => {
+        document.getElementById('q0').classList.add('show');
+        document.getElementById('deco1').classList.add('show');
+      }, 300);
+      setTimeout(() => document.getElementById('q1').classList.add('show'), 700);
+      setTimeout(() => document.getElementById('sub1').classList.add('show'), 1000);
+    }
+
+    if (idx === 2) {
+      ['st0','st1','st2','st3','st4','st5'].forEach((id, i) => {
+        setTimeout(() => document.getElementById(id).classList.add('show'), 300 + i * 150);
+      });
+    }
+
+    if (idx === 3) {
+      document.querySelectorAll('#s3 .fac-chip').forEach((el, i) => {
+        setTimeout(() => el.classList.add('show'), 300 + i * 100);
+      });
+      document.querySelectorAll('#s3 .loc-badge').forEach((el, i) => {
+        setTimeout(() => el.classList.add('show'), 1200 + i * 120);
+      });
+    }
+
+    if (idx === 4) {
+      ['b0','b1','b2','b3','b4'].forEach((id, i) => {
+        setTimeout(() => document.getElementById(id).classList.add('show'), 300 + i * 150);
+      });
+    }
+
+    if (idx === 5) {
+      setTimeout(() => document.getElementById('trophy').classList.add('show'), 200);
+      setTimeout(() => document.getElementById('trophyText').classList.add('show'), 500);
+      setTimeout(() => document.getElementById('goldLine').classList.add('show'), 700);
+      setTimeout(() => document.getElementById('trophySub').classList.add('show'), 900);
+      setTimeout(() => document.getElementById('awardDetail').classList.add('show'), 1100);
+    }
+
+    if (idx === 6) {
+      ['cs0','cs1','cs2'].forEach((id, i) => {
+        setTimeout(() => document.getElementById(id).classList.add('show'), 300 + i * 200);
+      });
+      ['ca0','ca1'].forEach((id, i) => {
+        setTimeout(() => document.getElementById(id).classList.add('show'), 500 + i * 200);
+      });
+      document.querySelectorAll('#support-items .support-item').forEach((el, i) => {
+        setTimeout(() => el.classList.add('show'), 900 + i * 100);
+      });
+    }
+
+    if (idx === 7) {
+      ['v0','v1','v2','v3'].forEach((id, i) => {
+        setTimeout(() => document.getElementById(id).classList.add('show'), 300 + i * 200);
+      });
+    }
+
+    if (idx === 8) {
+      setTimeout(() => document.getElementById('mainMsg').classList.add('show'), 300);
+      setTimeout(() => document.getElementById('subMsg').classList.add('show'), 600);
+      setTimeout(() => document.getElementById('urlBadge').classList.add('show'), 900);
+      setTimeout(() => document.getElementById('ctaBtn').classList.add('show'), 1200);
+    }
+  }
+
+  function resetScene(idx) {
+    const s = document.getElementById('s' + idx);
+    if (!s) return;
+    s.querySelectorAll('.show').forEach(el => el.classList.remove('show'));
+  }
+
+  // ===== NAVIGATION =====
+  function goTo(idx) {
+    if (idx < 0 || idx >= TOTAL_SCENES) return;
+    const prev = document.getElementById('s' + currentScene);
+    const next = document.getElementById('s' + idx);
+    if (!next) return;
+
+    if (prev) {
+      prev.classList.remove('active');
+      setTimeout(() => resetScene(currentScene < idx ? currentScene : idx + 1), 800);
+    }
+
+    currentScene = idx;
+    next.classList.add('active');
+    setTimeout(() => animateScene(idx), 400);
+
+    updateDots();
+    updateProgress();
+    resetAutoTimer();
+  }
+
+  function nextSlide() { goTo((currentScene + 1) % TOTAL_SCENES); }
+  function prevSlide() { goTo((currentScene - 1 + TOTAL_SCENES) % TOTAL_SCENES); }
+
+  function resetAutoTimer() {
+    if (timer) clearInterval(timer);
+    if (autoPlay) {
+      timer = setInterval(() => {
+        goTo((currentScene + 1) % TOTAL_SCENES);
+      }, AUTO_INTERVAL);
+    }
+  }
+
+  // ===== CONTROLS =====
+  document.getElementById('prev-btn').onclick = () => { prevSlide(); };
+  document.getElementById('next-btn').onclick = () => { nextSlide(); };
+  document.getElementById('play-btn').onclick = () => {
+    autoPlay = !autoPlay;
+    document.getElementById('play-btn').textContent = autoPlay ? '⏸' : '▶';
+    document.getElementById('auto-indicator').style.opacity = autoPlay ? '1' : '0.3';
+    resetAutoTimer();
+  };
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextSlide();
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   prevSlide();
+    if (e.key === ' ') { document.getElementById('play-btn').click(); e.preventDefault(); }
+    if (e.key === 'f' || e.key === 'F') document.documentElement.requestFullscreen?.();
+  });
+
+  // Remove cinematic bars on load
+  setTimeout(() => document.body.classList.add('no-bars'), 600);
+
+  // Start
+  animateScene(0);
+  resetAutoTimer();
+  updateProgress();
+</script>
+</body>
+</html>
