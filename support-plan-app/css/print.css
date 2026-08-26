@@ -1,0 +1,100 @@
+/* =========================================================================
+ * print.css — 印刷(A4)用
+ * 画面の内容は隠し、#print-root に組み立てた帳票だけを出す。
+ * ========================================================================= */
+
+@page { size: A4 landscape; margin: 10mm 10mm 12mm; }
+
+body.printing #app,
+body.printing .toast,
+body.printing .modal-overlay { display: none !important; }
+
+body.printing #print-root { display: block !important; }
+
+body.printing {
+  background: #fff;
+  color: #000;
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", "MS PMincho", serif;
+  font-size: 10pt;
+  line-height: 1.6;
+}
+
+.sheet { page-break-after: always; }
+.sheet:last-child { page-break-after: auto; }
+
+/* ---- 見出し ------------------------------------------------------------- */
+.sheet-title-row {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 1em; margin-bottom: 4mm;
+}
+.sheet-title {
+  font-size: 16pt; font-weight: 700; letter-spacing: .35em;
+  border-bottom: 2px solid #000; padding-bottom: 1mm; flex: 1;
+}
+.sheet-office { font-size: 9pt; white-space: nowrap; }
+
+.sheet-meta { width: 100%; border-collapse: collapse; margin-bottom: 3mm; font-size: 9.5pt; }
+.sheet-meta th, .sheet-meta td { border: 1px solid #000; padding: 1.2mm 2mm; text-align: left; }
+.sheet-meta th { background: #f0f0f0; white-space: nowrap; width: 1%; font-weight: 600; }
+
+/* ---- 本文ブロック ------------------------------------------------------- */
+.sheet-block { margin-bottom: 2.5mm; break-inside: avoid; }
+.sheet-block-label {
+  font-weight: 700; font-size: 9.5pt;
+  background: #f0f0f0; border: 1px solid #000; border-bottom: 0; padding: 1mm 2mm;
+}
+.sheet-block-body {
+  border: 1px solid #000; padding: 1.8mm 2mm;
+  min-height: 11mm; white-space: pre-wrap; font-size: 9.5pt;
+}
+.two-block { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5mm; }
+.two-block .sheet-block { margin-bottom: 0; }
+
+/* ---- 表 ----------------------------------------------------------------- */
+.sheet-table { width: 100%; border-collapse: collapse; font-size: 9pt; margin-bottom: 2.5mm; }
+.sheet-table th, .sheet-table td {
+  border: 1px solid #000; padding: 1.3mm 1.8mm;
+  text-align: left; vertical-align: top;
+}
+.sheet-table thead th { background: #f0f0f0; text-align: center; font-weight: 700; }
+.sheet-table th { background: #f6f6f6; font-weight: 600; white-space: nowrap; }
+.sheet-table .center { text-align: center; }
+.sheet-table .domain-cell { background: #f6f6f6; font-weight: 600; white-space: normal; }
+.sheet-table td { white-space: pre-wrap; }
+.goals tbody tr { break-inside: avoid; }
+.sub-note { margin-top: 1mm; padding-top: 1mm; border-top: 1px dotted #888; font-size: 8.5pt; }
+.sessions td { font-size: 8.5pt; }
+
+/* ---- 同意欄 ------------------------------------------------------------- */
+.sheet-consent { margin: 3mm 0 1.5mm; font-size: 9.5pt; }
+.sheet-table.sign { margin-top: 0; }
+.sheet-table.sign td { vertical-align: middle; }
+.sign-space { min-width: 55mm; }
+.sheet-foot { margin-top: 3mm; font-size: 8.5pt; text-align: right; }
+
+/* ---- 保護者用レポート --------------------------------------------------- */
+.lead { font-size: 10pt; margin-bottom: 3mm; }
+.report-top { display: grid; grid-template-columns: 78mm 1fr; gap: 5mm; align-items: center; margin-bottom: 3mm; }
+.report-chart { text-align: center; }
+.report-chart .radar { width: 74mm; height: auto; }
+.report-chart .legend { font-size: 8pt; display: flex; gap: 3mm; flex-wrap: wrap; justify-content: center; }
+.report-chart .legend-item { display: flex; align-items: center; gap: 1mm; }
+.report-chart .legend-swatch { width: 3mm; height: 3mm; border-radius: 1px; display: inline-block; }
+.report-chart .legend-swatch.dashed { border: 1px dashed #64748b; background: none; }
+.report .small { font-size: 8pt; }
+.report .up { color: #15803d; font-weight: 700; }
+.report .down { color: #b45309; }
+.report-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: 1fr 1fr; gap: .8mm 4mm;
+}
+.report-list li { font-size: 9pt; display: flex; gap: 1.5mm; align-items: baseline; break-inside: avoid; }
+.chip {
+  display: inline-block; color: #fff; font-size: 7.5pt; padding: 0 1.5mm;
+  border-radius: 2px; white-space: nowrap; flex: 0 0 auto;
+}
+.dot { display: inline-block; width: 2.4mm; height: 2.4mm; border-radius: 50%; margin-right: 1mm; }
+
+.sheet .note { font-size: 8pt; margin-top: 2mm; }
+.sheet .muted { color: #555; }
+.radar-label { font-size: 8px; fill: #333; }

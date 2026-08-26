@@ -90,6 +90,7 @@ window.ViewPlan = (function () {
         h('div', { class: 'record-actions' }, [
           h('button', { class: 'btn small', onclick: function () { editing = JSON.parse(JSON.stringify(p)); App.render(); } }, '開く'),
           h('button', { class: 'btn small', onclick: function () { Print.plan(child, p); } }, '印刷'),
+          h('button', { class: 'btn small', onclick: function () { toExcel(child, p); } }, 'Excel出力'),
           h('button', { class: 'btn small', onclick: function () {
             const copy = JSON.parse(JSON.stringify(p));
             delete copy.id; delete copy.createdAt; delete copy.updatedAt;
@@ -147,6 +148,7 @@ window.ViewPlan = (function () {
       ]),
       h('div', { class: 'btn-row' }, [
         h('button', { class: 'btn', type: 'button', onclick: function () { editing = null; App.render(); } }, 'キャンセル'),
+        h('button', { class: 'btn', type: 'button', onclick: function () { saveThen(form, child, toExcel); } }, '保存してExcel出力'),
         h('button', { class: 'btn primary', type: 'button', onclick: function () { save(form, child); } }, '保存する')
       ])
     ]));
@@ -280,6 +282,11 @@ window.ViewPlan = (function () {
 
   /* ---- 保存 -------------------------------------------------------------- */
   function save(form, child) {
+    saveThen(form, child, null);
+  }
+
+  /** 保存したうえで、続けて after(child, 保存した計画) を呼ぶ */
+  function saveThen(form, child, after) {
     const flat = UI.readForm(form);
     const obj = Object.assign({}, editing, { childId: child.id, goals: editing.goals || {} });
     Object.keys(flat).forEach(function (k) {
@@ -291,10 +298,22 @@ window.ViewPlan = (function () {
         obj[k] = flat[k];
       }
     });
-    Store.put('plans', obj);
+    const saved = Store.put('plans', obj);
     editing = null;
     UI.toast('個別支援計画を保存しました');
     App.render();
+    if (after) after(child, saved);
+  }
+
+  /* ---- 厚生労働省の参考様式(xlsx)へ書き出す ------------------------------ */
+  function toExcel(child, plan) {
+    try {
+      Xlsx.exportPlan(child, plan);
+      UI.toast('Excelファイルを書き出しました');
+    } catch (e) {
+      console.error(e);
+      UI.toast('Excelの書き出しに失敗しました: ' + e.message, 'warn');
+    }
   }
 
   function reset() { editing = null; }
