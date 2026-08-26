@@ -9,12 +9,12 @@
    カラートークン
    ══════════════════════════════════════════════════════════════ */
 :root{
-  /* ブランド */
-  --b1:#0d9488; --b2:#14b8a6; --b3:#5eead4;
-  --i1:#4f46e5; --i2:#6366f1; --i3:#a5b4fc;
-  --grad:linear-gradient(118deg,#0d9488 0%,#12a594 38%,#4f46e5 100%);
-  --grad-soft:linear-gradient(118deg,rgba(13,148,136,.13),rgba(79,70,229,.13));
-  --glow:0 6px 22px -8px rgba(13,148,136,.75);
+  /* ブランド（深緑×ゴールド） */
+  --b1:#2e7d4f; --b2:#3fa568; --b3:#8fd8ac;
+  --i1:#b8860b; --i2:#d4a017; --i3:#f0cf6b;
+  --grad:linear-gradient(118deg,#1f5c3a 0%,#2e7d4f 42%,#3fa568 74%,#d4a017 130%);
+  --grad-soft:linear-gradient(118deg,rgba(46,125,79,.14),rgba(212,160,23,.14));
+  --glow:0 6px 22px -8px rgba(46,125,79,.7);
 
   /* セマンティック */
   --ok:#0d8a5f;  --ok-b:#e6f7ef; --ok-l:#b3e6cd;
@@ -37,11 +37,11 @@
   --ez:cubic-bezier(.4,0,.2,1);
 }
 html[data-theme="dark"]{
-  --b1:#0f766e; --b2:#2dd4bf; --b3:#5eead4;
-  --i1:#6366f1; --i2:#818cf8; --i3:#c7d2fe;
-  --grad:linear-gradient(118deg,#0f766e 0%,#0d9488 38%,#4338ca 100%);
-  --grad-soft:linear-gradient(118deg,rgba(45,212,191,.12),rgba(129,140,248,.12));
-  --glow:0 6px 24px -8px rgba(45,212,191,.55);
+  --b1:#3fa568; --b2:#5cb85c; --b3:#8fd8ac;
+  --i1:#d4a017; --i2:#e8b83e; --i3:#f3d78a;
+  --grad:linear-gradient(118deg,#0f2d1a 0%,#1f5c3a 38%,#3fa568 72%,#d4a017 130%);
+  --grad-soft:linear-gradient(118deg,rgba(63,165,104,.14),rgba(212,160,23,.14));
+  --glow:0 6px 24px -8px rgba(63,165,104,.55);
 
   --ok:#34d399; --ok-b:#0c2a20; --ok-l:#1d5943;
   --wn:#fbbf24; --wn-b:#2c2210; --wn-l:#5c451a;
@@ -64,17 +64,17 @@ html,body{margin:0;padding:0;min-height:100%}
 body{
   font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP","Meiryo",
               -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  background:var(--cv); color:var(--tx); font-size:13px; line-height:1.65;
+  background:var(--cv); color:var(--tx); font-size:15.1px; line-height:1.65;
   -webkit-font-smoothing:antialiased; font-feature-settings:"palt" 1;
   background-image:
-    radial-gradient(760px 380px at 8% -6%,rgba(13,148,136,.10),transparent 62%),
-    radial-gradient(700px 340px at 96% -2%,rgba(79,70,229,.10),transparent 60%);
+    radial-gradient(760px 380px at 8% -6%,rgba(46,125,79,.10),transparent 62%),
+    radial-gradient(700px 340px at 96% -2%,rgba(212,160,23,.09),transparent 60%);
   background-attachment:fixed;
 }
 html[data-theme="dark"] body{
   background-image:
-    radial-gradient(820px 420px at 6% -8%,rgba(45,212,191,.10),transparent 62%),
-    radial-gradient(760px 380px at 98% -4%,rgba(99,102,241,.12),transparent 60%);
+    radial-gradient(820px 420px at 6% -8%,rgba(63,165,104,.12),transparent 62%),
+    radial-gradient(760px 380px at 98% -4%,rgba(212,160,23,.10),transparent 60%);
 }
 button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
 ::selection{background:rgba(20,184,166,.28)}
@@ -99,15 +99,22 @@ header.top{position:sticky;top:0;z-index:60}
 }
 .brand{display:flex;align-items:center;gap:11px;position:relative;z-index:1;white-space:nowrap}
 .brand .mk{
-  width:34px;height:34px;flex:0 0 34px;border-radius:11px;display:grid;place-items:center;
-  background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);backdrop-filter:blur(6px)
+  width:42px;height:42px;flex:0 0 42px;border-radius:50%;display:grid;place-items:center;
+  background:radial-gradient(circle at 32% 28%,#5cb85c,#2e7d4f 55%,#1a4a2c 100%);
+  border:1.5px solid rgba(255,255,255,.45);
+  box-shadow:0 0 0 3px rgba(255,255,255,.14),0 0 22px rgba(212,160,23,.55),0 3px 10px rgba(0,0,0,.25);
+  position:relative;overflow:hidden
 }
-.brand .mk svg{width:19px;height:19px}
-.brand b{font-size:16px;letter-spacing:.03em;line-height:1.15;display:block}
-.brand span{font-size:9.5px;letter-spacing:.16em;opacity:.72;text-transform:uppercase;display:block}
+.brand .mk::after{
+  content:'';position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 30% 22%,rgba(255,255,255,.5),transparent 46%)
+}
+.brand .mk svg{width:22px;height:22px;position:relative;z-index:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.3))}
+.brand b{font-size:19.5px;letter-spacing:.04em;line-height:1.2;display:block;text-shadow:0 1px 3px rgba(0,0,0,.2)}
+.brand span{font-size:13px;letter-spacing:.18em;opacity:.82;text-transform:uppercase;display:block;color:#f3d78a}
 .top-sp{flex:1}
 .tbar .fname{
-  font-size:12px;opacity:.9;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:13.9px;opacity:.9;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   position:relative;z-index:1
 }
 .icobtn{
@@ -124,14 +131,14 @@ header.top{position:sticky;top:0;z-index:60}
 .mpick button{width:28px;height:100%;border:0;background:none;cursor:pointer;color:#fff;display:grid;place-items:center;transition:.14s}
 .mpick button:hover{background:rgba(255,255,255,.2)}
 .mpick .v{
-  padding:0 12px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;height:100%;
+  padding:0 12px;font-size:15.1px;font-weight:700;cursor:pointer;display:flex;align-items:center;height:100%;
   border-left:1px solid rgba(255,255,255,.22);border-right:1px solid rgba(255,255,255,.22);letter-spacing:.02em
 }
 .mpick .v:hover{background:rgba(255,255,255,.16)}
 .mpick input{position:absolute;opacity:0;width:0;height:0}
 .stat-pill{
   display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:20px;
-  font-size:11.5px;font-weight:800;white-space:nowrap;position:relative;z-index:1;
+  font-size:13.3px;font-weight:800;white-space:nowrap;position:relative;z-index:1;
   background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);color:#fff;backdrop-filter:blur(6px)
 }
 .stat-pill .bl{width:7px;height:7px;border-radius:50%;background:#fff}
@@ -148,7 +155,7 @@ nav.mnav{
 .mnav-in::-webkit-scrollbar{display:none}
 .navb{
   display:flex;align-items:center;gap:8px;border:0;background:none;cursor:pointer;color:var(--tx3);
-  padding:13px 16px 12px;font-size:12.5px;font-weight:700;white-space:nowrap;position:relative;
+  padding:13px 16px 12px;font-size:14.5px;font-weight:700;white-space:nowrap;position:relative;
   transition:.16s var(--ez);border-bottom:2.5px solid transparent
 }
 .navb .ic{width:16px;height:16px;flex:0 0 16px;opacity:.75;transition:.16s}
@@ -159,7 +166,7 @@ html[data-theme="dark"] .navb.on{color:var(--b2);border-bottom-color:var(--b2)}
 .navb.on .ic{opacity:1}
 .navb .dot{
   min-width:19px;height:19px;padding:0 6px;border-radius:10px;background:var(--ng);color:#fff;
-  font-size:10px;line-height:19px;text-align:center;font-weight:800
+  font-size:11.6px;line-height:19px;text-align:center;font-weight:800
 }
 .navb .dot.ok{background:var(--sf3);color:var(--tx3)}
 .mnav .acts{margin-left:auto;display:flex;gap:6px;align-items:center;padding:7px 0}
@@ -181,8 +188,8 @@ html[data-theme="dark"] .navb.on{color:var(--b2);border-bottom-color:var(--b2)}
   padding:14px 18px;border-bottom:1px solid var(--bd2);display:flex;align-items:center;gap:11px;
   background:linear-gradient(180deg,var(--sf2),var(--sf))
 }
-.card > .hd .ttl{font-size:13.5px;font-weight:800;letter-spacing:.01em}
-.card > .hd .sub{font-size:11px;color:var(--tx3);margin-left:auto;text-align:right}
+.card > .hd .ttl{font-size:15.7px;font-weight:800;letter-spacing:.01em}
+.card > .hd .sub{font-size:12.8px;color:var(--tx3);margin-left:auto;text-align:right}
 .card > .hd .bar{width:4px;height:17px;border-radius:3px;background:var(--grad);flex:0 0 4px}
 .card > .bd{padding:18px}
 .g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px}
@@ -190,23 +197,23 @@ html[data-theme="dark"] .navb.on{color:var(--b2);border-bottom-color:var(--b2)}
 .g4{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
 
 .sect{
-  display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:800;color:var(--tx2);
+  display:flex;align-items:center;gap:9px;font-size:13.3px;font-weight:800;color:var(--tx2);
   letter-spacing:.05em;margin:22px 0 11px
 }
 .sect:first-child{margin-top:0}
 .sect::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--bd),transparent)}
 .sect .n{
   width:20px;height:20px;border-radius:7px;background:var(--grad-soft);color:var(--b1);
-  display:grid;place-items:center;font-size:10.5px;font-weight:900
+  display:grid;place-items:center;font-size:12.2px;font-weight:900
 }
 html[data-theme="dark"] .sect .n{color:var(--b2)}
 
 /* ── フォーム ── */
 .fld{margin-bottom:15px}
-.fld > label{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:var(--tx2);margin-bottom:6px}
-.fld .req{font-size:9px;background:var(--ng-b);color:var(--ng);padding:1px 6px;border-radius:5px;font-weight:900;letter-spacing:.04em}
-.fld .opt{font-size:9px;background:var(--sf3);color:var(--tx3);padding:1px 6px;border-radius:5px;font-weight:800}
-.hint{font-size:10.5px;color:var(--tx3);margin-top:5px;line-height:1.65}
+.fld > label{display:flex;align-items:center;gap:6px;font-size:13.3px;font-weight:800;color:var(--tx2);margin-bottom:6px}
+.fld .req{font-size:10.4px;background:var(--ng-b);color:var(--ng);padding:1px 6px;border-radius:5px;font-weight:900;letter-spacing:.04em}
+.fld .opt{font-size:10.4px;background:var(--sf3);color:var(--tx3);padding:1px 6px;border-radius:5px;font-weight:800}
+.hint{font-size:12.2px;color:var(--tx3);margin-top:5px;line-height:1.65}
 input[type=text],input[type=number],input[type=date],input[type=time],input[type=month],select,textarea{
   width:100%;padding:8px 11px;border:1px solid var(--bd);border-radius:var(--rs);
   background:var(--sf);transition:.14s var(--ez);font-variant-numeric:tabular-nums
@@ -218,7 +225,7 @@ input:focus,select:focus,textarea:focus{outline:0;border-color:var(--b1);box-sha
 input:disabled{background:var(--sf3);color:var(--tx3)}
 .row{display:flex;gap:9px;align-items:center}
 .row > .f{flex:1;min-width:0}
-.row .u{flex:0 0 auto;color:var(--tx3);font-size:11.5px;font-weight:700}
+.row .u{flex:0 0 auto;color:var(--tx3);font-size:13.3px;font-weight:700}
 
 .sw{display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
 .sw input{position:absolute;opacity:0;width:0;height:0}
@@ -228,10 +235,10 @@ input:disabled{background:var(--sf3);color:var(--tx3)}
 .sw input:checked + .tr{background:var(--grad);box-shadow:var(--glow)}
 .sw input:checked + .tr::after{transform:translateX(16px)}
 .sw input:focus-visible + .tr{box-shadow:0 0 0 3.5px rgba(20,184,166,.25)}
-.sw .lb{font-size:12px}
+.sw .lb{font-size:13.9px}
 
 .seg{display:inline-flex;background:var(--sf3);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
-.seg button{border:0;background:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:12px;
+.seg button{border:0;background:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-size:13.9px;
   color:var(--tx2);font-weight:700;transition:.16s var(--ez);white-space:nowrap}
 .seg button:hover{color:var(--tx)}
 .seg button.on{background:var(--sf);color:var(--b1);box-shadow:var(--sh1);font-weight:800}
@@ -241,7 +248,7 @@ html[data-theme="dark"] .seg button.on{color:var(--b2)}
 
 .dowp{display:flex;gap:6px;flex-wrap:wrap}
 .dowp button{width:38px;height:38px;border-radius:11px;border:1px solid var(--bd);background:var(--sf);
-  cursor:pointer;font-size:12.5px;font-weight:800;color:var(--tx3);transition:.16s var(--ez)}
+  cursor:pointer;font-size:14.5px;font-weight:800;color:var(--tx3);transition:.16s var(--ez)}
 .dowp button:hover{border-color:var(--b1);color:var(--tx)}
 .dowp button.on{background:var(--grad);border-color:transparent;color:#fff;box-shadow:var(--glow)}
 .dowp button.on.sun{background:linear-gradient(135deg,#e0554b,#c0392b);box-shadow:0 5px 16px -6px rgba(224,85,75,.8)}
@@ -250,7 +257,7 @@ html[data-theme="dark"] .seg button.on{color:var(--b2)}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:7px;
   background:var(--sf3);color:var(--tx);border:1px solid var(--bd);padding:8px 16px;border-radius:10px;
-  cursor:pointer;font-size:12.5px;font-weight:800;transition:.16s var(--ez);white-space:nowrap
+  cursor:pointer;font-size:14.5px;font-weight:800;transition:.16s var(--ez);white-space:nowrap
 }
 .btn:hover{transform:translateY(-1px);box-shadow:var(--sh2)}
 .btn:active{transform:none}
@@ -262,12 +269,12 @@ html[data-theme="dark"] .seg button.on{color:var(--b2)}
 .btn.gh:hover{background:var(--sf2);color:var(--tx);border-color:var(--tx3)}
 .btn.dg{background:var(--sf);color:var(--ng);border-color:var(--ng-l)}
 .btn.dg:hover{background:var(--ng-b)}
-.btn.sm{padding:5px 11px;font-size:11.5px;border-radius:8px}
-.btn.lg{padding:12px 24px;font-size:14px;border-radius:12px}
+.btn.sm{padding:5px 11px;font-size:13.3px;border-radius:8px}
+.btn.lg{padding:12px 24px;font-size:16.2px;border-radius:12px}
 .btn.on{background:var(--grad);color:#fff;border-color:transparent;box-shadow:var(--glow)}
 .btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 
-.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:900;line-height:17px;white-space:nowrap}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:12.2px;font-weight:900;line-height:17px;white-space:nowrap}
 .pill.ok{background:var(--ok-b);color:var(--ok)}
 .pill.ng{background:var(--ng-b);color:var(--ng)}
 .pill.wn{background:var(--wn-b);color:var(--wn)}
@@ -275,7 +282,7 @@ html[data-theme="dark"] .seg button.on{color:var(--b2)}
 .pill.mute{background:var(--sf3);color:var(--tx3)}
 .pill.brand{background:var(--grad-soft);color:var(--b1)}
 html[data-theme="dark"] .pill.brand{color:var(--b2)}
-.chip{display:inline-block;padding:1px 8px;margin:1px 3px 1px 0;border-radius:6px;background:var(--sf3);color:var(--tx2);font-size:10px;line-height:17px;font-weight:700;white-space:nowrap}
+.chip{display:inline-block;padding:1px 8px;margin:1px 3px 1px 0;border-radius:6px;background:var(--sf3);color:var(--tx2);font-size:11.6px;line-height:17px;font-weight:700;white-space:nowrap}
 .chip.b{background:var(--grad-soft);color:var(--b1)}
 html[data-theme="dark"] .chip.b{color:var(--b2)}
 .chip.i{background:var(--in-b);color:var(--in)}
@@ -293,18 +300,21 @@ html[data-theme="dark"] .chip.b{color:var(--b2)}
 .kpi.ng::before{background:linear-gradient(180deg,var(--ng),#f87171)}
 .kpi.wn::before{background:linear-gradient(180deg,var(--wn),#fbbf24)}
 .kpi.info::before{background:var(--grad)}
+.kpi.vi::before{background:linear-gradient(180deg,var(--vi),#a78bfa)}
+.kpi.vi .vl{color:var(--vi)}
 .kpi .txt{min-width:0;flex:1}
-.kpi .lb{font-size:10.5px;color:var(--tx3);font-weight:800;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kpi .vl{font-size:26px;font-weight:900;line-height:1.18;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
-.kpi .vl small{font-size:12px;font-weight:800;color:var(--tx3);margin-left:2px;letter-spacing:0}
-.kpi .df{font-size:10.5px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .lb{font-size:12.2px;color:var(--tx3);font-weight:800;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .vl{font-size:30.2px;font-weight:900;line-height:1.18;letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.kpi .vl small{font-size:13.9px;font-weight:800;color:var(--tx3);margin-left:2px;letter-spacing:0}
+.kpi .df{font-size:12.2px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kpi.ok .vl{color:var(--ok)} .kpi.ng .vl{color:var(--ng)} .kpi.wn .vl{color:var(--wn)}
+.kpi.info .vl{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .ring{flex:0 0 48px;width:48px;height:48px;position:relative}
 .ring svg{transform:rotate(-90deg);width:48px;height:48px}
 .ring circle{fill:none;stroke-width:5;stroke-linecap:round}
 .ring .bgc{stroke:var(--sf3)}
 .ring .fg{transition:stroke-dashoffset .8s var(--ez)}
-.ring .pc{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:900;font-variant-numeric:tabular-nums}
+.ring .pc{position:absolute;inset:0;display:grid;place-items:center;font-size:12.8px;font-weight:900;font-variant-numeric:tabular-nums}
 
 /* ── 判定パネル ── */
 .jd{border:1px solid var(--bd);border-radius:var(--r);margin-bottom:9px;background:var(--sf);overflow:hidden;transition:.18s var(--ez)}
@@ -314,26 +324,26 @@ html[data-theme="dark"] .chip.b{color:var(--b2)}
 .jd.ng  {border-left:4px solid var(--ng);background:linear-gradient(96deg,var(--ng-b),var(--sf) 58%)}
 .jd.wn  {border-left:4px solid var(--wn);background:linear-gradient(96deg,var(--wn-b),var(--sf) 58%)}
 .jd.mute{border-left:4px solid var(--bd)}
-.jd .nm{font-weight:800;font-size:12.5px;flex:1;min-width:0}
-.jd .un{font-size:11px;color:var(--tx2);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.jd .nm{font-weight:800;font-size:14.5px;flex:1;min-width:0}
+.jd .un{font-size:12.8px;color:var(--tx2);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .jd .cv{transition:transform .22s var(--ez);color:var(--tx3);flex:0 0 auto}
 .jd.open .cv{transform:rotate(180deg)}
 .jd .bd{display:none;padding:11px 14px 13px;border-top:1px dashed var(--bd)}
 .jd.open .bd{display:block;animation:rise .22s var(--ez)}
-.kv{display:flex;gap:12px;padding:4px 0;font-size:11.5px;border-bottom:1px dotted var(--bd2)}
+.kv{display:flex;gap:12px;padding:4px 0;font-size:13.3px;border-bottom:1px dotted var(--bd2)}
 .kv:last-of-type{border:0}
 .kv .k{flex:0 0 210px;color:var(--tx3)}
 .kv .v{flex:1;color:var(--tx2);font-variant-numeric:tabular-nums}
 .act{margin-top:10px;padding:9px 12px;background:var(--in-b);border:1px solid var(--in-l);
-  border-radius:var(--rs);color:var(--in);font-size:11.5px;line-height:1.65}
+  border-radius:var(--rs);color:var(--in);font-size:13.3px;line-height:1.65}
 .act b{font-weight:900}
 .jd.ng .act{background:var(--ng-b);border-color:var(--ng-l);color:var(--ng)}
 
 /* ── テーブル ── */
 .tw{overflow:auto;border:1px solid var(--bd);border-radius:var(--r);background:var(--sf)}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.9px}
 th,td{padding:9px 12px;border-bottom:1px solid var(--bd2);text-align:left;vertical-align:middle}
-thead th{background:var(--sf2);color:var(--tx3);font-size:10.5px;font-weight:900;letter-spacing:.03em;
+thead th{background:var(--sf2);color:var(--tx3);font-size:12.2px;font-weight:900;letter-spacing:.03em;
   border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:2;white-space:nowrap}
 tbody tr{transition:.12s}
 tbody tr:hover{background:var(--sf2)}
@@ -342,22 +352,22 @@ td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
 
 /* ── シフトグリッド ── */
 .sheetwrap{overflow:auto;background:var(--sf);max-height:calc(100vh - 350px);border-top:1px solid var(--bd)}
-table.sheet{border-collapse:separate;border-spacing:0;font-size:11.5px;width:auto;min-width:100%}
+table.sheet{border-collapse:separate;border-spacing:0;font-size:13.3px;width:auto;min-width:100%}
 table.sheet th,table.sheet td{padding:0;border-right:1px solid var(--bd2);border-bottom:1px solid var(--bd2)}
-table.sheet thead th{background:var(--sf2);position:sticky;top:0;z-index:3;height:25px;font-size:10.5px;text-align:center;padding:0 2px;font-weight:800}
-table.sheet thead tr.r2 th{top:25px;height:20px;font-size:9.5px}
+table.sheet thead th{background:var(--sf2);position:sticky;top:0;z-index:3;height:28px;font-size:13px;text-align:center;padding:0 2px;font-weight:800}
+table.sheet thead tr.r2 th{top:28px;height:22px;font-size:13px}
 table.sheet .stick{position:sticky;left:0;z-index:4;background:var(--sf);border-right:2px solid var(--bd)}
 table.sheet thead th.stick{z-index:6;background:var(--sf2);text-align:left;padding:0 10px}
-td.nm{min-width:140px;max-width:140px;padding:2px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:.12s}
+td.nm{min-width:152px;max-width:152px;padding:3px 11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:.12s}
 td.nm:hover{background:var(--grad-soft)}
-td.nm b{font-size:11.5px;font-weight:800;display:block;line-height:1.3}
-td.nm .s{font-size:9.5px;color:var(--tx3);display:block;line-height:1.2}
-th.dc,td.dc{width:29px;min-width:29px;max-width:29px;text-align:center}
+td.nm b{font-size:14px;font-weight:800;display:block;line-height:1.3}
+td.nm .s{font-size:11.3px;color:var(--tx3);display:block;line-height:1.2}
+th.dc,td.dc{width:32px;min-width:32px;max-width:32px;text-align:center}
 th.dc.sat,td.dc.sat{background:rgba(59,130,246,.08)}
 th.dc.sun,td.dc.sun{background:rgba(224,85,75,.08)}
 th.dc.cl,td.dc.cl{background:var(--sf3)}
 th.dc.td{box-shadow:inset 0 -3px 0 var(--b1)}
-td.cell{cursor:pointer;height:27px;font-weight:800;font-size:11px;user-select:none;position:relative;text-align:center;transition:.08s}
+td.cell{cursor:pointer;height:30px;font-weight:800;font-size:13.5px;user-select:none;position:relative;text-align:center;transition:.08s}
 td.cell:hover{box-shadow:inset 0 0 0 2px var(--b1);z-index:2}
 td.cell.cur{box-shadow:inset 0 0 0 2.5px var(--i1);z-index:3}
 td.cell.pick{box-shadow:inset 0 0 0 2.5px var(--vi);z-index:3}
@@ -367,33 +377,33 @@ td.cell.wish::before{content:'';position:absolute;top:0;right:0;border-style:sol
   border-color:transparent #e89b2d transparent transparent}
 td.cell.wishw::before{border-color:transparent #10b981 transparent transparent}
 td.cell.fx{outline:1.5px dashed var(--i2);outline-offset:-3px}
-td.sm{width:42px;min-width:42px;text-align:center;font-size:10.5px;font-variant-numeric:tabular-nums;background:var(--sf2);color:var(--tx2)}
+td.sm{width:46px;min-width:46px;text-align:center;font-size:12.6px;font-variant-numeric:tabular-nums;background:var(--sf2);color:var(--tx2)}
 td.sm.bad{background:var(--ng-b);color:var(--ng);font-weight:900}
 td.sm.b{font-weight:800;color:var(--tx)}
-tr.st td{background:var(--sf2);font-size:10.5px;text-align:center;font-weight:800;height:22px;color:var(--tx2)}
-tr.st td.lb{text-align:left;padding:0 10px;font-size:10.5px;color:var(--tx3);font-weight:800}
+tr.st td{background:var(--sf2);font-size:12.6px;text-align:center;font-weight:800;height:24px;color:var(--tx2)}
+tr.st td.lb{text-align:left;padding:0 10px;font-size:12.2px;color:var(--tx3);font-weight:800}
 tr.st td.sh{background:var(--ng-b);color:var(--ng)}
 tr.st td.ex{background:var(--wn-b);color:var(--wn)}
 tr.st td.gd{color:var(--ok)}
 tr.gap td{height:7px;background:var(--cv);border:0;padding:0}
-tr.rl td{background:var(--grad-soft);font-size:10px;font-weight:900;color:var(--b1);height:20px;padding:0 10px;letter-spacing:.06em}
+tr.rl td{background:var(--grad-soft);font-size:11.6px;font-weight:900;color:var(--b1);height:20px;padding:0 10px;letter-spacing:.06em}
 html[data-theme="dark"] tr.rl td{color:var(--b2)}
 
 /* 記号パレット・編集ツール */
 .pal{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:11px 16px;background:var(--sf2);border-bottom:1px solid var(--bd)}
-.pal .lb{font-size:11px;color:var(--tx3);font-weight:800;margin-right:3px}
+.pal .lb{font-size:12.8px;color:var(--tx3);font-weight:800;margin-right:3px}
 .pb{border:1px solid var(--bd);background:var(--sf);border-radius:9px;padding:4px 10px;cursor:pointer;
-  font-size:12px;font-weight:900;min-width:44px;text-align:center;transition:.15s var(--ez);line-height:1.25}
+  font-size:13.9px;font-weight:900;min-width:44px;text-align:center;transition:.15s var(--ez);line-height:1.25}
 .pb:hover{border-color:var(--b1);transform:translateY(-1px)}
-.pb .t{font-size:8.5px;font-weight:600;display:block;line-height:1.15}
+.pb .t{font-size:9.9px;font-weight:600;display:block;line-height:1.15}
 .pb.on{box-shadow:0 0 0 2.5px var(--b1),0 6px 14px -6px rgba(13,148,136,.8);border-color:transparent}
 .tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:10px 16px;background:var(--sf);border-bottom:1px solid var(--bd)}
 .tools .sep{width:1px;height:22px;background:var(--bd);margin:0 3px}
-.tools .lb{font-size:11px;color:var(--tx3);font-weight:800}
-.hintbar{padding:7px 16px;font-size:10.5px;color:var(--tx3);background:var(--sf2);border-bottom:1px solid var(--bd)}
+.tools .lb{font-size:12.8px;color:var(--tx3);font-weight:800}
+.hintbar{padding:7px 16px;font-size:12.2px;color:var(--tx3);background:var(--sf2);border-bottom:1px solid var(--bd)}
 .hintbar kbd{
   display:inline-block;padding:0 5px;border:1px solid var(--bd);border-bottom-width:2px;border-radius:4px;
-  background:var(--sf);font-size:9.5px;font-weight:800;font-family:inherit;margin:0 1px
+  background:var(--sf);font-size:12.5px;font-weight:800;font-family:inherit;margin:0 1px
 }
 
 /* 進捗 */
@@ -404,17 +414,17 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 .prog .bar::after{content:'';position:absolute;inset:0;border-radius:5px;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);animation:sweep 1.1s infinite}
 @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
-.prog .tx{font-size:11.5px;color:var(--tx2);margin-top:6px;font-variant-numeric:tabular-nums;display:flex;gap:14px}
+.prog .tx{font-size:13.3px;color:var(--tx2);margin-top:6px;font-variant-numeric:tabular-nums;display:flex;gap:14px}
 
 /* その他 */
 .note{background:var(--wn-b);border:1px solid var(--wn-l);border-radius:var(--r);
-  padding:11px 14px;font-size:11.5px;color:var(--tx2);margin-bottom:16px;line-height:1.7}
+  padding:11px 14px;font-size:13.3px;color:var(--tx2);margin-bottom:16px;line-height:1.7}
 .note b{color:var(--tx)}
 .note.i{background:var(--in-b);border-color:var(--in-l)}
 .note.o{background:var(--ok-b);border-color:var(--ok-l)}
 .note.d{background:var(--ng-b);border-color:var(--ng-l)}
-.empty{padding:44px 20px;text-align:center;color:var(--tx3);font-size:12.5px}
-.empty .ic{font-size:32px;opacity:.35;display:block;margin-bottom:8px}
+.empty{padding:44px 20px;text-align:center;color:var(--tx3);font-size:14.5px}
+.empty .ic{font-size:37.1px;opacity:.35;display:block;margin-bottom:8px}
 
 .pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));gap:11px}
 .pk{border:1.5px solid var(--bd);border-radius:var(--r);padding:13px 14px;cursor:pointer;background:var(--sf);
@@ -422,9 +432,9 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 .pk:hover{border-color:var(--b1);transform:translateY(-2px);box-shadow:var(--sh2)}
 .pk.on{border-color:transparent;background:var(--grad-soft);box-shadow:inset 0 0 0 1.5px var(--b1)}
 .pk.on::after{content:'✓';position:absolute;top:9px;right:11px;color:#fff;background:var(--grad);
-  width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:900}
-.pk .t{font-size:12.5px;font-weight:900;margin-bottom:3px;padding-right:24px}
-.pk .d{font-size:10.5px;color:var(--tx3);line-height:1.6}
+  width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12.8px;font-weight:900}
+.pk .t{font-size:14.5px;font-weight:900;margin-bottom:3px;padding-right:24px}
+.pk .d{font-size:12.2px;color:var(--tx3);line-height:1.6}
 .pk.on .d{color:var(--tx2)}
 
 .kc{border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;background:var(--sf);transition:.18s var(--ez);position:relative}
@@ -432,8 +442,8 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 .kc.on{border-color:transparent;box-shadow:inset 0 0 0 1.5px var(--b1);background:linear-gradient(180deg,var(--grad-soft),var(--sf) 72%)}
 .kc.avail{border-color:var(--wn-l);background:linear-gradient(180deg,var(--wn-b),var(--sf) 72%)}
 .kc .top{display:flex;align-items:flex-start;gap:9px;margin-bottom:5px}
-.kc .t{font-size:12px;font-weight:900;flex:1;line-height:1.45}
-.kc .d{font-size:10.5px;color:var(--tx3);line-height:1.6}
+.kc .t{font-size:13.9px;font-weight:900;flex:1;line-height:1.45}
+.kc .d{font-size:12.2px;color:var(--tx3);line-height:1.6}
 .kc .ft{margin-top:8px;display:flex;align-items:center;gap:7px}
 
 .mbg{position:fixed;inset:0;background:rgba(8,13,23,.6);backdrop-filter:blur(4px);z-index:200;display:none;
@@ -442,12 +452,12 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 .modal{background:var(--sf);border-radius:18px;width:100%;max-width:700px;box-shadow:var(--sh3);border:1px solid var(--bd);animation:pop .24s var(--ez)}
 @keyframes pop{from{opacity:0;transform:scale(.96) translateY(12px)}to{opacity:1;transform:none}}
 .modal .mh{padding:16px 22px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px}
-.modal .mh b{font-size:15px}
+.modal .mh b{font-size:17.4px}
 .modal .mb{padding:20px 22px;max-height:66vh;overflow:auto}
 .modal .mf{padding:14px 22px;border-top:1px solid var(--bd);display:flex;gap:9px;justify-content:flex-end;background:var(--sf2);border-radius:0 0 18px 18px}
 
 .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(90px);
-  background:var(--tx);color:var(--sf);padding:12px 20px;border-radius:12px;font-size:12.5px;
+  background:var(--tx);color:var(--sf);padding:12px 20px;border-radius:12px;font-size:14.5px;
   z-index:300;opacity:0;transition:.3s var(--ez);box-shadow:var(--sh3);max-width:88vw;
   display:flex;align-items:center;gap:10px}
 .toast.on{transform:translateX(-50%) translateY(0);opacity:1}
@@ -456,15 +466,15 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 .toast.wn .d{background:#fbbf24}
 
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-.cal .h{text-align:center;font-size:10px;color:var(--tx3);font-weight:900;padding:3px 0}
+.cal .h{text-align:center;font-size:11.6px;color:var(--tx3);font-weight:900;padding:3px 0}
 .cal .c{border:1px solid var(--bd);border-radius:9px;padding:6px 0 4px;text-align:center;cursor:pointer;
   transition:.15s var(--ez);background:var(--sf)}
 .cal .c:hover{border-color:var(--b1);transform:translateY(-1px)}
 .cal .c.cl{background:var(--sf3);color:var(--tx3);cursor:default}
 .cal .c.off{background:var(--ng-b);border-color:var(--ng-l)}
 .cal .c.wk{background:var(--ok-b);border-color:var(--ok-l)}
-.cal .c .d{font-size:12px;font-weight:900;line-height:1.2}
-.cal .c .m{font-size:9px;height:12px;color:var(--tx2);font-weight:800}
+.cal .c .d{font-size:13.9px;font-weight:900;line-height:1.2}
+.cal .c .m{font-size:10.4px;height:12px;color:var(--tx2);font-weight:800}
 
 .steps{display:flex;gap:0;margin-bottom:20px;background:var(--sf);border:1px solid var(--bd);
   border-radius:var(--rl);padding:6px;box-shadow:var(--sh2);flex-wrap:wrap}
@@ -472,12 +482,12 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
   cursor:pointer;transition:.18s var(--ez);position:relative}
 .step:hover{background:var(--sf2)}
 .step .no{width:27px;height:27px;flex:0 0 27px;border-radius:50%;display:grid;place-items:center;
-  font-size:11.5px;font-weight:900;background:var(--sf3);color:var(--tx3);transition:.22s}
+  font-size:13.3px;font-weight:900;background:var(--sf3);color:var(--tx3);transition:.22s}
 .step.done .no{background:linear-gradient(135deg,var(--ok),#34d399);color:#fff}
 .step.cur .no{background:var(--grad);color:#fff;box-shadow:0 0 0 4px rgba(20,184,166,.18)}
 .step .tx{min-width:0}
-.step .tx b{display:block;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.step .tx span{display:block;font-size:10px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .tx b{display:block;font-size:13.9px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .tx span{display:block;font-size:11.6px;color:var(--tx3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .step.done .tx b{color:var(--ok)}
 .step + .step::before{content:'';position:absolute;left:-1px;top:22%;bottom:22%;width:1px;background:var(--bd)}
 
@@ -489,7 +499,7 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
   .card > .hd{background:#fff;border-bottom:1.5px solid #000;padding:3px 0}
   .card > .bd{padding:0}
   .sheetwrap{max-height:none;overflow:visible;border:0}
-  table.sheet{font-size:7.5px;width:100%}
+  table.sheet{font-size:8.7px;width:100%}
   table.sheet .stick,table.sheet thead th{position:static}
   td.nm{min-width:0;max-width:80px}
   th.dc,td.dc{width:auto;min-width:0}
@@ -572,6 +582,11 @@ html[data-theme="dark"] tr.rl td{color:var(--b2)}
 
       <!-- ============ 職員 ============ -->
       <section class="page" id="pg-staff">
+        <div class="card" id="card-staff-kasan" style="display:none">
+          <div class="hd"><span class="bar"></span><span class="ttl">この職員構成で算定できる加算</span>
+            <span class="sub">職員を登録・編集すると自動で判定します</span></div>
+          <div class="bd" id="staff-kasan"></div>
+        </div>
         <div class="card">
           <div class="hd"><span class="bar"></span><span class="ttl">職員台帳</span><span class="sub" id="staff-sub"></span></div>
           <div class="bd">
@@ -1231,6 +1246,14 @@ const Calc={
   isNurse:st=>st.role==='看護職員',
   canNight:st=>SV().group==='gh' && ['世話人','生活支援員','夜間支援従事者','その他の従業者'].includes(st.role),
 
+  /* シフトを組む前の「満勤務した場合」の見込み常勤換算 */
+  potentialFte(st){
+    const p=S.params;
+    if(st.employment==='常勤') return 1.0;
+    const w=Math.max(p.fullTimeMinWeekly||32, S.facility.fullTimeWeekly||40);
+    return (Number(st.weeklyHours)||0)/w;
+  },
+
   build(){
     const {y,m}=pm(S.month), nd=dim(y,m), f=S.facility, p=S.params, sv=SV();
     const std=Calc.std(nd), days=[];
@@ -1746,6 +1769,101 @@ const Judge={
   evaluate(){
     const C=Calc.build();
     return {C,genzan:Judge.genzan(C),kasan:Judge.kasan(C),labor:Judge.labor(C)};
+  },
+
+  /* ---------------- 職員構成だけで見た「算定できそうな加算」 ----------------
+     シフトを組む前でも、資格・雇用形態・入職日から判定できる項目だけを見る。
+     配置人数や常勤換算の実績が要る部分は「対象職員がいる」ことだけで判定し、
+     厳密な充足はシフト作成後に「加算・減算」タブで確認してもらう。 */
+  potential(){
+    const sv=SV(), p=S.params, f=S.facility, out=[];
+    if(!S.staff.length) return out;
+    const add=(id,n,d,ok,note)=>out.push({id,n,d,ok,note});
+    const ftEx=pred=>S.staff.filter(st=>st.employment==='常勤'&&st.exclusive!==false&&pred(st));
+
+    if(sv.group==='child'){
+      const mk=(id,n,pred,pn)=>{
+        if(S.kasan[id]) return;
+        const hit=ftEx(pred);
+        add(id,n,'該当：'+pn,hit.length>0,
+          hit.length?hit.map(st=>st.name).join('・')+' が常勤専従で在籍しています':'該当する常勤専従の職員がいません');
+      };
+      mk('kahai_s','児童指導員等加配加算（専門職／経験5年以上）',
+        st=>(st.quals||[]).some(q=>['理学療法士','作業療法士','言語聴覚士','公認心理師','心理指導担当職員'].includes(q))
+            ||(['児童指導員','保育士'].includes(st.role)&&yrs(st.hireDate)>=5),
+        '理学療法士等、又は経験5年以上の児童指導員・保育士');
+      mk('kahai_j','児童指導員等加配加算（児童指導員等）',st=>['児童指導員','保育士'].includes(st.role),'児童指導員又は保育士');
+      mk('kahai_o','児童指導員等加配加算（その他の従業者）',st=>st.role==='その他の従業者'||sv.directRoles.includes(st.role),'その他の従業者');
+      if(!S.kasan.senmon_tai){
+        const hit=S.staff.filter(st=>(st.quals||[]).some(q=>Q_SENMON.includes(q))||st.role==='機能訓練担当職員');
+        add('senmon_tai','専門的支援体制加算','該当：専門職',hit.length>0,
+          hit.length?hit.map(st=>st.name).join('・')+' が在籍しています':'対象資格の職員がいません');
+      }
+      if(!S.kasan.kango_ka){
+        const hit=S.staff.filter(st=>st.role==='看護職員');
+        add('kango_ka','看護職員加配加算','該当：看護職員',hit.length>0,
+          hit.length?hit.map(st=>st.name).join('・')+' が在籍しています（常勤換算1.0以上が必要）':'看護職員が登録されていません');
+      }
+    }else if(sv.key==='seikatsu'){
+      if(!S.kasan.haichi1&&!S.kasan.haichi2&&!S.kasan.haichi3){
+        const fte=S.staff.reduce((a,st)=>a+(sv.directRoles.includes(st.role)?Calc.potentialFte(st):0),0);
+        [['haichi1','（Ⅰ）',p.haichi1Ratio],['haichi2','（Ⅱ）',p.haichi2Ratio],['haichi3','（Ⅲ）',p.haichi3Ratio]].forEach(([id,rn,ra])=>{
+          const need=(Number(f.capacity)||0)/ra;
+          add(id,'人員配置体制加算'+rn,'常勤換算の見込み',fte>=need-0.001,
+            '職員が満勤務した場合の常勤換算 約'+r1(fte)+'人／必要 約'+r1(need)+'人');
+        });
+      }
+      const nurseFt=S.staff.filter(st=>st.role==='看護職員'&&st.employment==='常勤');
+      [['kango1','（Ⅰ）',1],['kango2','（Ⅱ）',2],['kango3','（Ⅲ）',3]].forEach(([id,rn,n])=>{
+        if(S.kasan[id]) return;
+        add(id,'常勤看護職員等配置加算'+rn,'該当：常勤看護職員',nurseFt.length>=n,
+          '常勤の看護職員 '+nurseFt.length+'人／必要 '+n+'人');
+      });
+    }else if(sv.key==='shuroB'){
+      if(!S.kasan.mokuhyo){
+        const mk2=S.staff.filter(st=>st.role==='目標工賃達成指導員');
+        const base=S.staff.reduce((a,st)=>a+(['職業指導員','生活支援員'].includes(st.role)?Calc.potentialFte(st):0),0);
+        const mkFte=mk2.reduce((a,st)=>a+Calc.potentialFte(st),0);
+        add('mokuhyo','目標工賃達成指導員配置加算','該当：目標工賃達成指導員',mk2.length>0&&mkFte>=1,
+          mk2.length?mk2.map(st=>st.name).join('・')+' が在籍（常勤換算 約'+r1(mkFte)+'人）／職業指導員＋生活支援員 約'+r1(base)+'人':'目標工賃達成指導員が登録されていません');
+      }
+    }else if(sv.key==='gh'){
+      const nightStaff=S.staff.filter(st=>Calc.canNight(st));
+      if(!S.kasan.yakan1) add('yakan1','夜間支援等体制加算（Ⅰ）','該当：夜勤に入れる職員',nightStaff.length>0,
+        nightStaff.length?nightStaff.length+'人が夜勤に入れます':'夜間支援従事者・世話人・生活支援員が登録されていません');
+      if(!S.kasan.yakan2) add('yakan2','夜間支援等体制加算（Ⅱ）','該当：宿直に入れる職員',nightStaff.length>0,
+        nightStaff.length?nightStaff.length+'人が宿直に入れます':'夜間支援従事者・世話人・生活支援員が登録されていません');
+      if(!S.kasan.kango_gh){
+        const hit=S.staff.filter(st=>st.role==='看護職員');
+        add('kango_gh','看護職員配置加算','該当：看護職員',hit.length>0,
+          hit.length?hit.map(st=>st.name).join('・')+' が在籍しています（常勤換算1.0以上が必要）':'看護職員が登録されていません');
+      }
+    }
+    if(homonOn()){
+      const vs=S.staff.filter(canVisit);
+      const expOf=st=>Math.max(Number(st.visitYears)||0, yrs(st.hireDate));
+      [['homon1','（Ⅰ）',10,5],['homon2','（Ⅱ）',5,3]].forEach(([id,rn,yBiz,yVisit])=>{
+        if(S.kasan[id]) return;
+        const hit=vs.filter(st=>yrs(st.hireDate)>=yBiz||(Number(st.visitYears)||0)>=yVisit);
+        add(id,'訪問支援員特別加算'+rn,'該当：訪問支援員',hit.length>0,
+          hit.length?hit.map(st=>st.name+'（'+r1(expOf(st))+'年）').join('・')+' が該当します':'業務従事'+yBiz+'年以上、又は同種業務'+yVisit+'年以上の職員がいません');
+      });
+    }
+    /* 福祉専門職員配置等加算はシフトの有無に関わらず判定できる（雇用形態・資格・入職日のみ） */
+    if(sv.group!=='child'){
+      const sp=Calc.senmonPct(), fs=Calc.ftStats();
+      [['senmon1',p.senmon1Pct,'（Ⅰ）'],['senmon2',p.senmon2Pct,'（Ⅱ）']].forEach(([id,pct,rn])=>{
+        if(S.kasan[id]) return;
+        add(id,'福祉専門職員配置等加算'+rn,'常勤の直接支援職員のうち有資格者',sp.pct>=pct,
+          '有資格者 '+sp.n+'/'+sp.tot+'人（'+r1(sp.pct)+'%）／必要 '+pct+'%');
+      });
+      if(!S.kasan.senmon3){
+        const ok=fs.ftPct>=p.senmon3FtPct||fs.yrPct>=p.senmon3YearPct;
+        add('senmon3','福祉専門職員配置等加算（Ⅲ）','常勤率又は勤続年数',ok,
+          '常勤率 '+r1(fs.ftPct)+'%／勤続'+p.senmon3Years+'年以上 '+r1(fs.yrPct)+'%');
+      }
+    }
+    return out.filter(x=>x.ok);
   }
 };
 
@@ -2485,7 +2603,7 @@ const Facility={
             <div class="row">
               <span class="u" style="flex:0 0 66px">実施曜日</span>
               <span class="dowp" style="gap:4px">${DOW.map((d,j)=>
-                `<button class="${u.dow[j]?'on':''} ${j===0?'sun':j===6?'sat':''}" style="width:30px;height:30px;font-size:11px"
+                `<button class="${u.dow[j]?'on':''} ${j===0?'sun':j===6?'sat':''}" style="width:30px;height:30px;font-size:12.5px"
                   onclick="Facility.unitDow(${i},${j})">${d}</button>`).join('')}</span>
             </div>
           </div>`).join('');
@@ -2551,7 +2669,7 @@ const Facility={
           <div class="t">${esc(k.n)}</div>
         </div>
         <div class="d">${esc(k.d)}</div>
-        <div class="ft">${badge}<span style="flex:1"></span><span style="font-size:10.5px;color:var(--tx-3)" class="mono">${esc(j.u||'')}</span></div>
+        <div class="ft">${badge}<span style="flex:1"></span><span style="font-size:12px;color:var(--tx-3)" class="mono">${esc(j.u||'')}</span></div>
       </div>`;}).join('')+'</div>';
 
     /* --- 体制減算 --- */
@@ -2668,6 +2786,7 @@ const Staff={
     const sv=SV(), C=Calc.build();
     $('staff-sub').innerHTML='登録 <b>'+S.staff.length+'</b>人／常勤 <b>'
       +S.staff.filter(s=>s.employment==='常勤').length+'</b>人／常勤換算 <b>'+r2(C.fteDirect)+'</b>';
+    Staff.renderKasan(C);
     if(!S.staff.length){
       $('staff-tbl').innerHTML='<tbody><tr><td class="empty"><span class="ic">👥</span>'
         +'職員が登録されていません。<br>「サンプル職員を投入」で動きを確かめるか、「名前をまとめて登録」から始めてください。</td></tr></tbody>';
@@ -2687,7 +2806,7 @@ const Staff={
         const r=C.per[st.id]||{workMin:0,fte:0,nights:0};
         const y=yrs(st.hireDate);
         return `<tr>
-          <td style="color:var(--tx-3);font-size:10.5px">${i+1}</td>
+          <td style="color:var(--tx-3);font-size:12px">${i+1}</td>
           <td><b>${esc(st.name)}</b>${st.exclusive===false?' <span class="pill mute">兼務</span>':''}</td>
           <td>${esc(st.role)}${sv.baseRoles.includes(st.role)?' <span class="chip b">基準人員</span>'
               :(sv.directRoles.includes(st.role)?' <span class="chip i">直接支援</span>':'')}</td>
@@ -2732,12 +2851,12 @@ const Staff={
         <div>
           <div class="fld"><label>保有資格 <span class="opt">任意</span></label>
             <div style="border:1px solid var(--bd);border-radius:var(--r-s);padding:10px;max-height:250px;overflow:auto">
-            ${QUALS.map(q=>`<label class="sw" style="display:flex;padding:2px 0"><input type="checkbox" class="sf-q" value="${esc(q)}"${(st.quals||[]).includes(q)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:11.5px">${esc(q)}</span></label>`).join('')}
+            ${QUALS.map(q=>`<label class="sw" style="display:flex;padding:2px 0"><input type="checkbox" class="sf-q" value="${esc(q)}"${(st.quals||[]).includes(q)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:13px">${esc(q)}</span></label>`).join('')}
             </div>
             <div class="hint">入力すると、算定できる加算を自動で見つけられます。</div></div>
           <div class="fld"><label>割り当てない勤務記号 <span class="opt">任意</span></label>
             <div style="border:1px solid var(--bd);border-radius:var(--r-s);padding:10px">
-            ${wc.map(c=>`<label class="sw" style="display:inline-flex;margin:0 12px 4px 0"><input type="checkbox" class="sf-g" value="${esc(c.c)}"${(st.ngCodes||[]).includes(c.c)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:11.5px">${esc(c.c)}:${esc(c.n)}</span></label>`).join('')}
+            ${wc.map(c=>`<label class="sw" style="display:inline-flex;margin:0 12px 4px 0"><input type="checkbox" class="sf-g" value="${esc(c.c)}"${(st.ngCodes||[]).includes(c.c)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:13px">${esc(c.c)}:${esc(c.n)}</span></label>`).join('')}
             </div>
             <div class="hint">例：夜勤に入れない職員は「夜」をON。自動生成でその記号を割り当てません。</div></div>
           <div class="fld"><label>備考 <span class="opt">任意</span></label><textarea id="sf-m" rows="2">${esc(st.note||'')}</textarea></div>
@@ -2857,6 +2976,52 @@ const Staff={
     });
     UI.refresh(); toast('サンプル職員を投入しました');
   },
+  /* 現在の職員構成から、算定できそうな加算を自動で提示する（シフト作成前でも判定） */
+  renderKasan(C){
+    const box=$('card-staff-kasan'), body=$('staff-kasan');
+    if(!S.staff.length){ box.style.display='none'; return; }
+    const chance=Judge.potential();                              /* 職員情報だけで見て有望なもの */
+    const R=Judge.kasan(C);
+    const onNg=R.filter(x=>x.on&&!x.ref&&x.st==='ng');            /* 選択中だが要件未達 */
+    const onOk=R.filter(x=>x.on&&!x.ref&&x.st==='ok');            /* 選択中で充足 */
+    if(!chance.length && !onNg.length && !onOk.length){ box.style.display='none'; return; }
+    box.style.display='';
+    const card=(x,kind)=>{
+      const badge = kind==='chance' ? '<span class="pill wn">算定できそうです</span>'
+        : kind==='ng' ? '<span class="pill ng">要件未達</span>'
+        : '<span class="pill ok">算定中・充足</span>';
+      const act = kind==='chance'
+        ? `<button class="btn pri sm" onclick="Staff.turnOn('${x.id}')">この加算をONにする</button>`
+        : kind==='ng' ? `<span style="font-size:13px;color:var(--tx3)">${esc(x.act||'')}</span>` : '';
+      return `<div class="kc ${kind==='chance'?'avail':(kind==='ok'?'on':'')}">
+        <div class="top"><div class="t">${esc(x.n)}</div>${badge}</div>
+        <div class="d">${esc(x.d||x.note||'')}</div>
+        ${x.note&&x.d?`<div class="d mono" style="margin-top:4px;color:var(--tx2)">${esc(x.note)}</div>`:''}
+        ${x.u?`<div class="d mono" style="margin-top:4px;color:var(--tx2)">${esc(x.u)}</div>`:''}
+        <div class="ft">${act}</div>
+      </div>`;
+    };
+    let h='';
+    if(chance.length){
+      h+='<div class="note o"><b>今の職員構成なら、あと'+chance.length+'件の加算が算定できそうです。</b>'
+        +'資格・雇用形態・入職日から判定した見込みです。実際に必要な配置人数・常勤換算の充足はシフト作成後に「加算・減算」タブで確認してください。'
+        +'ボタンを押すと事業所設定の「算定する加算」がONになり、自動生成の制約にも組み込まれます。</div>';
+      h+='<div class="g3">'+chance.map(x=>card(x,'chance')).join('')+'</div>';
+    }
+    if(onNg.length){
+      h+='<div class="sect" style="margin-top:'+(chance.length?'20px':'0')+'"><span class="n">！</span>選択中だが要件を満たしていない加算</div>';
+      h+='<div class="g3">'+onNg.map(x=>card(x,'ng')).join('')+'</div>';
+    }
+    if(!chance.length && !onNg.length && onOk.length){
+      h+='<div class="note o"><b>選択中の加算はすべて要件を満たしています。</b>新たに算定できそうな加算はまだありません。</div>';
+    }
+    body.innerHTML=h;
+  },
+  turnOn(id){
+    S.kasan[id]=true; UI.refresh();
+    toast('加算をONにしました。シフト作成後に「加算・減算」タブで充足状況を確認してください');
+  },
+
   exportCsv(){
     const rows=[['氏名','職種','雇用形態','週所定労働時間','入職日','専従','保有資格','備考']];
     S.staff.forEach(st=>rows.push([st.name,st.role,st.employment,st.weeklyHours||'',st.hireDate||'',
@@ -3151,9 +3316,9 @@ const Sheet={
     $('warn-body').innerHTML=!L.length
       ? '<div class="empty" style="color:var(--ok)"><span class="ic">✓</span>人員基準・労務上の警告はありません。</div>'
       : [...ng,...wn].slice(0,90).map(x=>
-          `<div style="padding:6px 11px;margin-bottom:5px;border-radius:var(--r-s);border:1px solid ${x.l==='ng'?'var(--ng-bd)':'var(--wn-bd)'};background:${x.l==='ng'?'var(--ng-bg)':'var(--wn-bg)'};font-size:11.5px">
+          `<div style="padding:6px 11px;margin-bottom:5px;border-radius:var(--r-s);border:1px solid ${x.l==='ng'?'var(--ng-bd)':'var(--wn-bd)'};background:${x.l==='ng'?'var(--ng-bg)':'var(--wn-bg)'};font-size:13px">
             <span class="pill ${x.l==='ng'?'ng':'wn'}">${x.l==='ng'?'要対応':'注意'}</span> ${esc(x.t)}</div>`).join('')
-        +(L.length>90?'<div style="font-size:11px;color:var(--tx-3);padding:6px">ほか '+(L.length-90)+'件</div>':'');
+        +(L.length>90?'<div style="font-size:12.5px;color:var(--tx-3);padding:6px">ほか '+(L.length-90)+'件</div>':'');
   },
 
   /* ---------- 手動調整 ---------- */
@@ -3318,8 +3483,8 @@ const Sheet={
     const codeSel=id=>S.codes.map(c=>`<option value="${esc(c.c)}">${esc(c.c)}：${esc(c.n)}</option>`).join('');
     const row=(x,isWorking)=>`
       <tr>
-        <td><b>${esc(x.st.name)}</b><span style="color:var(--tx3);font-size:10.5px"> ${esc(x.st.role)}</span></td>
-        <td class="n" style="color:var(--tx3);font-size:10.5px">${r1((C.per[x.st.id]||{}).workMin/60)}h</td>
+        <td><b>${esc(x.st.name)}</b><span style="color:var(--tx3);font-size:12px"> ${esc(x.st.role)}</span></td>
+        <td class="n" style="color:var(--tx3);font-size:12px">${r1((C.per[x.st.id]||{}).workMin/60)}h</td>
         <td>
           <select class="dp-c" data-s="${x.st.id}" style="width:150px;padding:4px 8px">
             <option value="__c"${!x.c?' selected':''}>（空欄）</option>
@@ -3400,7 +3565,7 @@ const JudgeView={
       {l:'算定中の加算',v:on.length+'<small>件</small>',d:onNg.length?'要件未達 '+onNg.length+'件':'すべて要件を満たしています',c:onNg.length?'ng':'ok'},
       {l:'算定できる加算',v:chance.length+'<small>件</small>',d:'現在の体制で新たに算定可能',c:chance.length?'wn':'info'},
       {l:'常勤換算',v:r1(C.reqs.length?C.reqs.reduce((a,r)=>a+r.have,0):C.fteDirect)+'<small>人</small>',
-        d:sv.managerShort+' '+r2(C.fteKanri)+'人／看護 '+r2(C.fteNurse)+'人',c:'info'}
+        d:sv.managerShort+' '+r2(C.fteKanri)+'人／看護 '+r2(C.fteNurse)+'人',c:'vi'}
     ]);
 
     const box=(x,i,pre)=>{
@@ -3596,7 +3761,7 @@ const Adv={
       <div class="row" style="max-width:400px"><span class="f"><input type="date" id="hol"></span><button class="btn gh sm" onclick="Adv.addHol()">追加</button></div>
       <div style="margin-top:8px">${(f.holidays||[]).length
         ? f.holidays.slice().sort().map(x=>`<span class="chip">${x} <a href="#" onclick="Adv.delHol('${x}');return false" style="color:var(--ng);text-decoration:none;font-weight:800">×</a></span>`).join('')
-        : '<span style="color:var(--tx-3);font-size:11.5px">なし</span>'}</div>
+        : '<span style="color:var(--tx-3);font-size:13px">なし</span>'}</div>
 
       <div class="sect"><span class="n">▸</span>日別の利用者数と必要配置数</div>
       <div class="note i" id="dem-note"></div>
