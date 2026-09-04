@@ -9,8 +9,6 @@ window.ViewRecords = (function () {
 
   let editing = null;
   let keyword = '';
-  let recog = null;      // 音声認識オブジェクト
-  let recogTarget = null;
 
   function render(root, child) {
     if (editing) { renderEditor(root, child); return; }
@@ -174,69 +172,16 @@ window.ViewRecords = (function () {
   }
 
   /* ---- 音声入力 ----------------------------------------------------------
-   * ブラウザ標準の音声認識を使う。環境によっては音声がブラウザ提供元の
-   * サーバーへ送られて処理されるため、使う前に必ず確認を出す。
+   * 実処理は voice.js に集約している(同意の確認・再接続・エラー表示も含む)。
    * ---------------------------------------------------------------------- */
   function speechButton(ta) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      return h('button', {
-        class: 'btn small ghost', type: 'button', disabled: true,
-        title: 'このブラウザは音声入力に対応していません(Google Chrome などでお試しください)'
-      }, '🎤 音声入力(非対応)');
-    }
-    const btn = h('button', { class: 'btn small', type: 'button' }, '🎤 音声入力を開始');
-    btn.addEventListener('click', function () {
-      if (recog) { stopRecog(); btn.textContent = '🎤 音声入力を開始'; btn.classList.remove('rec'); return; }
-      if (!sessionStorage.getItem('sps.speechOk')) {
-        const ok = window.confirm(
-          '【音声入力についての確認】\n\n' +
-          'ブラウザの音声認識を使います。お使いのブラウザによっては、マイクの音声が\n' +
-          'ブラウザ提供元のサーバーへ送られて文字に変換されます。\n\n' +
-          'お子さんやご家庭の個人情報を含む会話を扱う場合は、事業所の個人情報の\n' +
-          '取り扱い方針を確認したうえでご利用ください。\n\n' +
-          '同意して音声入力を開始しますか?');
-        if (!ok) return;
-        sessionStorage.setItem('sps.speechOk', '1');
-      }
-      try {
-        recog = new SR();
-        recog.lang = 'ja-JP';
-        recog.continuous = true;
-        recog.interimResults = false;
-        recogTarget = ta;
-        recog.onresult = function (ev) {
-          let text = '';
-          for (let i = ev.resultIndex; i < ev.results.length; i++) {
-            if (ev.results[i].isFinal) text += ev.results[i][0].transcript;
-          }
-          if (text) insertAtCursor(recogTarget, text + '\n');
-        };
-        recog.onerror = function (ev) {
-          UI.toast('音声入力でエラーが発生しました(' + ev.error + ')', 'warn');
-          stopRecog(); btn.textContent = '🎤 音声入力を開始'; btn.classList.remove('rec');
-        };
-        recog.onend = function () {
-          if (recog) { try { recog.start(); } catch (e) { /* 連続認識の再開に失敗しても無視 */ } }
-        };
-        recog.start();
-        btn.textContent = '■ 音声入力を停止';
-        btn.classList.add('rec');
-        UI.toast('音声入力を開始しました');
-      } catch (e) {
-        UI.toast('音声入力を開始できませんでした', 'warn');
-        recog = null;
-      }
-    });
+    const btn = Voice.micButton(ta, '🎤 音声で書き起こす');
+    btn.classList.add('btn', 'small');
+    btn.classList.remove('mic-btn');
     return btn;
   }
 
-  function stopRecog() {
-    if (!recog) return;
-    const r = recog;
-    recog = null;
-    try { r.onend = null; r.stop(); } catch (e) { /* 既に停止している場合は無視 */ }
-  }
+  function stopRecog() { Voice.stop(); }
 
   /* ---- 保存 -------------------------------------------------------------- */
   function save(form, child) {

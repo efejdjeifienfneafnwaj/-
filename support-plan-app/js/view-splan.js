@@ -108,6 +108,7 @@ window.ViewSplan = (function () {
       ]),
       h('div', { class: 'btn-row' }, [
         h('button', { class: 'btn', type: 'button', onclick: function () { editing = null; App.render(); } }, 'キャンセル'),
+        h('button', { class: 'btn voice', type: 'button', onclick: function () { voiceFill(form); } }, '🎤 音声で入力'),
         h('button', { class: 'btn primary', type: 'button', onclick: function () { save(form, child); } }, '保存する')
       ])
     ]));
@@ -178,6 +179,20 @@ window.ViewSplan = (function () {
     ]));
 
     root.appendChild(form);
+  }
+
+  /* ---- 音声で入力 -------------------------------------------------------- */
+  function voiceFill(form) {
+    const defs = [
+      { name: 'staffName', label: '担当する専門職のお名前', type: 'text' },
+      { name: 'qualification', label: '資格と経験年数', hint: '例: 作業療法士 実務8年', type: 'text' },
+      { name: 'frequency', label: '実施の頻度', hint: '例: 月2回', type: 'text' },
+      { name: 'place', label: '実施する場所', type: 'text' }
+    ];
+    TEXT_BLOCKS.forEach(function (f) {
+      defs.push({ name: f.key, label: f.label, hint: f.hint, type: 'textarea' });
+    });
+    Voice.fillForm(form, defs, '音声で専門的支援実施計画を入力');
   }
 
   /* ---- 実施記録 ---------------------------------------------------------- */

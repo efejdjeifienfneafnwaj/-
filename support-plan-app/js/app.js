@@ -32,6 +32,7 @@ window.App = (function () {
 
   /** 別の画面へ移るとき、各画面の編集中の状態を捨てる */
   function resetViews() {
+    Voice.stop();
     [ViewAssess, ViewPlan, ViewSplan, ViewRecords].forEach(function (v) {
       if (v && v.reset) v.reset();
     });
@@ -46,12 +47,12 @@ window.App = (function () {
     const main = h('main', { class: 'main' });
     app.appendChild(main);
 
-    if (state.view === 'settings') { renderSettings(main); return; }
+    if (state.view === 'settings') { renderSettings(main); Voice.attachMics(app); return; }
 
-    if (!state.childId) { ViewChildren.renderList(main); return; }
+    if (!state.childId) { ViewChildren.renderList(main); Voice.attachMics(app); return; }
 
     const child = Store.get('children', state.childId);
-    if (!child) { state.childId = null; ViewChildren.renderList(main); return; }
+    if (!child) { state.childId = null; ViewChildren.renderList(main); Voice.attachMics(app); return; }
 
     main.appendChild(renderChildBar(child));
     const body = h('div', { class: 'child-body' });
@@ -64,6 +65,9 @@ window.App = (function () {
       case 'records': ViewRecords.render(body, child); break;
       default:        ViewChildren.renderHome(body, child);
     }
+
+    // 画面に出ている入力欄すべてにマイクボタンを付ける
+    Voice.attachMics(app);
   }
 
   function renderHeader() {
@@ -238,6 +242,7 @@ window.App = (function () {
     }, box);
     document.body.appendChild(overlay);
     document.addEventListener('keydown', onEsc);
+    Voice.attachMics(box);
     const first = box.querySelector('input,select,textarea');
     if (first) first.focus();
   }

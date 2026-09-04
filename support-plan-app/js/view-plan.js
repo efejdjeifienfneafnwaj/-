@@ -148,6 +148,7 @@ window.ViewPlan = (function () {
       ]),
       h('div', { class: 'btn-row' }, [
         h('button', { class: 'btn', type: 'button', onclick: function () { editing = null; App.render(); } }, 'キャンセル'),
+        h('button', { class: 'btn voice', type: 'button', onclick: function () { voiceFill(form); } }, '🎤 音声で入力'),
         h('button', { class: 'btn', type: 'button', onclick: function () { saveThen(form, child, toExcel); } }, '保存してExcel出力'),
         h('button', { class: 'btn primary', type: 'button', onclick: function () { save(form, child); } }, '保存する')
       ])
@@ -237,6 +238,26 @@ window.ViewPlan = (function () {
     ]));
 
     root.appendChild(form);
+  }
+
+  /* ---- 音声で入力 --------------------------------------------------------
+   * 意向・方針・5領域の目標を、1項目ずつ読み上げ表示して声で埋めていく。
+   * ---------------------------------------------------------------------- */
+  function voiceFill(form) {
+    const defs = [];
+    TEXT_BLOCKS.forEach(function (f) {
+      defs.push({ name: f.key, label: f.label, hint: f.hint, type: 'textarea' });
+    });
+    DATA.domains.forEach(function (d) {
+      defs.push({ name: 'goals.' + d.id + '.goal',
+                  label: '【' + d.name + '】支援目標', hint: d.desc, type: 'textarea' });
+      defs.push({ name: 'goals.' + d.id + '.support',
+                  label: '【' + d.name + '】具体的な支援内容・方法', type: 'textarea' });
+    });
+    TAIL_BLOCKS.forEach(function (f) {
+      defs.push({ name: f.key, label: f.label, type: 'textarea' });
+    });
+    Voice.fillForm(form, defs, '音声で個別支援計画を入力');
   }
 
   /* ---- アセスメント結果から下書き ---------------------------------------- */

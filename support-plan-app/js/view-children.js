@@ -107,6 +107,14 @@ window.ViewChildren = (function () {
       }, '削除') : null,
       h('button', { class: 'btn', type: 'button', onclick: App.closeModal }, 'キャンセル'),
       h('button', {
+        class: 'btn voice', type: 'button', onclick: function () {
+          Voice.fillForm(form, CHILD_FIELDS.map(function (f) {
+            return { name: f.key, label: f.label, hint: f.key === 'birthday'
+              ? '「2021年5月10日」のように言ってください' : null };
+          }), '音声で児童情報を入力');
+        }
+      }, '🎤 音声で入力'),
+      h('button', {
         class: 'btn primary', type: 'button', onclick: function () {
           const data = UI.readForm(form);
           if (!data.name || !data.name.trim()) { UI.toast('氏名を入力してください', 'warn'); return; }

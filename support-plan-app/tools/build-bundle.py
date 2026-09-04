@@ -23,6 +23,7 @@ OUT = os.path.join(OUT_DIR, 'individual-support-plan-app.html')
 # index.html に書かれている順のまま
 JS_FILES = [
     'js/data.js', 'js/store.js', 'js/ui.js', 'js/assess.js', 'js/print.js',
+    'js/voice.js',
     'js/xlsx-template.js', 'js/xlsx.js',
     'js/view-children.js', 'js/view-assess.js', 'js/view-plan.js',
     'js/view-splan.js', 'js/view-records.js', 'js/app.js',

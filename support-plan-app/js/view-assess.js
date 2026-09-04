@@ -177,6 +177,21 @@ window.ViewAssess = (function () {
       UI.field('生活年齢', h('div', { class: 'static-value' }, UI.ageText(chrono)))
     ]);
 
+    /* 音声で採点 */
+    const voiceBar = h('div', { class: 'panel voice-bar' }, [
+      h('div', {}, [
+        h('strong', {}, '🎤 声でチェックする'),
+        h('p', { class: 'muted small' },
+          '項目を1つずつ大きく表示します。「できる」「芽生え」「これから」と言うだけで記録され、次の項目に進みます。')
+      ]),
+      h('div', { class: 'btn-row' }, [
+        h('button', { class: 'btn voice', type: 'button', onclick: function () { voiceScore(child, false); } },
+          '未評価の項目だけ'),
+        h('button', { class: 'btn voice', type: 'button', onclick: function () { voiceScore(child, true); } },
+          'すべての項目')
+      ])
+    ]);
+
     /* 領域ごとのチェック */
     const sections = h('div', { class: 'assess-sections' });
     DATA.domains.forEach(function (d) {
@@ -292,9 +307,37 @@ window.ViewAssess = (function () {
     ]);
 
     root.appendChild(h('div', { class: 'assess-layout' }, [
-      h('div', {}, [h('div', { class: 'panel' }, [head]), sections]),
+      h('div', {}, [h('div', { class: 'panel' }, [head]), voiceBar, sections]),
       preview
     ]));
+  }
+
+  /* ---- 音声で採点 --------------------------------------------------------
+   * all=false のときは、まだ評価していない項目だけを対象にする。
+   * ---------------------------------------------------------------------- */
+  function voiceScore(child, all) {
+    const items = [];
+    DATA.domains.forEach(function (d) {
+      d.items.forEach(function (it) {
+        const cur = editing.scores[it.id];
+        const rated = cur !== undefined && cur !== null && cur !== '';
+        if (!all && rated) return;
+        items.push({
+          id: it.id, text: it.text, month: it.month,
+          domainName: d.name, color: d.color,
+          score: rated ? Number(cur) : null
+        });
+      });
+    });
+    if (!items.length) {
+      UI.toast('未評価の項目はありません。「すべての項目」を選ぶと最初から見直せます。', 'warn');
+      return;
+    }
+    Voice.scoring({
+      items: items,
+      onScore: function (id, score) { editing.scores[id] = score; },
+      onEnd: function () { App.render(); }
+    });
   }
 
   function reset() { editing = null; openDomain = null; }

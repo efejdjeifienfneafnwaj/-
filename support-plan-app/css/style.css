@@ -399,3 +399,108 @@ input.search { max-width: 26rem; }
 
 /* 印刷用の領域は、画面上では隠しておく */
 #print-root { display: none; }
+
+/* =========================================================================
+ * 音声入力
+ * ========================================================================= */
+
+/* 入力欄に重ねるマイクボタン */
+.mic-wrap { position: relative; }
+.mic-wrap textarea { padding-right: 2.6rem; }
+.mic-btn {
+  position: absolute; top: .35rem; right: .35rem;
+  width: 2rem; height: 2rem; padding: 0; line-height: 1;
+  border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  cursor: pointer; font-size: .95rem; color: var(--ink-soft);
+}
+.mic-btn:hover { border-color: var(--brand); background: var(--brand-soft); }
+.mic-btn.off { opacity: .35; cursor: not-allowed; }
+.mic-btn.rec {
+  background: var(--danger); border-color: var(--danger); color: #fff;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(179, 38, 30, .5); }
+  50%      { box-shadow: 0 0 0 6px rgba(179, 38, 30, 0); }
+}
+
+.btn.voice { border-color: var(--brand); color: var(--brand-dark); background: var(--brand-soft); }
+.btn.voice:hover { background: var(--brand); color: #fff; }
+
+.voice-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap; padding: .8rem 1.1rem;
+}
+.voice-bar p { margin: .15rem 0 0; }
+
+/* ---- 音声ウィザード ----------------------------------------------------- */
+.wiz-box { width: min(720px, 100%); }
+.voice-wiz { padding: 1.25rem; }
+
+.vw-top { display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem; }
+.vw-progress { font-size: .82rem; color: var(--ink-soft); white-space: nowrap; }
+.vw-bar { flex: 1; height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.vw-bar-fill { height: 100%; background: var(--brand); transition: width .25s ease; }
+.vw-state {
+  font-size: .8rem; color: var(--ink-soft); white-space: nowrap;
+  padding: .1rem .6rem; border-radius: 999px; background: #f1f5f4;
+}
+.vw-state.on {
+  color: #fff; background: var(--danger);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.vw-label { font-size: 1.35rem; font-weight: 700; line-height: 1.5; }
+.vw-hint { font-size: .85rem; color: var(--ink-soft); margin-top: .25rem; }
+
+.vw-domain {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .9rem; font-weight: 600; color: var(--ink-soft);
+}
+.vw-month {
+  font-size: .76rem; font-weight: 400;
+  background: #f1f5f4; border-radius: 999px; padding: .05rem .55rem;
+}
+.vw-item { font-size: 1.5rem; font-weight: 700; line-height: 1.55; margin: .6rem 0 .2rem; }
+
+.vw-input {
+  width: 100%; margin-top: .8rem; padding: .7rem .8rem;
+  border: 2px solid var(--line); border-radius: 8px;
+  font: inherit; font-size: 1.05rem; line-height: 1.8; background: #fff;
+}
+.vw-input:focus { outline: none; border-color: var(--brand); }
+
+.vw-live {
+  min-height: 1.6rem; margin-top: .5rem; font-size: .95rem;
+  color: var(--brand-dark); font-style: italic;
+}
+
+.vw-choices { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .9rem; }
+.vw-choice {
+  border: 1px solid var(--line); background: #fff; border-radius: 8px;
+  padding: .5rem .9rem; cursor: pointer; font: inherit; font-size: .93rem;
+}
+.vw-choice:hover { border-color: var(--brand); background: var(--brand-soft); }
+.vw-choice.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+
+.vw-choices.big { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; }
+.vw-choices.big .vw-choice {
+  display: flex; flex-direction: column; align-items: center; gap: .15rem;
+  padding: .9rem .6rem; text-align: center;
+}
+.vw-choices.big strong { font-size: 1.1rem; }
+.vw-choices.big span { font-size: .75rem; color: var(--ink-soft); }
+.vw-choices.big .vw-choice.on span { color: rgba(255, 255, 255, .85); }
+.vw-choices.big .s2.on { background: var(--brand); border-color: var(--brand); }
+.vw-choices.big .s1.on { background: #d97706; border-color: #d97706; }
+.vw-choices.big .s0.on { background: #94a3b8; border-color: #94a3b8; }
+@media (max-width: 560px) { .vw-choices.big { grid-template-columns: 1fr; } }
+
+.vw-cmds {
+  margin-top: 1rem; padding: .6rem .8rem; border-radius: 8px;
+  background: var(--brand-soft); font-size: .82rem; color: var(--brand-dark);
+}
+.vw-actions {
+  display: flex; gap: .5rem; flex-wrap: wrap; justify-content: flex-end;
+  margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--line);
+}
