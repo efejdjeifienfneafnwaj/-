@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>児童発達支援 損益分岐点(BEP)シミュレーター</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['"Noto Sans JP"', 'system-ui', 'sans-serif'] },
+      colors: {
+        brand: { 50:'#eef2ff',100:'#e0e7ff',200:'#c7d2fe',300:'#a5b4fc',400:'#818cf8',500:'#6366f1',600:'#4f46e5',700:'#4338ca',800:'#3730a3',900:'#312e81' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { font-family:'Noto Sans JP', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:9999px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  input[type=range]{ -webkit-appearance:none; appearance:none; height:6px; border-radius:9999px; background:#e2e8f0; outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:9999px; background:#4f46e5; border:3px solid #fff; box-shadow:0 1px 4px rgba(15,23,42,.35); cursor:pointer; }
+  input[type=range]::-moz-range-thumb{ width:18px; height:18px; border-radius:9999px; background:#4f46e5; border:3px solid #fff; box-shadow:0 1px 4px rgba(15,23,42,.35); cursor:pointer; }
+  input[type=number]{ -moz-appearance:textfield; }
+  input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .tabular { font-variant-numeric: tabular-nums; }
+  details > summary { list-style:none; cursor:pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform: rotate(90deg); }
+  .chev { transition: transform .18s ease; }
+  @media print { .no-print { display:none !important; } }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+
+<div class="flex min-h-screen flex-col lg:flex-row">
+
+  <!-- ============ SIDEBAR : 入力条件 ============ -->
+  <aside class="w-full lg:w-[400px] lg:h-screen lg:sticky lg:top-0 shrink-0 bg-white border-r border-slate-200 flex flex-col no-print">
+    <div class="px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-brand-700 to-brand-500 text-white">
+      <div class="flex items-center gap-2">
+        <div class="w-9 h-9 rounded-lg bg-white/20 grid place-items-center text-lg">🧩</div>
+        <div>
+          <h1 class="text-[15px] font-bold leading-tight">児童発達支援 BEPシミュレーター</h1>
+          <p class="text-[11px] text-brand-100">損益分岐点 / 収支シミュレーション</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="sidebarBody" class="flex-1 overflow-y-auto px-4 py-4 space-y-3"></div>
+
+    <div class="px-4 py-3 border-t border-slate-200 bg-slate-50 flex gap-2">
+      <button id="btnReset" class="flex-1 text-xs font-bold py-2.5 rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-100 transition">初期値に戻す</button>
+      <button id="btnSave" class="flex-1 text-xs font-bold py-2.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition">条件を保存</button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="flex-1 min-w-0 px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 class="text-xl font-bold text-slate-900">収支ダッシュボード</h2>
+        <p class="text-xs text-slate-500 mt-0.5">左のパラメータを変更すると即座に再計算されます</p>
+      </div>
+      <div class="flex items-center gap-3 bg-white rounded-xl border border-slate-200 px-4 py-2.5">
+        <span class="text-[11px] font-bold text-slate-500">現在の稼働率</span>
+        <span id="hdrUtil" class="text-2xl font-black text-brand-600 tabular">80.0<span class="text-sm">%</span></span>
+        <span class="w-px h-7 bg-slate-200"></span>
+        <div class="text-right">
+          <div class="text-[10px] text-slate-400 font-bold">月間延べ利用者数</div>
+          <div id="hdrUsers" class="text-sm font-bold text-slate-700 tabular">176 人日</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BIG KPI -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="md:col-span-1 rounded-2xl p-5 bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-lg shadow-brand-600/20">
+        <div class="text-[11px] font-bold text-brand-100 tracking-wide">損益分岐 稼働率</div>
+        <div class="mt-1 flex items-end gap-1">
+          <span id="kpiBepRate" class="text-5xl font-black leading-none tabular">--</span>
+          <span class="text-xl font-bold pb-1">%</span>
+        </div>
+        <div id="kpiBepRateNote" class="mt-2 text-[11px] text-brand-100">この稼働率で営業利益が±0になります</div>
+      </div>
+      <div class="md:col-span-1 rounded-2xl p-5 bg-white border border-slate-200 shadow-sm">
+        <div class="text-[11px] font-bold text-slate-500 tracking-wide">損益分岐ライン（1日あたり必要利用人数）</div>
+        <div class="mt-1 flex items-end gap-1">
+          <span id="kpiBepUsers" class="text-5xl font-black leading-none text-slate-900 tabular">--</span>
+          <span class="text-xl font-bold pb-1 text-slate-500">人/日</span>
+        </div>
+        <div id="kpiBepUsersNote" class="mt-2 text-[11px] text-slate-500">定員 -- 名に対して --</div>
+      </div>
+      <div id="kpiProfitCard" class="md:col-span-1 rounded-2xl p-5 bg-white border border-slate-200 shadow-sm">
+        <div class="text-[11px] font-bold text-slate-500 tracking-wide">月間 営業利益</div>
+        <div class="mt-1 flex items-end gap-1">
+          <span id="kpiProfit" class="text-4xl font-black leading-none tabular">--</span>
+          <span class="text-lg font-bold pb-0.5 text-slate-500">円</span>
+        </div>
+        <div class="mt-2 flex items-center gap-3 text-[11px]">
+          <span class="text-slate-500">利益率 <b id="kpiProfitRate" class="tabular text-slate-800">--%</b></span>
+          <span class="text-slate-500">年換算 <b id="kpiProfitYear" class="tabular text-slate-800">--</b></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUB KPI -->
+    <section class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">月間 想定売上高</div>
+        <div id="kpiRevenue" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        <div id="kpiRevenueSub" class="text-[10px] text-slate-400 mt-0.5">給付費 --</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">月間 総コスト</div>
+        <div id="kpiCost" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        <div id="kpiCostSub" class="text-[10px] text-slate-400 mt-0.5">固定 -- / 変動 --</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">1人1日あたり平均単価</div>
+        <div id="kpiArpu" class="mt-1 text-lg font-black text-brand-700 tabular">--</div>
+        <div id="kpiArpuSub" class="text-[10px] text-slate-400 mt-0.5">-- 単位 × -- 円</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">人件費率</div>
+        <div id="kpiLabor" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        <div id="kpiLaborSub" class="text-[10px] text-slate-400 mt-0.5">人件費 --</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">FL比率（人件費+変動費）</div>
+        <div id="kpiFl" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        <div class="text-[10px] text-slate-400 mt-0.5">目安 60〜75%</div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-4">
+        <div class="text-[10px] font-bold text-slate-400">安全余裕率</div>
+        <div id="kpiSafety" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        <div id="kpiSafetySub" class="text-[10px] text-slate-400 mt-0.5">限界利益率 --</div>
+      </div>
+    </section>
+
+    <!-- CHART -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div>
+          <h3 class="text-sm font-bold text-slate-900">損益分岐点グラフ</h3>
+          <p class="text-[11px] text-slate-500">総収入・固定費・総コストの推移と損益分岐点</p>
+        </div>
+        <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 no-print">
+          <button data-axis="rate" class="axis-btn px-3 py-1.5 text-[11px] font-bold rounded-md bg-white shadow-sm text-brand-700">横軸：稼働率</button>
+          <button data-axis="users" class="axis-btn px-3 py-1.5 text-[11px] font-bold rounded-md text-slate-500">横軸：延べ利用者数</button>
+        </div>
+      </div>
+      <div class="relative h-[380px]">
+        <canvas id="bepChart"></canvas>
+      </div>
+      <div id="bepMsg" class="mt-3 text-xs rounded-lg px-3 py-2 bg-slate-50 text-slate-600 border border-slate-200"></div>
+    </section>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <!-- TABLE -->
+      <section class="xl:col-span-2 bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="text-sm font-bold text-slate-900">感度分析（稼働率別 収支早見表）</h3>
+        <p class="text-[11px] text-slate-500 mb-3">現在の条件をベースに稼働率のみを変動させた場合</p>
+        <div class="overflow-x-auto -mx-1">
+          <table class="w-full text-[12px] tabular min-w-[640px]">
+            <thead>
+              <tr class="text-slate-500 border-b border-slate-200">
+                <th class="text-left font-bold py-2 px-2">稼働率</th>
+                <th class="text-right font-bold py-2 px-2">延べ人数</th>
+                <th class="text-right font-bold py-2 px-2">売上高</th>
+                <th class="text-right font-bold py-2 px-2">固定費</th>
+                <th class="text-right font-bold py-2 px-2">変動費</th>
+                <th class="text-right font-bold py-2 px-2">総コスト</th>
+                <th class="text-right font-bold py-2 px-2">営業利益</th>
+                <th class="text-right font-bold py-2 px-2">利益率</th>
+              </tr>
+            </thead>
+            <tbody id="sensBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- COST BREAKDOWN -->
+      <section class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="text-sm font-bold text-slate-900">コスト構成</h3>
+        <p class="text-[11px] text-slate-500 mb-2">現在の稼働率における内訳</p>
+        <div class="h-[220px] relative"><canvas id="costChart"></canvas></div>
+        <div id="costLegend" class="mt-3 space-y-1.5 text-[11px]"></div>
+      </section>
+    </div>
+
+    <!-- DETAIL P/L -->
+    <section class="bg-white rounded-2xl border border-slate-200 p-5">
+      <h3 class="text-sm font-bold text-slate-900 mb-3">月次 損益計算書（P/L）明細</h3>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div>
+          <div class="text-[11px] font-bold text-emerald-700 border-b border-emerald-200 pb-1 mb-1">収入の部</div>
+          <div id="plIncome" class="text-[12px] tabular"></div>
+        </div>
+        <div>
+          <div class="text-[11px] font-bold text-rose-700 border-b border-rose-200 pb-1 mb-1">固定費の部</div>
+          <div id="plFixed" class="text-[12px] tabular"></div>
+        </div>
+        <div>
+          <div class="text-[11px] font-bold text-amber-700 border-b border-amber-200 pb-1 mb-1">変動費の部</div>
+          <div id="plVar" class="text-[12px] tabular"></div>
+        </div>
+      </div>
+    </section>
+
+    <p class="text-[10px] text-slate-400 pb-4 leading-relaxed">
+      ※本シミュレーターは概算試算用ツールです。実際の報酬単位数・地域区分単価・加算要件は最新の告示および指定権者の取扱いをご確認ください。
+    </p>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   1. 入力パラメータ定義
+   ========================================================= */
+const GRADE_RATES = {
+  "1":0.20, "2":0.16, "3":0.15, "4":0.12, "5":0.10, "6":0.06, "7":0.03, "0":0.00
+};
+const GRADE_LABELS = {
+  "1":"1級地（+20%）","2":"2級地（+16%）","3":"3級地（+15%）","4":"4級地（+12%）",
+  "5":"5級地（+10%）","6":"6級地（+6%）","7":"7級地（+3%）","0":"その他（+0%）"
+};
+
+const SECTIONS = [
+  {
+    key:"income", title:"収入条件｜稼働・報酬", icon:"💰", open:true, accent:"emerald",
+    fields:[
+      {id:"capacity",  label:"利用定員",       def:10,  min:1,   max:40,   step:1,   unit:"名/日", slider:true},
+      {id:"bizDays",   label:"営業日数",       def:22,  min:1,   max:31,   step:1,   unit:"日/月", slider:true},
+      {id:"util",      label:"稼働率",         def:80,  min:0,   max:100,  step:0.5, unit:"%",     slider:true, hi:true},
+      {id:"baseUnits", label:"基本報酬 単位数", def:820, min:0,   max:2000, step:1,   unit:"単位/人日", slider:true, hint:"区分1・区分2等の基本単位数"}
+    ]
+  },
+  {
+    key:"area", title:"地域区分・単価", icon:"📍", open:true, accent:"emerald",
+    fields:[
+      {id:"grade", label:"地域区分", type:"select", def:"1", options:GRADE_LABELS},
+      {id:"laborRatio", label:"人件費割合", def:42, min:0, max:100, step:1, unit:"%", slider:true, hint:"サービス種別ごとの人件費割合（児発は概ね42〜47%）"},
+      {id:"unitPrice", label:"1単位あたり単価", def:10.84, min:10, max:13, step:0.01, unit:"円", slider:true, hint:"区分×人件費割合から自動計算。直接編集も可能"}
+    ]
+  },
+  {
+    key:"addonEtc", title:"加算・その他収入", icon:"➕", open:true, accent:"emerald",
+    addons:true,
+    fields:[
+      {id:"monthlyAddUnits", label:"事業所全体の月額加算", def:0, min:0, max:20000, step:10, unit:"単位/月", hint:"福祉専門職員配置等加算など月単位の加算があれば"},
+      {id:"publicRatio", label:"公費給付割合", def:90, min:0, max:100, step:1, unit:"%", slider:true, hint:"国保連請求分（通常9割）"},
+      {id:"userCollect", label:"利用者負担分の実収率", def:50, min:0, max:100, step:1, unit:"%", slider:true, hint:"月額上限管理・非課税世帯0円・未収を考慮した実際の回収率"},
+      {id:"jippiPerDay", label:"実費徴収（おやつ代等）", def:150, min:0, max:3000, step:10, unit:"円/人日", hint:"おやつ代・教材費など利用者から徴収する実費"},
+      {id:"miscMonthly", label:"その他月間雑収入", def:0, min:0, max:1000000, step:1000, unit:"円/月"}
+    ]
+  },
+  {
+    key:"labor", title:"支出｜人件費（固定費）", icon:"👥", open:true, accent:"rose",
+    fields:[
+      {id:"jhkSalary",     label:"児童発達支援管理責任者", def:350000, min:0, max:1000000, step:10000, unit:"円/月", slider:true},
+      {id:"fullCount",     label:"常勤スタッフ人数",       def:3,      min:0, max:30,      step:1,     unit:"名",   slider:true},
+      {id:"fullSalary",    label:"常勤 平均月給",         def:250000, min:0, max:800000,  step:10000, unit:"円/月", slider:true},
+      {id:"partHourly",    label:"非常勤 時給",           def:1200,   min:0, max:5000,    step:10,    unit:"円/時", slider:true},
+      {id:"partHours",     label:"非常勤 合計シフト時間", def:200,    min:0, max:1500,    step:10,    unit:"時間/月", slider:true},
+      {id:"bonusMonthly",  label:"賞与・退職金等 月按分", def:0,      min:0, max:1000000, step:10000, unit:"円/月", hint:"年間賞与額 ÷ 12 を入力"},
+      {id:"welfareRate",   label:"法定福利費率",          def:15,     min:0, max:40,      step:0.5,   unit:"%",    slider:true, hint:"社会保険料・労働保険料の事業主負担分"}
+    ]
+  },
+  {
+    key:"fixed", title:"支出｜物件費・その他固定費", icon:"🏢", open:false, accent:"rose",
+    fields:[
+      {id:"rent",         label:"家賃・共益費",       def:250000, min:0, max:2000000, step:10000, unit:"円/月", slider:true},
+      {id:"utilities",    label:"水道光熱費",         def:30000,  min:0, max:300000,  step:1000,  unit:"円/月", slider:true},
+      {id:"comm",         label:"通信費・システム利用料", def:20000, min:0, max:300000, step:1000, unit:"円/月", slider:true},
+      {id:"adv",          label:"広告宣伝費・採用費", def:30000,  min:0, max:500000,  step:5000,  unit:"円/月", slider:true},
+      {id:"vehicleFixed", label:"車両リース・保険等", def:40000,  min:0, max:500000,  step:5000,  unit:"円/月", slider:true, hint:"送迎車の固定的な維持費"},
+      {id:"otherFixed",   label:"その他固定費",       def:30000,  min:0, max:1000000, step:5000,  unit:"円/月", slider:true, hint:"消耗品・リース・顧問料など"}
+    ]
+  },
+  {
+    key:"variable", title:"支出｜変動費", icon:"📦", open:false, accent:"amber",
+    fields:[
+      {id:"snackCost",  label:"おやつ代 原価",       def:120, min:0, max:2000, step:10, unit:"円/人日", slider:true},
+      {id:"teachCost",  label:"教材費・消耗品",     def:30,  min:0, max:2000, step:10, unit:"円/人日", slider:true},
+      {id:"fuelCost",   label:"送迎ガソリン・車両変動費", def:100, min:0, max:2000, step:10, unit:"円/人日", slider:true},
+      {id:"otherVar",   label:"その他変動費",       def:0,   min:0, max:5000, step:10, unit:"円/人日", slider:true}
+    ]
+  }
+];
+
+const ADDON_DEFS = [
+  {id:"a1", label:"児童指導員等加配加算（Ⅰ）", units:187, rate:100, on:true},
+  {id:"a2", label:"専門的支援体制加算",         units:123, rate:100, on:true},
+  {id:"a3", label:"専門的支援実施加算",         units:150, rate:30,  on:false},
+  {id:"a4", label:"個別サポート加算（Ⅰ）",     units:120, rate:40,  on:true},
+  {id:"a5", label:"個別サポート加算（Ⅱ）",     units:150, rate:10,  on:false},
+  {id:"a6", label:"送迎加算（往復）",           units:108, rate:80,  on:true},
+  {id:"a7", label:"延長支援加算",               units:92,  rate:20,  on:false},
+  {id:"a8", label:"その他加算（合算）",         units:0,   rate:100, on:true, hint:"上記以外の加算の合計単位数を直接入力"}
+];
+
+const STORAGE_KEY = "jidoBepSimulator_v1";
+
+/* =========================================================
+   2. サイドバー描画
+   ========================================================= */
+const ACCENT = {
+  emerald:{bar:"bg-emerald-500", text:"text-emerald-700", bg:"bg-emerald-50"},
+  rose:{bar:"bg-rose-500", text:"text-rose-700", bg:"bg-rose-50"},
+  amber:{bar:"bg-amber-500", text:"text-amber-700", bg:"bg-amber-50"}
+};
+
+function fieldHTML(f){
+  if(f.type === "select"){
+    const opts = Object.keys(f.options).map(k=>`<option value="${k}">${f.options[k]}</option>`).join("");
+    return `
+      <div class="py-2">
+        <label class="block text-[11px] font-bold text-slate-600 mb-1">${f.label}</label>
+        <select id="f_${f.id}" class="w-full text-[12px] font-bold border border-slate-300 rounded-lg px-2 py-2 bg-white focus:ring-2 focus:ring-brand-400 focus:border-brand-400 outline-none">${opts}</select>
+      </div>`;
+  }
+  const hint = f.hint ? `<p class="text-[10px] text-slate-400 mt-1 leading-snug">${f.hint}</p>` : "";
+  const slider = f.slider ? `<input type="range" id="r_${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" class="w-full mt-2">` : "";
+  return `
+    <div class="py-2">
+      <div class="flex items-center justify-between gap-2">
+        <label class="text-[11px] font-bold text-slate-600 leading-tight">${f.label}</label>
+        <div class="flex items-center gap-1 shrink-0">
+          <input type="number" id="f_${f.id}" step="${f.step}" min="${f.min}"
+            class="w-24 text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-1.5 focus:ring-2 focus:ring-brand-400 focus:border-brand-400 outline-none">
+          <span class="text-[10px] text-slate-400 w-12">${f.unit||""}</span>
+        </div>
+      </div>
+      ${slider}
+      ${hint}
+    </div>`;
+}
+
+function addonsHTML(){
+  const rows = ADDON_DEFS.map(a=>`
+    <div class="rounded-lg border border-slate-200 p-2 bg-slate-50/60">
+      <label class="flex items-start gap-2 cursor-pointer">
+        <input type="checkbox" id="ad_on_${a.id}" class="mt-0.5 w-4 h-4 accent-emerald-600 shrink-0">
+        <span class="text-[11px] font-bold text-slate-700 leading-tight">${a.label}</span>
+      </label>
+      <div class="flex items-center gap-2 mt-2 pl-6">
+        <div class="flex items-center gap-1">
+          <input type="number" id="ad_u_${a.id}" step="1" min="0" class="w-16 text-right text-[11px] font-bold tabular border border-slate-300 rounded px-1.5 py-1 outline-none focus:ring-2 focus:ring-brand-300">
+          <span class="text-[10px] text-slate-400">単位</span>
+        </div>
+        <span class="text-slate-300 text-[10px]">×</span>
+        <div class="flex items-center gap-1">
+          <input type="number" id="ad_r_${a.id}" step="1" min="0" max="100" class="w-14 text-right text-[11px] font-bold tabular border border-slate-300 rounded px-1.5 py-1 outline-none focus:ring-2 focus:ring-brand-300">
+          <span class="text-[10px] text-slate-400">% 対象</span>
+        </div>
+      </div>
+      ${a.hint?`<p class="text-[10px] text-slate-400 mt-1 pl-6">${a.hint}</p>`:""}
+    </div>`).join("");
+  return `
+    <div class="py-2">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[11px] font-bold text-slate-600">各種加算（1人1日あたり）</span>
+        <span class="text-[11px] font-black text-emerald-700 tabular" id="addonSum">+0 単位</span>
+      </div>
+      <div class="space-y-2">${rows}</div>
+      <p class="text-[10px] text-slate-400 mt-2 leading-snug">「% 対象」＝ 利用者のうち当該加算を算定できる割合。加算合計単位数＝Σ(単位数 × 対象率)</p>
+    </div>`;
+}
+
+function buildSidebar(){
+  const html = SECTIONS.map(sec=>{
+    const ac = ACCENT[sec.accent];
+    const body = (sec.addons ? addonsHTML() : "") + sec.fields.map(fieldHTML).join("");
+    return `
+      <details ${sec.open?"open":""} class="rounded-xl border border-slate-200 overflow-hidden bg-white">
+        <summary class="flex items-center gap-2 px-3 py-2.5 ${ac.bg} select-none">
+          <span class="chev text-slate-400 text-[10px]">▶</span>
+          <span class="text-sm">${sec.icon}</span>
+          <span class="text-[12px] font-bold ${ac.text}">${sec.title}</span>
+        </summary>
+        <div class="px-3 pb-3 pt-1 divide-y divide-slate-100">${body}</div>
+      </details>`;
+  }).join("");
+  document.getElementById("sidebarBody").innerHTML = html;
+}
+
+/* =========================================================
+   3. 値の初期化・取得
+   ========================================================= */
+const ALL_FIELDS = SECTIONS.flatMap(s=>s.fields);
+let unitPriceManual = false;
+
+function setDefaults(saved){
+  ALL_FIELDS.forEach(f=>{
+    const v = (saved && saved[f.id] !== undefined) ? saved[f.id] : f.def;
+    const el = document.getElementById("f_"+f.id);
+    if(!el) return;
+    el.value = v;
+    const r = document.getElementById("r_"+f.id);
+    if(r) r.value = v;
+  });
+  ADDON_DEFS.forEach(a=>{
+    const s = saved && saved.addons ? saved.addons[a.id] : null;
+    document.getElementById("ad_on_"+a.id).checked = s ? s.on : a.on;
+    document.getElementById("ad_u_"+a.id).value    = s ? s.units : a.units;
+    document.getElementById("ad_r_"+a.id).value    = s ? s.rate : a.rate;
+  });
+  unitPriceManual = saved ? !!saved.unitPriceManual : false;
+}
+
+function num(id){
+  const el = document.getElementById("f_"+id);
+  const v = parseFloat(el.value);
+  return isFinite(v) ? v : 0;
+}
+
+function readState(){
+  const s = {};
+  ALL_FIELDS.forEach(f=>{
+    s[f.id] = (f.type==="select") ? document.getElementById("f_"+f.id).value : num(f.id);
+  });
+  s.addons = {};
+  ADDON_DEFS.forEach(a=>{
+    s.addons[a.id] = {
+      on: document.getElementById("ad_on_"+a.id).checked,
+      units: parseFloat(document.getElementById("ad_u_"+a.id).value)||0,
+      rate: parseFloat(document.getElementById("ad_r_"+a.id).value)||0
+    };
+  });
+  s.unitPriceManual = unitPriceManual;
+  return s;
+}
+
+/* =========================================================
+   4. 計算ロジック
+   ========================================================= */
+function calc(s){
+  // --- 加算合計単位（1人1日）
+  let addonUnits = 0;
+  ADDON_DEFS.forEach(a=>{
+    const v = s.addons[a.id];
+    if(v.on) addonUnits += v.units * (v.rate/100);
+  });
+
+  const unitPrice = s.unitPrice;
+  const unitsPerUserDay = s.baseUnits + addonUnits;                 // 単位/人日
+  // 実質の報酬回収率（公費給付分＋利用者負担分の実収）
+  const collectRate = (s.publicRatio/100) + (1 - s.publicRatio/100) * (s.userCollect/100);
+
+  const grossPerUserDay = unitsPerUserDay * unitPrice;              // 総報酬額 円/人日
+  const netPerUserDay   = grossPerUserDay * collectRate;            // 実収入 円/人日
+  const revPerUserDay   = netPerUserDay + s.jippiPerDay;            // 実費徴収込み 円/人日
+
+  // --- 変動費（円/人日）
+  const varPerUserDay = s.snackCost + s.teachCost + s.fuelCost + s.otherVar;
+
+  // --- 固定費
+  const baseLabor = s.jhkSalary + s.fullCount * s.fullSalary + s.partHourly * s.partHours + s.bonusMonthly;
+  const welfare   = baseLabor * (s.welfareRate/100);
+  const laborCost = baseLabor + welfare;
+  const propertyCost = s.rent + s.utilities + s.comm + s.adv + s.vehicleFixed + s.otherFixed;
+  const fixedCost = laborCost + propertyCost;
+
+  // --- 固定的な収入（稼働率に依存しない）
+  const fixedIncome = s.miscMonthly + s.monthlyAddUnits * unitPrice * collectRate;
+
+  const maxUsers = s.capacity * s.bizDays;                          // 満床時の月間延べ人数
+  const contribPerUserDay = revPerUserDay - varPerUserDay;          // 限界利益 円/人日
+
+  // --- 損益分岐点
+  const needFixed = fixedCost - fixedIncome;
+  let bepUsers = (contribPerUserDay > 0) ? needFixed / contribPerUserDay : Infinity;
+  if(needFixed <= 0) bepUsers = 0;
+  const bepRate = maxUsers > 0 ? (bepUsers / maxUsers) * 100 : Infinity;
+  const bepUsersPerDay = s.bizDays > 0 ? bepUsers / s.bizDays : Infinity;
+
+  const at = (ratePct) => {
+    const users = maxUsers * (ratePct/100);
+    const revenue = revPerUserDay * users + fixedIncome;
+    const varCost = varPerUserDay * users;
+    const total = fixedCost + varCost;
+    return {ratePct, users, revenue, varCost, total, profit: revenue - total,
+            margin: revenue>0 ? (revenue-total)/revenue*100 : 0};
+  };
+
+  const cur = at(s.util);
+  const marginRate = revPerUserDay>0 ? contribPerUserDay/revPerUserDay*100 : 0;
+  const safety = cur.revenue>0 && isFinite(bepRate) ? (s.util - bepRate)/(s.util||1)*100 : NaN;
+
+  return {
+    addonUnits, unitPrice, unitsPerUserDay, collectRate,
+    grossPerUserDay, netPerUserDay, revPerUserDay, varPerUserDay,
+    baseLabor, welfare, laborCost, propertyCost, fixedCost, fixedIncome,
+    maxUsers, contribPerUserDay, bepUsers, bepRate, bepUsersPerDay,
+    cur, at, marginRate, safety,
+    laborRate: cur.revenue>0 ? laborCost/cur.revenue*100 : 0,
+    flRate: cur.revenue>0 ? (laborCost + cur.varCost)/cur.revenue*100 : 0,
+    s
+  };
+}
+
+/* =========================================================
+   5. 表示ユーティリティ
+   ========================================================= */
+const yen  = n => (isFinite(n)? Math.round(n).toLocaleString("ja-JP") : "—");
+const yenS = n => (isFinite(n)? (n<0?"−":"") + Math.abs(Math.round(n)).toLocaleString("ja-JP") : "—");
+const pct  = (n,d=1) => (isFinite(n)? n.toFixed(d) : "—");
+const man  = n => (isFinite(n)? (n/10000).toFixed(1)+"万" : "—");
+
+/* =========================================================
+   6. チャート
+   ========================================================= */
+let bepChart, costChart, axisMode = "rate";
+
+const markerPlugin = {
+  id:"markerPlugin",
+  afterDatasetsDraw(chart, args, opts){
+    const o = chart.options.plugins.markers;
+    if(!o) return;
+    const {ctx, chartArea:{top,bottom}, scales:{x}} = chart;
+    (o.lines||[]).forEach(m=>{
+      if(!isFinite(m.value)) return;
+      const px = x.getPixelForValue(m.value);
+      if(px < x.left - 1 || px > x.right + 1) return;
+      ctx.save();
+      ctx.beginPath(); ctx.setLineDash(m.dash||[5,4]);
+      ctx.strokeStyle = m.color; ctx.lineWidth = m.width||1.5;
+      ctx.moveTo(px, top); ctx.lineTo(px, bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = m.color;
+      ctx.font = "bold 10px 'Noto Sans JP', sans-serif";
+      ctx.textAlign = px > (x.left+x.right)/2 ? "right" : "left";
+      ctx.fillText(m.label, px + (px > (x.left+x.right)/2 ? -6 : 6), top + (m.offset||12));
+      ctx.restore();
+    });
+  }
+};
+Chart.register(markerPlugin);
+
+function buildChart(){
+  const ctx = document.getElementById("bepChart");
+  bepChart = new Chart(ctx, {
+    type:"line",
+    data:{datasets:[
+      {label:"総収入", data:[], borderColor:"#059669", backgroundColor:"rgba(5,150,105,.08)",
+       borderWidth:3, pointRadius:0, fill:true, tension:0, order:3},
+      {label:"総コスト", data:[], borderColor:"#e11d48", backgroundColor:"rgba(225,29,72,.06)",
+       borderWidth:3, pointRadius:0, fill:false, tension:0, order:2},
+      {label:"固定費", data:[], borderColor:"#94a3b8", borderWidth:2, borderDash:[6,4],
+       pointRadius:0, fill:false, tension:0, order:1},
+      {label:"損益分岐点", data:[], type:"scatter", backgroundColor:"#4f46e5", borderColor:"#fff",
+       borderWidth:3, pointRadius:9, pointHoverRadius:11, order:0}
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:"index", intersect:false},
+      scales:{
+        x:{type:"linear", title:{display:true, text:"稼働率（%）", font:{size:11, weight:"bold"}, color:"#64748b"},
+           grid:{color:"#f1f5f9"}, ticks:{color:"#94a3b8", font:{size:10},
+             callback:v=> axisMode==="rate" ? v+"%" : v.toLocaleString("ja-JP")}},
+        y:{title:{display:true, text:"金額（円）", font:{size:11, weight:"bold"}, color:"#64748b"},
+           grid:{color:"#f1f5f9"}, ticks:{color:"#94a3b8", font:{size:10},
+             callback:v=> (v/10000).toLocaleString("ja-JP")+"万"}}
+      },
+      plugins:{
+        legend:{position:"top", align:"end", labels:{boxWidth:14, boxHeight:3, usePointStyle:false, font:{size:11, weight:"bold"}, color:"#475569"}},
+        tooltip:{
+          backgroundColor:"rgba(15,23,42,.92)", padding:10, cornerRadius:8, titleFont:{size:11}, bodyFont:{size:11},
+          callbacks:{
+            title:items=> axisMode==="rate" ? `稼働率 ${items[0].parsed.x}%` : `延べ ${Math.round(items[0].parsed.x).toLocaleString("ja-JP")} 人日`,
+            label:c=> `${c.dataset.label}: ${Math.round(c.parsed.y).toLocaleString("ja-JP")} 円`
+          }
+        },
+        markers:{lines:[]}
+      }
+    }
+  });
+
+  costChart = new Chart(document.getElementById("costChart"), {
+    type:"doughnut",
+    data:{labels:[], datasets:[{data:[], backgroundColor:["#4f46e5","#0ea5e9","#f59e0b","#10b981","#f43f5e"], borderWidth:2, borderColor:"#fff"}]},
+    options:{responsive:true, maintainAspectRatio:false, cutout:"62%",
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:c=>`${c.label}: ${Math.round(c.parsed).toLocaleString("ja-JP")} 円`}}}}
+  });
+}
+
+/* =========================================================
+   7. 更新
+   ========================================================= */
+function update(){
+  const s = readState();
+  const m = calc(s);
+
+  /* --- ヘッダ --- */
+  document.getElementById("hdrUtil").innerHTML = pct(s.util) + '<span class="text-sm">%</span>';
+  document.getElementById("hdrUsers").textContent = Math.round(m.cur.users).toLocaleString("ja-JP") + " 人日";
+  document.getElementById("addonSum").textContent = "+" + m.addonUnits.toFixed(1) + " 単位";
+
+  /* --- BEP KPI --- */
+  const reachable = isFinite(m.bepRate) && m.bepRate <= 100;
+  document.getElementById("kpiBepRate").textContent = isFinite(m.bepRate) ? pct(m.bepRate) : "—";
+  document.getElementById("kpiBepRateNote").textContent =
+    !isFinite(m.bepUsers) ? "限界利益がマイナスのため、稼働率を上げても黒字化しません"
+    : (m.maxUsers <= 0 ? "利用定員と営業日数を1以上に設定してください"
+    : (m.bepRate > 100 ? "満床(100%)でも固定費を回収できません。条件の見直しが必要です"
+    : (s.util >= m.bepRate ? `現在の稼働率は分岐点を ${pct(s.util-m.bepRate)}pt 上回っています`
+                           : `黒字化まであと ${pct(m.bepRate-s.util)}pt の稼働率アップが必要です`)));
+
+  document.getElementById("kpiBepUsers").textContent = isFinite(m.bepUsersPerDay) ? m.bepUsersPerDay.toFixed(1) : "—";
+  document.getElementById("kpiBepUsersNote").textContent =
+    `定員 ${s.capacity} 名に対して ${isFinite(m.bepUsersPerDay)? "1日平均 "+m.bepUsersPerDay.toFixed(1)+" 名（月間延べ "+Math.ceil(m.bepUsers).toLocaleString("ja-JP")+" 人日）" : "算出不可（限界利益がマイナス、または営業日数が0）"}`;
+
+  /* --- 利益カード --- */
+  const p = m.cur.profit;
+  const card = document.getElementById("kpiProfitCard");
+  card.className = "md:col-span-1 rounded-2xl p-5 shadow-sm border " +
+    (p >= 0 ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200");
+  const pe = document.getElementById("kpiProfit");
+  pe.textContent = yenS(p);
+  pe.className = "text-4xl font-black leading-none tabular " + (p>=0 ? "text-emerald-700" : "text-rose-700");
+  document.getElementById("kpiProfitRate").textContent = pct(m.cur.margin) + "%";
+  document.getElementById("kpiProfitYear").textContent = yenS(p*12) + " 円";
+
+  /* --- サブKPI --- */
+  document.getElementById("kpiRevenue").textContent = yen(m.cur.revenue) + " 円";
+  document.getElementById("kpiRevenueSub").textContent =
+    `給付+利用者負担 ${man(m.netPerUserDay*m.cur.users + m.fixedIncome)}円 / 実費 ${man(s.jippiPerDay*m.cur.users)}円`;
+  document.getElementById("kpiCost").textContent = yen(m.cur.total) + " 円";
+  document.getElementById("kpiCostSub").textContent = `固定 ${man(m.fixedCost)}円 / 変動 ${man(m.cur.varCost)}円`;
+  document.getElementById("kpiArpu").textContent = yen(m.revPerUserDay) + " 円";
+  document.getElementById("kpiArpuSub").textContent =
+    `${m.unitsPerUserDay.toFixed(1)} 単位 × ${m.unitPrice.toFixed(2)} 円 × 実収率 ${pct(m.collectRate*100)}%`;
+  document.getElementById("kpiLabor").textContent = pct(m.laborRate) + "%";
+  document.getElementById("kpiLaborSub").textContent = `人件費 ${man(m.laborCost)}円（法定福利込）`;
+  document.getElementById("kpiFl").textContent = pct(m.flRate) + "%";
+  document.getElementById("kpiSafety").textContent = isFinite(m.safety) ? pct(m.safety)+"%" : "—";
+  document.getElementById("kpiSafetySub").textContent = `限界利益率 ${pct(m.marginRate)}%`;
+
+  const flEl = document.getElementById("kpiFl");
+  flEl.className = "mt-1 text-lg font-black tabular " + (m.flRate<=75 ? "text-emerald-700" : m.flRate<=85 ? "text-amber-600" : "text-rose-600");
+  const safeEl = document.getElementById("kpiSafety");
+  safeEl.className = "mt-1 text-lg font-black tabular " + (m.safety>=20 ? "text-emerald-700" : m.safety>=0 ? "text-amber-600" : "text-rose-600");
+
+  /* --- グラフ --- */
+  const steps = [];
+  for(let r=0; r<=100; r+=2) steps.push(r);
+  const xOf = r => axisMode==="rate" ? r : m.maxUsers*(r/100);
+  const rev = steps.map(r=>({x:xOf(r), y:m.at(r).revenue}));
+  const tot = steps.map(r=>({x:xOf(r), y:m.at(r).total}));
+  const fix = steps.map(r=>({x:xOf(r), y:m.fixedCost}));
+  bepChart.data.datasets[0].data = rev;
+  bepChart.data.datasets[1].data = tot;
+  bepChart.data.datasets[2].data = fix;
+  bepChart.data.datasets[3].data = (reachable && m.bepRate>=0)
+    ? [{x:xOf(m.bepRate), y:m.at(m.bepRate).total}] : [];
+  bepChart.options.scales.x.title.text = axisMode==="rate" ? "稼働率（%）" : "月間 延べ利用者数（人日）";
+  bepChart.options.scales.x.max = axisMode==="rate" ? 100 : Math.max(m.maxUsers, 1);
+  bepChart.options.scales.x.min = 0;
+  bepChart.options.plugins.markers.lines = [
+    {value: xOf(s.util), color:"#4f46e5", label:"現在 "+pct(s.util)+"%", dash:[4,3], offset:14},
+    reachable ? {value: xOf(m.bepRate), color:"#0f172a", label:"BEP "+pct(m.bepRate)+"%", dash:[2,3], offset:30} : null
+  ].filter(Boolean);
+  bepChart.update("none");
+
+  const msg = document.getElementById("bepMsg");
+  if(!isFinite(m.bepUsers)){
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-200";
+    msg.innerHTML = `<b>⚠ 構造的赤字：</b>1人1日あたりの限界利益が ${yenS(m.contribPerUserDay)} 円（マイナス）です。単価または変動費の見直しが必要です。`;
+  } else if(m.maxUsers <= 0){
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200";
+    msg.innerHTML = `<b>⚠ 入力を確認してください：</b>利用定員または営業日数が0のため、稼働率ベースの損益分岐点を算出できません（必要な月間延べ人数は <b>${Math.ceil(m.bepUsers).toLocaleString("ja-JP")} 人日</b>）。`;
+  } else if(m.bepRate > 100){
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-200";
+    msg.innerHTML = `<b>⚠ 定員超過ライン：</b>損益分岐に必要な延べ人数は <b>${Math.ceil(m.bepUsers).toLocaleString("ja-JP")} 人日</b>で、満床時 ${m.maxUsers.toLocaleString("ja-JP")} 人日を上回ります。固定費 ${yen(m.fixedCost)} 円の圧縮、加算取得、定員増をご検討ください。`;
+  } else {
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-slate-50 text-slate-600 border border-slate-200";
+    msg.innerHTML = `損益分岐点は <b class="text-brand-700">稼働率 ${pct(m.bepRate)}%（1日あたり ${m.bepUsersPerDay.toFixed(1)} 名 / 月間延べ ${Math.ceil(m.bepUsers).toLocaleString("ja-JP")} 人日）</b>。
+      限界利益 <b>${yen(m.contribPerUserDay)} 円/人日</b>、限界利益率 <b>${pct(m.marginRate)}%</b> のため、
+      利用が1人日増えるごとに利益が <b>${yen(m.contribPerUserDay)} 円</b>改善します。`;
+  }
+
+  /* --- コスト構成 --- */
+  const parts = [
+    ["人件費（法定福利込）", m.laborCost],
+    ["家賃・共益費", s.rent],
+    ["その他固定費", m.propertyCost - s.rent],
+    ["変動費", m.cur.varCost]
+  ];
+  costChart.data.labels = parts.map(p=>p[0]);
+  costChart.data.datasets[0].data = parts.map(p=>p[1]);
+  costChart.update("none");
+  const totalCost = m.cur.total || 1;
+  document.getElementById("costLegend").innerHTML = parts.map((p,i)=>`
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${costChart.data.datasets[0].backgroundColor[i]}"></span>
+        <span class="text-slate-600 truncate">${p[0]}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0 tabular">
+        <span class="font-bold text-slate-800">${yen(p[1])}円</span>
+        <span class="text-slate-400 w-10 text-right">${(p[1]/totalCost*100).toFixed(1)}%</span>
+      </div>
+    </div>`).join("");
+
+  /* --- 感度分析テーブル --- */
+  const rates = [50,60,70,80,90,100];
+  if(!rates.some(r => Math.abs(r - s.util) < 1e-9)) rates.push(s.util);
+  rates.sort((a,b)=>a-b);
+  document.getElementById("sensBody").innerHTML = rates.map(r=>{
+    const row = m.at(r);
+    const isCur = Math.abs(r - s.util) < 1e-9;
+    const ok = row.profit >= 0;
+    return `<tr class="border-b border-slate-100 ${isCur?"bg-brand-50 font-bold":""}">
+      <td class="py-2 px-2 ${isCur?"text-brand-700":"text-slate-700"} font-bold">
+        ${pct(r)}%${isCur?'<span class="ml-1 text-[9px] bg-brand-600 text-white px-1.5 py-0.5 rounded-full align-middle">現在</span>':''}
+      </td>
+      <td class="text-right py-2 px-2 text-slate-600">${Math.round(row.users).toLocaleString("ja-JP")}</td>
+      <td class="text-right py-2 px-2 text-slate-800">${yen(row.revenue)}</td>
+      <td class="text-right py-2 px-2 text-slate-500">${yen(m.fixedCost)}</td>
+      <td class="text-right py-2 px-2 text-slate-500">${yen(row.varCost)}</td>
+      <td class="text-right py-2 px-2 text-slate-800">${yen(row.total)}</td>
+      <td class="text-right py-2 px-2 font-bold ${ok?"text-emerald-700":"text-rose-600"}">${yenS(row.profit)}</td>
+      <td class="text-right py-2 px-2 ${ok?"text-emerald-700":"text-rose-600"}">${pct(row.margin)}%</td>
+    </tr>`;
+  }).join("");
+
+  /* --- P/L 明細 --- */
+  const line = (l,v,strong) => `<div class="flex justify-between py-1 ${strong?"border-t border-slate-200 mt-1 pt-1.5 font-bold text-slate-900":"text-slate-600"}">
+      <span class="pr-2">${l}</span><span class="tabular whitespace-nowrap">${yenS(v)} 円</span></div>`;
+  const givingIncome = m.netPerUserDay * m.cur.users;
+  document.getElementById("plIncome").innerHTML =
+    line(`給付費・利用者負担（${m.unitsPerUserDay.toFixed(1)}単位 × ${Math.round(m.cur.users).toLocaleString("ja-JP")}人日）`, givingIncome) +
+    line("月額加算・その他報酬", m.fixedIncome - s.miscMonthly) +
+    line(`実費徴収（${yen(s.jippiPerDay)}円 × ${Math.round(m.cur.users).toLocaleString("ja-JP")}人日）`, s.jippiPerDay*m.cur.users) +
+    line("その他雑収入", s.miscMonthly) +
+    line("収入合計", m.cur.revenue, true);
+  document.getElementById("plFixed").innerHTML =
+    line("児発管 人件費", s.jhkSalary) +
+    line(`常勤スタッフ（${s.fullCount}名）`, s.fullCount*s.fullSalary) +
+    line(`非常勤（${s.partHours}h × ${yen(s.partHourly)}円）`, s.partHourly*s.partHours) +
+    line("賞与・退職金等 月按分", s.bonusMonthly) +
+    line(`法定福利費（${pct(s.welfareRate)}%）`, m.welfare) +
+    line("家賃・共益費", s.rent) +
+    line("水道光熱費", s.utilities) +
+    line("通信費・システム", s.comm) +
+    line("広告宣伝・採用費", s.adv) +
+    line("車両リース・保険等", s.vehicleFixed) +
+    line("その他固定費", s.otherFixed) +
+    line("固定費合計", m.fixedCost, true);
+  document.getElementById("plVar").innerHTML =
+    line("おやつ代", s.snackCost*m.cur.users) +
+    line("教材費・消耗品", s.teachCost*m.cur.users) +
+    line("送迎ガソリン・車両変動費", s.fuelCost*m.cur.users) +
+    line("その他変動費", s.otherVar*m.cur.users) +
+    line("変動費合計", m.cur.varCost, true) +
+    `<div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-2.5 text-[11px] space-y-1">
+       <div class="flex justify-between"><span class="text-slate-500">限界利益（円/人日）</span><span class="font-bold tabular">${yenS(m.contribPerUserDay)} 円</span></div>
+       <div class="flex justify-between"><span class="text-slate-500">限界利益率</span><span class="font-bold tabular">${pct(m.marginRate)}%</span></div>
+       <div class="flex justify-between"><span class="text-slate-500">月間 限界利益</span><span class="font-bold tabular">${yenS(m.contribPerUserDay*m.cur.users)} 円</span></div>
+     </div>`;
+}
+
+/* =========================================================
+   8. イベント配線
+   ========================================================= */
+function updateUnitPrice(){
+  if(unitPriceManual) return;
+  const grade = document.getElementById("f_grade").value;
+  const lr = num("laborRatio")/100;
+  const price = 10 * (1 + GRADE_RATES[grade] * lr);
+  const el = document.getElementById("f_unitPrice");
+  const rg = document.getElementById("r_unitPrice");
+  el.value = price.toFixed(2);
+  if(rg) rg.value = price.toFixed(2);
+}
+
+function wire(){
+  ALL_FIELDS.forEach(f=>{
+    const el = document.getElementById("f_"+f.id);
+    const rg = document.getElementById("r_"+f.id);
+    if(rg){
+      rg.addEventListener("input", ()=>{ el.value = rg.value; onChange(f.id); });
+    }
+    el.addEventListener("input", ()=>{
+      if(rg && f.type!=="select"){
+        let v = parseFloat(el.value);
+        if(isFinite(v)) rg.value = Math.min(f.max, Math.max(f.min, v));
+      }
+      onChange(f.id);
+    });
+    el.addEventListener("change", ()=>{
+      if(f.type!=="select"){
+        let v = parseFloat(el.value);
+        if(!isFinite(v)) v = f.def;      // 空欄・不正値は初期値に戻す
+        if(v < f.min) v = f.min;          // 下限のみ強制（上限はスライダー範囲外の入力も許容）
+        el.value = v;
+        if(rg) rg.value = Math.min(f.max, Math.max(f.min, v));
+      }
+      onChange(f.id);
+    });
+  });
+  ADDON_DEFS.forEach(a=>{
+    ["ad_on_","ad_u_","ad_r_"].forEach(p=>{
+      document.getElementById(p+a.id).addEventListener("input", update);
+      document.getElementById(p+a.id).addEventListener("change", update);
+    });
+  });
+  document.querySelectorAll(".axis-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      axisMode = b.dataset.axis;
+      document.querySelectorAll(".axis-btn").forEach(x=>{
+        const on = x.dataset.axis === axisMode;
+        x.className = "axis-btn px-3 py-1.5 text-[11px] font-bold rounded-md " + (on ? "bg-white shadow-sm text-brand-700" : "text-slate-500");
+      });
+      update();
+    });
+  });
+  document.getElementById("btnSave").addEventListener("click", ()=>{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(readState()));
+    flash("btnSave","保存しました ✓");
+  });
+  document.getElementById("btnReset").addEventListener("click", ()=>{
+    localStorage.removeItem(STORAGE_KEY);
+    unitPriceManual = false;
+    setDefaults(null);
+    updateUnitPrice();
+    update();
+    flash("btnReset","リセットしました");
+  });
+}
+
+function onChange(id){
+  if(id === "unitPrice") unitPriceManual = true;
+  if(id === "grade" || id === "laborRatio") updateUnitPrice();
+  update();
+}
+
+function flash(btnId, text){
+  const b = document.getElementById(btnId);
+  const old = b.textContent;
+  b.textContent = text;
+  setTimeout(()=>{ b.textContent = old; }, 1400);
+}
+
+/* =========================================================
+   9. 起動
+   ========================================================= */
+(function init(){
+  buildSidebar();
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch(e){ saved = null; }
+  setDefaults(saved);
+  wire();
+  if(!saved) updateUnitPrice();
+  buildChart();
+  update();
+})();
+</script>
+</body>
+</html>
