@@ -1,0 +1,3589 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shiftly 福祉 ｜ 障害福祉サービス事業所向け シフト組み立て支援</title>
+<style>
+/* ============================================================
+   デザイントークン
+   ============================================================ */
+:root{
+  --nav-1:#0d1526; --nav-2:#16223a; --nav-3:#1e2f4d;
+  --brand:#12b5a5; --brand-d:#0e9689; --brand-l:#e7f7f5; --brand-g:linear-gradient(135deg,#14b8a6,#0d9488);
+  --iris:#6366f1; --iris-l:#eef0ff;
+  --ok:#0f9d58; --ok-bg:#e8f6ee; --ok-bd:#b6e2c8;
+  --wn:#c47f0a; --wn-bg:#fdf4e3; --wn-bd:#f0dbaa;
+  --ng:#d63b30; --ng-bg:#fdedeb; --ng-bd:#f5c6c0;
+  --info:#2563eb; --info-bg:#eaf1fe; --info-bd:#c3d9fb;
+  --sf:#ffffff; --sf-2:#f8fafc; --sf-3:#f1f5f9;
+  --cv:#eef2f7;
+  --bd:#e2e8f0; --bd-s:#eef2f6;
+  --tx:#0f172a; --tx-2:#475569; --tx-3:#8494a8;
+  --sh-1:0 1px 2px rgba(15,23,42,.05);
+  --sh-2:0 2px 4px rgba(15,23,42,.05),0 8px 24px -8px rgba(15,23,42,.12);
+  --sh-3:0 12px 40px -12px rgba(15,23,42,.28);
+  --r:10px; --r-s:7px; --r-l:14px;
+  --rail:216px;
+  --ease:cubic-bezier(.4,0,.2,1);
+}
+html[data-theme="dark"]{
+  --sf:#141c2b; --sf-2:#1a2333; --sf-3:#202b3d;
+  --cv:#0d1420;
+  --bd:#2a3648; --bd-s:#232e3f;
+  --tx:#e8eef6; --tx-2:#a3b2c6; --tx-3:#71829a;
+  --brand-l:#0f2f2c; --iris-l:#1c1f3d;
+  --ok-bg:#0f2a1d; --ok-bd:#1e4c34;
+  --wn-bg:#2e2410; --wn-bd:#5a4514;
+  --ng-bg:#2f1614; --ng-bd:#5c2722;
+  --info-bg:#131f38; --info-bd:#24406e;
+  --sh-2:0 2px 4px rgba(0,0,0,.3),0 8px 24px -8px rgba(0,0,0,.5);
+  --sh-3:0 12px 40px -12px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Noto Sans JP","Meiryo",
+              -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--cv); color:var(--tx); font-size:13px; line-height:1.65;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  font-feature-settings:"palt" 1;
+}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+::selection{background:rgba(18,181,165,.25)}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:rgba(120,140,165,.32);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+*::-webkit-scrollbar-thumb:hover{background:rgba(120,140,165,.55);background-clip:padding-box}
+
+/* ============================================================
+   シェル
+   ============================================================ */
+.shell{display:flex;height:100vh;min-height:100vh;overflow:hidden}
+
+/* ---- サイドレール ---- */
+aside.rail{
+  width:var(--rail);flex:0 0 var(--rail);position:sticky;top:0;height:100vh;
+  background:linear-gradient(168deg,var(--nav-1) 0%,var(--nav-2) 62%,var(--nav-3) 100%);
+  display:flex;flex-direction:column;z-index:50;transition:width .22s var(--ease),flex-basis .22s var(--ease);
+  overflow:hidden;
+}
+aside.rail::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(680px 260px at -10% 0%,rgba(20,184,166,.18),transparent 60%);
+}
+body.mini{--rail:66px}
+.brand{display:flex;align-items:center;gap:11px;padding:17px 16px 15px;position:relative;z-index:1}
+.brand .mk{
+  width:34px;height:34px;flex:0 0 34px;border-radius:10px;background:var(--brand-g);
+  display:grid;place-items:center;box-shadow:0 4px 14px -3px rgba(20,184,166,.6);position:relative
+}
+.brand .mk svg{width:19px;height:19px}
+.brand .tx{min-width:0;white-space:nowrap;overflow:hidden}
+.brand .tx b{display:block;color:#fff;font-size:14.5px;letter-spacing:.03em;line-height:1.25}
+.brand .tx span{display:block;color:#7d9ec0;font-size:9.5px;letter-spacing:.13em;text-transform:uppercase}
+body.mini .brand .tx{display:none}
+
+.nav{padding:6px 10px;flex:1;position:relative;z-index:1;overflow-y:auto}
+.nav .grp{color:#5f7b9c;font-size:9.5px;letter-spacing:.14em;padding:14px 8px 5px;text-transform:uppercase}
+.navb{
+  display:flex;align-items:center;gap:11px;width:100%;border:0;background:none;cursor:pointer;
+  color:#a9c0d8;padding:9px 11px;border-radius:9px;font-size:12.5px;text-align:left;
+  transition:.16s var(--ease);position:relative;white-space:nowrap;margin-bottom:2px
+}
+.navb .ic{width:17px;height:17px;flex:0 0 17px;opacity:.85}
+.navb .lb{flex:1;min-width:0;overflow:hidden}
+body.mini .navb .lb,body.mini .navb .dot,body.mini .nav .grp{display:none}
+body.mini .navb{justify-content:center;padding:10px 0}
+.navb:hover{background:rgba(255,255,255,.07);color:#fff}
+.navb.on{background:rgba(20,184,166,.16);color:#fff;font-weight:600}
+.navb.on .ic{opacity:1;color:#2dd4bf}
+.navb.on::before{
+  content:'';position:absolute;left:-10px;top:50%;transform:translateY(-50%);
+  width:3px;height:19px;border-radius:0 3px 3px 0;background:var(--brand)
+}
+.navb .dot{
+  min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:var(--ng);color:#fff;
+  font-size:10px;line-height:19px;text-align:center;font-weight:700
+}
+.navb .dot.ok{background:rgba(255,255,255,.16);color:#9fb6cc}
+.rail-ft{padding:10px;position:relative;z-index:1;border-top:1px solid rgba(255,255,255,.08)}
+.rail-ft .navb{font-size:11.5px}
+
+/* ---- トップバー ---- */
+.main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+header.top{
+  height:58px;background:var(--sf);border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;gap:14px;padding:0 20px;position:sticky;top:0;z-index:40;
+  box-shadow:var(--sh-1)
+}
+.icobtn{
+  width:32px;height:32px;border:1px solid var(--bd);background:var(--sf);border-radius:8px;
+  display:grid;place-items:center;cursor:pointer;color:var(--tx-2);transition:.15s var(--ease);flex:0 0 auto
+}
+.icobtn:hover{background:var(--sf-3);color:var(--tx);border-color:var(--tx-3)}
+.icobtn svg{width:16px;height:16px}
+.crumb{display:flex;flex-direction:column;line-height:1.25;min-width:0}
+.crumb b{font-size:14.5px;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crumb span{font-size:10.5px;color:var(--tx-3)}
+.top-sp{flex:1}
+.mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+.mpick{
+  display:flex;align-items:center;border:1px solid var(--bd);border-radius:9px;overflow:hidden;
+  background:var(--sf);height:34px
+}
+.mpick button{
+  width:28px;height:100%;border:0;background:none;cursor:pointer;color:var(--tx-2);
+  display:grid;place-items:center;transition:.14s
+}
+.mpick button:hover{background:var(--sf-3);color:var(--brand)}
+.mpick .v{
+  padding:0 11px;font-size:13px;font-weight:700;letter-spacing:.02em;
+  border-left:1px solid var(--bd-s);border-right:1px solid var(--bd-s);cursor:pointer;
+  display:flex;align-items:center;height:100%
+}
+.mpick .v:hover{background:var(--sf-3)}
+.mpick input{position:absolute;opacity:0;width:0;height:0}
+
+.stat-pill{
+  display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;
+  font-size:11.5px;font-weight:700;white-space:nowrap
+}
+.stat-pill .bl{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px rgba(255,255,255,.18)}
+.stat-pill.ok{background:var(--ok-bg);color:var(--ok)}
+.stat-pill.ng{background:var(--ng-bg);color:var(--ng)}
+.stat-pill.wn{background:var(--wn-bg);color:var(--wn)}
+
+.scroll{flex:1;overflow:hidden;padding:11px 13px;min-height:0;display:flex;flex-direction:column}
+.wrap{max-width:1880px;margin:0 auto;width:100%;flex:1;min-height:0;display:flex;flex-direction:column}
+.page{display:none;flex:1;min-height:0}
+.page.on{display:flex;flex-direction:column;gap:9px;animation:fade .22s var(--ease)}
+
+/* ---- 画面を縦横に分割するレイアウト部品（ページ自体はスクロールしない） ---- */
+.split{display:flex;gap:9px;flex:1;min-height:0;min-width:0}
+.split.v{flex-direction:column}
+.cl{display:flex;flex-direction:column;gap:9px;min-width:0;min-height:0}
+.cl.g1{flex:1}.cl.g2{flex:2}.cl.g3{flex:3}.cl.g5{flex:5}
+.cl.fx260{flex:0 0 260px}.cl.fx300{flex:0 0 300px}.cl.fx340{flex:0 0 340px}
+.card.grow{flex:1;display:flex;flex-direction:column;min-height:0}
+.card.grow > .bd{flex:1;min-height:0;overflow:auto}
+.card.grow > .bd.p0{padding:0;overflow:hidden;display:flex;flex-direction:column}
+.card.grow > .bd.p0 > *{flex:0 0 auto}
+.card.grow > .bd.p0 > .sheetwrap,.card.grow > .bd.p0 > .tw.grow{flex:1 1 0;min-height:0}
+.card.shrink{flex:0 0 auto}
+.tw.grow{flex:1;min-height:0;border:0;border-radius:0}
+.scrolly{overflow:auto;min-height:0;flex:1}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ============================================================
+   カード・パネル
+   ============================================================ */
+.card{
+  background:var(--sf);border:1px solid var(--bd);border-radius:var(--r-l);
+  box-shadow:var(--sh-2);overflow:hidden
+}
+.card > .hd{
+  padding:8px 14px;border-bottom:1px solid var(--bd-s);display:flex;align-items:center;gap:10px;
+  background:linear-gradient(180deg,var(--sf-2),var(--sf));flex:0 0 auto
+}
+.card > .hd .ttl{font-size:13.5px;font-weight:700;letter-spacing:.01em}
+.card > .hd .sub{font-size:11px;color:var(--tx-3);margin-left:auto;text-align:right}
+.card > .hd .bar{width:3px;height:16px;border-radius:2px;background:var(--brand-g);flex:0 0 3px}
+.card > .bd{padding:13px 14px}
+.card.flat{box-shadow:none}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:13px}
+.g3{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:11px}
+.g4{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px}
+
+/* ---- セクション見出し ---- */
+.sect{
+  display:flex;align-items:center;gap:9px;font-size:11.5px;font-weight:700;color:var(--tx-2);
+  letter-spacing:.05em;margin:15px 0 9px
+}
+.sect:first-child{margin-top:0}
+.sect::after{content:'';flex:1;height:1px;background:var(--bd)}
+.sect .n{
+  width:19px;height:19px;border-radius:6px;background:var(--brand-l);color:var(--brand-d);
+  display:grid;place-items:center;font-size:10.5px;font-weight:800
+}
+
+/* ============================================================
+   フォーム
+   ============================================================ */
+.fld{margin-bottom:11px}
+.fld > label{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--tx-2);margin-bottom:6px}
+.fld .req{font-size:9px;background:var(--ng-bg);color:var(--ng);padding:0 5px;border-radius:4px;font-weight:800;letter-spacing:.04em}
+.fld .opt{font-size:9px;background:var(--sf-3);color:var(--tx-3);padding:0 5px;border-radius:4px;font-weight:700}
+.hint{font-size:10.5px;color:var(--tx-3);margin-top:5px;line-height:1.6}
+input[type=text],input[type=number],input[type=date],input[type=time],input[type=month],select,textarea{
+  width:100%;padding:8px 11px;border:1px solid var(--bd);border-radius:var(--r-s);
+  background:var(--sf);transition:.14s var(--ease);font-variant-numeric:tabular-nums
+}
+select{cursor:pointer;appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 8l3-3.5' stroke='%2394a3b8' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:12px;padding-right:28px}
+input:focus,select:focus,textarea:focus{outline:0;border-color:var(--brand);box-shadow:0 0 0 3.5px rgba(18,181,165,.16)}
+input:disabled{background:var(--sf-3);color:var(--tx-3)}
+.row{display:flex;gap:9px;align-items:center}
+.row > .f{flex:1;min-width:0}
+.row .u{flex:0 0 auto;color:var(--tx-3);font-size:11.5px;font-weight:600}
+
+/* ---- トグルスイッチ ---- */
+.sw{display:inline-flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
+.sw input{position:absolute;opacity:0;width:0;height:0}
+.sw .tr{
+  width:36px;height:20px;border-radius:11px;background:var(--bd);position:relative;
+  transition:.2s var(--ease);flex:0 0 36px
+}
+.sw .tr::after{
+  content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.28);transition:.2s var(--ease)
+}
+.sw input:checked + .tr{background:var(--brand)}
+.sw input:checked + .tr::after{transform:translateX(16px)}
+.sw input:focus-visible + .tr{box-shadow:0 0 0 3.5px rgba(18,181,165,.2)}
+.sw .lb{font-size:12px}
+
+/* ---- セグメント ---- */
+.seg{display:inline-flex;background:var(--sf-3);border-radius:9px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{
+  border:0;background:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:12px;
+  color:var(--tx-2);font-weight:600;transition:.15s var(--ease);white-space:nowrap
+}
+.seg button:hover{color:var(--tx)}
+.seg button.on{background:var(--sf);color:var(--tx);box-shadow:var(--sh-1);font-weight:700}
+.seg.full{display:flex;width:100%}
+.seg.full button{flex:1}
+
+/* ---- 曜日ピッカー ---- */
+.dowp{display:flex;gap:6px}
+.dowp button{
+  width:38px;height:38px;border-radius:10px;border:1px solid var(--bd);background:var(--sf);
+  cursor:pointer;font-size:12.5px;font-weight:700;color:var(--tx-3);transition:.15s var(--ease)
+}
+.dowp button:hover{border-color:var(--brand)}
+.dowp button.on{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 3px 10px -3px rgba(18,181,165,.65)}
+.dowp button.on.sun{background:#e0554b;border-color:#e0554b;box-shadow:0 3px 10px -3px rgba(224,85,75,.6)}
+.dowp button.on.sat{background:#3b82f6;border-color:#3b82f6;box-shadow:0 3px 10px -3px rgba(59,130,246,.6)}
+
+/* ---- ボタン ---- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  background:var(--nav-2);color:#fff;border:1px solid transparent;padding:8px 16px;border-radius:9px;
+  cursor:pointer;font-size:12.5px;font-weight:700;transition:.16s var(--ease);white-space:nowrap
+}
+.btn:hover{background:var(--nav-3);transform:translateY(-1px);box-shadow:var(--sh-2)}
+.btn:active{transform:none}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.btn svg{width:15px;height:15px}
+.btn.pri{background:var(--brand-g);box-shadow:0 4px 14px -5px rgba(18,181,165,.8)}
+.btn.pri:hover{filter:brightness(1.07);box-shadow:0 7px 20px -6px rgba(18,181,165,.85)}
+.btn.gh{background:var(--sf);color:var(--tx-2);border-color:var(--bd)}
+.btn.gh:hover{background:var(--sf-3);color:var(--tx);border-color:var(--tx-3)}
+.btn.dg{background:var(--sf);color:var(--ng);border-color:var(--ng-bd)}
+.btn.dg:hover{background:var(--ng-bg)}
+.btn.sm{padding:5px 11px;font-size:11.5px;border-radius:7px}
+.btn.lg{padding:12px 24px;font-size:14px;border-radius:11px}
+.btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+
+/* ---- バッジ ---- */
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:20px;font-size:10.5px;font-weight:800;line-height:17px;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.ng{background:var(--ng-bg);color:var(--ng)}
+.pill.wn{background:var(--wn-bg);color:var(--wn)}
+.pill.info{background:var(--info-bg);color:var(--info)}
+.pill.mute{background:var(--sf-3);color:var(--tx-3)}
+.pill.brand{background:var(--brand-l);color:var(--brand-d)}
+.chip{display:inline-block;padding:1px 7px;margin:1px 3px 1px 0;border-radius:5px;background:var(--sf-3);color:var(--tx-2);font-size:10px;line-height:17px;font-weight:600;white-space:nowrap}
+.chip.b{background:var(--brand-l);color:var(--brand-d)}
+.chip.i{background:var(--iris-l);color:var(--iris)}
+
+/* ============================================================
+   KPI / メトリクス
+   ============================================================ */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:8px;flex:0 0 auto}
+.kpi{
+  background:var(--sf);border:1px solid var(--bd);border-radius:var(--r-l);padding:9px 13px;
+  box-shadow:var(--sh-2);position:relative;overflow:hidden;display:flex;gap:11px;align-items:center
+}
+.kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--tx-3)}
+.kpi.ok::before{background:var(--ok)} .kpi.ng::before{background:var(--ng)}
+.kpi.wn::before{background:var(--wn)} .kpi.info::before{background:var(--info)}
+.kpi .txt{min-width:0;flex:1}
+.kpi .lb{font-size:10.5px;color:var(--tx-3);font-weight:700;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi .vl{font-size:21px;font-weight:800;line-height:1.2;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .vl small{font-size:12px;font-weight:700;color:var(--tx-3);margin-left:2px;letter-spacing:0}
+.kpi .df{font-size:10.5px;color:var(--tx-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi.ok .vl{color:var(--ok)} .kpi.ng .vl{color:var(--ng)} .kpi.wn .vl{color:var(--wn)}
+.ring{flex:0 0 40px;width:40px;height:40px;position:relative}
+.ring svg{transform:rotate(-90deg);width:40px;height:40px;display:block}
+.ring svg circle{transform:scale(.87);transform-origin:23px 23px}
+.ring circle{fill:none;stroke-width:4.5;stroke-linecap:round}
+.ring .bgc{stroke:var(--sf-3)}
+.ring .fg{transition:stroke-dashoffset .7s var(--ease)}
+.ring .pc{
+  position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-weight:800;
+  font-variant-numeric:tabular-nums
+}
+
+/* ============================================================
+   判定パネル
+   ============================================================ */
+.jd{border:1px solid var(--bd);border-radius:var(--r);margin-bottom:6px;background:var(--sf);overflow:hidden;transition:.18s var(--ease)}
+.jd:hover{border-color:var(--tx-3)}
+.jd .hd{display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:pointer;user-select:none}
+.jd.ok  {border-left:3px solid var(--ok)}
+.jd.ng  {border-left:3px solid var(--ng);background:linear-gradient(90deg,var(--ng-bg),var(--sf) 55%)}
+.jd.wn  {border-left:3px solid var(--wn);background:linear-gradient(90deg,var(--wn-bg),var(--sf) 55%)}
+.jd.mute{border-left:3px solid var(--bd)}
+.jd .nm{font-weight:700;font-size:12.5px;flex:1;min-width:0}
+.jd .un{font-size:11px;color:var(--tx-2);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.jd .cv{transition:transform .2s var(--ease);color:var(--tx-3);flex:0 0 auto}
+.jd.open .cv{transform:rotate(180deg)}
+.jd .bd{display:none;padding:0 14px 13px;border-top:1px dashed var(--bd);margin-top:2px;padding-top:11px}
+.jd.open .bd{display:block;animation:fade .2s var(--ease)}
+.kv{display:flex;gap:12px;padding:4px 0;font-size:11.5px;border-bottom:1px dotted var(--bd-s)}
+.kv:last-of-type{border:0}
+.kv .k{flex:0 0 200px;color:var(--tx-3)}
+.kv .v{flex:1;color:var(--tx-2);font-variant-numeric:tabular-nums}
+.act{
+  margin-top:10px;padding:9px 12px;background:var(--info-bg);border:1px solid var(--info-bd);
+  border-radius:var(--r-s);color:var(--info);font-size:11.5px;line-height:1.65
+}
+.act b{font-weight:800}
+.jd.ng .act{background:var(--ng-bg);border-color:var(--ng-bd);color:var(--ng)}
+
+/* ============================================================
+   テーブル
+   ============================================================ */
+.tw{overflow:auto;border:1px solid var(--bd);border-radius:var(--r);background:var(--sf)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:12px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--bd-s);text-align:left;vertical-align:middle}
+td.act,th.act{white-space:nowrap;text-align:right}
+td.act .btn{margin-left:4px}
+table.nw th,table.nw td{white-space:nowrap}
+thead th{
+  background:var(--sf-2);color:var(--tx-3);font-size:10.5px;font-weight:800;letter-spacing:.03em;
+  border-bottom:1px solid var(--bd);position:sticky;top:0;z-index:2;white-space:nowrap
+}
+tbody tr{transition:.12s}
+tbody tr:hover{background:var(--sf-2)}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   シフトグリッド
+   ============================================================ */
+.sheetwrap{overflow:auto;background:var(--sf);border-top:1px solid var(--bd);flex:1;min-height:0}
+table.sheet{border-collapse:separate;border-spacing:0;font-size:11.5px;width:auto;min-width:100%}
+table.sheet th,table.sheet td{padding:0;border-right:1px solid var(--bd-s);border-bottom:1px solid var(--bd-s)}
+table.sheet thead th{background:var(--sf-2);position:sticky;top:0;z-index:3;height:24px;font-size:10.5px;text-align:center;padding:0 2px;font-weight:700}
+table.sheet thead tr.r2 th{top:24px;height:20px;font-size:9.5px}
+table.sheet .stick{position:sticky;left:0;z-index:4;background:var(--sf);border-right:1px solid var(--bd)}
+table.sheet tr.st td.stick{z-index:7;box-shadow:1px 0 0 var(--bd)}
+table.sheet tr.st td{box-shadow:0 -1px 0 var(--bd-s)}
+table.sheet tr.st.big td{box-shadow:0 -1px 0 var(--bd)}
+table.sheet thead th.stick{z-index:6;background:var(--sf-2)}
+td.nm{
+  min-width:132px;max-width:132px;padding:2px 9px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;cursor:pointer;transition:.12s
+}
+td.nm:hover{background:var(--brand-l)}
+td.nm b{font-size:11.5px;font-weight:700;display:block;line-height:1.3}
+td.nm .s{font-size:9.5px;color:var(--tx-3);display:block;line-height:1.2}
+th.dc,td.dc{width:28px;min-width:28px;max-width:28px;text-align:center}
+th.dc.sat,td.dc.sat{background:rgba(59,130,246,.07)}
+th.dc.sun,td.dc.sun{background:rgba(224,85,75,.07)}
+th.dc.cl,td.dc.cl{background:var(--sf-3)}
+th.dc.td{box-shadow:inset 0 -2px 0 var(--brand)}
+td.cell{cursor:pointer;height:26px;font-weight:700;font-size:11px;user-select:none;position:relative;text-align:center;transition:.1s}
+td.cell:hover{box-shadow:inset 0 0 0 2px var(--brand);z-index:2}
+td.cell.wish::after{content:'';position:absolute;top:0;right:0;border-style:solid;border-width:0 6px 6px 0;border-color:transparent #e89b2d transparent transparent}
+td.cell.wishw::after{border-color:transparent #10b981 transparent transparent}
+td.cell.fx::before{content:'';position:absolute;bottom:1.5px;left:1.5px;width:4px;height:4px;border-radius:50%;background:var(--iris)}
+td.sm{width:40px;min-width:40px;text-align:center;font-size:10.5px;font-variant-numeric:tabular-nums;background:var(--sf-2);color:var(--tx-2)}
+td.sm.bad{background:var(--ng-bg);color:var(--ng);font-weight:800}
+td.sm.b{font-weight:700;color:var(--tx)}
+tr.st td{background:var(--sf-2);font-size:10.5px;text-align:center;font-weight:700;height:22px;color:var(--tx-2);position:sticky;z-index:5}
+tr.st td.lb{text-align:left;padding:0 9px;font-size:10.5px;color:var(--tx-3);font-weight:700}
+tr.st td.sh{background:var(--ng-bg);color:var(--ng)}
+tr.st td.ex{background:var(--wn-bg);color:var(--wn)}
+tr.st td.gd{color:var(--ok);font-weight:800}
+tr.st td.vs{background:#e9d5ff;color:#4c1d95;font-weight:800}
+tr.st.big td{height:24px;font-size:11.5px;font-weight:800}
+tr.st.big td.lb{font-size:10.5px}
+tr.st.big td.sh{background:var(--ng);color:#fff}
+tr.gap td{height:6px;background:var(--cv);border:0;padding:0;position:sticky;z-index:5}
+tr.rl td{background:var(--sf-3);font-size:10px;font-weight:800;color:var(--tx-3);height:19px;padding:0 9px;letter-spacing:.05em}
+
+/* パレット */
+.pal{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:11px 16px;background:var(--sf-2);border-bottom:1px solid var(--bd)}
+.pal .lb{font-size:11px;color:var(--tx-3);font-weight:700;margin-right:3px}
+.pb{
+  border:1px solid var(--bd);background:var(--sf);border-radius:8px;padding:4px 10px;cursor:pointer;
+  font-size:12px;font-weight:800;min-width:42px;text-align:center;transition:.14s var(--ease);line-height:1.25
+}
+.pb:hover{border-color:var(--brand);transform:translateY(-1px)}
+.pb .t{font-size:8.5px;font-weight:500;color:var(--tx-3);display:block;line-height:1.15}
+.pb.on{box-shadow:0 0 0 2px var(--brand),0 4px 10px -4px rgba(18,181,165,.7);border-color:var(--brand)}
+
+/* 進捗 */
+.prog{padding:0 16px 12px;display:none}
+.prog.on{display:block;animation:fade .2s}
+.prog .bar{height:7px;background:var(--sf-3);border-radius:4px;overflow:hidden;position:relative}
+.prog .bar i{display:block;height:100%;background:var(--brand-g);width:0;transition:width .1s linear;border-radius:4px}
+.prog .bar::after{
+  content:'';position:absolute;inset:0;border-radius:4px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);
+  animation:sweep 1.1s infinite
+}
+@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.prog .tx{font-size:11.5px;color:var(--tx-2);margin-top:6px;font-variant-numeric:tabular-nums;display:flex;gap:12px}
+
+/* ============================================================
+   その他
+   ============================================================ */
+.note{
+  background:var(--wn-bg);border:1px solid var(--wn-bd);border-radius:var(--r);
+  padding:9px 12px;font-size:11.5px;color:var(--tx-2);margin-bottom:11px;line-height:1.65
+}
+.note b{color:var(--tx)}
+.note.i{background:var(--info-bg);border-color:var(--info-bd)}
+.note.o{background:var(--ok-bg);border-color:var(--ok-bd)}
+.note.d{background:var(--ng-bg);border-color:var(--ng-bd)}
+.empty{padding:44px 20px;text-align:center;color:var(--tx-3);font-size:12.5px}
+.empty .ic{font-size:30px;opacity:.35;display:block;margin-bottom:8px}
+
+/* 選択カード */
+.pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:11px}
+.pk{
+  border:1.5px solid var(--bd);border-radius:var(--r);padding:9px 12px;cursor:pointer;
+  background:var(--sf);transition:.16s var(--ease);position:relative;overflow:hidden;text-align:left
+}
+.pk:hover{border-color:var(--brand);transform:translateY(-2px);box-shadow:var(--sh-2)}
+.pk.on{border-color:var(--brand);background:var(--brand-l)}
+.pk.on::after{
+  content:'✓';position:absolute;top:9px;right:11px;color:#fff;background:var(--brand);
+  width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800
+}
+.pk .t{font-size:12.5px;font-weight:800;margin-bottom:3px;padding-right:22px}
+.pk .d{font-size:10px;color:var(--tx-3);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pk.on .d{color:var(--tx-2)}
+
+/* 加算カード */
+.kc{
+  border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;background:var(--sf);
+  transition:.16s var(--ease);position:relative
+}
+.kc:hover{box-shadow:var(--sh-2)}
+.kc.on{border-color:var(--brand);background:linear-gradient(180deg,var(--brand-l),var(--sf) 70%)}
+.kc.avail{border-color:var(--wn-bd)}
+.kc .top{display:flex;align-items:flex-start;gap:9px;margin-bottom:5px}
+.kc .t{font-size:12px;font-weight:800;flex:1;line-height:1.45}
+.kc .d{font-size:10.5px;color:var(--tx-3);line-height:1.6}
+.kc .ft{margin-top:8px;display:flex;align-items:center;gap:7px}
+
+/* モーダル */
+.mbg{position:fixed;inset:0;background:rgba(9,15,25,.55);backdrop-filter:blur(3px);z-index:200;display:none;align-items:flex-start;justify-content:center;padding:44px 16px;overflow:auto}
+.mbg.on{display:flex;animation:fade .18s}
+.modal{background:var(--sf);border-radius:16px;width:100%;max-width:700px;box-shadow:var(--sh-3);border:1px solid var(--bd);animation:pop .22s var(--ease)}
+@keyframes pop{from{opacity:0;transform:scale(.96) translateY(10px)}to{opacity:1;transform:none}}
+.modal .mh{padding:16px 22px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:10px}
+.modal .mh b{font-size:15px}
+.modal .mb{padding:20px 22px;max-height:66vh;overflow:auto}
+.modal .mf{padding:14px 22px;border-top:1px solid var(--bd);display:flex;gap:9px;justify-content:flex-end;background:var(--sf-2);border-radius:0 0 16px 16px}
+
+/* トースト */
+.toast{
+  position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(90px);
+  background:var(--nav-1);color:#fff;padding:12px 20px;border-radius:11px;font-size:12.5px;
+  z-index:300;opacity:0;transition:.28s var(--ease);box-shadow:var(--sh-3);max-width:88vw;
+  display:flex;align-items:center;gap:10px;border:1px solid rgba(255,255,255,.1)
+}
+.toast.on{transform:translateX(-50%) translateY(0);opacity:1}
+.toast .d{width:8px;height:8px;border-radius:50%;background:var(--brand);flex:0 0 8px}
+.toast.ng .d{background:#f87171}
+.toast.wn .d{background:#fbbf24}
+
+/* カレンダー（希望休） */
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .h{text-align:center;font-size:10px;color:var(--tx-3);font-weight:800;padding:3px 0}
+.cal .c{
+  border:1px solid var(--bd);border-radius:8px;padding:6px 0 4px;text-align:center;cursor:pointer;
+  transition:.14s var(--ease);background:var(--sf)
+}
+.cal .c:hover{border-color:var(--brand)}
+.cal .c.cl{background:var(--sf-3);color:var(--tx-3);cursor:default}
+.cal .c.off{background:var(--ng-bg);border-color:var(--ng-bd)}
+.cal .c.wk{background:var(--ok-bg);border-color:var(--ok-bd)}
+.cal .c .d{font-size:12px;font-weight:800;line-height:1.2}
+.cal .c .m{font-size:9px;height:12px;color:var(--tx-2);font-weight:700}
+
+/* セットアップ進捗 */
+.steps{display:flex;gap:0;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r-l);padding:4px;box-shadow:var(--sh-2);flex:0 0 auto}
+.step{
+  flex:1;display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:var(--r);
+  cursor:pointer;transition:.16s var(--ease);position:relative;min-width:0
+}
+.step:hover{background:var(--sf-2)}
+.step .no{
+  width:26px;height:26px;flex:0 0 26px;border-radius:50%;display:grid;place-items:center;
+  font-size:11.5px;font-weight:800;background:var(--sf-3);color:var(--tx-3);transition:.2s
+}
+.step.done .no{background:var(--ok);color:#fff}
+.step.cur .no{background:var(--brand-g);color:#fff;box-shadow:0 0 0 4px var(--brand-l)}
+.step .tx{min-width:0}
+.step .tx b{display:block;font-size:12px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .tx span{display:block;font-size:10px;color:var(--tx-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step.done .tx b{color:var(--ok)}
+.step + .step::before{content:'';position:absolute;left:-1px;top:22%;bottom:22%;width:1px;background:var(--bd)}
+
+
+/* ============================================================
+   視認性ユーティリティ（v3で追加）
+   ============================================================ */
+/* ---- 日別ステータス帯（シフト表ヘッダ直下） ---- */
+table.sheet thead tr.r3 th{top:44px;height:13px;padding:0;background:var(--sf-2)}
+.dbar{display:block;height:7px;margin:3px 2px;border-radius:2px;background:var(--bd)}
+.dbar.ok{background:#22c55e}
+.dbar.wn{background:#eba52a}
+.dbar.ng{background:#e0554b}
+.dbar.cl{background:transparent;box-shadow:inset 0 0 0 1px var(--bd)}
+
+/* ---- 凡例 ---- */
+.lgd{display:flex;gap:13px;align-items:center;font-size:10px;color:var(--tx-3);flex-wrap:wrap}
+.lgd span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.lgd i{width:13px;height:7px;border-radius:2px;display:inline-block;margin:0}
+
+/* ---- 警告チップ（下部ストリップ） ---- */
+.wstrip{display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start;overflow:auto;padding:10px 13px;min-height:0}
+.wchip{
+  display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:20px;font-size:11px;
+  border:1px solid var(--wn-bd);background:var(--wn-bg);color:var(--tx-2);white-space:nowrap;max-width:100%
+}
+.wchip.ng{border-color:var(--ng-bd);background:var(--ng-bg)}
+.wchip .n{font-weight:800;font-variant-numeric:tabular-nums;color:var(--wn)}
+.wchip.ng .n{color:var(--ng)}
+
+/* ---- コンパクトな加算・減算リスト ---- */
+.kl{display:flex;flex-direction:column;gap:4px}
+.ki{
+  display:flex;align-items:center;gap:9px;padding:5px 10px;border:1px solid var(--bd);
+  border-radius:9px;background:var(--sf);transition:.14s var(--ease)
+}
+.ki:hover{border-color:var(--brand)}
+.ki.on{border-color:var(--brand);background:var(--brand-l)}
+.ki.avail{border-color:var(--wn-bd);background:var(--wn-bg)}
+.ki.hit{border-color:var(--ng-bd);background:var(--ng-bg)}
+.ki .t{flex:1;min-width:0;font-size:11.5px;font-weight:700;line-height:1.35}
+.ki .t small{
+  display:block;font-weight:500;font-size:10px;color:var(--tx-3);line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.ki .sw .tr{transform:scale(.82)}
+
+/* ---- クイック追加行 ---- */
+.qadd{
+  display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:9px 11px;
+  border:1.5px dashed var(--brand);border-radius:var(--r);background:var(--brand-l);flex:0 0 auto
+}
+.qadd input,.qadd select{width:auto;padding:6px 10px}
+.qadd .nm{min-width:150px;flex:1;max-width:260px}
+.qadd .lb{font-size:11px;font-weight:800;color:var(--brand-d);letter-spacing:.03em}
+
+/* ---- 詳細の折りたたみ ---- */
+details.more{border:1px solid var(--bd);border-radius:var(--r-s);margin-top:4px;background:var(--sf-2)}
+details.more > summary{
+  cursor:pointer;padding:8px 12px;font-size:11.5px;font-weight:700;color:var(--tx-2);
+  list-style:none;display:flex;align-items:center;gap:7px
+}
+details.more > summary::-webkit-details-marker{display:none}
+details.more > summary::before{content:'▸';color:var(--tx-3);transition:.18s}
+details.more[open] > summary::before{transform:rotate(90deg)}
+details.more > div{padding:0 12px 12px}
+
+/* ---- ミニ達成バー ---- */
+.mbar{display:block;height:4px;border-radius:2px;background:var(--sf-3);overflow:hidden;margin-top:3px;min-width:52px}
+.mbar i{display:block;height:100%;background:var(--brand);border-radius:2px}
+.mbar i.over{background:var(--ng)}
+.mbar i.under{background:var(--wn)}
+
+/* ---- 併設サービスのタグ ---- */
+.addon{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;border:1.5px solid var(--bd);
+  border-radius:var(--r);background:var(--sf);transition:.16s var(--ease)
+}
+.addon.on{border-color:var(--iris);background:var(--iris-l)}
+.addon .t{flex:1;min-width:0;font-size:12px;font-weight:800}
+.addon .t small{display:block;font-weight:500;font-size:10.5px;color:var(--tx-3);line-height:1.5}
+
+/* ---- 定員の内訳入力 ---- */
+.caps{display:flex;gap:8px;align-items:flex-end}
+.caps .c{flex:1;min-width:0}
+.caps .c label{display:block;font-size:10px;color:var(--tx-3);font-weight:700;margin-bottom:3px}
+.caps .eq{padding-bottom:9px;color:var(--tx-3);font-weight:800}
+.caps .tot{
+  flex:0 0 auto;text-align:center;padding:5px 12px;border-radius:var(--r-s);
+  background:var(--brand-l);color:var(--brand-d);font-weight:800;font-size:15px;line-height:1.2
+}
+.caps .tot small{display:block;font-size:9px;letter-spacing:.06em}
+
+/* ---- 事業所ヘッダのサマリ ---- */
+.fsum{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+
+/* ---- 選択中のサービス種別（折りたたみ時） ---- */
+.svcnow{display:flex;align-items:center;gap:11px}
+.svcnow .ic{
+  flex:0 0 auto;padding:6px 12px;border-radius:9px;background:var(--brand-g);color:#fff;
+  font-weight:800;font-size:13px;box-shadow:0 3px 10px -3px rgba(18,181,165,.7)
+}
+.svcnow .t{flex:1;min-width:0;font-size:12.5px;font-weight:800}
+.svcnow .t small{
+  display:block;font-weight:500;font-size:10.5px;color:var(--tx-3);line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+}
+
+/* ============================================================
+   印刷
+   ============================================================ */
+@media print{
+  aside.rail,header.top,.pal,.noprint,.btnrow,.kpis,.steps,.wstrip,.qadd{display:none !important}
+  body{background:#fff}
+  html,body{height:auto}
+  .shell{display:block;height:auto;min-height:0;overflow:visible}
+  .scroll,.wrap{padding:0;overflow:visible;display:block;max-width:none;height:auto;min-height:0}
+  .split{display:block}
+  .cl{display:block}
+  .card.grow,.card.grow > .bd,.card.grow > .bd.p0{overflow:visible;display:block;min-height:0;flex:none;height:auto}
+  .card.grow > .bd.p0 > *,.sheetwrap,.tw,.tw.grow{flex:none;min-height:0;height:auto;overflow:visible}
+  #warn-card{max-height:none}
+  .card{border:0;box-shadow:none;margin:0 0 6px;border-radius:0}
+  .card > .hd{background:#fff;border-bottom:1.5px solid #000;padding:3px 0}
+  .card > .bd{padding:0}
+  .sheetwrap{max-height:none;overflow:visible;border:0}
+  table.sheet{font-size:7.5px;width:100%}
+  table.sheet .stick,table.sheet thead th,tr.st td,tr.gap td{position:static;box-shadow:none}
+  td.nm{min-width:0;max-width:78px}
+  th.dc,td.dc{width:auto;min-width:0}
+  td.cell{height:15px}
+  .page{display:none !important}.page.on{display:block !important;height:auto;min-height:0}
+  @page{size:A3 landscape;margin:8mm}
+}
+/* 画面が小さいときだけ縦積みにして、各パネル内でスクロールさせる */
+@media (max-width:1180px){
+  .split{flex-wrap:wrap}
+  .cl.fx260,.cl.fx300,.cl.fx340{flex:1 1 260px}
+}
+@media (max-width:900px){
+  body{--rail:66px}
+  .scroll{overflow:auto}
+  .page.on{min-height:100%}
+  .rail .navb .lb,.rail .brand .tx,.rail .nav .grp{display:none}
+  .rail .navb{justify-content:center}
+  .kv .k{flex:0 0 130px}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="brand">
+      <div class="mk">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18M8 2v4M16 2v4"/><path d="M8.5 14.5l2.2 2.2 4.3-4.6"/>
+        </svg>
+      </div>
+      <div class="tx"><b>Shiftly 福祉</b><span>Shift Builder</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-ft" id="railft"></div>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <button class="icobtn" onclick="UI.toggleRail()" title="メニューの開閉">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="crumb"><b id="tb-title">事業所</b><span id="tb-sub">－</span></div>
+      <div class="top-sp"></div>
+      <div class="mpick">
+        <button onclick="UI.shiftMonth(-1)" title="前の月"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <label class="v" id="mp-label">－<input type="month" id="mp-input" onchange="UI.setMonth(this.value)"></label>
+        <button onclick="UI.shiftMonth(1)" title="次の月"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M9 5l7 7-7 7"/></svg></button>
+      </div>
+      <span id="tb-status"></span>
+      <button class="icobtn" onclick="UI.toggleTheme()" title="表示テーマの切替" id="th-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+      </button>
+    </header>
+
+    <div class="scroll"><div class="wrap">
+
+      <!-- ============ 事業所 ============ -->
+      <section class="page" id="pg-facility">
+        <div class="steps" id="steps"></div>
+        <div class="split">
+          <div class="cl g1">
+            <div class="card" style="flex:0 0 auto">
+              <div class="hd"><span class="bar"></span><span class="ttl">① サービス種別</span>
+                <span class="sub">選ぶと人員基準・加算・勤務記号・営業日が自動で切り替わります</span></div>
+              <div class="bd" id="fac-svc"></div>
+            </div>
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">② 事業所の基本情報</span><span class="sub" id="basic-sub"></span></div>
+              <div class="bd" id="fac-basic"></div>
+            </div>
+          </div>
+          <div class="cl g1">
+            <div class="card grow" style="flex:0 1 auto">
+              <div class="hd"><span class="bar"></span><span class="ttl">③ 算定する加算</span><span class="sub" id="kasan-sub"></span></div>
+              <div class="bd" id="fac-kasan"></div>
+            </div>
+            <div class="card grow" style="flex:1 1 200px">
+              <div class="hd"><span class="bar"></span><span class="ttl">運営基準に係る減算</span>
+                <span class="sub">シフトでは防げない減算。該当するものだけON</span></div>
+              <div class="bd" id="fac-genzan"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 職員 ============ -->
+      <section class="page" id="pg-staff">
+        <div class="qadd noprint" id="staff-quick"></div>
+        <div class="card grow">
+          <div class="hd"><span class="bar"></span><span class="ttl">職員台帳</span>
+            <span class="sub" id="staff-sub"></span>
+            <div class="btnrow noprint" style="margin-left:12px">
+              <button class="btn gh sm" onclick="Staff.open()">＋ 詳細を入力して追加</button>
+              <button class="btn gh sm" onclick="Staff.bulk()">まとめて登録</button>
+              <button class="btn gh sm" onclick="Staff.seed()">サンプル投入</button>
+              <button class="btn gh sm" onclick="Staff.exportCsv()">CSV</button>
+              <button class="btn dg sm" onclick="Staff.clearAll()">全削除</button>
+            </div>
+          </div>
+          <div class="bd p0"><div class="tw grow"><table id="staff-tbl"></table></div></div>
+        </div>
+      </section>
+
+      <!-- ============ シフト表 ============ -->
+      <section class="page" id="pg-sheet">
+        <div class="kpis" id="sheet-kpi"></div>
+        <div class="card grow">
+          <div class="hd"><span class="bar"></span><span class="ttl">勤務シフト表</span><span class="sub" id="sheet-sub"></span></div>
+          <div class="bd p0">
+            <div class="btnrow noprint" style="padding:9px 14px;border-bottom:1px solid var(--bd);background:var(--sf-2)">
+              <button class="btn pri" onclick="Engine.run()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12L13 2z"/></svg>
+                シフトを自動生成</button>
+              <button class="btn gh sm" onclick="Engine.improve()">今のシフトを改善</button>
+              <button class="btn gh sm" onclick="Sheet.clearAll()">割当をクリア</button>
+              <span style="flex:1"></span>
+              <span class="lgd" id="sheet-legend"></span>
+              <label class="sw"><input type="checkbox" id="keep-fixed" checked><span class="tr"></span><span class="lb">固定・希望休を保持</span></label>
+              <button class="btn gh sm" onclick="Out.csvSheet()">CSV</button>
+              <button class="btn gh sm" onclick="window.print()">印刷</button>
+            </div>
+            <div class="prog noprint" id="prog"><div class="bar"><i id="prog-bar"></i></div><div class="tx" id="prog-tx"></div></div>
+            <div class="pal noprint" id="palette"></div>
+            <div class="sheetwrap" id="sheetwrap"><table class="sheet" id="sheet"></table></div>
+          </div>
+        </div>
+        <div class="card noprint" id="warn-card" style="flex:0 0 auto;display:flex;flex-direction:column;max-height:132px;min-height:0">
+          <div class="hd"><span class="bar"></span><span class="ttl">この月の警告</span><span class="sub" id="warn-sub"></span></div>
+          <div class="wstrip" id="warn-body"></div>
+        </div>
+      </section>
+
+      <!-- ============ 加算・減算 ============ -->
+      <section class="page" id="pg-judge">
+        <div class="kpis" id="judge-kpi"></div>
+        <div class="split">
+          <div class="cl g1">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">減算リスク</span><span class="sub">該当すると報酬が減額されます</span></div>
+              <div class="bd" id="jd-genzan"></div>
+            </div>
+          </div>
+          <div class="cl g1">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">加算の算定要件</span><span class="sub">シフトから見た充足状況</span></div>
+              <div class="bd" id="jd-kasan"></div>
+            </div>
+          </div>
+          <div class="cl fx340">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">労務管理チェック</span><span class="sub" id="jd-labor-sub"></span></div>
+              <div class="bd" id="jd-labor"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 出力 ============ -->
+      <section class="page" id="pg-out">
+        <div class="split">
+          <div class="cl fx340">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">帳票出力</span></div>
+              <div class="bd" id="out-body"></div>
+            </div>
+          </div>
+          <div class="cl g1">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">勤務形態一覧表（常勤換算の内訳）</span>
+                <span class="sub">指定申請・体制届の添付書類に相当する集計</span></div>
+              <div class="bd p0"><div class="tw grow"><table id="out-tbl"></table></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 詳細設定 ============ -->
+      <section class="page" id="pg-adv">
+        <div class="note i" style="margin:0;flex:0 0 auto">
+          <b>ここは触らなくても動きます。</b>
+          勤務記号・必要配置数・判定のしきい値は、サービス種別と事業所情報から自動で設定されています。
+        </div>
+        <div class="split">
+          <div class="cl g1">
+            <div class="card grow" style="flex:1 1 0">
+              <div class="hd"><span class="bar"></span><span class="ttl">勤務記号</span>
+                <span class="sub">サービス種別に応じて自動設定</span>
+                <div class="btnrow" style="margin-left:10px">
+                  <button class="btn gh sm" onclick="Codes.open()">＋ 追加</button>
+                  <button class="btn gh sm" onclick="Codes.reset()">初期セットに戻す</button>
+                </div></div>
+              <div class="bd"><table id="codes-tbl"></table></div>
+            </div>
+            <div class="card grow" style="flex:1 1 0">
+              <div class="hd"><span class="bar"></span><span class="ttl">判定のしきい値</span>
+                <span class="sub">自事業所の指定基準に合わせて変更できます</span></div>
+              <div class="bd" id="adv-params"></div>
+            </div>
+            <div class="card" style="flex:0 0 auto">
+              <div class="hd"><span class="bar"></span><span class="ttl">データ管理</span></div>
+              <div class="bd" id="adv-data"></div>
+            </div>
+          </div>
+          <div class="cl g1">
+            <div class="card grow">
+              <div class="hd"><span class="bar"></span><span class="ttl">営業日・利用者数・必要配置数</span>
+                <span class="sub">利用者数は既定で定員と同数として計算します</span></div>
+              <div class="bd" id="adv-demand"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div></div>
+  </div>
+</div>
+
+<div class="mbg" id="mbg"><div class="modal">
+  <div class="mh"><span class="bar" style="width:3px;height:16px;border-radius:2px;background:var(--brand-g)"></span><b id="m-title"></b></div>
+  <div class="mb" id="m-body"></div><div class="mf" id="m-foot"></div>
+</div></div>
+<div class="toast" id="toast"><span class="d"></span><span id="toast-tx"></span></div>
+
+<script>
+"use strict";
+/* ===================================================================
+   1. マスタ
+   =================================================================== */
+const QUALS = [
+  '介護福祉士','社会福祉士','精神保健福祉士','公認心理師','保育士','児童指導員任用資格',
+  '看護師','准看護師','理学療法士','作業療法士','言語聴覚士','心理指導担当職員','医師',
+  '相談支援専門員','サービス管理責任者研修修了','児童発達支援管理責任者研修修了',
+  '強度行動障害支援者養成研修（実践研修）','喀痰吸引等研修修了','普通自動車免許'
+];
+/* 福祉専門職員配置等加算（Ⅰ）（Ⅱ）の対象資格 */
+const Q_FUKUSHI = ['社会福祉士','介護福祉士','精神保健福祉士','公認心理師'];
+/* 専門的支援体制加算（児童系）の対象資格 */
+const Q_SENMON  = ['理学療法士','作業療法士','言語聴覚士','公認心理師','心理指導担当職員','保育士','児童指導員任用資格'];
+
+const SERVICES = {
+  houkago:{
+    key:'houkago', name:'放課後等デイサービス', short:'放デイ', group:'child', unit:'障害児',
+    desc:'就学児が放課後・休業日に通う通所支援。児童指導員等の実人数配置が基準です。',
+    roles:['管理者','児童発達支援管理責任者','児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者','事務員','送迎運転手'],
+    baseRoles:['児童指導員','保育士'],
+    directRoles:['児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者'],
+    managerRole:'児童発達支援管理責任者', managerShort:'児発管',
+    needsCategory:false, night:false, kasan:'child',
+    def:{capacity:10, openDow:[false,true,true,true,true,true,true], codes:'day', hours:6}
+  },
+  jihatsu:{
+    key:'jihatsu', name:'児童発達支援', short:'児発', group:'child', unit:'障害児',
+    desc:'未就学児が通う通所支援。人員基準・加算の考え方は放デイとほぼ共通です。',
+    roles:['管理者','児童発達支援管理責任者','児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者','事務員','送迎運転手'],
+    baseRoles:['児童指導員','保育士'],
+    directRoles:['児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者'],
+    managerRole:'児童発達支援管理責任者', managerShort:'児発管',
+    needsCategory:false, night:false, kasan:'child',
+    def:{capacity:10, openDow:[false,true,true,true,true,true,true], codes:'day', hours:6}
+  },
+  tamokuteki:{
+    key:'tamokuteki', name:'多機能型（児発＋放デイ）', short:'多機能型', group:'child', unit:'障害児',
+    multi:true,
+    desc:'児童発達支援と放課後等デイサービスを一体的に行う事業所。総定員20人以下なら人員基準を合算して算定できます。',
+    roles:['管理者','児童発達支援管理責任者','児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者','事務員','送迎運転手'],
+    baseRoles:['児童指導員','保育士'],
+    directRoles:['児童指導員','保育士','機能訓練担当職員','看護職員','その他の従業者'],
+    managerRole:'児童発達支援管理責任者', managerShort:'児発管',
+    needsCategory:false, night:false, kasan:'child',
+    def:{capacity:10, openDow:[false,true,true,true,true,true,true], codes:'day', hours:6}
+  },
+  seikatsu:{
+    key:'seikatsu', name:'生活介護', short:'生活介護', group:'adult', unit:'利用者',
+    desc:'常時介護を要する方への日中活動。人員基準は常勤換算（月次）で判定します。',
+    roles:['管理者','サービス管理責任者','生活支援員','看護職員','理学療法士','作業療法士','言語聴覚士','医師','その他の従業者','事務員','送迎運転手'],
+    baseRoles:['生活支援員','看護職員','理学療法士','作業療法士','言語聴覚士','医師'],
+    directRoles:['生活支援員','看護職員','理学療法士','作業療法士','言語聴覚士','医師'],
+    managerRole:'サービス管理責任者', managerShort:'サビ管',
+    needsCategory:true, night:false, kasan:'seikatsu',
+    def:{capacity:20, openDow:[false,true,true,true,true,true,false], codes:'day', hours:8}
+  },
+  shuroB:{
+    key:'shuroB', name:'就労継続支援B型', short:'就B', group:'adult', unit:'利用者',
+    desc:'雇用契約によらない就労機会の提供。職業指導員・生活支援員の常勤換算で判定します。',
+    roles:['管理者','サービス管理責任者','職業指導員','生活支援員','目標工賃達成指導員','看護職員','その他の従業者','事務員','送迎運転手'],
+    baseRoles:['職業指導員','生活支援員'],
+    directRoles:['職業指導員','生活支援員','目標工賃達成指導員','看護職員'],
+    managerRole:'サービス管理責任者', managerShort:'サビ管',
+    needsCategory:false, night:false, kasan:'shuroB',
+    tier:{label:'人員配置（基本報酬区分）', key:'tier', def:'7.5',
+      opts:[{v:'10',t:'10 : 1',d:'人員基準どおりの配置'},
+            {v:'7.5',t:'7.5 : 1',d:'上位区分。手厚い配置'},
+            {v:'6',t:'6 : 1',d:'令和6年度新設の最上位区分'}]},
+    def:{capacity:20, openDow:[false,true,true,true,true,true,false], codes:'day', hours:6}
+  },
+  gh:{
+    key:'gh', name:'共同生活援助（グループホーム）', short:'GH', group:'gh', unit:'利用者',
+    desc:'夜間・休日の住まいの支援。世話人と生活支援員をそれぞれ常勤換算で判定し、夜勤・宿直を組み込みます。',
+    roles:['管理者','サービス管理責任者','世話人','生活支援員','夜間支援従事者','看護職員','その他の従業者','事務員'],
+    baseRoles:['世話人','生活支援員','夜間支援従事者'],
+    directRoles:['世話人','生活支援員','夜間支援従事者','看護職員'],
+    managerRole:'サービス管理責任者', managerShort:'サビ管',
+    needsCategory:true, night:true, kasan:'gh',
+    tier:{label:'世話人の配置（基本報酬区分）', key:'tier', def:'6',
+      opts:[{v:'6',t:'6 : 1',d:'人員基準どおりの配置'},
+            {v:'5',t:'5 : 1',d:'上位区分'},
+            {v:'4',t:'4 : 1',d:'最も手厚い区分'}]},
+    ghTypes:[{v:'houkatsu',t:'介護サービス包括型',d:'事業所の生活支援員が介護を行う'},
+             {v:'nicchu',t:'日中サービス支援型',d:'常時の支援体制。夜間支援従事者の配置が必須'},
+             {v:'gaibu',t:'外部サービス利用型',d:'介護は外部の居宅介護事業所に委託'}],
+    def:{capacity:10, openDow:[true,true,true,true,true,true,true], codes:'gh', hours:24}
+  }
+};
+
+/* サービス種別ごとの加算カタログ */
+const KASAN = {
+  child:[
+    {id:'kahai_s', n:'児童指導員等加配加算（専門職／経験5年以上）', d:'基準人員に加えて常勤専従の専門職を1人以上'},
+    {id:'kahai_j', n:'児童指導員等加配加算（児童指導員等）',       d:'基準人員に加えて常勤専従の児童指導員・保育士を1人以上'},
+    {id:'kahai_o', n:'児童指導員等加配加算（その他の従業者）',     d:'基準人員に加えて常勤専従のその他の従業者を1人以上'},
+    {id:'senmon_tai', n:'専門的支援体制加算', d:'基準人員に加えて専門職を常勤換算1.0以上配置'},
+    {id:'kango_ka',   n:'看護職員加配加算',   d:'基準人員に加えて看護職員を常勤換算1.0以上配置'},
+    {id:'soge',  n:'送迎加算',     d:'送迎の実施状況による（運用要件）', ref:true},
+    {id:'encho', n:'延長支援加算', d:'営業時間を超える支援時間帯の職員配置', ref:true},
+    {id:'houmon_toku', n:'訪問支援員特別加算', houmonOnly:true,
+      d:'理学療法士等、又は経験5年以上の児童指導員・保育士を訪問支援員として配置'}
+  ],
+  seikatsu:[
+    {id:'haichi1', n:'人員配置体制加算（Ⅰ）', d:'直接支援職員の常勤換算が利用者数÷1.7以上', ratio:'haichi1Ratio'},
+    {id:'haichi2', n:'人員配置体制加算（Ⅱ）', d:'直接支援職員の常勤換算が利用者数÷2.0以上', ratio:'haichi2Ratio'},
+    {id:'haichi3', n:'人員配置体制加算（Ⅲ）', d:'直接支援職員の常勤換算が利用者数÷2.5以上', ratio:'haichi3Ratio'},
+    {id:'kango1', n:'常勤看護職員等配置加算（Ⅰ）', d:'常勤の看護職員を1人以上配置'},
+    {id:'kango2', n:'常勤看護職員等配置加算（Ⅱ）', d:'常勤の看護職員を2人以上配置'},
+    {id:'kango3', n:'常勤看護職員等配置加算（Ⅲ）', d:'常勤の看護職員を3人以上配置'},
+    {id:'senmon1', n:'福祉専門職員配置等加算（Ⅰ）', d:'常勤の直接支援職員のうち有資格者が35%以上'},
+    {id:'senmon2', n:'福祉専門職員配置等加算（Ⅱ）', d:'常勤の直接支援職員のうち有資格者が25%以上'},
+    {id:'senmon3', n:'福祉専門職員配置等加算（Ⅲ）', d:'常勤職員75%以上、又は勤続3年以上の常勤職員30%以上'},
+    {id:'soge', n:'送迎加算', d:'週3回以上の送迎の実施（運用要件）', ref:true}
+  ],
+  shuroB:[
+    {id:'mokuhyo', n:'目標工賃達成指導員配置加算',
+      d:'目標工賃達成指導員を常勤換算1.0以上配置し、職業指導員＋生活支援員が6:1以上、3職種の合計が5:1以上'},
+    {id:'senmon1', n:'福祉専門職員配置等加算（Ⅰ）', d:'常勤の直接支援職員のうち有資格者が35%以上'},
+    {id:'senmon2', n:'福祉専門職員配置等加算（Ⅱ）', d:'常勤の直接支援職員のうち有資格者が25%以上'},
+    {id:'senmon3', n:'福祉専門職員配置等加算（Ⅲ）', d:'常勤職員75%以上、又は勤続3年以上の常勤職員30%以上'},
+    {id:'soge',   n:'送迎加算', d:'送迎の実施状況による（運用要件）', ref:true},
+    {id:'ikou',   n:'就労移行支援体制加算', d:'一般就労への移行実績による（実績要件）', ref:true},
+    {id:'shikaku',n:'視覚・聴覚言語障害者支援体制加算', d:'意思疎通に関する専門的な訓練を受けた職員の配置', ref:true}
+  ],
+  gh:[
+    {id:'yakan1', n:'夜間支援等体制加算（Ⅰ）', d:'夜間支援従事者を配置し、夜勤による支援を行う'},
+    {id:'yakan2', n:'夜間支援等体制加算（Ⅱ）', d:'夜間支援従事者を配置し、宿直による支援を行う'},
+    {id:'yakan3', n:'夜間支援等体制加算（Ⅲ）', d:'常時の連絡体制・防災体制の確保（運用要件）', ref:true},
+    {id:'kango_gh', n:'看護職員配置加算', d:'看護職員を常勤換算1.0以上配置'},
+    {id:'senmon1', n:'福祉専門職員配置等加算（Ⅰ）', d:'常勤の直接支援職員のうち有資格者が35%以上'},
+    {id:'senmon2', n:'福祉専門職員配置等加算（Ⅱ）', d:'常勤の直接支援職員のうち有資格者が25%以上'},
+    {id:'senmon3', n:'福祉専門職員配置等加算（Ⅲ）', d:'常勤職員75%以上、又は勤続3年以上の常勤職員30%以上'},
+    {id:'iryo',  n:'医療連携体制加算', d:'看護職員による医療的ケア等の実施（実績要件）', ref:true},
+    {id:'juudo', n:'重度障害者支援加算', d:'強度行動障害支援者養成研修修了者の配置と支援の実施', ref:true}
+  ]
+};
+
+/* 運営基準に係る減算（シフトでは防げないもの） */
+const GENZAN_T = [
+  {id:'kosoku',  n:'身体拘束廃止未実施減算',   r:1,  d:'記録・委員会・指針・研修のいずれかが未実施'},
+  {id:'gyakutai',n:'虐待防止措置未実施減算',   r:1,  d:'委員会・指針・研修・担当者のいずれかが未実施'},
+  {id:'bcp',     n:'業務継続計画未策定減算',   r:1,  d:'BCP未策定、又は研修・訓練の未実施'},
+  {id:'kohyo',   n:'情報公表未報告減算',       r:10, d:'障害福祉サービス等情報公表システムへの未報告'},
+  {id:'program', n:'支援プログラム未公表減算', r:15, d:'5領域を含む支援プログラムの未策定・未公表', only:'child'},
+  {id:'keikaku', n:'個別支援計画未作成減算',   r:30, d:'アセスメント・計画作成・モニタリングの未実施'}
+];
+
+/* 保育所等訪問支援を併設したときに追加される勤務記号
+   （本体＝児発・放デイの基準人員には数えないため visit:true としています） */
+const VISIT_CODE = {c:'訪',n:'保育所等訪問',s:'09:00',e:'18:00',b:60,m:480,w:true,a:false,col:'#e9d5ff',visit:true};
+
+/* 勤務記号プリセット */
+const CODE_SETS = {
+  day:[
+    {c:'早',n:'早番',  s:'08:00',e:'17:00',b:60,m:480,w:true, a:true, col:'#e0f2fe'},
+    {c:'日',n:'日勤',  s:'09:00',e:'18:00',b:60,m:480,w:true, a:true, col:'#ffffff'},
+    {c:'遅',n:'遅番',  s:'10:00',e:'19:00',b:60,m:480,w:true, a:true, col:'#fef3c7'},
+    {c:'短',n:'短時間',s:'09:00',e:'14:00',b:0, m:300,w:true, a:true, col:'#dcfce7'},
+    {c:'半',n:'半日',  s:'09:00',e:'13:00',b:0, m:240,w:true, a:true, col:'#ede9fe'},
+    {c:'研',n:'研修',  s:'09:00',e:'18:00',b:60,m:480,w:true, a:false,col:'#ccfbf1'},
+    {c:'公',n:'公休',  s:'',     e:'',     b:0, m:0,  w:false,a:true, col:'#f1f5f9'},
+    {c:'有',n:'年次有給休暇',s:'',e:'',    b:0, m:0,  w:false,a:false,col:'#fef9c3'},
+    {c:'特',n:'特別休暇',s:'',  e:'',      b:0, m:0,  w:false,a:false,col:'#fce7f3'},
+    {c:'欠',n:'欠勤',  s:'',     e:'',     b:0, m:0,  w:false,a:false,col:'#fee2e2'}
+  ],
+  gh:[
+    {c:'早',n:'早番',  s:'06:30',e:'15:30',b:60,m:480,w:true, a:true, col:'#e0f2fe'},
+    {c:'日',n:'日勤',  s:'09:00',e:'18:00',b:60,m:480,w:true, a:true, col:'#ffffff'},
+    {c:'遅',n:'遅番',  s:'12:30',e:'21:30',b:60,m:480,w:true, a:true, col:'#fef3c7'},
+    {c:'夜',n:'夜勤',  s:'16:00',e:'10:00',b:120,m:960,w:true,a:true, col:'#4c1d95', night:true, fg:'#fff'},
+    {c:'明',n:'夜勤明け',s:'',   e:'',     b:0, m:0,  w:false,a:true, col:'#ddd6fe', after:true},
+    {c:'宿',n:'宿直',  s:'21:00',e:'07:00',b:0, m:0,  w:true, a:true, col:'#c7d2fe', sleep:true},
+    {c:'短',n:'短時間',s:'09:00',e:'14:00',b:0, m:300,w:true, a:true, col:'#dcfce7'},
+    {c:'公',n:'公休',  s:'',     e:'',     b:0, m:0,  w:false,a:true, col:'#f1f5f9'},
+    {c:'有',n:'年次有給休暇',s:'',e:'',    b:0, m:0,  w:false,a:false,col:'#fef9c3'},
+    {c:'研',n:'研修',  s:'09:00',e:'18:00',b:60,m:480,w:true, a:false,col:'#ccfbf1'}
+  ]
+};
+
+/* 判定パラメータ（令和6年度報酬改定ベースの初期値） */
+const DEF_PARAMS = {
+  /* 生活介護 */
+  ratioCat5:3.0, ratioCat4:5.0, ratioCat0:6.0,
+  haichi1Ratio:1.7, haichi2Ratio:2.0, haichi3Ratio:2.5,
+  /* 就労継続支援B型 */
+  shuroBaseRatio:10, mokuhyoBase:6, mokuhyoAll:5,
+  /* グループホーム */
+  ghSewaRatio:6, ghSupC3:9, ghSupC4:6, ghSupC5:4, ghSupC6:2.5,
+  ghKanriUsers:30,
+  /* 児童系 */
+  childBase:2, childStep:5, childBaseUsers:10, childHalfRule:true,
+  /* 多機能型：総定員がこの人数以下なら人員基準を合算して算定できる */
+  tamokuMergeCap:20,
+  /* 福祉専門職員配置等加算 */
+  senmon1Pct:35, senmon2Pct:25, senmon3FtPct:75, senmon3YearPct:30, senmon3Years:3,
+  /* サビ管 */
+  kanriBaseUsers:60, kanriStepUsers:40,
+  /* 定員超過 */
+  overDaily:1.5, overAvg:1.25,
+  /* 減算率 */
+  rateStaffShort1:30, rateStaffShort3:50, rateKanriShort1:30, rateKanriShort5:50,
+  rateOverCap:30, rateOpenShort4:30, rateOpenShort6:15,
+  /* 常勤換算 */
+  fullTimeMinWeekly:32,
+  /* 労務 */
+  maxConsecDays:6, maxWeeklyHours:40, minMonthlyOff:8, intervalHours:9, maxNightsPerMonth:9
+};
+
+/* ===================================================================
+   2. ユーティリティ
+   =================================================================== */
+const DOW=['日','月','火','水','木','金','土'];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const r1=v=>Math.round(v*10)/10;
+const r2=v=>Math.round(v*100)/100;
+const uid=()=>'s'+Math.random().toString(36).slice(2,9);
+const ymd=(y,m,d)=>y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+const dim=(y,m)=>new Date(y,m,0).getDate();
+const pm=s=>{const[y,m]=s.split('-').map(Number);return{y,m}};
+const todayStr=()=>{const d=new Date();return ymd(d.getFullYear(),d.getMonth()+1,d.getDate())};
+function yrs(d,base){ if(!d) return 0; const a=new Date(d); if(isNaN(a)) return 0;
+  return ((base?new Date(base):new Date())-a)/(365.25*864e5); }
+function toast(msg,kind){
+  const t=$('toast'); $('toast-tx').textContent=msg;
+  t.className='toast on'+(kind?' '+kind:'');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.className='toast',2900);
+}
+function modal(title,body,btns,wide){
+  $('m-title').textContent=title; $('m-body').innerHTML=body;
+  document.querySelector('#mbg .modal').style.maxWidth=wide?'880px':'700px';
+  const f=$('m-foot'); f.innerHTML='';
+  (btns||[{l:'閉じる',c:'gh',f:closeModal}]).forEach(b=>{
+    const e=document.createElement('button'); e.className='btn '+(b.c||''); e.textContent=b.l; e.onclick=b.f;
+    f.appendChild(e);
+  });
+  $('mbg').classList.add('on');
+}
+const closeModal=()=>$('mbg').classList.remove('on');
+$('mbg').addEventListener('click',e=>{ if(e.target.id==='mbg') closeModal(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+/* SVGアイコン */
+const IC={
+  home:'<path d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z"/>',
+  users:'<path d="M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 7a3.5 3.5 0 100 7 3.5 3.5 0 000-7M22 20v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8"/>',
+  grid:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M9 9v12M15 9v12"/>',
+  check:'<path d="M20.5 11.1V12a9 9 0 11-5.3-8.2"/><path d="M21 4l-9 9-3-3"/>',
+  out:'<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.6 1.6 0 008 19.4a1.6 1.6 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1H2a2 2 0 110-4h.1A1.6 1.6 0 004.6 8a1.6 1.6 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 001.8.3H9a1.6 1.6 0 001-1.5V2a2 2 0 114 0v.1a1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 00-.3 1.8V9a1.6 1.6 0 001.5 1H22a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/>',
+  save:'<path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+  up:'<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>'
+};
+const svg=(k,cls)=>'<svg class="'+(cls||'ic')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">'+IC[k]+'</svg>';
+
+/* ===================================================================
+   3. 状態
+   =================================================================== */
+const KEY='shiftly_fukushi_v2';
+
+function blank(svcKey){
+  const sv=SERVICES[svcKey||'houkago'], d=new Date();
+  const nx=new Date(d.getFullYear(),d.getMonth()+1,1);
+  return {
+    facility:{
+      name:'', service:sv.key, capacity:sv.def.capacity, avgCategory:4.0,
+      capJihatsu:Math.ceil(sv.def.capacity/2), capHoukago:Math.floor(sv.def.capacity/2),
+      houmon:false,
+      tier:(sv.tier?sv.tier.def:null), ghType:'houkatsu',
+      fullTimeWeekly:40, monthlyStdHours:null,
+      openDow:sv.def.openDow.slice(), openStart:'09:00', openEnd:'18:00',
+      serviceHours:sv.def.hours, baseOn:'capacity',
+      kanriDaily: sv.def.openDow.filter(Boolean).length<7, nurseDaily:true, holidays:[]
+    },
+    kasan:{}, taisei:{}, params:Object.assign({},DEF_PARAMS),
+    codes:JSON.parse(JSON.stringify(CODE_SETS[sv.def.codes])),
+    staff:[], month:nx.getFullYear()+'-'+String(nx.getMonth()+1).padStart(2,'0'),
+    users:{}, needOv:{}, assign:{}, fixed:{}, wish:{},
+    ui:{theme:'light', mini:false}
+  };
+}
+let S=blank();
+
+const App={
+  load(){
+    try{
+      const raw=localStorage.getItem(KEY);
+      if(raw){
+        const o=JSON.parse(raw), b=blank(o.facility&&o.facility.service);
+        S=Object.assign(b,o);
+        S.facility=Object.assign(b.facility,o.facility||{});
+        S.params=Object.assign({},DEF_PARAMS,o.params||{});
+        S.ui=Object.assign({theme:'light',mini:false},o.ui||{});
+      }
+    }catch(e){ console.warn(e); }
+  },
+  save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){ console.warn(e); } },
+  saveNow(){ App.save(); toast('保存しました'); },
+  backup(){
+    const b=new Blob([JSON.stringify(S,null,2)],{type:'application/json'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b);
+    a.download='shiftly_'+(S.facility.name||'事業所')+'_'+S.month+'.json'; a.click();
+    URL.revokeObjectURL(a.href); toast('バックアップを書き出しました');
+  },
+  restore(input){
+    const f=input.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ try{
+      const o=JSON.parse(r.result), b=blank(o.facility&&o.facility.service);
+      S=Object.assign(b,o);
+      S.facility=Object.assign(b.facility,o.facility||{});
+      S.params=Object.assign({},DEF_PARAMS,o.params||{});
+      S.ui=Object.assign({theme:'light',mini:false},o.ui||{});
+      App.save(); UI.boot(); toast('復元しました');
+    }catch(e){ toast('ファイルを読み込めませんでした','ng'); } };
+    r.readAsText(f); input.value='';
+  },
+  resetAll(){
+    if(!confirm('すべてのデータを消去して初期状態に戻します。よろしいですか？')) return;
+    localStorage.removeItem(KEY); S=blank(); UI.boot(); toast('初期化しました');
+  }
+};
+
+const BASE_SV=()=>SERVICES[S.facility.service]||SERVICES.houkago;
+/* 保育所等訪問支援を併設している場合だけ「訪問支援員」の職種を追加する。
+   訪問支援員は本体（児発・放デイ）の基準人員・直接支援職員には数えない。 */
+let _svCache=null;
+const SV=()=>{
+  const b=BASE_SV();
+  if(!(b.group==='child'&&S.facility.houmon)) return b;
+  if(_svCache&&_svCache.__k===b.key) return _svCache;
+  const o=Object.assign({},b);
+  o.roles=b.roles.slice();
+  const at=o.roles.indexOf('その他の従業者');
+  o.roles.splice(at<0?o.roles.length:at,0,'訪問支援員');
+  o.__k=b.key;
+  return (_svCache=o);
+};
+const isChild=()=>SV().group==='child';
+const isGH=()=>SV().group==='gh';
+const isMulti=()=>SV().multi===true;
+const hasHoumon=()=>SV().group==='child'&&!!S.facility.houmon;
+/* 多機能型の定員（児発／放デイ／合計） */
+const capsOf=()=>{
+  const f=S.facility;
+  if(!isMulti()) return {j:0,h:0,tot:Math.max(0,Number(f.capacity)||0)};
+  const j=Math.max(0,Number(f.capJihatsu)||0), h=Math.max(0,Number(f.capHoukago)||0);
+  return {j,h,tot:j+h};
+};
+const kasanList=()=>(KASAN[SV().kasan]||[]).filter(k=>!k.houmonOnly||hasHoumon());
+/* 訪問支援員になれる職員（専任・兼務どちらも） */
+const canVisit=st=>st.role==='訪問支援員'
+  || ['児童指導員','保育士','機能訓練担当職員'].includes(st.role)
+  || (st.quals||[]).some(q=>Q_SENMON.includes(q));
+const codeOf=c=>S.codes.find(x=>x.c===c);
+const isWork=c=>{const k=codeOf(c);return !!(k&&k.w)};
+const wMin=c=>{const k=codeOf(c);return k&&k.w?(k.m||0):0};
+const isNight=c=>{const k=codeOf(c);return !!(k&&(k.night||k.sleep))};
+const isNightDuty=c=>{const k=codeOf(c);return !!(k&&k.night)};
+const isAfter=c=>{const k=codeOf(c);return !!(k&&k.after)};
+const isVisit=c=>{const k=codeOf(c);return !!(k&&k.visit)};
+/* サービス種別＋併設の有無から既定の勤務記号セットを組み立てる */
+const defaultCodes=()=>{
+  const cs=JSON.parse(JSON.stringify(CODE_SETS[BASE_SV().def.codes]));
+  if(S.facility.houmon&&BASE_SV().group==='child') cs.splice(6,0,JSON.parse(JSON.stringify(VISIT_CODE)));
+  return cs;
+};
+/* 勤務記号の背景は固定色のため、文字色もテーマに依存させない */
+const fgOf=k=>k&&k.fg?k.fg:'#111827';
+const subFgOf=k=>k&&k.fg?'rgba(255,255,255,.72)':'#64748b';
+
+/* ===================================================================
+   4. 計算エンジン
+   =================================================================== */
+const Calc={
+  /* 常勤職員が1か月に勤務すべき時間数 */
+  std(nd){
+    const f=S.facility,p=S.params;
+    if(f.monthlyStdHours) return Number(f.monthlyStdHours);
+    const w=Math.max(p.fullTimeMinWeekly||32, f.fullTimeWeekly||40);
+    return Math.round(w*nd/7*10)/10;
+  },
+  /* 生活介護：平均障害支援区分による配置比率 */
+  adultRatio(){
+    const p=S.params,c=Number(S.facility.avgCategory)||0;
+    return c>=5?p.ratioCat5 : c>=4?p.ratioCat4 : p.ratioCat0;
+  },
+  /* 生活介護：加算を含めた目標比率 */
+  adultTarget(){
+    const p=S.params,k=S.kasan; let r=Calc.adultRatio();
+    if(k.haichi1) r=Math.min(r,p.haichi1Ratio);
+    else if(k.haichi2) r=Math.min(r,p.haichi2Ratio);
+    else if(k.haichi3) r=Math.min(r,p.haichi3Ratio);
+    return r;
+  },
+  /* GH：障害支援区分による生活支援員の比率 */
+  ghSupRatio(){
+    const p=S.params,c=Number(S.facility.avgCategory)||0;
+    if(c>=6) return p.ghSupC6;
+    if(c>=5) return p.ghSupC5;
+    if(c>=4) return p.ghSupC4;
+    if(c>=3) return p.ghSupC3;
+    return 0;   /* 区分2以下は配置義務なし */
+  },
+  /* 日勤系の勤務記号の平均勤務時間（分） */
+  avgWorkMin(){
+    const ws=S.codes.filter(c=>c.w&&c.a!==false&&c.m>0&&!c.night&&!c.sleep);
+    return ws.length? ws.reduce((a,c)=>a+c.m,0)/ws.length : 480;
+  },
+
+  /* 常勤換算での必要数（サービス種別ごと） */
+  requirements(usersAvg){
+    const sv=SV(),p=S.params,f=S.facility,out=[];
+    if(sv.group==='child') return out;                    /* 児童系は実人数配置 */
+    if(sv.key==='seikatsu'){
+      out.push({key:'direct',label:'直接支援職員',roles:sv.directRoles,
+        need:usersAvg/Calc.adultRatio(), target:usersAvg/Calc.adultTarget(),
+        note:'平均障害支援区分 '+r1(f.avgCategory)+' → '+Calc.adultRatio()+':1'});
+    }else if(sv.key==='shuroB'){
+      const tier=Number(f.tier)||p.shuroBaseRatio;
+      out.push({key:'base',label:'職業指導員・生活支援員',roles:['職業指導員','生活支援員'],
+        need:usersAvg/p.shuroBaseRatio, target:usersAvg/tier,
+        note:'人員基準 '+p.shuroBaseRatio+':1／基本報酬区分 '+tier+':1'});
+      if(S.kasan.mokuhyo)
+        out.push({key:'mokuhyo',label:'目標工賃達成指導員',roles:['目標工賃達成指導員'],
+          need:1, target:1, kasanOnly:true, note:'目標工賃達成指導員配置加算の要件（人員基準ではありません）'});
+    }else if(sv.key==='gh'){
+      const tier=Number(f.tier)||p.ghSewaRatio;
+      out.push({key:'sewa',label:'世話人',roles:['世話人'],
+        need:usersAvg/p.ghSewaRatio, target:usersAvg/tier,
+        note:'人員基準 '+p.ghSewaRatio+':1／基本報酬区分 '+tier+':1'});
+      if(f.ghType!=='gaibu'){
+        const gr=Calc.ghSupRatio();
+        out.push({key:'sup',label:'生活支援員',roles:['生活支援員'],
+          need: gr>0? usersAvg/gr : 0, target: gr>0? usersAvg/gr : 0,
+          note: gr>0? '平均障害支援区分 '+r1(f.avgCategory)+' → '+gr+':1' : '区分2以下のため配置義務なし'});
+      }
+    }
+    return out;
+  },
+
+  /* 1日あたりの必要配置数 */
+  need(users,open,date,ctx){
+    const p=S.params,sv=SV(),f=S.facility,k=S.kasan;
+    let n={base:0,extra:0,nurse:0,kanri:0,night:0,sleep:0,hardBase:0};
+    if(open){
+      if(sv.group==='child'){
+        const baseFor=u=>p.childBase + Math.ceil(Math.max(0,u-p.childBaseUsers)/p.childStep);
+        const cp=capsOf();
+        const u = f.baseOn==='users' ? users : Math.max(users,cp.tot);
+        if(sv.multi && cp.tot>p.tamokuMergeCap){
+          /* 総定員が合算算定の上限を超える多機能型は、サービスごとに算定して合算する */
+          const rt=cp.tot>0?u/cp.tot:0;
+          n.base = (cp.j>0?baseFor(Math.round(cp.j*rt)):0) + (cp.h>0?baseFor(Math.round(cp.h*rt)):0);
+        }else{
+          n.base = baseFor(u);
+        }
+        n.hardBase = n.base;
+        if(k.kahai_s) n.extra++;
+        if(k.kahai_j) n.extra++;
+        if(k.kahai_o) n.extra++;
+        if(k.senmon_tai) n.extra++;
+        if(k.kango_ka) n.nurse++;
+        n.kanri = f.kanriDaily===false?0:1;
+      }else{
+        /* 常勤換算の必要数を営業日数と1日の平均勤務時間で按分 */
+        const reqs=ctx?ctx.reqs:Calc.requirements(users);
+        const fte=reqs.reduce((a,r)=>a+Math.max(r.need,r.target||0),0);
+        const perDay = ctx&&ctx.openCount>0 ? (fte*ctx.std*60)/(ctx.openCount*ctx.avgWorkMin) : 0;
+        n.base=Math.max(1,Math.ceil(perDay-0.001));
+        n.hardBase=1;
+        if(sv.key==='seikatsu') n.nurse = f.nurseDaily===false?0:1;
+        n.kanri = f.kanriDaily===false?0:1;
+        if(sv.key==='gh'){
+          if(k.yakan1||f.ghType==='nicchu') n.night=1;
+          else if(k.yakan2) n.sleep=1;
+          if(k.kango_gh && f.nurseDaily!==false) n.nurse=0;   /* 看護は常勤換算で判定 */
+        }
+      }
+    }
+    const ov=S.needOv[date];
+    if(ov){ n=Object.assign(n,ov); if(sv.group==='child') n.hardBase=n.base; }
+    return n;
+  },
+
+  canBase:st=>SV().baseRoles.includes(st.role),
+  canDirect:st=>SV().directRoles.includes(st.role),
+  isKanri:st=>st.role===SV().managerRole,
+  isNurse:st=>st.role==='看護職員',
+  canNight:st=>SV().group==='gh' && ['世話人','生活支援員','夜間支援従事者','その他の従業者'].includes(st.role),
+
+  build(){
+    const {y,m}=pm(S.month), nd=dim(y,m), f=S.facility, p=S.params, sv=SV();
+    if(sv.multi) f.capacity=capsOf().tot;   /* 定員超過減算などは合計定員で判定する */
+    const std=Calc.std(nd), days=[];
+    for(let d=1;d<=nd;d++){
+      const date=ymd(y,m,d), dow=new Date(y,m-1,d).getDay();
+      const open=!!f.openDow[dow] && !(f.holidays||[]).includes(date);
+      const users=open?(S.users[date]!=null?Number(S.users[date]):Number(f.capacity)):0;
+      days.push({i:d-1,d,date,dow,open,users,need:null,
+        nBase:0,nDirect:0,nNurse:0,nKanri:0,nWork:0,nNight:0,nSleep:0,nVisit:0});
+    }
+    const openDays=days.filter(x=>x.open);
+    const usersAvg=openDays.length?openDays.reduce((a,x)=>a+x.users,0)/openDays.length:0;
+    const reqs=Calc.requirements(usersAvg);
+    const ctx={openCount:openDays.length,avgWorkMin:Calc.avgWorkMin(),std,reqs};
+    days.forEach(x=>{ x.need=Calc.need(x.users,x.open,x.date,ctx); });
+
+    /* 職員ごとの集計 */
+    const per={};
+    S.staff.forEach(st=>{
+      const a=S.assign[st.id]||{};
+      const r={id:st.id,workMin:0,workDays:0,offDays:0,paid:0,nights:0,sleeps:0,visitMin:0,visits:0,
+               maxConsec:0,weekly:[],wishNg:0,codes:{}};
+      let consec=0,wk=0;
+      days.forEach(day=>{
+        const c=a[day.date], k=codeOf(c), w=isWork(c);
+        if(c) r.codes[c]=(r.codes[c]||0)+1;
+        if(day.dow===0 && day.i>0){ r.weekly.push(wk); wk=0; }
+        if(w){
+          r.workMin+=wMin(c); wk+=wMin(c); r.workDays++;
+          consec++; if(consec>r.maxConsec) r.maxConsec=consec;
+          day.nWork++;
+          if(k.visit){ r.visitMin+=wMin(c); r.visits++; day.nVisit++; }
+          else if(k.night){ r.nights++; day.nNight++; }
+          else if(k.sleep){ r.sleeps++; day.nSleep++; }
+          else{
+            if(Calc.canBase(st)) day.nBase++;
+            if(Calc.canDirect(st)) day.nDirect++;
+            if(Calc.isNurse(st)) day.nNurse++;
+            if(Calc.isKanri(st)) day.nKanri++;
+          }
+        }else{
+          consec=0;
+          if(c==='公') r.offDays++; else if(c==='有') r.paid++;
+        }
+        const wi=(S.wish[st.id]||{})[day.date];
+        if(wi==='休'&&w) r.wishNg++;
+        if(wi==='勤'&&!w) r.wishNg++;
+      });
+      r.weekly.push(wk);
+      r.fte=std>0?r.workMin/60/std:0;
+      /* 本体（児発・放デイ）に係る常勤換算＝訪問支援に出ていた時間を除いたもの */
+      r.fteMain=std>0?(r.workMin-r.visitMin)/60/std:0;
+      per[st.id]=r;
+    });
+
+    /* 日別の過不足 */
+    days.forEach(day=>{
+      const n=day.need;
+      const bA=Math.min(day.nBase,n.base);
+      const eA=Math.min(Math.max(0,day.nDirect-bA),n.extra);
+      day.shortBase=n.base-bA;
+      day.shortHard=Math.max(0,(n.hardBase||0)-day.nBase);
+      day.shortExtra=n.extra-eA;
+      day.shortNurse=Math.max(0,n.nurse-day.nNurse);
+      day.shortKanri=Math.max(0,n.kanri-day.nKanri);
+      day.shortNight=Math.max(0,(n.night||0)-day.nNight);
+      day.shortSleep=Math.max(0,(n.sleep||0)-(day.nNight+day.nSleep));
+      day.short=day.shortBase+day.shortExtra+day.shortNurse+day.shortKanri+day.shortNight+day.shortSleep;
+      day.halfNg = sv.group==='child' && p.childHalfRule && day.open && day.nDirect>0
+                   ? day.nBase*2<day.nDirect : false;
+    });
+
+    /* 職種別の常勤換算 */
+    const fte={},fteM={},headFt={},headAll={};
+    sv.roles.forEach(r=>{fte[r]=0;fteM[r]=0;headFt[r]=0;headAll[r]=0});
+    S.staff.forEach(st=>{
+      if(fte[st.role]==null){fte[st.role]=0;fteM[st.role]=0;headFt[st.role]=0;headAll[st.role]=0}
+      fte[st.role]+=per[st.id].fte; fteM[st.role]+=per[st.id].fteMain; headAll[st.role]++;
+      if(st.employment==='常勤') headFt[st.role]++;
+    });
+    const sum=rs=>rs.reduce((a,r)=>a+(fte[r]||0),0);
+    reqs.forEach(rq=>{ rq.have=sum(rq.roles); });
+
+    const visitMin=Object.values(per).reduce((a,r)=>a+r.visitMin,0);
+    return {y,m,nd,days,per,std,fte,fteM,headFt,headAll,reqs,openDays,usersAvg,
+      usersMax:openDays.length?Math.max(...openDays.map(d=>d.users)):0,
+      fteDirect:sum(sv.directRoles), fteBase:sum(sv.baseRoles),
+      fteKanri:fte[sv.managerRole]||0, fteNurse:fte['看護職員']||0,
+      fteNurseMain:fteM['看護職員']||0,
+      visitMin, visitDays:days.filter(d=>d.nVisit>0).length,
+      visitCount:Object.values(per).reduce((a,r)=>a+r.visits,0),
+      fteVisit:std>0?visitMin/60/std:0, caps:capsOf()};
+  },
+
+  /* 常勤の直接支援職員に占める有資格者の割合 */
+  senmonPct(){
+    const ft=S.staff.filter(st=>st.employment==='常勤'&&SV().directRoles.includes(st.role));
+    if(!ft.length) return {pct:0,n:0,tot:0};
+    const n=ft.filter(st=>(st.quals||[]).some(q=>Q_FUKUSHI.includes(q))).length;
+    return {pct:n/ft.length*100,n,tot:ft.length};
+  },
+  ftStats(){
+    const all=S.staff.filter(st=>!['事務員','送迎運転手'].includes(st.role));
+    if(!all.length) return {ftPct:0,yrPct:0,ft:0,yr:0,tot:0};
+    const ft=all.filter(st=>st.employment==='常勤');
+    const yr=ft.filter(st=>yrs(st.hireDate)>=(S.params.senmon3Years||3));
+    return {ftPct:ft.length/all.length*100,yrPct:yr.length/all.length*100,
+            ft:ft.length,yr:yr.length,tot:all.length};
+  }
+};
+
+/* ===================================================================
+   5. 加算・減算の判定
+   =================================================================== */
+const Judge={
+  spare(C){
+    let mn=Infinity;
+    C.days.forEach(d=>{ if(d.open) mn=Math.min(mn,d.nDirect-(d.need.base+d.need.extra)); });
+    return mn===Infinity?0:mn;
+  },
+  hasFtEx(pred){ return S.staff.some(st=>st.employment==='常勤'&&st.exclusive!==false&&pred(st)); },
+  dl(days,lim){ return days.length? days.slice(0,lim||12).map(d=>d.d+'日').join('、')+(days.length>(lim||12)?' ほか':'') : 'なし'; },
+
+  /* ---------------- 減算 ---------------- */
+  genzan(C){
+    const p=S.params,sv=SV(),f=S.facility,out=[];
+    const od=C.openDays;
+    const shortD=od.filter(d=>d.shortBase>0);
+    const hardD=od.filter(d=>d.shortHard>0);
+    const kanriD=od.filter(d=>d.shortKanri>0);
+    const nurseD=od.filter(d=>d.shortNurse>0);
+
+    /* 1. 人員欠如減算 */
+    if(sv.group==='child'){
+      out.push({id:'staffShort',n:'人員欠如減算（児童指導員等）',
+        st:shortD.length?'ng':'ok', u:shortD.length?shortD.length+'日 不足':'全営業日で充足',
+        rate:p.rateStaffShort1,
+        det:[{k:'判定方法',v:'サービス提供時間帯を通じて配置すべき児童指導員・保育士の実人数'},
+             {k:'必要数の算式',v:'障害児'+p.childBaseUsers+'人まで'+p.childBase+'人、以降'+p.childStep+'人ごとに＋1人'},
+             {k:'算定基礎',v:f.baseOn==='users'?'当日の利用児童数'
+                :(sv.multi
+                  ? '総定員 '+capsOf().tot+'人（児発 '+capsOf().j+'人＋放デイ '+capsOf().h+'人）'
+                    +(capsOf().tot<=p.tamokuMergeCap?'／合算して算定':'／サービスごとに算定して合算')
+                  : '利用定員 '+f.capacity+'人')},
+             {k:'不足日',v:Judge.dl(shortD)},
+             {k:'減算率',v:'1〜2か月目 '+p.rateStaffShort1+'%減算／3か月目以降 '+p.rateStaffShort3+'%減算'}],
+        act:shortD.length?'不足日に児童指導員又は保育士の勤務を追加してください。「シフトを自動生成」で不足の解消を最優先に組み直せます。':''});
+    }else{
+      const bad=C.reqs.filter(r=>!r.kasanOnly && r.need>0 && r.have<r.need-0.001);
+      const ok=bad.length===0 && hardD.length===0;
+      out.push({id:'staffShort',n:sv.key==='gh'?'人員欠如減算':'サービス提供職員欠如減算',
+        st:ok?'ok':'ng',
+        u:C.reqs.map(r=>r.label+' '+r1(r.have)+'/'+r1(r.need)).join('　'),
+        rate:p.rateStaffShort1,
+        det:[{k:'判定方法',v:'常勤換算方法（月の勤務延べ時間数 ÷ 常勤職員が勤務すべき時間数）'},
+             {k:'平均利用者数',v:r1(C.usersAvg)+'人'},
+             ...C.reqs.map(r=>({k:r.label,v:'必要 '+r1(r.need)+'人／現在 '+r1(r.have)+'人（'+(r.have>=r.need?'＋':'')+r1(r.have-r.need)+'）　'+r.note})),
+             {k:'常勤の月所定労働時間',v:C.std+'時間'},
+             {k:'職員が不在の営業日',v:Judge.dl(hardD)},
+             {k:'減算率',v:'1〜2か月目 '+p.rateStaffShort1+'%減算／3か月目以降 '+p.rateStaffShort3+'%減算'}],
+        act:ok?'':(bad.length? bad.map(r=>r.label+'が常勤換算で '+r1(r.need-r.have)+'人不足（月 '+Math.ceil((r.need-r.have)*C.std)+'時間相当）').join('／')
+                             :'職員が誰も出勤しない営業日があります。')});
+      if(sv.key==='seikatsu'){
+        const nh=S.staff.filter(st=>st.role==='看護職員').length;
+        out.push({id:'nurse',n:'看護職員の配置（生活介護の人員基準）',
+          st:nh<1?'ng':(nurseD.length?'wn':'ok'),
+          u:nh<1?'未配置':(nurseD.length?nurseD.length+'日 不在':'充足'),
+          det:[{k:'必要',v:'看護職員を1人以上配置（員数要件）'},
+               {k:'配置人数',v:nh+'人'},{k:'常勤換算',v:r2(C.fteNurse)+'人'},
+               {k:'不在の営業日',v:Judge.dl(nurseD)}],
+          act:nh<1?'看護職員が職員台帳に登録されていません。'
+             :(nurseD.length?'看護職員が不在の営業日があります。健康管理・医療的ケアの体制をご確認ください。':'')});
+      }
+    }
+
+    /* 2. サビ管・児発管欠如減算 */
+    const ks=S.staff.filter(st=>st.role===sv.managerRole);
+    const kf=ks.filter(st=>st.employment==='常勤');
+    const kw=ks.filter(st=>(C.per[st.id]||{}).workDays>0);
+    const needK = sv.group==='child' ? 1
+      : sv.key==='gh' ? 1+Math.max(0,Math.ceil((C.usersAvg-p.ghKanriUsers)/p.ghKanriUsers))
+      : 1+Math.max(0,Math.ceil((C.usersAvg-p.kanriBaseUsers)/p.kanriStepUsers));
+    const kng = kf.length<1 || ks.length<needK || kw.length<1;
+    out.push({id:'kanriShort',n:sv.managerShort+'欠如減算',
+      st:kng?'ng':(kanriD.length?'wn':'ok'),
+      u:ks.length+'人配置（常勤'+kf.length+'人）', rate:p.rateKanriShort1,
+      det:[{k:'判定方法',v:'員数要件（配置人数）で判定します。毎営業日の出勤までは求められません'},
+           {k:'必要人数',v:needK+'人以上（うち1人以上は常勤・専任）'},
+           {k:'配置人数',v:ks.length+'人（常勤 '+kf.length+'人／当月勤務あり '+kw.length+'人）'},
+           {k:'常勤換算',v:r2(C.fteKanri)+'人'},
+           {k:'不在の営業日',v:kanriD.length?kanriD.length+'日（'+Judge.dl(kanriD,10)+'）':'なし'},
+           {k:'減算率',v:'1〜4か月目 '+p.rateKanriShort1+'%減算／5か月目以降 '+p.rateKanriShort5+'%減算'}],
+      act:kng?(kf.length<1?'常勤の'+sv.managerShort+'が登録されていません。職員台帳で職種と雇用形態を確認してください。'
+              :kw.length<1?sv.managerShort+'の当月の勤務がありません。':'配置人数が基準を下回っています。')
+         :(kanriD.length?sv.managerShort+'が不在の営業日が'+kanriD.length+'日あります。減算には直結しませんが、個別支援計画の作成・モニタリング体制をご確認ください。':'')});
+
+    /* 3. 定員超過利用減算 */
+    const cap=Number(f.capacity)||0;
+    const ov=od.filter(d=>cap>0&&d.users>cap*p.overDaily);
+    const avgOv=cap>0&&C.usersAvg>cap*p.overAvg;
+    out.push({id:'overCap',n:'定員超過利用減算',
+      st:(ov.length||avgOv)?'ng':'ok',
+      u:'定員 '+cap+'人／平均 '+r1(C.usersAvg)+'人・最大 '+C.usersMax+'人', rate:p.rateOverCap,
+      det:[{k:'1日の判定基準',v:'定員の'+p.overDaily+'倍（'+r1(cap*p.overDaily)+'人）を超えた日は当該日が減算'},
+           {k:'超過した日',v:ov.length?ov.map(d=>d.d+'日('+d.users+'人)').join('、'):'なし'},
+           {k:'平均の判定基準',v:'直近3か月平均が定員の'+p.overAvg+'倍（'+r1(cap*p.overAvg)+'人）超で翌月から減算'},
+           {k:'当月の平均',v:r1(C.usersAvg)+'人 → '+(avgOv?'基準超過':'基準内')},
+           {k:'減算率',v:p.rateOverCap+'%減算'}],
+      act:(ov.length||avgOv)?'利用調整が必要です。3か月平均は本システムでは当月のみで判定しています。':''});
+
+    /* 4. 児童系の固有項目 */
+    if(sv.group==='child'){
+      if(p.childHalfRule){
+        const h=C.days.filter(d=>d.halfNg);
+        out.push({id:'half',n:'直接支援職員の半数以上が児童指導員又は保育士',
+          st:h.length?'ng':'ok', u:h.length?h.length+'日 未達':'全営業日で充足',
+          det:[{k:'要件',v:'配置する直接支援職員のうち、児童指導員又は保育士が半数以上'},
+               {k:'未達の日',v:h.length?h.map(d=>d.d+'日('+d.nBase+'/'+d.nDirect+')').join('、'):'なし'}],
+          act:h.length?'「その他の従業者」の勤務を児童指導員・保育士に置き換えてください。':''});
+      }
+      if(S.facility.houmon){
+        const elig=S.staff.filter(canVisit);
+        const kj=S.staff.filter(st=>st.role===sv.managerRole);
+        const vd=C.days.filter(d=>d.nVisit>0);
+        const clash=vd.filter(d=>d.open&&d.shortBase>0);
+        const ok=elig.length>=1&&kj.length>=1;
+        out.push({id:'houmonStaff',n:'訪問支援員の配置（保育所等訪問支援の人員基準）',
+          st:ok?(clash.length?'wn':'ok'):'ng',
+          u:elig.length?'訪問支援員 '+elig.length+'人／当月の訪問 '+C.visitCount+'回':'該当職員なし',
+          rate:p.rateStaffShort1,
+          det:[{k:'必要な配置',v:'訪問支援員1人以上（本体との兼務可）と児童発達支援管理責任者1人以上'},
+               {k:'訪問支援員になれる職員',v:'児童指導員・保育士・機能訓練担当職員、又は理学療法士等の資格保有者'},
+               {k:'該当職員',v:elig.map(st=>st.name).join('、')||'なし'},
+               {k:'うち専任（職種＝訪問支援員）',v:S.staff.filter(st=>st.role==='訪問支援員').map(st=>st.name).join('、')||'なし（兼務のみ）'},
+               {k:'児童発達支援管理責任者',v:kj.length+'人'},
+               {k:'当月の訪問',v:vd.length?vd.length+'日 / '+C.visitCount+'回（勤務記号「訪」）':'なし'},
+               {k:'訪問により本体が不足した日',v:Judge.dl(clash)}],
+          act:!ok?(elig.length?'児童発達支援管理責任者を配置してください。':'訪問支援員になれる職員が登録されていません。職員台帳で職種又は資格を登録してください。')
+             :(clash.length?'訪問に出た日に本体（児発・放デイ）の基準人員が不足しています。勤務記号「訪」を別の日に移すか、その日の配置を増やしてください。':'')});
+      }
+      const sh=Number(f.serviceHours)||0;
+      out.push({id:'openShort',n:'開所時間減算',
+        st:sh>0&&sh<6?'ng':'ok', u:'開所時間 '+sh+'時間',
+        rate:sh<4?p.rateOpenShort4:(sh<6?p.rateOpenShort6:0),
+        det:[{k:'4時間未満',v:p.rateOpenShort4+'%減算'},
+             {k:'4時間以上6時間未満',v:p.rateOpenShort6+'%減算'},
+             {k:'6時間以上',v:'減算なし'},
+             {k:'開所時間の考え方',v:'職員を配置して児童を受け入れられる時間。送迎のみの時間は含みません'}],
+        act:sh>0&&sh<6?'開所時間が6時間未満のため減算対象です。詳細設定の開所時間をご確認ください。':''});
+    }
+
+    /* 5. GH：日中サービス支援型の夜間支援体制 */
+    if(sv.key==='gh' && f.ghType==='nicchu'){
+      const nn=od.filter(d=>d.shortNight>0);
+      out.push({id:'ghNight',n:'夜間支援従事者の配置（日中サービス支援型の人員基準）',
+        st:nn.length?'ng':'ok', u:nn.length?nn.length+'日 不在':'全日で充足',
+        det:[{k:'要件',v:'日中サービス支援型は、夜間支援従事者を配置し常時の支援体制を確保する必要があります'},
+             {k:'夜勤が組まれていない日',v:Judge.dl(nn)}],
+        act:nn.length?'夜勤（勤務記号「夜」）が入っていない日があります。自動生成で夜勤を最優先に配置し直してください。':''});
+    }
+
+    /* 6. 体制に係る減算 */
+    GENZAN_T.forEach(g=>{
+      if(g.only && g.only!==sv.group) return;
+      const hit=!!S.taisei[g.id];
+      out.push({id:'t_'+g.id,n:g.n,st:hit?'ng':'ok',
+        u:hit?g.r+'%減算に該当':'該当なし',rate:g.r,
+        det:[{k:'内容',v:g.d},{k:'減算率',v:g.r+'%減算'}],
+        act:hit?'事業所設定の「運営基準に係る減算」で該当としています。体制整備のうえOFFにしてください。':''});
+    });
+    return out;
+  },
+
+  /* ---------------- 加算 ---------------- */
+  kasan(C){
+    const p=S.params,sv=SV(),f=S.facility,sel=S.kasan,out=[];
+    const od=C.openDays, spare=Judge.spare(C);
+    const add=(id,n,d,met,u,det,act,ref)=>{
+      const on=!!sel[id];
+      out.push({id,n,d,on,ref:!!ref,met,
+        st:ref?'mute':(on?(met?'ok':'ng'):(met?'wn':'mute')),u,det,act});
+    };
+    const senmonSet=()=>{
+      const sp=Calc.senmonPct(), fs=Calc.ftStats();
+      [['senmon1','（Ⅰ）',p.senmon1Pct],['senmon2','（Ⅱ）',p.senmon2Pct]].forEach(([id,rn,pct])=>{
+        const met=sp.pct>=pct;
+        add(id,'福祉専門職員配置等加算'+rn,'常勤の直接支援職員のうち有資格者が'+pct+'%以上',met,
+          r1(sp.pct)+'% / 必要 '+pct+'%',
+          [{k:'対象資格',v:Q_FUKUSHI.join('・')},{k:'常勤の直接支援職員',v:sp.tot+'人'},
+           {k:'うち有資格者',v:sp.n+'人（'+r1(sp.pct)+'%）'},{k:'必要人数',v:Math.ceil(sp.tot*pct/100)+'人'}],
+          met?(sel[id]?'':'算定可能です。体制届の提出をご検討ください。')
+             :'あと'+Math.max(0,Math.ceil(sp.tot*pct/100)-sp.n)+'人の有資格者の常勤配置で算定できます。');
+      });
+      const met3=fs.ftPct>=p.senmon3FtPct||fs.yrPct>=p.senmon3YearPct;
+      add('senmon3','福祉専門職員配置等加算（Ⅲ）',
+        '常勤職員'+p.senmon3FtPct+'%以上、又は勤続'+p.senmon3Years+'年以上の常勤職員'+p.senmon3YearPct+'%以上',met3,
+        '常勤率 '+r1(fs.ftPct)+'%／勤続 '+r1(fs.yrPct)+'%',
+        [{k:'従業者数（事務・運転手を除く）',v:fs.tot+'人'},
+         {k:'常勤職員',v:fs.ft+'人（'+r1(fs.ftPct)+'%）'},
+         {k:'勤続'+p.senmon3Years+'年以上の常勤',v:fs.yr+'人（'+r1(fs.yrPct)+'%）'}],
+        met3?(sel.senmon3?'':'算定可能です。'):'常勤率または勤続年数要件のいずれかを満たす必要があります。');
+    };
+
+    if(sv.group==='child'){
+      const mk=(id,n,pred,pn)=>{
+        const has=Judge.hasFtEx(pred), on=!!sel[id];
+        const sd=od.filter(d=>d.shortExtra>0);
+        const met=on?(has&&sd.length===0):(has&&spare>=1);
+        add(id,n,'基準人員に加えて常勤専従の'+pn+'を1人以上配置',met,
+          has?(on?(sd.length?sd.length+'日 配置不足':'全営業日で充足'):'余力 '+spare+'人／日'):'該当職員が未登録',
+          [{k:'対象',v:pn+'（常勤・専従）'},
+           {k:'該当職員',v:S.staff.filter(st=>st.employment==='常勤'&&st.exclusive!==false&&pred(st)).map(st=>st.name).join('、')||'なし'},
+           {k:'基準人員に対する余力',v:'各営業日で最小 '+spare+'人'},
+           {k:'配置不足の日',v:Judge.dl(sd)}],
+          met?(on?'':'算定可能です。体制届の提出をご検討ください。')
+             :(has?'基準人員に加えた配置が不足しています。自動生成で加配分を織り込んで組み直してください。'
+                  :pn+'に該当する常勤専従職員を職員台帳に登録してください。'));
+      };
+      mk('kahai_s','児童指導員等加配加算（専門職／経験5年以上）',
+        st=>(st.quals||[]).some(q=>['理学療法士','作業療法士','言語聴覚士','公認心理師','心理指導担当職員'].includes(q))
+            ||(['児童指導員','保育士'].includes(st.role)&&yrs(st.hireDate)>=5),
+        '理学療法士・作業療法士・言語聴覚士・公認心理師等、又は経験5年以上の児童指導員・保育士');
+      mk('kahai_j','児童指導員等加配加算（児童指導員等）',st=>['児童指導員','保育士'].includes(st.role),'児童指導員又は保育士');
+      mk('kahai_o','児童指導員等加配加算（その他の従業者）',
+        st=>st.role==='その他の従業者'||SV().directRoles.includes(st.role),'その他の従業者');
+      const sen=S.staff.filter(st=>(st.quals||[]).some(q=>Q_SENMON.includes(q))||st.role==='機能訓練担当職員');
+      const senF=sen.reduce((a,st)=>a+((C.per[st.id]||{}).fteMain||0),0);
+      add('senmon_tai','専門的支援体制加算','専門職を常勤換算1.0以上、基準人員に加えて配置',
+        senF>=1&&spare>=(sel.senmon_tai?0:1),'常勤換算 '+r2(senF)+' / 必要 1.00',
+        [{k:'対象資格',v:Q_SENMON.join('・')},{k:'該当職員',v:sen.map(st=>st.name).join('、')||'なし'},
+         {k:'常勤換算',v:r2(senF)+'人'},{k:'基準人員に対する余力',v:'各営業日で最小 '+spare+'人'}],
+        senF>=1?'':'専門職の常勤換算があと'+r2(Math.max(0,1-senF))+'人分必要です。');
+      add('kango_ka','看護職員加配加算','看護職員を常勤換算1.0以上、基準人員に加えて配置',
+        C.fteNurseMain>=1,'常勤換算 '+r2(C.fteNurseMain)+' / 必要 1.00',
+        [{k:'看護職員の常勤換算',v:r2(C.fteNurseMain)+'人'},
+         {k:'登録看護職員',v:S.staff.filter(st=>st.role==='看護職員').map(st=>st.name).join('、')||'なし'}],
+        C.fteNurseMain>=1?'':'看護職員の勤務時間があと'+Math.ceil(Math.max(0,1-C.fteNurseMain)*C.std)+'時間分必要です。');
+      add('soge','送迎加算','送迎の実施状況による（運用要件）',true,'運用で判定',
+        [{k:'備考',v:'送迎の実施回数はシフトからは判定できません。送迎表と併せてご確認ください。'}],'',true);
+      add('encho','延長支援加算','営業時間を超える支援時間帯の職員配置',true,'運用で判定',
+        [{k:'備考',v:'延長時間帯に配置する職員は、勤務記号で遅番等を別途設定して管理してください。'}],'',true);
+      if(S.facility.houmon){
+        const SPQ=['理学療法士','作業療法士','言語聴覚士','公認心理師','心理指導担当職員'];
+        const elig=S.staff.filter(canVisit);
+        const toku=elig.filter(st=>(st.quals||[]).some(q=>SPQ.includes(q))
+          || (['児童指導員','保育士','訪問支援員'].includes(st.role)&&yrs(st.hireDate)>=5));
+        add('houmon_toku','訪問支援員特別加算',
+          '理学療法士等、又は経験5年以上の児童指導員・保育士を訪問支援員として配置',
+          toku.length>0, toku.length?'該当 '+toku.length+'人':'該当者なし',
+          [{k:'対象',v:SPQ.join('・')+'、又は経験5年以上の児童指導員・保育士'},
+           {k:'該当職員',v:toku.map(st=>st.name).join('、')||'なし'},
+           {k:'訪問支援員になれる職員',v:elig.length+'人'},
+           {k:'当月の訪問',v:C.visitCount+'回（'+C.visitDays+'日）'}],
+          toku.length?(sel.houmon_toku?'':'算定可能です。体制届の提出をご検討ください。')
+            :'理学療法士等の資格保有者、又は経験5年以上（入職日から判定）の児童指導員・保育士を登録してください。');
+      }
+
+    }else if(sv.key==='seikatsu'){
+      [['haichi1','（Ⅰ）',p.haichi1Ratio],['haichi2','（Ⅱ）',p.haichi2Ratio],['haichi3','（Ⅲ）',p.haichi3Ratio]].forEach(([id,rn,ra])=>{
+        const req=C.usersAvg/ra, met=C.fteDirect>=req-0.001;
+        add(id,'人員配置体制加算'+rn,'直接支援職員の常勤換算 ≧ 利用者数÷'+ra,met,
+          '常勤換算 '+r1(C.fteDirect)+' / 必要 '+r1(req),
+          [{k:'配置比率',v:ra+':1'},{k:'平均利用者数',v:r1(C.usersAvg)+'人'},
+           {k:'必要常勤換算数',v:r1(req)+'人'},{k:'現在',v:r1(C.fteDirect)+'人'},
+           {k:'過不足',v:(C.fteDirect>=req?'＋':'')+r1(C.fteDirect-req)+'人'}],
+          met?(sel[id]?'':'算定可能です。体制届の提出をご検討ください。')
+             :'不足 '+r1(req-C.fteDirect)+'人（月 '+Math.ceil((req-C.fteDirect)*C.std)+'時間相当）の勤務が必要です。');
+      });
+      const nf=S.staff.filter(st=>st.role==='看護職員'&&st.employment==='常勤'&&(C.per[st.id]||{}).workDays>0).length;
+      [['kango1','（Ⅰ）',1],['kango2','（Ⅱ）',2],['kango3','（Ⅲ）',3]].forEach(([id,rn,n])=>{
+        add(id,'常勤看護職員等配置加算'+rn,'常勤の看護職員を'+n+'人以上配置',nf>=n,
+          '常勤看護職員 '+nf+'人 / 必要 '+n+'人',
+          [{k:'常勤の看護職員',v:nf+'人'},{k:'看護職員の常勤換算',v:r1(C.fteNurse)+'人'}],
+          nf>=n?'':'常勤の看護職員があと'+(n-nf)+'人必要です。');
+      });
+      senmonSet();
+      add('soge','送迎加算','週3回以上の送迎の実施（運用要件）',true,'運用で判定',
+        [{k:'備考',v:'送迎の実施回数・利用者数の要件はシフトからは判定できません。'}],'',true);
+
+    }else if(sv.key==='shuroB'){
+      const base=C.reqs.find(r=>r.key==='base')||{have:0};
+      const mk=(C.fte['目標工賃達成指導員']||0);
+      const all=base.have+mk;
+      const c1=mk>=1.0, c2=base.have>=C.usersAvg/p.mokuhyoBase-0.001, c3=all>=C.usersAvg/p.mokuhyoAll-0.001;
+      add('mokuhyo','目標工賃達成指導員配置加算',
+        '目標工賃達成指導員を常勤換算1.0以上、職業指導員＋生活支援員が'+p.mokuhyoBase+':1以上、3職種の合計が'+p.mokuhyoAll+':1以上',
+        c1&&c2&&c3, '常勤換算 '+r2(mk)+' / 合計 '+r1(all),
+        [{k:'① 目標工賃達成指導員',v:r2(mk)+'人（必要 1.00）'+(c1?' ✓':' ✕')},
+         {k:'② 職業指導員＋生活支援員',v:r1(base.have)+'人（必要 '+r1(C.usersAvg/p.mokuhyoBase)+'）'+(c2?' ✓':' ✕')},
+         {k:'③ 3職種の合計',v:r1(all)+'人（必要 '+r1(C.usersAvg/p.mokuhyoAll)+'）'+(c3?' ✓':' ✕')},
+         {k:'平均利用者数',v:r1(C.usersAvg)+'人'}],
+        (c1&&c2&&c3)?(sel.mokuhyo?'':'算定可能です。'):
+          [!c1?'目標工賃達成指導員が'+r2(1-mk)+'人分不足':'',
+           !c2?'職業指導員＋生活支援員が'+r1(C.usersAvg/p.mokuhyoBase-base.have)+'人分不足':'',
+           !c3?'3職種合計が'+r1(C.usersAvg/p.mokuhyoAll-all)+'人分不足':''].filter(Boolean).join('／'));
+      senmonSet();
+      add('soge','送迎加算','送迎の実施状況による（運用要件）',true,'運用で判定',[{k:'備考',v:'送迎表と併せてご確認ください。'}],'',true);
+      add('ikou','就労移行支援体制加算','一般就労への移行実績による（実績要件）',true,'実績で判定',[{k:'備考',v:'前年度の一般就労移行者数と定着期間で判定します。'}],'',true);
+      add('shikaku','視覚・聴覚言語障害者支援体制加算','意思疎通に関する専門的な訓練を受けた職員の配置',true,'運用で判定',[{k:'備考',v:'対象利用者数と職員の研修修了状況をご確認ください。'}],'',true);
+
+    }else if(sv.key==='gh'){
+      const nn=od.filter(d=>d.nNight<1);
+      const ns=od.filter(d=>d.nNight+d.nSleep<1);
+      const nightStaff=S.staff.filter(st=>Calc.canNight(st));
+      add('yakan1','夜間支援等体制加算（Ⅰ）','夜間支援従事者を配置し、夜勤による支援を行う',
+        nightStaff.length>0&&nn.length===0, nn.length?nn.length+'日 夜勤なし':'全日で夜勤を配置',
+        [{k:'要件',v:'夜間支援従事者を配置し、夜勤による支援を行う'},
+         {k:'夜勤可能な職員',v:nightStaff.length+'人'},
+         {k:'夜勤が入っていない日',v:Judge.dl(nn)},
+         {k:'当月の夜勤回数',v:S.staff.map(st=>({n:st.name,c:(C.per[st.id]||{}).nights||0})).filter(x=>x.c>0).map(x=>x.n+' '+x.c+'回').join('、')||'なし'}],
+        nn.length?'夜勤（勤務記号「夜」）が入っていない日があります。加算を選択したうえで自動生成すると、全日に夜勤を配置します。':'');
+      add('yakan2','夜間支援等体制加算（Ⅱ）','夜間支援従事者を配置し、宿直による支援を行う',
+        nightStaff.length>0&&ns.length===0, ns.length?ns.length+'日 未配置':'全日で夜勤又は宿直を配置',
+        [{k:'要件',v:'夜間支援従事者を配置し、宿直による支援を行う'},
+         {k:'夜勤又は宿直がない日',v:Judge.dl(ns)},
+         {k:'備考',v:'宿直は労働基準監督署の許可を前提に、勤務時間数0分として常勤換算から除外しています'}],
+        ns.length?'宿直（勤務記号「宿」）又は夜勤を配置してください。':'');
+      add('yakan3','夜間支援等体制加算（Ⅲ）','常時の連絡体制・防災体制の確保（運用要件）',true,'運用で判定',
+        [{k:'備考',v:'常時の連絡体制又は防災体制の確保はシフトからは判定できません。'}],'',true);
+      add('kango_gh','看護職員配置加算','看護職員を常勤換算1.0以上配置',C.fteNurse>=1,
+        '常勤換算 '+r2(C.fteNurse)+' / 必要 1.00',
+        [{k:'看護職員の常勤換算',v:r2(C.fteNurse)+'人'},
+         {k:'登録看護職員',v:S.staff.filter(st=>st.role==='看護職員').map(st=>st.name).join('、')||'なし'}],
+        C.fteNurse>=1?'':'看護職員の勤務時間があと'+Math.ceil(Math.max(0,1-C.fteNurse)*C.std)+'時間分必要です。');
+      senmonSet();
+      add('iryo','医療連携体制加算','看護職員による医療的ケア等の実施（実績要件）',true,'実績で判定',
+        [{k:'備考',v:'対象利用者への実施日数で算定します。'}],'',true);
+      add('juudo','重度障害者支援加算','強度行動障害支援者養成研修修了者の配置と支援の実施',true,'運用で判定',
+        [{k:'研修修了者',v:S.staff.filter(st=>(st.quals||[]).includes('強度行動障害支援者養成研修（実践研修）')).map(st=>st.name).join('、')||'なし'}],'',true);
+    }
+    return out;
+  },
+
+  /* ---------------- 労務 ---------------- */
+  labor(C){
+    const p=S.params,out=[];
+    S.staff.forEach(st=>{
+      const r=C.per[st.id]; if(!r) return;
+      const iss=[];
+      const tgt = st.employment==='常勤' ? C.std*60 : (Number(st.weeklyHours)||0)*60*C.nd/7;
+      const lim = st.employment==='常勤'? p.maxWeeklyHours : Math.max(Number(st.weeklyHours)||0,p.maxWeeklyHours);
+      r.weekly.forEach((mn,i)=>{ if(mn/60>lim+.01) iss.push({l:'ng',t:'第'+(i+1)+'週 '+r1(mn/60)+'時間（上限'+lim+'時間）'}); });
+      if(r.maxConsec>p.maxConsecDays) iss.push({l:'ng',t:'連続勤務'+r.maxConsec+'日（上限'+p.maxConsecDays+'日）'});
+      if(r.nights>p.maxNightsPerMonth) iss.push({l:'ng',t:'夜勤'+r.nights+'回（目安'+p.maxNightsPerMonth+'回以内）'});
+      if(st.employment==='常勤'&&r.offDays<p.minMonthlyOff) iss.push({l:'wn',t:'公休'+r.offDays+'日（目安'+p.minMonthlyOff+'日以上）'});
+      if(r.wishNg>0) iss.push({l:'wn',t:'希望と異なる割当 '+r.wishNg+'件'});
+      const dh=(r.workMin-tgt)/60;
+      if(tgt>0&&Math.abs(dh)>8){
+        const over=st.employment!=='常勤'&&dh>10&&dh>tgt/60*0.1;
+        iss.push({l:over?'ng':'wn',
+          t:(over?'契約時間の超過 ＋':'所定労働時間との差 '+(dh>0?'＋':''))+r1(dh)+'時間'});
+      }
+      /* 夜勤明けの取扱い・勤務間インターバル */
+      const a=S.assign[st.id]||{}; let iv=0,af=0;
+      for(let i=1;i<C.days.length;i++){
+        const c1=a[C.days[i-1].date], c2=a[C.days[i].date];
+        if(isNightDuty(c1) && isWork(c2) && !isAfter(c2)) af++;
+        const k1=codeOf(c1),k2=codeOf(c2);
+        if(!k1||!k2||!k1.w||!k2.w||!k1.e||!k2.s||k1.night||k1.sleep||k2.night||k2.sleep) continue;
+        const e=+k1.e.slice(0,2)*60+ +k1.e.slice(3), s2=+k2.s.slice(0,2)*60+ +k2.s.slice(3);
+        if((1440-e+s2)/60<p.intervalHours) iv++;
+      }
+      if(af) iss.push({l:'ng',t:'夜勤の翌日に勤務 '+af+'件（明け又は休みが必要）'});
+      if(iv) iss.push({l:'wn',t:'勤務間インターバル'+p.intervalHours+'時間未満 '+iv+'件'});
+      out.push({st,r,iss,tgtH:tgt/60});
+    });
+    return out;
+  },
+
+  evaluate(){
+    const C=Calc.build();
+    return {C,genzan:Judge.genzan(C),kasan:Judge.kasan(C),labor:Judge.labor(C)};
+  }
+};
+
+/* ===================================================================
+   6. 自動生成エンジン（貪欲法＋焼きなまし法）
+   =================================================================== */
+const W={
+  HARD:4000,     /* 在所すべき職員の欠如 */
+  NIGHT:3000,    /* 夜勤の欠如 */
+  NIGHTSEQ:2500, /* 夜勤明けの取扱い違反（翌日に勤務を入れてしまう） */
+  NIGHTAFTER:200,/* 夜勤の翌日を「明」と記載しない */
+  SLEEP:1500,    /* 宿直の欠如 */
+  BASE:1000,     /* 基準人員の不足（児童系＝人員欠如減算に直結） */
+  FTE:40,        /* 常勤換算の必要数に対する不足（1時間）
+                    ※所定労働時間の超過（45）より小さくし、労基法違反や契約超過をしてまで
+                      充足させないようにする。足りない場合は減算リスクとして正直に報告する */
+  FTE_T:12,      /* 加算の目標常勤換算に対する不足（1時間） */
+  KANRI:800,     /* サビ管・児発管の不在 */
+  NURSE:600,     /* 看護職員の不在 */
+  WISH:400,      /* 希望休違反 */
+  EXTRA:300,     /* 加配加算分の不足 */
+  NIGHTMAX:300,  /* 月の夜勤回数の上限超過 */
+  SPREAD:60,     /* 常勤換算を按分した1日あたりの配置目安（法的判定は常勤換算で行うため軽め） */
+  HALF:250,      /* 児童指導員・保育士の半数要件 */
+  CONSEC:900,    /* 連続勤務の超過（1日）＝労務リスクのため強く抑制 */
+  WEEK:120,      /* 週法定労働時間の超過（1時間） */
+  OFF:60,        /* 公休不足（1日） */
+  HOURS_OVER:45, /* 常勤の所定労働時間の超過（1時間） */
+  HOURS_OVER_PT:130,/* 非常勤の契約時間の超過（1時間）＝契約違反のため強く抑制 */
+  OPENCLOSE:40,  /* 早番・遅番の欠落 */
+  INTERVAL:30,   /* 勤務間インターバル不足 */
+  NIGHTBAL:25,   /* 夜勤回数の偏り */
+  WEEKEND:12,    /* 土日出勤の偏り */
+  HOURS:20,      /* 所定労働時間の不足（1時間） */
+  EXCESS:4       /* 過剰配置（2乗で評価し平準化） */
+};
+
+const Engine={
+  running:false,
+
+  prepare(keep){
+    const C=Calc.build(), days=C.days, ns=S.staff.length, nd=days.length, p=S.params;
+    const OFF='公';
+    if(!S.codes.some(c=>c.c===OFF)) return null;
+    const dayCodes=S.codes.filter(c=>c.w&&c.a!==false&&!c.night&&!c.sleep).map(c=>c.c);
+    const nightCode=(S.codes.find(c=>c.night&&c.a!==false)||{}).c||null;
+    const sleepCode=(S.codes.find(c=>c.sleep&&c.a!==false)||{}).c||null;
+    const afterCode=(S.codes.find(c=>c.after)||{}).c||null;
+    const timed=S.codes.filter(c=>c.w&&c.s&&!c.night&&!c.sleep).sort((a,b)=>a.s.localeCompare(b.s));
+    const G={days,ns,nd,C,OFF,nightCode,sleepCode,afterCode,
+      early:timed.length?timed[0].c:null, late:timed.length?timed[timed.length-1].c:null,
+      childMode:SV().group==='child', ghMode:SV().group==='gh',
+      grid:[],mut:[],allow:[],nightOk:[],target:[],wish:[],isFT:[],
+      isBase:[],isDirect:[],isNurse:[],isKanri:[],
+      dayAgg:[],wkIdx:[],dayPen:[],stPen:[],nightTgt:[],score:0};
+    days.forEach((d,i)=>{ if(d.dow===0||d.dow===6) G.wkIdx.push(i); });
+
+    S.staff.forEach(st=>{
+      const a=S.assign[st.id]||{}, fx=S.fixed[st.id]||{}, wi=S.wish[st.id]||{};
+      const ng=st.ngCodes||[];
+      const allow=dayCodes.filter(c=>!ng.includes(c));
+      const row=[],mut=[],wsh=[];
+      days.forEach(d=>{
+        let v=a[d.date]||null,m=true;
+        if(!d.open){ v=OFF; m=false; }
+        else if(keep&&fx[d.date]) m=false;
+        else if(keep&&wi[d.date]==='休'){ v=OFF; m=false; }
+        if(m&&keep&&v&&!isWork(v)&&v!==OFF&&!isAfter(v)) m=false;   /* 有給・特休は保持 */
+        row.push(m?OFF:(v||OFF)); mut.push(m); wsh.push(wi[d.date]||null);
+      });
+      G.grid.push(row); G.mut.push(mut); G.wish.push(wsh);
+      G.allow.push(allow.length?allow:[OFF]);
+      G.nightOk.push(!!nightCode && Calc.canNight(st) && !ng.includes(nightCode));
+      G.isBase.push(Calc.canBase(st)); G.isDirect.push(Calc.canDirect(st));
+      G.isNurse.push(Calc.isNurse(st)); G.isKanri.push(Calc.isKanri(st));
+      G.target.push(st.employment==='常勤'?C.std*60:(Number(st.weeklyHours)||0)*60*nd/7);
+      G.isFT.push(st.employment==='常勤');
+    });
+
+    /* 常勤換算の必要数（グループ単位で追跡） */
+    G.groups=C.reqs.map(r=>({
+      label:r.label,
+      needMin:Math.max(0,r.need)*C.std*60,
+      tgtMin:Math.max(0,r.target||r.need)*C.std*60, cur:0}));
+    G.grp=S.staff.map(st=>{
+      for(let i=0;i<C.reqs.length;i++) if(C.reqs[i].roles.includes(st.role)) return i;
+      return -1;
+    });
+
+    /* 夜勤回数の目安（該当職員で均等に分担） */
+    const nightSlots=days.reduce((a,d)=>a+(d.need.night||0)+(d.need.sleep||0),0);
+    const elig=G.nightOk.filter(Boolean).length;
+    G.nightTgt=G.nightOk.map(ok=>ok&&elig?nightSlots/elig:0);
+    G.maxNights=p.maxNightsPerMonth;
+
+    Engine.rebuild(G);
+    return G;
+  },
+
+  rebuild(G){
+    G.dayAgg=G.days.map(()=>({base:0,direct:0,nurse:0,kanri:0,work:0,night:0,sleep:0,early:0,late:0}));
+    (G.groups||[]).forEach(g=>g.cur=0);
+    for(let i=0;i<G.ns;i++) for(let j=0;j<G.nd;j++) Engine.cell(G,i,j,G.grid[i][j],1);
+    G.dayPen=G.days.map((d,i)=>Engine.dayPen(G,i));
+    G.stPen=[]; for(let i=0;i<G.ns;i++) G.stPen.push(Engine.stPen(G,i));
+    G.gPen=Engine.grpPen(G);
+    G.score=G.dayPen.reduce((a,b)=>a+b,0)+G.stPen.reduce((a,b)=>a+b,0)+G.gPen;
+  },
+
+  /* 常勤換算の必要数に対する不足 */
+  grpPen(G){
+    let s=0;
+    (G.groups||[]).forEach(g=>{
+      s+=Math.max(0,g.needMin-g.cur)/60*W.FTE;
+      s+=Math.max(0,g.tgtMin-g.cur)/60*W.FTE_T;
+    });
+    return s;
+  },
+
+  cell(G,si,di,code,sg){
+    const k=codeOf(code); if(!k||!k.w) return;
+    if(G.groups&&G.grp[si]>=0) G.groups[G.grp[si]].cur+=sg*(k.m||0);
+    const ag=G.dayAgg[di]; ag.work+=sg;
+    if(k.night){ ag.night+=sg; return; }
+    if(k.sleep){ ag.sleep+=sg; return; }
+    if(k.visit) return;   /* 保育所等訪問支援に出ている時間は本体の配置に数えない */
+    if(G.isBase[si]) ag.base+=sg;
+    if(G.isDirect[si]) ag.direct+=sg;
+    if(G.isNurse[si]) ag.nurse+=sg;
+    if(G.isKanri[si]) ag.kanri+=sg;
+    if(code===G.early) ag.early+=sg;
+    if(code===G.late) ag.late+=sg;
+  },
+
+  dayPen(G,di){
+    const d=G.days[di]; if(!d.open) return 0;
+    const ag=G.dayAgg[di], n=d.need; let s=0;
+    const bA=Math.min(ag.base,n.base), eA=Math.min(Math.max(0,ag.direct-bA),n.extra);
+    s+=(n.base-bA)*(G.childMode?W.BASE:W.SPREAD);
+    s+=Math.max(0,(n.hardBase||0)-ag.base)*W.HARD;
+    s+=(n.extra-eA)*W.EXTRA;
+    s+=Math.max(0,n.nurse-ag.nurse)*W.NURSE;
+    s+=Math.max(0,n.kanri-ag.kanri)*W.KANRI;
+    s+=Math.max(0,(n.night||0)-ag.night)*W.NIGHT;
+    s+=Math.max(0,(n.sleep||0)-(ag.night+ag.sleep))*W.SLEEP;
+    const ex=Math.max(0,ag.direct-(n.base+n.extra));
+    s+=ex*ex*W.EXCESS;
+    if(G.childMode&&S.params.childHalfRule&&ag.direct>0&&ag.base*2<ag.direct)
+      s+=(Math.ceil(ag.direct/2)-ag.base)*W.HALF;
+    if(ag.work>=3){
+      if(G.early&&ag.early===0) s+=W.OPENCLOSE;
+      if(G.late&&ag.late===0) s+=W.OPENCLOSE;
+    }
+    return s;
+  },
+
+  stPen(G,si){
+    const p=S.params,row=G.grid[si],days=G.days;
+    let s=0,mins=0,consec=0,mx=0,off=0,wk=0,over=0,wd=0,we=0,nights=0,iv=0,seq=0,prev=null;
+    for(let i=0;i<G.nd;i++){
+      const c=row[i],k=codeOf(c),w=!!(k&&k.w);
+      if(days[i].dow===0&&i>0){ if(wk/60>p.maxWeeklyHours) over+=wk/60-p.maxWeeklyHours; wk=0; }
+      /* 夜勤明けの取扱い */
+      if(k&&k.night){
+        const nx=i+1<G.nd?codeOf(row[i+1]):null;
+        if(nx&&nx.w&&!nx.after) seq++;
+        else if(G.afterCode&&i+1<G.nd&&(!nx||!nx.after)) s+=W.NIGHTAFTER;
+      }
+      if(k&&k.after){
+        const pv=i>0?codeOf(row[i-1]):null;
+        if(!pv||!pv.night) seq++;
+      }
+      if(w){
+        mins+=k.m||0; wk+=k.m||0; wd++;
+        consec++; if(consec>mx) mx=consec;
+        if(days[i].dow===0||days[i].dow===6) we++;
+        if(k.night||k.sleep) nights++;
+        if(prev&&!k.night&&!k.sleep&&!prev.night&&!prev.sleep&&prev.e&&k.s){
+          const e=+prev.e.slice(0,2)*60+ +prev.e.slice(3), s2=+k.s.slice(0,2)*60+ +k.s.slice(3);
+          if((1440-e+s2)/60<p.intervalHours) iv++;
+        }
+        prev=k;
+      }else{
+        if(!(k&&k.after)) consec=0;      /* 明けは連続勤務を切らない扱い */
+        prev=null;
+        if(c===G.OFF) off++;
+      }
+      const wi=G.wish[si][i];
+      if(wi==='休'&&w) s+=W.WISH;
+      if(wi==='勤'&&!w) s+=W.WISH;
+    }
+    if(wk/60>p.maxWeeklyHours) over+=wk/60-p.maxWeeklyHours;
+    const dh=(mins-G.target[si])/60;
+    s+=dh>=0 ? dh*(G.isFT[si]?W.HOURS_OVER:W.HOURS_OVER_PT) : (-dh)*W.HOURS;
+    s+=over*W.WEEK;
+    s+=Math.max(0,mx-p.maxConsecDays)*W.CONSEC;
+    if(G.target[si]>0) s+=Math.max(0,p.minMonthlyOff-off)*W.OFF;
+    s+=iv*W.INTERVAL;
+    s+=seq*W.NIGHTSEQ;
+    s+=Math.max(0,nights-G.maxNights)*W.NIGHTMAX;
+    if(G.nightTgt[si]>0) s+=Math.abs(nights-G.nightTgt[si])*W.NIGHTBAL;
+    else if(nights>0) s+=nights*W.NIGHTBAL;
+    if(G.wkIdx.length) s+=Math.abs(we-wd/G.nd*G.wkIdx.length)*W.WEEKEND;
+    return s;
+  },
+
+  set(G,si,di,code){
+    const old=G.grid[si][di]; if(old===code) return;
+    Engine.cell(G,si,di,old,-1); G.grid[si][di]=code; Engine.cell(G,si,di,code,1);
+  },
+  /* 夜勤ブロック（夜＋明け）を置く／外す */
+  putNight(G,si,di,on){
+    const nc=G.nightCode,ac=G.afterCode;
+    if(!nc) return false;
+    if(on){
+      if(!G.mut[si][di]) return false;
+      Engine.set(G,si,di,nc);
+      if(ac&&di+1<G.nd&&G.mut[si][di+1]) Engine.set(G,si,di+1,ac);
+    }else{
+      if(G.mut[si][di]) Engine.set(G,si,di,G.OFF);
+      if(ac&&di+1<G.nd&&G.mut[si][di+1]&&G.grid[si][di+1]===ac) Engine.set(G,si,di+1,G.OFF);
+    }
+    return true;
+  },
+
+  /* ---- 初期解 ---- */
+  greedy(G){
+    const mins=new Array(G.ns).fill(0), nights=new Array(G.ns).fill(0);
+    for(let i=0;i<G.ns;i++) for(let j=0;j<G.nd;j++) if(!G.mut[i][j]) mins[i]+=wMin(G.grid[i][j]);
+
+    /* 1. 夜勤・宿直を先に埋める */
+    if(G.nightCode){
+      G.days.forEach((d,di)=>{
+        const want=(d.need.night||0)+(d.need.sleep||0);
+        if(!d.open||want<1) return;
+        for(let k=G.dayAgg[di].night+G.dayAgg[di].sleep;k<want;k++){
+          let best=-1,bs=-Infinity;
+          for(let si=0;si<G.ns;si++){
+            if(!G.nightOk[si]||!G.mut[si][di]||isWork(G.grid[si][di])) continue;
+            if(G.wish[si][di]==='休') continue;
+            if(nights[si]>=G.maxNights) continue;
+            if(di>0&&isWork(G.grid[si][di-1])&&isNightDuty(G.grid[si][di-1])) continue;
+            let cs=0; for(let j=di-1;j>=0&&isWork(G.grid[si][j]);j--) cs++;
+            if(cs>=S.params.maxConsecDays) continue;
+            const sc=(G.target[si]-mins[si])/Math.max(1,G.target[si]) - nights[si]*0.12 - cs*0.05;
+            if(sc>bs){ bs=sc; best=si; }
+          }
+          if(best<0) break;
+          const code = d.need.night>0 && G.dayAgg[di].night<d.need.night ? G.nightCode : (G.sleepCode||G.nightCode);
+          Engine.set(G,best,di,code);
+          if(code===G.nightCode&&G.afterCode&&di+1<G.nd&&G.mut[best][di+1]) Engine.set(G,best,di+1,G.afterCode);
+          mins[best]+=wMin(code); nights[best]++;
+        }
+      });
+    }
+
+    /* 2. 日勤帯を必要度の高い日から埋める */
+    const order=G.days.map((d,i)=>i).filter(i=>G.days[i].open)
+      .sort((a,b)=>(G.days[b].need.base+G.days[b].need.extra)-(G.days[a].need.base+G.days[a].need.extra));
+    order.forEach(di=>{
+      const n=G.days[di].need;
+      const slots=[{n:n.kanri,ok:si=>G.isKanri[si]},{n:n.nurse,ok:si=>G.isNurse[si]},
+                   {n:n.base,ok:si=>G.isBase[si]},{n:n.extra,ok:si=>G.isDirect[si]}];
+      const used=new Set();
+      for(let si=0;si<G.ns;si++) if(isWork(G.grid[si][di])) used.add(si);
+      slots.forEach(sl=>{
+        let have=0; used.forEach(si=>{ if(sl.ok(si)&&!isNight(G.grid[si][di])) have++; });
+        for(let k=have;k<sl.n;k++){
+          let best=-1,bs=-Infinity;
+          for(let si=0;si<G.ns;si++){
+            if(used.has(si)||!G.mut[si][di]||!sl.ok(si)) continue;
+            if(G.wish[si][di]==='休'||G.target[si]<=0) continue;
+            if(di>0&&isNightDuty(G.grid[si][di-1])) continue;
+            let cs=0; for(let j=di-1;j>=0&&isWork(G.grid[si][j]);j--) cs++;
+            if(cs>=S.params.maxConsecDays) continue;
+            const sc=(G.target[si]-mins[si])/Math.max(1,G.target[si])-cs*0.05;
+            if(sc>bs){ bs=sc; best=si; }
+          }
+          if(best<0) break;
+          const al=G.allow[best], ag=G.dayAgg[di];
+          let code;
+          if(G.early&&ag.early===0&&al.includes(G.early)) code=G.early;
+          else if(G.late&&ag.late===0&&al.includes(G.late)) code=G.late;
+          else code=al[(Math.random()*al.length)|0];
+          Engine.set(G,best,di,code); mins[best]+=wMin(code); used.add(best);
+        }
+      });
+    });
+
+    /* 3. 所定労働時間に足りない職員を補充 */
+    for(let si=0;si<G.ns;si++){
+      if(G.target[si]<=0) continue;
+      let guard=0;
+      while(mins[si]<G.target[si]-90&&guard++<120){
+        let best=-1,bp=Infinity;
+        for(let di=0;di<G.nd;di++){
+          if(!G.days[di].open||!G.mut[si][di]||isWork(G.grid[si][di])||isAfter(G.grid[si][di])) continue;
+          if(G.wish[si][di]==='休') continue;
+          if(di>0&&isNightDuty(G.grid[si][di-1])) continue;
+          let a=0,b=0;
+          for(let j=di-1;j>=0&&isWork(G.grid[si][j]);j--) a++;
+          for(let j=di+1;j<G.nd&&isWork(G.grid[si][j]);j++) b++;
+          if(a+b+1>S.params.maxConsecDays) continue;
+          const ag=G.dayAgg[di],n=G.days[di].need;
+          const pen=Math.max(0,ag.direct-(n.base+n.extra))+a*0.3;
+          if(pen<bp){ bp=pen; best=di; }
+        }
+        if(best<0) break;
+        const al=G.allow[si], code=al[(Math.random()*al.length)|0];
+        Engine.set(G,si,best,code); mins[si]+=wMin(code);
+      }
+    }
+    Engine.rebuild(G);
+  },
+
+  /* ---- 焼きなまし ---- */
+  anneal(G,iters,T0,T1,done){
+    let it=0;
+    const chunk=Math.max(2500,Math.floor(iters/14));
+    const cells=[];
+    for(let i=0;i<G.ns;i++) for(let j=0;j<G.nd;j++) if(G.mut[i][j]) cells.push([i,j]);
+    if(!cells.length){ done(G); return; }
+    const acc=(d,T)=>d<=0||Math.random()<Math.exp(-d/Math.max(T,1e-6));
+
+    const step=()=>{
+      const end=Math.min(iters,it+chunk);
+      for(;it<end;it++){
+        const T=T0*Math.pow(T1/T0,it/iters), r=Math.random();
+
+        if(G.ghMode&&G.nightCode&&r<0.18){
+          /* 夜勤ブロックの入替 */
+          const [si,di]=cells[(Math.random()*cells.length)|0];
+          if(!G.nightOk[si]) continue;
+          const cur=G.grid[si][di], nx=di+1<G.nd?G.grid[si][di+1]:null;
+          const on=cur!==G.nightCode;
+          const bak=[cur,nx];
+          const d1=G.dayPen[di],d2=di+1<G.nd?G.dayPen[di+1]:0,sp=G.stPen[si],g0=G.gPen;
+          if(!Engine.putNight(G,si,di,on)) continue;
+          const a1=Engine.dayPen(G,di),a2=di+1<G.nd?Engine.dayPen(G,di+1):0,as=Engine.stPen(G,si),g1=Engine.grpPen(G);
+          const dl=(a1-d1)+(a2-d2)+(as-sp)+(g1-g0);
+          if(acc(dl,T)){ G.dayPen[di]=a1; if(di+1<G.nd) G.dayPen[di+1]=a2; G.stPen[si]=as; G.gPen=g1; G.score+=dl; }
+          else{ Engine.set(G,si,di,bak[0]); if(di+1<G.nd&&G.mut[si][di+1]) Engine.set(G,si,di+1,bak[1]); }
+
+        }else if(r<0.62){
+          /* 1セル変更 */
+          const [si,di]=cells[(Math.random()*cells.length)|0];
+          const al=G.allow[si];
+          const cand=Math.random()<0.42?G.OFF:al[(Math.random()*al.length)|0];
+          const old=G.grid[si][di]; if(old===cand) continue;
+          const bd=G.dayPen[di],bs=G.stPen[si],g0=G.gPen;
+          Engine.set(G,si,di,cand);
+          const ad=Engine.dayPen(G,di),as=Engine.stPen(G,si),g1=Engine.grpPen(G);
+          const dl=(ad-bd)+(as-bs)+(g1-g0);
+          if(acc(dl,T)){ G.dayPen[di]=ad; G.stPen[si]=as; G.gPen=g1; G.score+=dl; }
+          else Engine.set(G,si,di,old);
+
+        }else if(r<0.86){
+          /* 2職員の同日スワップ */
+          const [si,di]=cells[(Math.random()*cells.length)|0];
+          const sj=(Math.random()*G.ns)|0;
+          if(sj===si||!G.mut[sj][di]) continue;
+          const a=G.grid[si][di],b=G.grid[sj][di];
+          if(a===b) continue;
+          if(isNight(a)||isNight(b)||isAfter(a)||isAfter(b)) continue;
+          if(b!==G.OFF&&!G.allow[si].includes(b)) continue;
+          if(a!==G.OFF&&!G.allow[sj].includes(a)) continue;
+          const bd=G.dayPen[di],b1=G.stPen[si],b2=G.stPen[sj],g0=G.gPen;
+          Engine.set(G,si,di,b); Engine.set(G,sj,di,a);
+          const ad=Engine.dayPen(G,di),a1=Engine.stPen(G,si),a2=Engine.stPen(G,sj),g1=Engine.grpPen(G);
+          const dl=(ad-bd)+(a1-b1)+(a2-b2)+(g1-g0);
+          if(acc(dl,T)){ G.dayPen[di]=ad; G.stPen[si]=a1; G.stPen[sj]=a2; G.gPen=g1; G.score+=dl; }
+          else{ Engine.set(G,si,di,a); Engine.set(G,sj,di,b); }
+
+        }else{
+          /* 同一職員の2日入替 */
+          const [si,di]=cells[(Math.random()*cells.length)|0];
+          const dj=(Math.random()*G.nd)|0;
+          if(dj===di||!G.mut[si][dj]) continue;
+          const a=G.grid[si][di],b=G.grid[si][dj];
+          if(a===b) continue;
+          if(isNight(a)||isNight(b)||isAfter(a)||isAfter(b)) continue;
+          const d1=G.dayPen[di],d2=G.dayPen[dj],sp=G.stPen[si],g0=G.gPen;
+          Engine.set(G,si,di,b); Engine.set(G,si,dj,a);
+          const a1=Engine.dayPen(G,di),a2=Engine.dayPen(G,dj),as=Engine.stPen(G,si),g1=Engine.grpPen(G);
+          const dl=(a1-d1)+(a2-d2)+(as-sp)+(g1-g0);
+          if(acc(dl,T)){ G.dayPen[di]=a1; G.dayPen[dj]=a2; G.stPen[si]=as; G.gPen=g1; G.score+=dl; }
+          else{ Engine.set(G,si,di,a); Engine.set(G,si,dj,b); }
+        }
+      }
+      const pc=Math.round(it/iters*100);
+      $('prog-bar').style.width=pc+'%';
+      $('prog-tx').innerHTML='<span>最適化中 '+pc+'%</span><span>評価スコア '+Math.round(G.score).toLocaleString()+'（小さいほど良い）</span>';
+      if(it<iters) setTimeout(step,0); else done(G);
+    };
+    setTimeout(step,0);
+  },
+
+  /* 夜勤の翌日を「明」に揃える */
+  repairNights(G){
+    if(!G.nightCode||!G.afterCode) return;
+    for(let si=0;si<G.ns;si++)
+      for(let di=0;di<G.nd-1;di++)
+        if(G.grid[si][di]===G.nightCode && G.mut[si][di+1] && !isWork(G.grid[si][di+1]) && !isAfter(G.grid[si][di+1]))
+          Engine.set(G,si,di+1,G.afterCode);
+    Engine.rebuild(G);
+  },
+
+  commit(G){
+    S.staff.forEach((st,si)=>{
+      S.assign[st.id]=S.assign[st.id]||{};
+      G.days.forEach((d,di)=>{ S.assign[st.id][d.date]=G.grid[si][di]; });
+    });
+  },
+
+  run(){ Engine.go(true); },
+  improve(){ Engine.go(false); },
+  go(fresh){
+    if(Engine.running) return;
+    if(!S.staff.length){ toast('先に職員を登録してください','ng'); UI.go('staff'); return; }
+    const keep=$('keep-fixed').checked;
+    Engine.running=true;
+    $('prog').classList.add('on'); $('prog-bar').style.width='0%';
+    $('prog-tx').innerHTML='<span>初期解を作成中…</span>';
+    setTimeout(()=>{
+      const G=Engine.prepare(keep);
+      if(!G){ Engine.running=false; $('prog').classList.remove('on'); toast('勤務記号「公」が必要です','ng'); return; }
+      if(fresh) Engine.greedy(G);
+      const iters=clamp(G.ns*G.nd*95,32000,280000);
+      Engine.anneal(G,iters,fresh?4.2:1.2,0.02,g=>{
+        Engine.repairNights(g);
+        Engine.commit(g); Engine.running=false;
+        $('prog-tx').innerHTML='<span>完了</span><span>評価スコア '+Math.round(g.score).toLocaleString()+'</span>';
+        setTimeout(()=>$('prog').classList.remove('on'),2200);
+        UI.refresh();
+        const C=Calc.build(), od=C.days.filter(d=>d.open);
+        const bad=od.reduce((a,d)=>a+(SV().group==='child'?d.shortBase:d.shortHard)+d.shortKanri+d.shortNurse+d.shortNight+d.shortSleep,0);
+        toast(bad===0?'シフトを作成しました。人員基準の不足はありません':'シフトを作成しました。人員不足が'+bad+'件残っています',bad?'ng':'');
+      });
+    },30);
+  }
+};
+
+/* ===================================================================
+   7. 画面制御
+   =================================================================== */
+const PAGES=[
+  {id:'facility',l:'事業所',ic:'home',t:'事業所',s:'サービス種別・定員・営業日と算定する加算'},
+  {id:'staff',   l:'職員台帳',ic:'users',t:'職員台帳',s:'職種・雇用形態・資格・入職日'},
+  {id:'sheet',   l:'シフト表',ic:'grid',t:'勤務シフト表',s:'自動生成と手直し'},
+  {id:'judge',   l:'加算・減算',ic:'check',t:'加算・減算判定',s:'減算リスクと加算の充足状況'},
+  {id:'out',     l:'出力',ic:'out',t:'出力',s:'シフト表・勤務形態一覧表・判定結果'},
+  {id:'adv',     l:'詳細設定',ic:'cog',t:'詳細設定',s:'勤務記号・必要配置数・しきい値'}
+];
+let cur='facility', ngCount=null;
+
+const UI={
+  nav(){
+    $('nav').innerHTML='<div class="grp">メニュー</div>'+PAGES.map(p=>{
+      const b=(p.id==='judge'&&ngCount!=null)
+        ? '<span class="dot'+(ngCount===0?' ok':'')+'">'+ngCount+'</span>':'';
+      return '<button class="navb'+(p.id===cur?' on':'')+'" onclick="UI.go(\''+p.id+'\')">'
+        +svg(p.ic)+'<span class="lb">'+p.l+'</span>'+b+'</button>';
+    }).join('');
+    $('railft').innerHTML=
+      '<button class="navb" onclick="App.saveNow()">'+svg('save')+'<span class="lb">保存</span></button>'+
+      '<button class="navb" onclick="App.backup()">'+svg('up')+'<span class="lb">バックアップ</span></button>';
+  },
+  go(id){
+    cur=id;
+    PAGES.forEach(p=>$('pg-'+p.id).classList.toggle('on',p.id===id));
+    const p=PAGES.find(x=>x.id===id);
+    $('tb-title').textContent=p.t; $('tb-sub').textContent=p.s;
+    UI.nav(); UI.page(id);
+    document.querySelector('.scroll').scrollTop=0;
+  },
+  page(id){
+    ({facility:Facility.render, staff:Staff.render, sheet:Sheet.render,
+      judge:JudgeView.render, out:Out.render, adv:Adv.render})[id]();
+  },
+  top(){
+    const f=S.facility;
+    $('mp-label').firstChild.nodeValue=S.month.replace('-','年')+'月';
+    $('mp-input').value=S.month;
+    const st=$('tb-status');
+    if(ngCount==null) st.innerHTML='';
+    else if(ngCount===0) st.innerHTML='<span class="stat-pill ok"><span class="bl"></span>減算リスクなし</span>';
+    else st.innerHTML='<span class="stat-pill ng"><span class="bl"></span>要対応 '+ngCount+'件</span>';
+  },
+  refresh(){
+    const r=Judge.evaluate();
+    ngCount = S.staff.length
+      ? r.genzan.filter(x=>x.st==='ng').length + r.kasan.filter(x=>x.on&&!x.ref&&x.st==='ng').length
+      : null;   /* 職員未登録のセットアップ中は判定を表示しない */
+    UI.top(); UI.nav(); UI.page(cur); App.save();
+  },
+  boot(){
+    document.documentElement.setAttribute('data-theme',S.ui.theme==='dark'?'dark':'light');
+    document.body.classList.toggle('mini',!!S.ui.mini);
+    UI.go(cur); UI.refresh();
+  },
+  toggleRail(){ S.ui.mini=!S.ui.mini; document.body.classList.toggle('mini',S.ui.mini); App.save(); },
+  toggleTheme(){
+    S.ui.theme=S.ui.theme==='dark'?'light':'dark';
+    document.documentElement.setAttribute('data-theme',S.ui.theme);
+    App.save();
+  },
+  setMonth(v){ if(v){ S.month=v; UI.refresh(); } },
+  shiftMonth(d){
+    const {y,m}=pm(S.month), n=new Date(y,m-1+d,1);
+    S.month=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');
+    UI.refresh();
+  }
+};
+
+/* data-path による双方向バインド */
+function bind(){
+  document.querySelectorAll('[data-path]').forEach(el=>{
+    el.onchange=()=>{
+      const ks=el.dataset.path.split('.');
+      let o=S; for(let i=0;i<ks.length-1;i++) o=o[ks[i]];
+      let v = el.type==='checkbox'?el.checked:el.value;
+      if(el.dataset.t==='n') v = v===''?null:Number(v);
+      o[ks[ks.length-1]]=v;
+      UI.refresh();
+    };
+  });
+}
+const ring=(pct,cls)=>{
+  const R=19.5,C=2*Math.PI*R,o=C*(1-clamp(pct,0,100)/100);
+  const col=cls==='ok'?'var(--ok)':cls==='ng'?'var(--ng)':cls==='wn'?'var(--wn)':'var(--info)';
+  return '<div class="ring"><svg><circle class="bgc" cx="23" cy="23" r="'+R+'"/>'
+    +'<circle class="fg" cx="23" cy="23" r="'+R+'" stroke="'+col+'" stroke-dasharray="'+C+'" stroke-dashoffset="'+o+'"/></svg>'
+    +'<div class="pc" style="color:'+col+'">'+Math.round(pct)+'</div></div>';
+};
+const kpiHtml=ks=>ks.map(k=>'<div class="kpi '+(k.c||'info')+'">'
+  +(k.ring!=null?ring(k.ring,k.c):'')
+  +'<div class="txt"><div class="lb">'+k.l+'</div><div class="vl">'+k.v+'</div><div class="df">'+k.d+'</div></div></div>').join('');
+
+/* ===================================================================
+   8. 事業所
+   =================================================================== */
+/* サービス種別の選択パネルを開いているか（職員が未登録のうちは常に開く） */
+let svcForceOpen=false;
+const Facility={
+  render(){
+    const f=S.facility, sv=SV(), p=S.params, C=Calc.build(), cp=capsOf();
+
+    /* --- セットアップ進捗（入力が終わっているかを一目で） --- */
+    const done1=cp.tot>0&&f.openDow.some(Boolean);
+    const done2=S.staff.length>=2;
+    const done3=Object.keys(S.assign).some(k=>Object.keys(S.assign[k]||{}).length>0);
+    const done4=done3&&ngCount===0;
+    const steps=[
+      {t:'事業所情報',s:done1?sv.short+'／定員'+cp.tot+'人／営業'+C.openDays.length+'日':'定員と営業曜日を入力',d:done1,g:'facility'},
+      {t:'職員を登録',s:done2?S.staff.length+'人を登録済み':'名前を入れるだけでOK',d:done2,g:'staff'},
+      {t:'シフトを自動生成',s:done3?'作成済み':'ボタン1つで1か月分を作成',d:done3,g:'sheet'},
+      {t:'加算・減算を確認',s:done4?'減算リスクなし':(ngCount?'要対応 '+ngCount+'件':'シフト作成後に判定します'),d:done4,g:'judge'}
+    ];
+    const curIdx=steps.findIndex(x=>!x.d);
+    $('steps').innerHTML=steps.map((x,i)=>
+      '<div class="step'+(x.d?' done':'')+(i===curIdx?' cur':'')+'" onclick="UI.go(\''+x.g+'\')">'
+      +'<div class="no">'+(x.d?'✓':(i+1))+'</div>'
+      +'<div class="tx"><b>'+esc(x.t)+'</b><span>'+esc(x.s)+'</span></div></div>').join('');
+
+    /* --- サービス種別＋併設（選び終えたら畳んで場所を空ける） --- */
+    const svcOpen = svcForceOpen || !S.staff.length;
+    let sh;
+    if(svcOpen){
+      sh='<div class="pick">'+Object.values(SERVICES).map(x=>
+        '<button class="pk'+(f.service===x.key?' on':'')+'" onclick="Facility.setService(\''+x.key+'\')">'
+        +'<div class="t">'+esc(x.name)+'</div><div class="d">'+esc(x.desc)+'</div></button>').join('')+'</div>';
+    }else{
+      sh=`<div class="svcnow">
+        <div class="ic">${esc(BASE_SV().short)}</div>
+        <div class="t">${esc(BASE_SV().name)}<small>${esc(BASE_SV().desc)}</small></div>
+        <button class="btn gh sm" onclick="Facility.openSvc()">変更</button></div>`;
+    }
+    if(BASE_SV().group==='child'){
+      const on=!!f.houmon;
+      sh+=`<div class="addon${on?' on':''}" style="margin-top:10px">
+        <label class="sw"><input type="checkbox" id="ho-cb"${on?' checked':''}><span class="tr"></span></label>
+        <div class="t">保育所等訪問支援を併設する
+          <small>訪問支援員の職種と勤務記号「訪」を追加します。訪問に出ている時間は本体（児発・放デイ）の基準人員から除いて判定します。</small></div>
+        ${on?'<span class="pill info">併設中</span>':'<span class="pill mute">未併設</span>'}
+      </div>`;
+    }
+    $('fac-svc').innerHTML=sh;
+
+    /* --- 基本情報（入力するのは定員と営業曜日だけで足ります） --- */
+    const need1=C.openDays.length?C.days.find(d=>d.open).need:null;
+    const needN=need1?need1.base:0;
+    let h=`<div class="fld"><label>事業所名 <span class="opt">任意</span></label>
+      <input type="text" data-path="facility.name" value="${esc(f.name)}" placeholder="○○事業所（帳票の見出しに使います）"></div>`;
+
+    if(sv.multi){
+      const merged=cp.tot<=p.tamokuMergeCap;
+      h+=`<div class="fld"><label>利用定員 <span class="req">必須</span></label>
+        <div class="caps">
+          <div class="c"><label>児童発達支援</label>
+            <input type="number" min="0" data-path="facility.capJihatsu" data-t="n" value="${cp.j}"></div>
+          <div class="eq">＋</div>
+          <div class="c"><label>放課後等デイ</label>
+            <input type="number" min="0" data-path="facility.capHoukago" data-t="n" value="${cp.h}"></div>
+          <div class="eq">＝</div>
+          <div class="tot">${cp.tot}<small>総定員</small></div>
+        </div>
+        <div class="hint">${merged
+          ? '総定員が'+p.tamokuMergeCap+'人以下のため、<b>人員基準を合算して算定</b>します。'
+          : '総定員が'+p.tamokuMergeCap+'人を超えるため、<b>サービスごとに算定して合算</b>します。'}
+          1営業日に必要な児童指導員等は <b>${needN}人</b>です。</div></div>`;
+    }else{
+      h+=`<div class="fld"><label>利用定員（${sv.unit}） <span class="req">必須</span></label>
+        <div class="row"><span class="f"><input type="number" data-path="facility.capacity" data-t="n" value="${f.capacity}" min="1"></span><span class="u">人</span></div>
+        <div class="hint">${sv.group==='child'
+          ? '1営業日に必要な児童指導員等は <b>'+needN+'人</b>です。'
+          : '日々の利用者数は既定でこの定員と同数として計算します。'}</div></div>`;
+    }
+
+    if(sv.needsCategory){
+      h+=`<div class="fld"><label>平均障害支援区分 <span class="req">必須</span></label>
+        <div class="row"><span class="f"><input type="number" step="0.1" min="1" max="6" data-path="facility.avgCategory" data-t="n" value="${f.avgCategory}"></span><span class="u">区分</span></div>
+        <div class="hint">${sv.key==='gh'
+          ? '生活支援員の配置基準：現在の判定 <b>'+(Calc.ghSupRatio()||'配置義務なし')+(Calc.ghSupRatio()?':1':'')+'</b>'
+          : '人員配置基準：現在の判定 <b>'+Calc.adultRatio()+':1</b>'}</div></div>`;
+    }
+    if(sv.tier){
+      h+=`<div class="fld"><label>${esc(sv.tier.label)}</label>
+        <div class="seg full">${sv.tier.opts.map(o=>
+          `<button class="${f.tier===o.v?'on':''}" onclick="Facility.setTier('${o.v}')" title="${esc(o.d)}">${esc(o.t)}</button>`).join('')}</div>
+        <div class="hint">${esc((sv.tier.opts.find(o=>o.v===f.tier)||{}).d||'')}</div></div>`;
+    }
+    if(sv.ghTypes){
+      h+=`<div class="fld"><label>グループホームの類型</label>
+        <div class="seg full">${sv.ghTypes.map(o=>
+          `<button class="${f.ghType===o.v?'on':''}" onclick="Facility.setGhType('${o.v}')">${esc(o.t)}</button>`).join('')}</div>
+        <div class="hint">${esc((sv.ghTypes.find(o=>o.v===f.ghType)||{}).d||'')}</div></div>`;
+    }
+    h+=`<div class="fld" style="margin-bottom:8px"><label>営業曜日 <span class="req">必須</span></label>
+        <div class="dowp">${DOW.map((d,i)=>
+          `<button class="${f.openDow[i]?'on':''} ${i===0?'sun':i===6?'sat':''}" onclick="Facility.dow(${i})">${d}</button>`).join('')}</div></div>
+      <div class="fsum">
+        <span class="pill brand">当月の営業 ${C.openDays.length}日</span>
+        <span class="pill info">常勤の月所定 ${C.std}時間</span>
+        <span class="pill mute">職員 ${S.staff.length}人</span>
+        ${sv.group==='child'?'<span class="pill mute">開所時間 '+(Number(f.serviceHours)||0)+'時間</span>':''}
+        ${f.houmon?'<span class="pill info">保育所等訪問支援 併設</span>':''}
+      </div>
+      <div class="note i" style="margin:11px 0 0">
+        <b>入力はここまでで十分です。</b>勤務記号・日別の必要配置数・判定のしきい値は自動で設定されています。</div>`;
+    $('fac-basic').innerHTML=h;
+
+    const miss=[!(cp.tot>0)&&'利用定員',
+      sv.needsCategory&&!(Number(f.avgCategory)>0)&&'平均障害支援区分',
+      !f.openDow.some(Boolean)&&'営業曜日'].filter(Boolean);
+    $('basic-sub').innerHTML=miss.length
+      ? '<span class="pill ng">未入力 '+miss.join('・')+'</span>'
+      : '<span class="pill ok">入力済み</span>';
+
+    /* --- 加算（コンパクトなリスト） --- */
+    const R=Judge.evaluate();
+    const kmap={}; R.kasan.forEach(k=>kmap[k.id]=k);
+    const avail=R.kasan.filter(k=>!k.on&&!k.ref&&k.met).length;
+    $('kasan-sub').innerHTML = avail
+      ? '<span class="pill wn">あと'+avail+'件 算定できます</span>'
+      : '<span class="pill mute">要件はシフトから自動判定</span>';
+    $('fac-kasan').innerHTML='<div class="kl">'+kasanList().map(k=>{
+      const j=kmap[k.id]||{}, on=!!S.kasan[k.id];
+      const badge = k.ref?'<span class="pill mute">運用</span>'
+        : on?(j.met?'<span class="pill ok">充足</span>':'<span class="pill ng">未達</span>')
+        : (j.met?'<span class="pill wn">算定可</span>':'<span class="pill mute">未達</span>');
+      return `<div class="ki${on?' on':''}${!on&&j.met&&!k.ref?' avail':''}">
+        <label class="sw"><input type="checkbox" class="k-cb" data-id="${k.id}"${on?' checked':''}><span class="tr"></span></label>
+        <div class="t">${esc(k.n)}<small>${esc(j.u||k.d)}</small></div>${badge}</div>`;}).join('')+'</div>';
+
+    /* --- 体制減算 --- */
+    $('fac-genzan').innerHTML='<div class="kl">'+GENZAN_T.filter(g=>!g.only||g.only===sv.group).map(g=>{
+      const hit=!!S.taisei[g.id];
+      return `<div class="ki${hit?' hit':''}">
+        <label class="sw"><input type="checkbox" class="t-cb" data-id="${g.id}"${hit?' checked':''}><span class="tr"></span></label>
+        <div class="t">${esc(g.n)}<small>${esc(g.d)}</small></div>
+        <span class="pill ${hit?'ng':'mute'}">${g.r}%</span></div>`;}).join('')+'</div>'
+      +'<div class="hint" style="margin-top:8px">ONにすると「該当＝減算あり」として判定します。体制が整っている項目はOFFのままに。</div>';
+
+    bind();
+    const ho=$('ho-cb'); if(ho) ho.onchange=()=>Facility.setHoumon(ho.checked);
+    document.querySelectorAll('.k-cb').forEach(e=>e.onchange=()=>{ S.kasan[e.dataset.id]=e.checked; UI.refresh(); });
+    document.querySelectorAll('.t-cb').forEach(e=>e.onchange=()=>{ S.taisei[e.dataset.id]=e.checked; UI.refresh(); });
+  },
+
+  openSvc(){ svcForceOpen=true; UI.refresh(); },
+
+  /* 保育所等訪問支援の併設を切り替える */
+  setHoumon(on){
+    const f=S.facility;
+    if(!on && S.staff.some(st=>st.role==='訪問支援員')){
+      if(!confirm('併設を解除すると、職種「訪問支援員」は児童指導員に読み替えられ、勤務記号「訪」の割当も削除されます。よろしいですか？')){
+        UI.refresh(); return;
+      }
+    }
+    f.houmon=!!on; _svCache=null;
+    if(on){
+      if(!S.codes.some(c=>c.visit))
+        S.codes.splice(Math.min(6,S.codes.length),0,JSON.parse(JSON.stringify(VISIT_CODE)));
+    }else{
+      S.codes=S.codes.filter(c=>!c.visit);
+      S.staff.forEach(st=>{ if(st.role==='訪問支援員') st.role='児童指導員'; });
+      Object.keys(S.assign).forEach(id=>Object.keys(S.assign[id]||{}).forEach(d=>{
+        if(S.assign[id][d]==='訪') delete S.assign[id][d];
+      }));
+      delete S.kasan.houmon_toku;
+    }
+    UI.refresh();
+    toast(on?'保育所等訪問支援を併設しました（職種「訪問支援員」と勤務記号「訪」を追加）':'保育所等訪問支援の併設を解除しました');
+  },
+
+  /* 種別を変えたときの職種の読み替え */
+  mapRole(role,sv){
+    if(sv.roles.includes(role)) return role;
+    if(['児童発達支援管理責任者','サービス管理責任者'].includes(role)) return sv.managerRole;
+    const cand={
+      '児童指導員':['生活支援員','世話人','職業指導員'],
+      '保育士':['生活支援員','世話人','職業指導員'],
+      '機能訓練担当職員':['理学療法士','生活支援員','世話人','その他の従業者'],
+      '生活支援員':['世話人','児童指導員','職業指導員'],
+      '世話人':['生活支援員','児童指導員','職業指導員'],
+      '職業指導員':['生活支援員','世話人','児童指導員'],
+      '目標工賃達成指導員':['生活支援員','世話人','児童指導員'],
+      '夜間支援従事者':['生活支援員','世話人','その他の従業者'],
+      '理学療法士':['機能訓練担当職員','生活支援員','世話人'],
+      '作業療法士':['機能訓練担当職員','生活支援員','世話人'],
+      '言語聴覚士':['機能訓練担当職員','生活支援員','世話人'],
+      '医師':['看護職員','その他の従業者'],
+      '訪問支援員':['児童指導員','生活支援員','世話人','その他の従業者']
+    }[role]||[];
+    for(const c of cand) if(sv.roles.includes(c)) return c;
+    return sv.roles.includes('その他の従業者')?'その他の従業者':(sv.baseRoles[0]||sv.roles[0]);
+  },
+
+  setService(key){
+    if(key===S.facility.service) return;
+    const sv=SERVICES[key], f=S.facility;
+    const go=()=>{
+      f.service=key; f.capacity=sv.def.capacity; f.openDow=sv.def.openDow.slice();
+      f.serviceHours=sv.def.hours; f.tier=sv.tier?sv.tier.def:null;
+      f.kanriDaily=sv.def.openDow.filter(Boolean).length<7;
+      f.capJihatsu=Math.ceil(sv.def.capacity/2); f.capHoukago=Math.floor(sv.def.capacity/2);
+      svcForceOpen=false;
+      if(sv.group!=='child') f.houmon=false;
+      _svCache=null;
+      S.kasan={}; S.needOv={};
+      S.codes=defaultCodes();
+      if(!f.houmon) S.codes=S.codes.filter(c=>!c.visit);
+      S.staff.forEach(st=>{ st.role=Facility.mapRole(st.role,sv); });
+      UI.refresh(); toast(sv.name+'に切り替えました');
+    };
+    if(S.staff.length||Object.keys(S.assign).length){
+      modal('サービス種別の変更',
+        '<div class="note d"><b>'+esc(sv.name)+'</b> に切り替えます。<br>'
+        +'人員基準・加算の判定ロジック、勤務記号、定員・営業曜日の初期値が入れ替わり、'
+        +'選択中の加算と必要配置数の上書きはリセットされます。<br>'
+        +'職員台帳と作成済みのシフトはそのまま残ります。新しい種別にない職種は近い職種に読み替えます'
+        +'（例：児童発達支援管理責任者 → サービス管理責任者、保育士 → 生活支援員）。'
+        +'切替後に職員台帳で職種をご確認ください。</div>',
+        [{l:'キャンセル',c:'gh',f:closeModal},{l:'切り替える',c:'pri',f:()=>{closeModal();go();}}]);
+    }else go();
+  },
+  setTier(v){ S.facility.tier=v; UI.refresh(); },
+  setGhType(v){
+    S.facility.ghType=v;
+    if(v==='nicchu' && !S.kasan.yakan1) S.kasan.yakan1=true;
+    UI.refresh();
+  },
+  dow(i){ S.facility.openDow[i]=!S.facility.openDow[i]; UI.refresh(); }
+};
+
+/* ===================================================================
+   9. 職員台帳
+   =================================================================== */
+const EMPLOY=['常勤','常勤（短時間）','非常勤'];
+
+const Staff={
+  render(){
+    const sv=SV(), C=Calc.build(), ho=hasHoumon();
+
+    /* --- かんたん追加（氏名と職種だけで登録できます） --- */
+    $('staff-quick').innerHTML=`
+      <span class="lb">かんたん追加</span>
+      <input type="text" class="nm" id="q-n" placeholder="氏名を入力して Enter">
+      <select id="q-r" style="min-width:152px">${sv.roles.map(r=>
+        `<option${r===(sv.baseRoles[0]||sv.roles[0])?' selected':''}>${r}</option>`).join('')}</select>
+      <div class="seg" id="q-emp">${EMPLOY.map((e,i)=>
+        `<button type="button" class="${i===0?'on':''}" data-v="${e}">${e}</button>`).join('')}</div>
+      <span id="q-wwrap" style="display:flex;align-items:center;gap:5px;opacity:.4">
+        <input type="number" id="q-w" value="24" step="0.5" style="width:70px">
+        <span style="font-size:11px;color:var(--tx-3)">時間／週</span></span>
+      <button class="btn pri sm" onclick="Staff.quick()">追加</button>
+      <span style="flex:1"></span>
+      <span style="font-size:10.5px;color:var(--tx-3)">資格・入職日などは後から「編集」で足せます（未入力でもシフト作成と判定は動きます）</span>`;
+    const seg=$('q-emp');
+    seg.querySelectorAll('button').forEach(bt=>bt.onclick=()=>{
+      seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      bt.classList.add('on');
+      $('q-wwrap').style.opacity=bt.dataset.v==='常勤'?'.4':'1';
+    });
+    $('q-n').onkeydown=e=>{ if(e.key==='Enter') Staff.quick(); };
+
+    $('staff-sub').innerHTML='登録 <b>'+S.staff.length+'</b>人／常勤 <b>'
+      +S.staff.filter(x=>x.employment==='常勤').length+'</b>人／直接支援の常勤換算 <b>'+r2(C.fteDirect)+'</b>';
+    if(!S.staff.length){
+      $('staff-tbl').innerHTML='<tbody><tr><td class="empty"><span class="ic">👥</span>'
+        +'上の「かんたん追加」に氏名を入れて Enter を押すだけで登録できます。<br>'
+        +'まず動きを見たい場合は「サンプル投入」をどうぞ。</td></tr></tbody>';
+      return;
+    }
+    const order=sv.roles;
+    const list=[...S.staff].sort((x,y)=>{
+      const ix=order.indexOf(x.role),iy=order.indexOf(y.role);
+      return ix!==iy?((ix<0?99:ix)-(iy<0?99:iy)):x.name.localeCompare(y.name,'ja');
+    });
+    $('staff-tbl').innerHTML=`
+      <thead><tr><th style="width:28px"></th><th>氏名</th><th>職種</th><th>雇用形態</th>
+        <th class="n" style="width:96px">常勤換算</th><th class="n">当月時間</th>
+        ${ho?'<th class="n">訪問</th>':''}${sv.night?'<th class="n">夜勤</th>':''}
+        <th class="n">勤続</th><th>保有資格</th><th class="act" style="width:128px"></th></tr></thead>
+      <tbody>${list.map((st,i)=>{
+        const r=C.per[st.id]||{workMin:0,fte:0,nights:0,visits:0};
+        const y=yrs(st.hireDate);
+        const tgt=st.employment==='常勤'?C.std:(Number(st.weeklyHours)||0)*C.nd/7;
+        const pc=tgt>0?clamp(r.workMin/60/tgt*100,0,140):0;
+        const cls=tgt<=0?'':(r.workMin/60>tgt+8?'over':(r.workMin/60<tgt-8?'under':''));
+        return `<tr>
+          <td style="color:var(--tx-3);font-size:10.5px">${i+1}</td>
+          <td><b>${esc(st.name)}</b>${st.exclusive===false?' <span class="pill mute">兼務</span>':''}</td>
+          <td>${esc(st.role)}${sv.baseRoles.includes(st.role)?' <span class="chip b">基準人員</span>'
+              :(st.role==='訪問支援員'?' <span class="chip i">訪問支援</span>'
+              :(sv.directRoles.includes(st.role)?' <span class="chip i">直接支援</span>':''))}</td>
+          <td>${esc(st.employment)}<span style="display:block;font-size:9.5px;color:var(--tx-3)">${
+              st.employment==='常勤'?S.facility.fullTimeWeekly:(st.weeklyHours||0)}h／週</span></td>
+          <td class="n"><b>${r2(r.fte)}</b><span class="mbar"><i class="${cls}" style="width:${Math.min(100,pc)}%"></i></span></td>
+          <td class="n">${r1(r.workMin/60)}h</td>
+          ${ho?'<td class="n">'+(r.visits||0)+'</td>':''}
+          ${sv.night?'<td class="n">'+(r.nights||0)+'</td>':''}
+          <td class="n">${st.hireDate?r1(y)+'年':'<span style="color:var(--tx-3)">－</span>'}</td>
+          <td style="max-width:250px">${(st.quals||[]).map(q=>'<span class="chip">'+esc(q)+'</span>').join('')
+              ||'<span style="color:var(--tx-3)">－</span>'}</td>
+          <td class="act"><button class="btn gh sm" onclick="Staff.open('${st.id}')">編集</button>
+              <button class="btn dg sm" onclick="Staff.del('${st.id}')">削除</button></td>
+        </tr>`;}).join('')}</tbody>`;
+  },
+
+  /* 氏名と職種だけで1人追加する */
+  quick(){
+    const n=$('q-n').value.trim();
+    if(!n){ toast('氏名を入力してください','ng'); $('q-n').focus(); return; }
+    const emp=$('q-emp').querySelector('.on').dataset.v;
+    S.staff.push({id:uid(),name:n,role:$('q-r').value,employment:emp,
+      weeklyHours:emp==='常勤'?Number(S.facility.fullTimeWeekly)||40:(Number($('q-w').value)||0),
+      quals:[],hireDate:'',exclusive:true,ngCodes:[],note:''});
+    UI.refresh();
+    const el=$('q-n'); if(el){ el.value=''; el.focus(); }
+    toast(n+' を追加しました');
+  },
+
+  open(id){
+    const sv=SV();
+    const st=id?S.staff.find(x=>x.id===id):{id:uid(),name:'',role:sv.baseRoles[0]||sv.roles[0],
+      employment:'常勤',weeklyHours:40,quals:[],hireDate:'',exclusive:true,ngCodes:[],note:''};
+    const wc=S.codes.filter(c=>c.w);
+    modal(id?'職員の編集':'職員の追加',`
+      <div class="g2">
+        <div class="fld"><label>氏名 <span class="req">必須</span></label><input type="text" id="sf-n" value="${esc(st.name)}"></div>
+        <div class="fld"><label>職種 <span class="req">必須</span></label>
+          <select id="sf-r">${sv.roles.map(r=>`<option${st.role===r?' selected':''}>${r}</option>`).join('')}</select></div>
+        <div class="fld"><label>雇用形態 <span class="req">必須</span></label>
+          <div class="seg full" id="sf-emp-seg">${EMPLOY.map(e=>
+            `<button type="button" class="${st.employment===e?'on':''}" data-v="${e}">${e}</button>`).join('')}</div></div>
+        <div class="fld" id="sf-wh-wrap"><label>週所定労働時間 <span class="opt">非常勤のみ</span></label>
+          <div class="row"><span class="f"><input type="number" step="0.5" id="sf-w" value="${st.weeklyHours||0}"></span><span class="u">時間／週</span></div></div>
+      </div>
+      <div class="note i" style="margin:4px 0 0">
+        <b>ここまでで登録できます。</b>以下は加算の判定を精密にしたいときだけ入力してください（未入力でもシフトは作れます）。</div>
+      <details class="more"${(st.quals||[]).length||st.hireDate||(st.ngCodes||[]).length||st.note?' open':''}>
+        <summary>資格・入職日・割り当てない勤務記号（任意）</summary>
+        <div class="g2">
+          <div>
+            <div class="fld"><label>入職日</label>
+              <input type="date" id="sf-h" value="${esc(st.hireDate||'')}">
+              <div class="hint">勤続年数が要件の加算（福祉専門職員配置等Ⅲ・加配加算の経験年数・訪問支援員特別加算）に使います。</div></div>
+            <div class="fld"><label class="sw"><input type="checkbox" id="sf-x"${st.exclusive!==false?' checked':''}><span class="tr"></span><span class="lb">専従（他の職務と兼務していない）</span></label>
+              <div class="hint">「常勤専従」が要件の加算の判定に使います。</div></div>
+            <div class="fld"><label>割り当てない勤務記号</label>
+              <div style="border:1px solid var(--bd);border-radius:var(--r-s);padding:9px">
+              ${wc.map(c=>`<label class="sw" style="display:inline-flex;margin:0 12px 4px 0"><input type="checkbox" class="sf-g" value="${esc(c.c)}"${(st.ngCodes||[]).includes(c.c)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:11.5px">${esc(c.c)}:${esc(c.n)}</span></label>`).join('')}
+              </div>
+              <div class="hint">例：夜勤に入れない職員は「夜」をON。自動生成でその記号を割り当てません。</div></div>
+            <div class="fld"><label>備考</label><textarea id="sf-m" rows="2">${esc(st.note||'')}</textarea></div>
+          </div>
+          <div class="fld"><label>保有資格</label>
+            <div style="border:1px solid var(--bd);border-radius:var(--r-s);padding:9px;max-height:290px;overflow:auto">
+            ${QUALS.map(q=>`<label class="sw" style="display:flex;padding:2px 0"><input type="checkbox" class="sf-q" value="${esc(q)}"${(st.quals||[]).includes(q)?' checked':''}><span class="tr" style="transform:scale(.8)"></span><span class="lb" style="font-size:11.5px">${esc(q)}</span></label>`).join('')}
+            </div>
+            <div class="hint">入力すると、算定できる加算を自動で見つけられます。</div></div>
+        </div>
+      </details>`,
+      [{l:'キャンセル',c:'gh',f:closeModal},
+       {l:'保存',c:'pri',f:()=>{
+          const n=$('sf-n').value.trim();
+          if(!n){ toast('氏名を入力してください','ng'); return; }
+          st.name=n; st.role=$('sf-r').value;
+          st.employment=document.querySelector('#sf-emp-seg .on').dataset.v;
+          st.weeklyHours=Number($('sf-w').value)||0;
+          st.hireDate=$('sf-h').value; st.exclusive=$('sf-x').checked; st.note=$('sf-m').value;
+          st.quals=[...document.querySelectorAll('.sf-q:checked')].map(e=>e.value);
+          st.ngCodes=[...document.querySelectorAll('.sf-g:checked')].map(e=>e.value);
+          if(!id) S.staff.push(st);
+          closeModal(); UI.refresh(); toast('保存しました');
+       }}],true);
+    const seg=$('sf-emp-seg');
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      $('sf-wh-wrap').style.opacity=b.dataset.v==='常勤'?'.45':'1';
+    });
+    $('sf-wh-wrap').style.opacity=st.employment==='常勤'?'.45':'1';
+  },
+
+  bulk(){
+    const sv=SV();
+    modal('名前をまとめて登録',`
+      <div class="note i">氏名を改行区切りで貼り付けてください。職種・雇用形態はあとから個別に変更できます。</div>
+      <div class="g2">
+        <div class="fld"><label>氏名（1行に1人）</label>
+          <textarea id="bk-n" rows="10" placeholder="佐藤 花子&#10;鈴木 次郎&#10;高橋 美咲"></textarea></div>
+        <div>
+          <div class="fld"><label>職種</label>
+            <select id="bk-r">${sv.roles.map(r=>`<option${r===(sv.baseRoles[0]||sv.roles[0])?' selected':''}>${r}</option>`).join('')}</select></div>
+          <div class="fld"><label>雇用形態</label>
+            <select id="bk-e">${EMPLOY.map(e=>`<option>${e}</option>`).join('')}</select></div>
+          <div class="fld"><label>週所定労働時間（非常勤の場合）</label>
+            <div class="row"><span class="f"><input type="number" id="bk-w" value="24"></span><span class="u">時間／週</span></div></div>
+        </div>
+      </div>`,
+      [{l:'キャンセル',c:'gh',f:closeModal},
+       {l:'登録',c:'pri',f:()=>{
+         const names=$('bk-n').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+         if(!names.length){ toast('氏名を入力してください','ng'); return; }
+         const r=$('bk-r').value,e=$('bk-e').value,w=Number($('bk-w').value)||0;
+         names.forEach(n=>S.staff.push({id:uid(),name:n,role:r,employment:e,
+           weeklyHours:e==='常勤'?40:w,quals:[],hireDate:'',exclusive:true,ngCodes:[],note:''}));
+         closeModal(); UI.refresh(); toast(names.length+'人を登録しました');
+       }}]);
+  },
+
+  del(id){
+    const st=S.staff.find(x=>x.id===id); if(!st) return;
+    if(!confirm(st.name+' を削除します。よろしいですか？')) return;
+    S.staff=S.staff.filter(x=>x.id!==id);
+    delete S.assign[id]; delete S.fixed[id]; delete S.wish[id];
+    UI.refresh();
+  },
+  clearAll(){
+    if(!S.staff.length) return;
+    if(!confirm('職員台帳をすべて削除します。よろしいですか？')) return;
+    S.staff=[]; S.assign={}; S.fixed={}; S.wish={}; UI.refresh();
+  },
+
+  seed(){
+    const k=S.facility.service;
+    const sets={
+      houkago:[['田中 一郎','児童発達支援管理責任者','常勤',40,['児童発達支援管理責任者研修修了','相談支援専門員'],'2016-04-01'],
+        ['佐藤 花子','児童指導員','常勤',40,['児童指導員任用資格','社会福祉士'],'2018-04-01'],
+        ['鈴木 次郎','保育士','常勤',40,['保育士'],'2019-10-01'],
+        ['高橋 美咲','保育士','常勤',40,['保育士','公認心理師'],'2021-04-01'],
+        ['伊藤 健','児童指導員','非常勤',24,['児童指導員任用資格','普通自動車免許'],'2022-06-01'],
+        ['渡辺 良子','機能訓練担当職員','非常勤',20,['作業療法士'],'2020-04-01'],
+        ['山本 亜紀','看護職員','非常勤',16,['看護師','喀痰吸引等研修修了'],'2023-04-01'],
+        ['中村 大輔','その他の従業者','非常勤',24,['普通自動車免許'],'2024-04-01'],
+        ['小林 恵','保育士','非常勤',20,['保育士'],'2023-09-01'],
+        ['加藤 誠','管理者','常勤',40,['社会福祉士'],'2015-04-01']],
+      seikatsu:[['田中 一郎','サービス管理責任者','常勤',40,['サービス管理責任者研修修了','社会福祉士'],'2015-04-01'],
+        ['佐藤 花子','生活支援員','常勤',40,['介護福祉士'],'2017-04-01'],
+        ['鈴木 次郎','生活支援員','常勤',40,['介護福祉士'],'2019-04-01'],
+        ['高橋 美咲','生活支援員','常勤',40,['社会福祉士'],'2020-04-01'],
+        ['伊藤 健','生活支援員','非常勤',24,['介護福祉士'],'2022-06-01'],
+        ['渡辺 良子','看護職員','常勤',40,['看護師'],'2018-04-01'],
+        ['山本 亜紀','生活支援員','非常勤',20,[],'2023-04-01'],
+        ['中村 大輔','生活支援員','非常勤',24,['精神保健福祉士'],'2021-04-01'],
+        ['小林 恵','理学療法士','非常勤',16,['理学療法士'],'2022-04-01'],
+        ['加藤 誠','管理者','常勤',40,['社会福祉士'],'2014-04-01']],
+      shuroB:[['田中 一郎','サービス管理責任者','常勤',40,['サービス管理責任者研修修了','社会福祉士'],'2015-04-01'],
+        ['佐藤 花子','職業指導員','常勤',40,['介護福祉士'],'2017-04-01'],
+        ['鈴木 次郎','職業指導員','常勤',40,[],'2019-04-01'],
+        ['高橋 美咲','生活支援員','常勤',40,['社会福祉士'],'2018-04-01'],
+        ['伊藤 健','生活支援員','非常勤',24,['介護福祉士'],'2022-06-01'],
+        ['渡辺 良子','目標工賃達成指導員','常勤',40,[],'2021-04-01'],
+        ['山本 亜紀','職業指導員','非常勤',20,[],'2023-04-01'],
+        ['中村 大輔','生活支援員','非常勤',24,['精神保健福祉士'],'2021-04-01'],
+        ['小林 恵','看護職員','非常勤',16,['看護師'],'2022-04-01'],
+        ['加藤 誠','管理者','常勤',40,['社会福祉士'],'2014-04-01']],
+      gh:[['田中 一郎','サービス管理責任者','常勤',40,['サービス管理責任者研修修了','社会福祉士'],'2015-04-01'],
+        ['佐藤 花子','世話人','常勤',40,['介護福祉士'],'2017-04-01'],
+        ['鈴木 次郎','世話人','常勤',40,[],'2019-04-01'],
+        ['高橋 美咲','生活支援員','常勤',40,['介護福祉士'],'2018-04-01'],
+        ['伊藤 健','生活支援員','非常勤',28,['強度行動障害支援者養成研修（実践研修）'],'2022-06-01'],
+        ['渡辺 良子','夜間支援従事者','非常勤',28,[],'2021-04-01'],
+        ['山本 亜紀','夜間支援従事者','非常勤',28,[],'2023-04-01'],
+        ['中村 大輔','世話人','非常勤',24,[],'2021-04-01'],
+        ['小林 恵','看護職員','非常勤',16,['看護師'],'2022-04-01'],
+        ['加藤 誠','管理者','常勤',40,['社会福祉士'],'2014-04-01']]
+    };
+    (sets[k]||sets.houkago).forEach(([name,role,emp,w,q,h])=>{
+      if(S.staff.some(s=>s.name===name)) return;
+      S.staff.push({id:uid(),name,role,employment:emp,weeklyHours:w,quals:q,hireDate:h,
+        exclusive:true,ngCodes:[],note:''});
+    });
+    UI.refresh(); toast('サンプル職員を投入しました');
+  },
+  exportCsv(){
+    const rows=[['氏名','職種','雇用形態','週所定労働時間','入職日','専従','保有資格','備考']];
+    S.staff.forEach(st=>rows.push([st.name,st.role,st.employment,st.weeklyHours||'',st.hireDate||'',
+      st.exclusive===false?'兼務':'専従',(st.quals||[]).join('・'),st.note||'']));
+    Out.dl(rows,'職員台帳_'+(S.facility.name||'事業所')+'.csv');
+  }
+};
+
+/* ===================================================================
+   10. 勤務記号
+   =================================================================== */
+const Codes={
+  render(){
+    $('codes-tbl').className='nw';
+    $('codes-tbl').innerHTML=`
+      <thead><tr><th style="width:52px">記号</th><th>名称</th><th>時間帯</th>
+        <th class="n">勤務</th><th>区分</th><th>自動生成</th><th>色</th><th class="act" style="width:124px"></th></tr></thead>
+      <tbody>${S.codes.map((c,i)=>`<tr>
+        <td><span style="display:inline-block;min-width:28px;text-align:center;font-weight:800;background:${c.col};color:${fgOf(c)};border:1px solid var(--bd);border-radius:6px;padding:2px 6px">${esc(c.c)}</span></td>
+        <td>${esc(c.n)}</td>
+        <td class="mono">${c.s?esc(c.s)+'–'+esc(c.e)+(c.b?'<span style="color:var(--tx-3)"> 休'+c.b+'分</span>':''):'－'}</td>
+        <td class="n"><b>${c.w?r1(c.m/60)+'h':'－'}</b></td>
+        <td>${c.night?'<span class="pill info">夜勤</span>':c.sleep?'<span class="pill info">宿直</span>':c.after?'<span class="pill mute">明け</span>':c.w?'<span class="pill ok">勤務</span>':'<span class="pill mute">休み</span>'}</td>
+        <td>${c.w||c.after?(c.a!==false?'<span class="pill brand">使用</span>':'<span class="pill mute">除外</span>'):(c.c==='公'?'<span class="pill brand">公休</span>':'－')}</td>
+        <td><input type="color" value="${c.col}" style="width:34px;height:24px;padding:0;border:1px solid var(--bd);border-radius:5px" onchange="Codes.col(${i},this.value)"></td>
+        <td class="act"><button class="btn gh sm" onclick="Codes.open(${i})">編集</button>
+            <button class="btn dg sm" onclick="Codes.del(${i})">削除</button></td>
+      </tr>`).join('')}</tbody>`;
+  },
+  col(i,v){ S.codes[i].col=v; UI.refresh(); },
+  open(i){
+    const c=i==null?{c:'',n:'',s:'09:00',e:'18:00',b:60,m:480,w:true,a:true,col:'#ffffff'}
+                   :Object.assign({},S.codes[i]);
+    modal(i==null?'勤務記号の追加':'勤務記号の編集',`
+      <div class="g2">
+        <div>
+          <div class="fld"><label>記号（1〜2文字）</label><input type="text" id="cd-c" maxlength="2" value="${esc(c.c)}"></div>
+          <div class="fld"><label>名称</label><input type="text" id="cd-n" value="${esc(c.n)}"></div>
+          <div class="fld"><label class="sw"><input type="checkbox" id="cd-w"${c.w?' checked':''}><span class="tr"></span><span class="lb">勤務として扱う（常勤換算・労働時間に算入）</span></label></div>
+          <div class="fld"><label class="sw"><input type="checkbox" id="cd-a"${c.a!==false?' checked':''}><span class="tr"></span><span class="lb">自動生成でこの記号を使う</span></label></div>
+          <div class="fld"><label class="sw"><input type="checkbox" id="cd-nt"${c.night?' checked':''}><span class="tr"></span><span class="lb">夜勤として扱う</span></label></div>
+          <div class="fld"><label class="sw"><input type="checkbox" id="cd-sl"${c.sleep?' checked':''}><span class="tr"></span><span class="lb">宿直として扱う</span></label></div>
+          <div class="fld"><label class="sw"><input type="checkbox" id="cd-af"${c.after?' checked':''}><span class="tr"></span><span class="lb">夜勤明けとして扱う</span></label></div>
+        </div>
+        <div>
+          <div class="fld"><label>勤務時間帯</label>
+            <div class="row"><span class="f"><input type="time" id="cd-s" value="${esc(c.s||'')}"></span><span class="u">〜</span><span class="f"><input type="time" id="cd-e" value="${esc(c.e||'')}"></span></div>
+            <div class="hint">日をまたぐ夜勤は、終了時刻に翌日の時刻を入力してください。</div></div>
+          <div class="fld"><label>休憩時間</label>
+            <div class="row"><span class="f"><input type="number" id="cd-b" value="${c.b||0}"></span><span class="u">分</span></div></div>
+          <div class="fld"><label>勤務時間数（休憩を除く実労働時間）</label>
+            <div class="row"><span class="f"><input type="number" id="cd-m" value="${c.m||0}"></span><span class="u">分</span>
+              <button class="btn gh sm" onclick="Codes.calc()">時間帯から計算</button></div>
+            <div class="hint">宿直は労働基準監督署の許可を前提に0分としています。</div></div>
+          <div class="fld"><label>表示色</label><input type="color" id="cd-col" value="${c.col}" style="height:36px"></div>
+        </div>
+      </div>`,
+      [{l:'キャンセル',c:'gh',f:closeModal},
+       {l:'保存',c:'pri',f:()=>{
+          const code=$('cd-c').value.trim();
+          if(!code){ toast('記号を入力してください','ng'); return; }
+          if(S.codes.some((x,j)=>x.c===code&&j!==i)){ toast('同じ記号がすでにあります','ng'); return; }
+          const o={c:code,n:$('cd-n').value.trim()||code,s:$('cd-s').value,e:$('cd-e').value,
+            b:Number($('cd-b').value)||0,m:Number($('cd-m').value)||0,
+            w:$('cd-w').checked,a:$('cd-a').checked,col:$('cd-col').value};
+          if($('cd-nt').checked) o.night=true;
+          if($('cd-sl').checked){ o.sleep=true; o.m=0; }
+          if($('cd-af').checked){ o.after=true; o.w=false; o.m=0; }
+          if(!o.w) o.m=0;
+          if(i==null) S.codes.push(o); else S.codes[i]=o;
+          closeModal(); UI.refresh(); toast('保存しました');
+       }}],true);
+  },
+  calc(){
+    const s=$('cd-s').value,e=$('cd-e').value,b=Number($('cd-b').value)||0;
+    if(!s||!e) return;
+    let m=(+e.slice(0,2)*60+ +e.slice(3))-(+s.slice(0,2)*60+ +s.slice(3));
+    if(m<0) m+=1440;
+    $('cd-m').value=Math.max(0,m-b);
+  },
+  del(i){
+    const c=S.codes[i];
+    if(c.c==='公'){ toast('公休は削除できません','ng'); return; }
+    if(!confirm('勤務記号「'+c.c+'」を削除します。よろしいですか？')) return;
+    S.codes.splice(i,1); UI.refresh();
+  },
+  reset(){
+    if(!confirm('勤務記号をサービス種別の初期セットに戻します。よろしいですか？')) return;
+    S.codes=defaultCodes(); UI.refresh();
+  }
+};
+
+/* ===================================================================
+   11. シフト表
+   =================================================================== */
+/* 加配加算を選んでいる（＝必要配置数に加配分がある）かどうか */
+const hasExtra=C=>C.days.some(d=>d.open&&d.need.extra>0);
+let selCode=null;
+
+const Sheet={
+  /* 1日の状態を ok / wn / ng / cl に分類する（ヘッダの色帯と警告に共通で使う） */
+  dayState(d,child){
+    if(!d.open) return 'cl';
+    if((child?d.shortBase>0:d.shortHard>0)||d.shortNight>0||d.shortSleep>0) return 'ng';
+    if(d.shortExtra>0||d.shortKanri>0||d.shortNurse>0||d.halfNg) return 'wn';
+    return 'ok';
+  },
+
+  render(){
+    const C=Calc.build(), sv=SV(), child=sv.group==='child', ho=hasHoumon();
+    Sheet.kpi(C);
+    $('sheet-sub').innerHTML=S.month.replace('-','年')+'月　職員<b>'+S.staff.length+'</b>人／営業<b>'+C.openDays.length+'</b>日';
+    $('sheet-legend').innerHTML=
+      '<span><i class="dbar ok"></i>充足</span><span><i class="dbar wn"></i>注意</span>'
+      +'<span><i class="dbar ng"></i>要対応</span><span><i class="dbar cl"></i>休業</span>';
+    $('palette').innerHTML='<span class="lb">記入する記号</span>'
+      +S.codes.map(c=>`<button class="pb${selCode===c.c?' on':''}" style="background:${c.col};color:${fgOf(c)}" onclick="Sheet.pick('${c.c}')">${esc(c.c)}<span class="t" style="color:${subFgOf(c)}">${esc(c.n)}</span></button>`).join('')
+      +`<button class="pb${selCode==='__c'?' on':''}" onclick="Sheet.pick('__c')">消<span class="t">クリア</span></button>`
+      +'<span style="flex:1"></span><span style="font-size:10.5px;color:var(--tx-3)">セルをクリックで記入／氏名クリックで希望休／右クリックで固定</span>';
+
+    if(!S.staff.length){
+      $('sheet').innerHTML='<tbody><tr><td class="empty"><span class="ic">📋</span>職員が登録されていません。</td></tr></tbody>';
+      $('warn-body').innerHTML='<div class="empty" style="padding:12px">－</div>'; $('warn-sub').textContent='';
+      return;
+    }
+    const today=todayStr();
+    const dcls=d=>'dc'+(!d.open?' cl':(d.dow===0?' sun':d.dow===6?' sat':''))+(d.date===today?' td':'');
+    const stx={ok:'充足',wn:'注意',ng:'要対応',cl:'休業'};
+
+    let h='<thead><tr><th class="stick" style="min-width:132px">職員</th>';
+    C.days.forEach(d=>h+=`<th class="${dcls(d)}">${d.d}</th>`);
+    h+='<th class="dc" style="width:40px">日数</th><th class="dc" style="width:46px">時間</th><th class="dc" style="width:44px">換算</th></tr>';
+    h+='<tr class="r2"><th class="stick"></th>';
+    C.days.forEach(d=>h+=`<th class="${dcls(d)}" style="color:${d.dow===0?'#e0554b':d.dow===6?'#3b82f6':'var(--tx-3)'}">${DOW[d.dow]}</th>`);
+    h+='<th class="dc"></th><th class="dc"></th><th class="dc"></th></tr>';
+    /* 日別ステータスの色帯：問題のある日がひと目でわかる */
+    h+='<tr class="r3"><th class="stick" style="font-size:9px;color:var(--tx-3);text-align:left;padding:0 9px">充足状況</th>';
+    C.days.forEach(d=>{
+      const st=Sheet.dayState(d,child);
+      h+=`<th class="${dcls(d)}" title="${d.d}日(${DOW[d.dow]}) ${stx[st]}"><i class="dbar ${st}"></i></th>`;
+    });
+    h+='<th class="dc"></th><th class="dc"></th><th class="dc"></th></tr></thead><tbody>';
+
+    const order=sv.roles;
+    const list=[...S.staff].sort((x,y)=>{
+      const ix=order.indexOf(x.role),iy=order.indexOf(y.role);
+      return ix!==iy?((ix<0?99:ix)-(iy<0?99:iy)):x.name.localeCompare(y.name,'ja');
+    });
+    let lastRole=null;
+    list.forEach(st=>{
+      if(st.role!==lastRole){
+        h+=`<tr class="rl"><td colspan="${C.nd+4}">${esc(st.role)}</td></tr>`;
+        lastRole=st.role;
+      }
+      const r=C.per[st.id], as=S.assign[st.id]||{}, fx=S.fixed[st.id]||{}, wi=S.wish[st.id]||{};
+      h+=`<tr><td class="stick nm" onclick="Sheet.staffMenu('${st.id}')"><b>${esc(st.name)}</b>
+            <span class="s">${st.employment==='常勤'?'常勤':(st.weeklyHours||0)+'h／週'}</span></td>`;
+      C.days.forEach(d=>{
+        const c=as[d.date]||'', k=codeOf(c);
+        const w=wi[d.date];
+        const cls='cell '+dcls(d)+(w==='休'?' wish':w==='勤'?' wish wishw':'')+(fx[d.date]?' fx':'');
+        const bg=k?k.col:(d.open?'':'var(--sf-3)');
+        h+=`<td class="${cls}" style="background:${bg};color:${k?fgOf(k):'inherit'}"
+              oncontextmenu="return Sheet.fix(event,'${st.id}','${d.date}')"
+              onclick="Sheet.click('${st.id}','${d.date}')"
+              title="${d.d}日(${DOW[d.dow]}) ${esc(k?k.n:'')}${w?' / 希望:'+w:''}">${esc(c)}</td>`;
+      });
+      const tgt=st.employment==='常勤'?C.std:(Number(st.weeklyHours)||0)*C.nd/7;
+      const bad=tgt>0&&Math.abs(r.workMin/60-tgt)>8;
+      h+=`<td class="sm">${r.workDays}</td><td class="sm${bad?' bad':' b'}">${r1(r.workMin/60)}</td><td class="sm">${r2(r.fte)}</td></tr>`;
+    });
+
+    /* 集計行はグリッドの下端に固定する（縦にスクロールしても常に見える） */
+    const sums=[{gap:true,h:6}];
+    const row=(lb,fn,cf,cls,rh)=>sums.push({lb,fn,cf,cls,h:rh||22});
+    const emit=()=>{
+      let acc=0;
+      for(let i=sums.length-1;i>=0;i--){ sums[i].b=acc; acc+=sums[i].h; }
+      return sums.map(r=>{
+        if(r.gap) return `<tr class="gap"><td colspan="${C.nd+4}" style="bottom:${r.b}px"></td></tr>`;
+        let x=`<tr class="st${r.cls?' '+r.cls:''}"><td class="stick lb" style="bottom:${r.b}px">${r.lb}</td>`;
+        C.days.forEach(d=>x+=`<td class="${r.cf?r.cf(d):''}" style="bottom:${r.b}px">${r.fn(d)}</td>`);
+        return x+`<td class="sm" style="bottom:${r.b}px"></td><td class="sm" style="bottom:${r.b}px"></td><td class="sm" style="bottom:${r.b}px"></td></tr>`;
+      }).join('');
+    };
+    const fteShort=C.reqs.some(r=>!r.kasanOnly&&r.need>0&&r.have<r.need-0.001);
+    row(sv.unit+'数',d=>d.open?d.users:'－');
+    row(child?'必要 基準人員':'必要（1日の目安）',d=>d.open?d.need.base:'－');
+    row('配置 基準人員',d=>d.open?d.nBase:'－',
+        d=>!d.open?'':(d.shortHard>0?'sh':(d.shortBase>0?(child?'sh':(fteShort?'ex':'')):'')));
+    /* 過不足をいちばん目立つ行として独立させる */
+    row('過不足',d=>{
+        if(!d.open) return '－';
+        const df=d.nBase-d.need.base;
+        return df===0?'±0':(df>0?'+'+df:df);
+      },d=>{
+        if(!d.open) return '';
+        const df=d.nBase-d.need.base;
+        return df<0?'sh':(df>0?'gd':'');
+      },'big',24);
+    if(hasExtra(C)) row('うち加配分',d=>d.open?(d.need.extra?Math.min(Math.max(0,d.nDirect-Math.min(d.nBase,d.need.base)),d.need.extra)+'/'+d.need.extra:'－'):'－',
+        d=>!d.open?'':(d.shortExtra>0?'sh':(d.need.extra?'gd':'')));
+    row('直接支援 計',d=>d.open?d.nDirect:'－');
+    if(ho) row('保育所等訪問',d=>d.open?(d.nVisit||'')||'－':'－',d=>d.nVisit>0?'vs':'');
+    if(sv.night){
+      row('夜勤',d=>d.open?d.nNight:'－',d=>!d.open?'':(d.shortNight>0?'sh':d.nNight>0?'gd':''));
+      row('宿直',d=>d.open?d.nSleep:'－',d=>!d.open?'':(d.shortSleep>0?'sh':''));
+    }
+    if(sv.key==='seikatsu'||S.kasan.kango_ka||S.kasan.kango_gh)
+      row('看護職員',d=>d.open?d.nNurse:'－',d=>!d.open?'':(d.shortNurse>0?'sh':''));
+    row(sv.managerShort,d=>d.open?d.nKanri:'－',d=>!d.open?'':(d.shortKanri>0?'sh':''));
+    $('sheet').innerHTML=h+emit()+'</tbody>';
+    Sheet.warn(C);
+  },
+
+  kpi(C){
+    const sv=SV(), od=C.openDays, child=sv.group==='child';
+    const shortD=od.filter(d=>child?d.shortBase>0:(d.shortHard>0||d.shortNight>0)).length;
+    const fill=od.length?Math.round((od.length-shortD)/od.length*100):100;
+    const lab=Judge.labor(C).filter(x=>x.iss.some(i=>i.l==='ng')).length;
+    let wish=0,wishNg=0;
+    Object.keys(S.wish).forEach(k=>wish+=Object.keys(S.wish[k]||{}).length);
+    Object.values(C.per).forEach(r=>wishNg+=r.wishNg);
+    const wpc=wish?Math.round((wish-wishNg)/wish*100):100;
+    const totH=Object.values(C.per).reduce((a,r)=>a+r.workMin,0)/60;
+    const req=C.reqs.length?C.reqs.reduce((a,r)=>a+r.need,0):0;
+    const have=C.reqs.length?C.reqs.reduce((a,r)=>a+r.have,0):C.fteDirect;
+    const K=[
+      {l:'人員基準の充足',v:fill+'<small>%</small>',d:shortD?'不足 '+shortD+'日':'全営業日で充足',c:shortD?'ng':'ok',ring:fill},
+      {l:'直接支援職員 常勤換算',v:r1(have)+'<small>人</small>',
+        d:req>0?'必要 '+r1(req)+'人':'基準人員は実配置で判定',c:req>0&&have<req?'ng':'info',
+        ring:req>0?clamp(have/req*100,0,100):null},
+      {l:'総勤務時間',v:r1(totH)+'<small>h</small>',d:'常勤の月所定 '+C.std+'h',c:'info'},
+      {l:'労務上の要注意',v:lab+'<small>人</small>',d:'週法定・連続勤務・夜勤明け',c:lab?'wn':'ok'},
+      {l:'希望休の充足',v:wpc+'<small>%</small>',d:'希望 '+wish+'件中 '+wishNg+'件未充足',c:wishNg?'wn':'ok',ring:wpc}
+    ];
+    if(hasHoumon()) K.push({l:'保育所等訪問',v:C.visitCount+'<small>回</small>',
+      d:C.visitDays+'日／常勤換算 '+r2(C.fteVisit)+'人',c:'info'});
+    $('sheet-kpi').innerHTML=kpiHtml(K);
+  },
+
+  warn(C){
+    const sv=SV(), child=sv.group==='child', L=[];
+    const fteShort=C.reqs.some(r=>!r.kasanOnly&&r.need>0&&r.have<r.need-0.001);
+    const day=d=>d.d+'日';
+    C.days.forEach(d=>{
+      if(!d.open) return;
+      if(child&&d.shortBase>0) L.push({l:'ng',h:day(d),t:'児童指導員等 −'+d.shortBase+'（人員欠如減算）'});
+      if(!child&&d.shortHard>0) L.push({l:'ng',h:day(d),t:'直接支援職員が不在'});
+      if(!child&&fteShort&&d.shortBase>0) L.push({l:'wn',h:day(d),t:'1日の配置目安に −'+d.shortBase});
+      if(d.shortNight>0) L.push({l:'ng',h:day(d),t:'夜勤が未配置'});
+      if(d.shortSleep>0) L.push({l:'ng',h:day(d),t:'夜勤・宿直がいずれも未配置'});
+      if(d.shortExtra>0) L.push({l:'wn',h:day(d),t:'加配加算分 −'+d.shortExtra});
+      if(d.shortKanri>0) L.push({l:'wn',h:day(d),t:sv.managerShort+'が不在'});
+      if(d.shortNurse>0) L.push({l:'wn',h:day(d),t:'看護職員が不在'});
+      if(d.halfNg) L.push({l:'wn',h:day(d),t:'児童指導員・保育士が半数未満（'+d.nBase+'/'+d.nDirect+'）'});
+    });
+    Judge.labor(C).forEach(x=>x.iss.forEach(i=>L.push({l:i.l,h:x.st.name,t:i.t})));
+    const ng=L.filter(x=>x.l==='ng'), wn=L.filter(x=>x.l!=='ng');
+    $('warn-sub').innerHTML=L.length
+      ? '<span class="pill ng">要対応 '+ng.length+'</span> <span class="pill wn">注意 '+wn.length+'</span>'
+      : '<span class="pill ok">警告なし</span>';
+    $('warn-body').innerHTML=!L.length
+      ? '<div style="color:var(--ok);font-size:12px;padding:4px 2px">✓ 人員基準・労務上の警告はありません。</div>'
+      : [...ng,...wn].slice(0,120).map(x=>
+          `<span class="wchip ${x.l==='ng'?'ng':'wn'}"><span class="n">${esc(x.h)}</span>${esc(x.t)}</span>`).join('')
+        +(L.length>120?'<span class="wchip">ほか '+(L.length-120)+'件</span>':'');
+  },
+
+  pick(c){ selCode=(selCode===c)?null:c; Sheet.render(); },
+  click(sid,date){
+    if(!selCode){ toast('上の記号パレットから記入する記号を選んでください','wn'); return; }
+    S.assign[sid]=S.assign[sid]||{}; S.fixed[sid]=S.fixed[sid]||{};
+    if(selCode==='__c'){ delete S.assign[sid][date]; delete S.fixed[sid][date]; }
+    else{ S.assign[sid][date]=selCode; S.fixed[sid][date]=true; }
+    UI.refresh();
+  },
+  fix(e,sid,date){
+    e.preventDefault();
+    S.fixed[sid]=S.fixed[sid]||{};
+    if(S.fixed[sid][date]) delete S.fixed[sid][date]; else S.fixed[sid][date]=true;
+    UI.refresh(); return false;
+  },
+  staffMenu(sid){
+    const st=S.staff.find(x=>x.id===sid); if(!st) return;
+    const C=Calc.build(), wi=S.wish[sid]||{};
+    let cells='';
+    for(let i=0;i<C.days[0].dow;i++) cells+='<div></div>';
+    C.days.forEach(d=>{
+      const w=wi[d.date];
+      cells+=`<div class="c ${!d.open?'cl':w==='休'?'off':w==='勤'?'wk':''}"
+        ${d.open?`onclick="Sheet.wish('${sid}','${d.date}')"`:''}>
+        <div class="d">${d.d}</div><div class="m">${w||''}</div></div>`;
+    });
+    modal(st.name+' の希望シフト',
+      '<div class="note i">日付をクリックすると <b>希望休 → 出勤希望 → 解除</b> の順に切り替わります。希望休は自動生成で保護されます。</div>'
+      +'<div class="cal">'+DOW.map(d=>'<div class="h">'+d+'</div>').join('')+cells+'</div>'
+      +'<div class="btnrow" style="margin-top:16px">'
+      +`<button class="btn gh sm" onclick="Sheet.clearWish('${sid}')">希望をクリア</button>`
+      +`<button class="btn gh sm" onclick="Sheet.clearFix('${sid}')">この職員の固定を解除</button>`
+      +`<button class="btn gh sm" onclick="closeModal();Staff.open('${sid}')">職員情報を編集</button></div>`);
+  },
+  wish(sid,date){
+    S.wish[sid]=S.wish[sid]||{};
+    const c=S.wish[sid][date];
+    if(!c) S.wish[sid][date]='休'; else if(c==='休') S.wish[sid][date]='勤'; else delete S.wish[sid][date];
+    App.save(); Sheet.staffMenu(sid);
+  },
+  clearWish(sid){ delete S.wish[sid]; App.save(); Sheet.staffMenu(sid); UI.refresh(); },
+  clearFix(sid){ delete S.fixed[sid]; App.save(); UI.refresh(); toast('固定を解除しました'); },
+  clearAll(){
+    if(!confirm('当月の割当をすべてクリアします（希望休の設定は残ります）。よろしいですか？')) return;
+    const C=Calc.build();
+    S.staff.forEach(st=>C.days.forEach(d=>{ if(S.assign[st.id]) delete S.assign[st.id][d.date]; }));
+    S.fixed={}; UI.refresh();
+  }
+};
+
+/* ===================================================================
+   12. 加算・減算 判定画面
+   =================================================================== */
+const JudgeView={
+  render(){
+    const R=Judge.evaluate(), C=R.C, sv=SV();
+    const ng=R.genzan.filter(x=>x.st==='ng');
+    const on=R.kasan.filter(x=>x.on&&!x.ref);
+    const onNg=on.filter(x=>x.st==='ng');
+    const chance=R.kasan.filter(x=>!x.on&&!x.ref&&x.met);
+    const rate=ng.reduce((a,x)=>a+(x.rate||0),0);
+
+    $('judge-kpi').innerHTML=kpiHtml([
+      {l:'該当する減算',v:ng.length+'<small>件</small>',d:ng.length?'合計 約'+rate+'%相当の減算':'該当なし',c:ng.length?'ng':'ok'},
+      {l:'算定中の加算',v:on.length+'<small>件</small>',d:onNg.length?'要件未達 '+onNg.length+'件':'すべて要件を満たしています',c:onNg.length?'ng':'ok'},
+      {l:'算定できる加算',v:chance.length+'<small>件</small>',d:'現在の体制で新たに算定可能',c:chance.length?'wn':'info'},
+      {l:'常勤換算',v:r1(C.reqs.length?C.reqs.reduce((a,r)=>a+r.have,0):C.fteDirect)+'<small>人</small>',
+        d:sv.managerShort+' '+r2(C.fteKanri)+'人／看護 '+r2(C.fteNurse)+'人',c:'info'}
+    ]);
+
+    const box=(x,i,pre)=>{
+      const lb = x.st==='ok'?'<span class="pill ok">充足</span>'
+        : x.st==='ng'?'<span class="pill ng">'+(pre==='g'?'該当':'要件未達')+'</span>'
+        : x.st==='wn'?'<span class="pill wn">'+(pre==='g'?'注意':'算定可')+'</span>'
+        : '<span class="pill mute">'+(pre==='g'?'－':(x.ref?'参考':'未算定'))+'</span>';
+      return `<div class="jd ${x.st}" id="${pre}${i}">
+        <div class="hd" onclick="document.getElementById('${pre}${i}').classList.toggle('open')">
+          ${lb}<span class="nm">${esc(x.n)}${x.on?' <span class="chip b">算定中</span>':''}</span>
+          <span class="un">${esc(x.u||'')}</span>
+          <svg class="cv" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="bd">${(x.det||[]).map(d=>`<div class="kv"><div class="k">${esc(d.k)}</div><div class="v">${esc(d.v)}</div></div>`).join('')}
+          ${x.act?`<div class="act"><b>対応：</b>${esc(x.act)}</div>`:''}</div></div>`;
+    };
+
+    const gs=[...R.genzan].sort((a,b)=>(a.st==='ng'?0:a.st==='wn'?1:2)-(b.st==='ng'?0:b.st==='wn'?1:2));
+    $('jd-genzan').innerHTML=(ng.length
+      ? `<div class="note d"><b>${ng.length}件の減算に該当しています。</b>合計で所定単位数の約${rate}%相当が減額される可能性があります（減算率は単純合計です。実際の算定順序・上限は報酬告示をご確認ください）。</div>`
+      : `<div class="note o"><b>現在のシフト・体制では減算に該当しません。</b></div>`)
+      + gs.map((x,i)=>box(x,i,'g')).join('');
+
+    const ks=[...R.kasan].sort((a,b)=>{
+      const rk=x=>x.on?(x.st==='ng'?0:2):(x.st==='wn'?1:x.ref?4:3);
+      return rk(a)-rk(b);
+    });
+    $('jd-kasan').innerHTML=(chance.length
+      ? `<div class="note"><b>あと一歩で算定できる加算が${chance.length}件あります。</b>「算定可」の項目は現在の職員体制で要件を満たしています。事業所設定でONにし、体制届の提出をご検討ください。</div>`:'')
+      + ks.map((x,i)=>box(x,i,'k')).join('');
+
+    const labNg=R.labor.filter(x=>x.iss.some(i=>i.l==='ng')).length;
+    const labWn=R.labor.filter(x=>x.iss.length&&!x.iss.some(i=>i.l==='ng')).length;
+    $('jd-labor-sub').innerHTML = !S.staff.length ? ''
+      : (labNg?'<span class="pill ng">要対応 '+labNg+'人</span> ':'')
+        +(labWn?'<span class="pill wn">注意 '+labWn+'人</span>':'')
+        +(!labNg&&!labWn?'<span class="pill ok">問題なし</span>':'');
+    $('jd-labor').innerHTML = !S.staff.length
+      ? '<div class="empty">職員が登録されていません。</div>'
+      : [...R.labor].sort((x,y)=>{
+          const rk=z=>z.iss.some(i=>i.l==='ng')?0:(z.iss.length?1:2);
+          return rk(x)-rk(y);
+        }).map(x=>{
+          const bad=x.iss.some(i=>i.l==='ng');
+          return `<div class="ki${bad?' hit':(x.iss.length?' avail':'')}" style="display:block;padding:7px 10px;margin-bottom:5px">
+            <div style="display:flex;align-items:baseline;gap:7px">
+              <b style="font-size:12px;white-space:nowrap">${esc(x.st.name)}</b>
+              <span style="flex:1;min-width:0;font-size:10px;color:var(--tx-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.st.role)}／${esc(x.st.employment)}</span>
+              <span class="mono" style="font-size:10.5px;color:var(--tx-2);white-space:nowrap">${x.r.workDays}日 ${r1(x.r.workMin/60)}h<span style="color:var(--tx-3)">／所定${r1(x.tgtH)}h</span></span>
+            </div>
+            <div style="margin-top:4px;line-height:1.9">${x.iss.length
+              ? x.iss.map(i=>`<span class="pill ${i.l==='ng'?'ng':'wn'}" style="margin:0 3px 0 0">${esc(i.t)}</span>`).join('')
+              : '<span class="pill ok">問題なし</span>'}</div>
+          </div>`;
+        }).join('')
+        +'<div class="hint">週の起算は日曜としています。36協定・変形労働時間制を採用している場合は、詳細設定で上限を変更してください。</div>';
+
+    ngCount=S.staff.length?(ng.length+onNg.length):null; UI.top(); UI.nav();
+  }
+};
+
+/* ===================================================================
+   13. 出力
+   =================================================================== */
+const Out={
+  render(){
+    const C=Calc.build(), sv=SV();
+    const cp=capsOf();
+    $('out-body').innerHTML=`
+      <div class="btnrow" style="flex-direction:column;align-items:stretch">
+        <button class="btn pri" onclick="Out.csvSheet()">勤務シフト表をCSV出力</button>
+        <button class="btn gh" onclick="Out.csvKinmu()">勤務形態一覧表をCSV出力</button>
+        <button class="btn gh" onclick="Out.csvJudge()">加算・減算判定結果をCSV出力</button>
+        <button class="btn gh" onclick="UI.go('sheet');setTimeout(()=>window.print(),260)">シフト表を印刷（A3横）</button>
+      </div>
+      <div class="hint" style="margin-top:10px">CSVはExcelでそのまま開けるようBOM付きUTF-8で出力します。</div>
+      <div class="sect"><span class="n">▸</span>この月の要約</div>
+      <div class="fsum">
+        <span class="pill brand">${esc(sv.name)}</span>
+        ${sv.multi?'<span class="pill info">児発 '+cp.j+'／放デイ '+cp.h+'（計 '+cp.tot+'）</span>'
+                  :'<span class="pill info">定員 '+cp.tot+'人</span>'}
+        ${S.facility.houmon?'<span class="pill info">保育所等訪問 '+C.visitCount+'回</span>':''}
+        <span class="pill mute">営業 ${C.openDays.length}日</span>
+        <span class="pill mute">職員 ${S.staff.length}人</span>
+        <span class="pill mute">常勤の月所定 ${C.std}h</span>
+      </div>`;
+    const rows=[];
+    sv.roles.forEach(role=>S.staff.filter(st=>st.role===role).forEach(st=>rows.push({role,st,r:C.per[st.id]})));
+    if(!rows.length){ $('out-tbl').innerHTML='<tbody><tr><td class="empty">職員が登録されていません。</td></tr></tbody>'; return; }
+    let cur=null,sub=0;
+    let h=`<thead><tr><th>職種</th><th>氏名</th><th>雇用形態</th><th>資格</th>
+      <th class="n">勤務日数</th><th class="n">当月勤務時間</th><th class="n">常勤換算</th></tr></thead><tbody>`;
+    rows.forEach((x,i)=>{
+      if(cur!==null&&x.role!==cur){
+        h+=`<tr style="background:var(--sf-2);font-weight:800"><td colspan="6" class="n">${esc(cur)} 小計（常勤換算）</td><td class="n">${r2(sub)}</td></tr>`;
+        sub=0;
+      }
+      cur=x.role; sub+=x.r.fte;
+      h+=`<tr><td>${esc(x.role)}</td><td>${esc(x.st.name)}</td><td>${esc(x.st.employment)}</td>
+        <td>${(x.st.quals||[]).map(q=>'<span class="chip">'+esc(q)+'</span>').join('')||'－'}</td>
+        <td class="n">${x.r.workDays}</td><td class="n">${r1(x.r.workMin/60)}</td><td class="n"><b>${r2(x.r.fte)}</b></td></tr>`;
+      if(i===rows.length-1)
+        h+=`<tr style="background:var(--sf-2);font-weight:800"><td colspan="6" class="n">${esc(cur)} 小計（常勤換算）</td><td class="n">${r2(sub)}</td></tr>`;
+    });
+    C.reqs.forEach(rq=>{
+      h+=`<tr style="background:var(--info-bg);font-weight:800"><td colspan="6" class="n">${esc(rq.label)} 合計（常勤換算）／必要 ${r1(rq.need)}</td><td class="n">${r2(rq.have)}</td></tr>`;
+    });
+    h+=`<tr style="background:var(--sf-3)"><td colspan="6" class="n">常勤職員が1か月に勤務すべき時間数</td><td class="n">${C.std} h</td></tr>`;
+    $('out-tbl').innerHTML=h+'</tbody>';
+  },
+  dl(rows,name){
+    const csv=rows.map(r=>r.map(c=>{
+      const s=String(c==null?'':c);
+      return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+    }).join(',')).join('\r\n');
+    const b=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; a.click();
+    URL.revokeObjectURL(a.href); toast('CSVを書き出しました');
+  },
+  csvSheet(){
+    const C=Calc.build(), sv=SV(), rows=[];
+    rows.push([(S.facility.name||'事業所')+' 勤務シフト表',S.month.replace('-','年')+'月',sv.name]);
+    rows.push([]);
+    rows.push(['職種','氏名','雇用形態',...C.days.map(d=>d.d+'('+DOW[d.dow]+')'),'勤務日数','勤務時間','常勤換算']);
+    S.staff.forEach(st=>{
+      const a=S.assign[st.id]||{},r=C.per[st.id];
+      rows.push([st.role,st.name,st.employment,...C.days.map(d=>a[d.date]||''),r.workDays,r1(r.workMin/60),r2(r.fte)]);
+    });
+    rows.push([]);
+    rows.push(['','',sv.unit+'数',...C.days.map(d=>d.open?d.users:'')]);
+    rows.push(['','','必要（基準＋加配）',...C.days.map(d=>d.open?(d.need.base+d.need.extra):'')]);
+    rows.push(['','','配置（基準人員）',...C.days.map(d=>d.open?d.nBase:'')]);
+    rows.push(['','','配置（直接支援計）',...C.days.map(d=>d.open?d.nDirect:'')]);
+    if(sv.night){
+      rows.push(['','','夜勤',...C.days.map(d=>d.open?d.nNight:'')]);
+      rows.push(['','','宿直',...C.days.map(d=>d.open?d.nSleep:'')]);
+    }
+    rows.push(['','',sv.managerShort,...C.days.map(d=>d.open?d.nKanri:'')]);
+    Out.dl(rows,'勤務シフト表_'+(S.facility.name||'事業所')+'_'+S.month+'.csv');
+  },
+  csvKinmu(){
+    const C=Calc.build();
+    const rows=[['勤務形態一覧表',(S.facility.name||'事業所'),S.month.replace('-','年')+'月',SV().name],[],
+      ['職種','氏名','雇用形態','週所定労働時間','入職日','勤続年数','保有資格','勤務日数','当月勤務時間','常勤換算']];
+    S.staff.forEach(st=>{
+      const r=C.per[st.id];
+      rows.push([st.role,st.name,st.employment,
+        st.employment==='常勤'?S.facility.fullTimeWeekly:(st.weeklyHours||0),
+        st.hireDate||'',r1(yrs(st.hireDate)),(st.quals||[]).join('・'),
+        r.workDays,r1(r.workMin/60),r2(r.fte)]);
+    });
+    rows.push([]);
+    rows.push(['常勤職員が1か月に勤務すべき時間数',C.std]);
+    C.reqs.forEach(rq=>rows.push([rq.label+' 常勤換算',r2(rq.have),'必要',r1(rq.need),rq.note]));
+    rows.push([SV().managerShort+' 常勤換算',r2(C.fteKanri)]);
+    Out.dl(rows,'勤務形態一覧表_'+(S.facility.name||'事業所')+'_'+S.month+'.csv');
+  },
+  csvJudge(){
+    const R=Judge.evaluate();
+    const rows=[['加算・減算判定結果',(S.facility.name||'事業所'),S.month.replace('-','年')+'月',SV().name],[],
+      ['区分','項目','判定','状況','内訳','対応']];
+    R.genzan.forEach(x=>rows.push(['減算',x.n,x.st==='ng'?'該当':x.st==='wn'?'注意':'該当なし',x.u,
+      (x.det||[]).map(d=>d.k+'='+d.v).join(' / '),x.act||'']));
+    R.kasan.forEach(x=>rows.push(['加算',x.n,
+      x.ref?'参考':(x.on?(x.st==='ng'?'要件未達':'充足'):(x.met?'算定可':'未算定')),x.u,
+      (x.det||[]).map(d=>d.k+'='+d.v).join(' / '),x.act||'']));
+    R.labor.forEach(x=>{ if(x.iss.length) rows.push(['労務',x.st.name,'指摘あり','',x.iss.map(i=>i.t).join(' / '),'']); });
+    Out.dl(rows,'加算減算判定_'+(S.facility.name||'事業所')+'_'+S.month+'.csv');
+  }
+};
+
+/* ===================================================================
+   14. 詳細設定
+   =================================================================== */
+const Adv={
+  render(){
+    Codes.render();
+    const f=S.facility, p=S.params, sv=SV(), C=Calc.build();
+
+    /* --- 営業日・利用者数 --- */
+    let h=`<div class="g3">
+      <div class="fld"><label>常勤職員の週所定労働時間</label>
+        <div class="row"><span class="f"><input type="number" step="0.5" data-path="facility.fullTimeWeekly" data-t="n" value="${f.fullTimeWeekly}"></span><span class="u">時間／週</span></div>
+        <div class="hint">常勤換算の分母です。${p.fullTimeMinWeekly}時間を下回る場合は${p.fullTimeMinWeekly}時間として計算します。</div></div>
+      <div class="fld"><label>常勤職員が1か月に勤務すべき時間数</label>
+        <div class="row"><span class="f"><input type="number" step="0.5" data-path="facility.monthlyStdHours" data-t="n" value="${f.monthlyStdHours||''}" placeholder="空欄なら自動計算"></span><span class="u">時間／月</span></div>
+        <div class="hint">空欄なら「週所定 × 当月日数 ÷ 7」＝ <b>${C.std}時間</b></div></div>
+      <div class="fld"><label>営業時間</label>
+        <div class="row"><span class="f"><input type="time" data-path="facility.openStart" value="${f.openStart}"></span><span class="u">〜</span><span class="f"><input type="time" data-path="facility.openEnd" value="${f.openEnd}"></span></div></div>`;
+    if(sv.group==='child'){
+      h+=`<div class="fld"><label>開所時間（職員を配置して児童を受け入れられる時間）</label>
+        <div class="row"><span class="f"><input type="number" step="0.5" data-path="facility.serviceHours" data-t="n" value="${f.serviceHours}"></span><span class="u">時間</span>
+          <button class="btn gh sm" onclick="Adv.calcHours()">営業時間から</button></div>
+        <div class="hint">開所時間減算：4時間未満は${p.rateOpenShort4}%減算、4〜6時間未満は${p.rateOpenShort6}%減算。送迎のみの時間は含みません。</div></div>
+      <div class="fld"><label>基準人員の算定基礎</label>
+        <select data-path="facility.baseOn">
+          <option value="capacity"${f.baseOn!=='users'?' selected':''}>利用定員で算定（推奨）</option>
+          <option value="users"${f.baseOn==='users'?' selected':''}>当日の利用児童数で算定</option>
+        </select></div>`;
+    }
+    h+=`</div>
+      <div class="sect"><span class="n">▸</span>自動生成で毎営業日に配置する職種</div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <label class="sw"><input type="checkbox" data-path="facility.kanriDaily"${f.kanriDaily!==false?' checked':''}><span class="tr"></span><span class="lb">${sv.managerShort}を毎営業日に配置する</span></label>
+        ${sv.key==='seikatsu'?`<label class="sw"><input type="checkbox" data-path="facility.nurseDaily"${f.nurseDaily!==false?' checked':''}><span class="tr"></span><span class="lb">看護職員を毎営業日に配置する</span></label>`:''}
+      </div>
+      <div class="hint" style="margin-top:6px">員数要件（1人以上の配置）は毎日の出勤を求めるものではありません。外すと公休の確保や連続勤務の平準化がしやすくなります。</div>
+
+      <div class="sect"><span class="n">▸</span>臨時休業日</div>
+      <div class="row" style="max-width:400px"><span class="f"><input type="date" id="hol"></span><button class="btn gh sm" onclick="Adv.addHol()">追加</button></div>
+      <div style="margin-top:8px">${(f.holidays||[]).length
+        ? f.holidays.slice().sort().map(x=>`<span class="chip">${x} <a href="#" onclick="Adv.delHol('${x}');return false" style="color:var(--ng);text-decoration:none;font-weight:800">×</a></span>`).join('')
+        : '<span style="color:var(--tx-3);font-size:11.5px">なし</span>'}</div>
+
+      <div class="sect"><span class="n">▸</span>日別の利用者数と必要配置数</div>
+      <div class="note i" id="dem-note"></div>
+      <div class="btnrow" style="margin-bottom:12px">
+        <button class="btn gh sm" onclick="Adv.fillUsers()">利用者数を一括入力</button>
+        <button class="btn gh sm" onclick="Adv.recalc()">必要配置数を自動に戻す</button>
+      </div>
+      <div class="tw"><table id="dem-tbl"></table></div>`;
+    $('adv-demand').innerHTML=h;
+
+    $('dem-note').innerHTML = sv.group==='child'
+      ? '<b>児童指導員等の配置は「サービス提供時間帯を通じて配置する実人数」の基準です。</b>'
+        +'障害児'+p.childBaseUsers+'人までは'+p.childBase+'人、以降'+p.childStep+'人を増すごとに1人を加えた人数を必要配置数としています'
+        +'（算定基礎：'+(f.baseOn==='users'?'当日の利用児童数':'利用定員 '+f.capacity+'人')+'）。'
+        +'あわせて、配置する直接支援職員の半数以上が児童指導員又は保育士である必要があります。'
+      : '<b>'+sv.name+'の人員基準は常勤換算方法（月次）の要件です。</b>'
+        +C.reqs.map(r=>r.label+'：必要 '+r1(r.need)+'人（'+r.note+'）').join('／')
+        +'。この必要常勤換算数を営業日数と1日の平均勤務時間（'+r1(Calc.avgWorkMin()/60)+'時間）で按分し、'
+        +'1日あたりの配置目安として表示しています。月全体で常勤換算が基準を満たせば減算にはなりません。';
+
+    $('dem-tbl').innerHTML=`
+      <thead><tr><th>日付</th><th>営業</th><th class="n">${sv.unit}数</th><th class="n">基準/目安</th>
+        <th class="n">加配</th>${sv.night?'<th class="n">夜勤</th><th class="n">宿直</th>':''}
+        <th class="n">看護</th><th class="n">${sv.managerShort}</th><th class="n">配置</th><th>判定</th><th></th></tr></thead>
+      <tbody>${C.days.map(d=>{
+        const ov=S.needOv[d.date], dis=d.open?'':'disabled';
+        const inp=(cls,key,val)=>`<input type="number" class="${cls}" data-d="${d.date}" data-k="${key}" value="${d.open?val:''}" ${dis} style="width:58px;text-align:right;padding:4px 6px">`;
+        return `<tr${d.open?'':' style="color:var(--tx-3)"'}>
+          <td style="white-space:nowrap"><b>${d.d}</b>日 <span style="color:${d.dow===0?'#e0554b':d.dow===6?'#3b82f6':'var(--tx-3)'}">(${DOW[d.dow]})</span></td>
+          <td>${d.open?'<span class="pill ok">営業</span>':'<span class="pill mute">休業</span>'}</td>
+          <td class="n"><input type="number" class="du" data-d="${d.date}" value="${d.open?d.users:''}" ${dis} style="width:62px;text-align:right;padding:4px 6px"></td>
+          <td class="n">${inp('dn','base',d.need.base)}</td>
+          <td class="n">${inp('dn','extra',d.need.extra)}</td>
+          ${sv.night?`<td class="n">${inp('dn','night',d.need.night)}</td><td class="n">${inp('dn','sleep',d.need.sleep)}</td>`:''}
+          <td class="n">${inp('dn','nurse',d.need.nurse)}</td>
+          <td class="n">${inp('dn','kanri',d.need.kanri)}</td>
+          <td class="n">${d.open?d.nBase+' / '+d.nDirect:'－'}</td>
+          <td>${!d.open?'－':(d.short>0?'<span class="pill ng">不足 '+d.short+'</span>':'<span class="pill ok">充足</span>')}</td>
+          <td>${ov?`<button class="btn gh sm" onclick="Adv.clearOv('${d.date}')">自動</button>`:''}</td>
+        </tr>`;}).join('')}</tbody>`;
+
+    /* --- しきい値 --- */
+    const P=[
+      ['人員基準',[
+        sv.key==='seikatsu'&&['ratioCat5','区分5以上の配置比率'],
+        sv.key==='seikatsu'&&['ratioCat4','区分4以上5未満の配置比率'],
+        sv.key==='seikatsu'&&['ratioCat0','区分4未満の配置比率'],
+        sv.group==='child'&&['childBase','基準人員の基礎人数'],
+        sv.group==='child'&&['childBaseUsers','基礎人数が適用される障害児数'],
+        sv.group==='child'&&['childStep','追加1人あたりの障害児数'],
+        sv.multi&&['tamokuMergeCap','多機能型 合算算定できる総定員'],
+        sv.key==='shuroB'&&['shuroBaseRatio','人員基準の配置比率'],
+        sv.key==='gh'&&['ghSewaRatio','世話人の配置比率'],
+        sv.key==='gh'&&['ghSupC3','生活支援員 区分3の比率'],
+        sv.key==='gh'&&['ghSupC4','生活支援員 区分4の比率'],
+        sv.key==='gh'&&['ghSupC5','生活支援員 区分5の比率'],
+        sv.key==='gh'&&['ghSupC6','生活支援員 区分6の比率'],
+        sv.key==='gh'&&['ghKanriUsers','サビ管1人あたりの利用者数'],
+        sv.key!=='gh'&&sv.group!=='child'&&['kanriBaseUsers','サビ管1人目の上限利用者数'],
+        sv.key!=='gh'&&sv.group!=='child'&&['kanriStepUsers','サビ管追加1人あたりの利用者数'],
+        ['fullTimeMinWeekly','常勤換算の週時間下限']
+      ]],
+      ['加算要件',[
+        sv.key==='seikatsu'&&['haichi1Ratio','人員配置体制加算Ⅰ 比率'],
+        sv.key==='seikatsu'&&['haichi2Ratio','人員配置体制加算Ⅱ 比率'],
+        sv.key==='seikatsu'&&['haichi3Ratio','人員配置体制加算Ⅲ 比率'],
+        sv.key==='shuroB'&&['mokuhyoBase','目標工賃達成 職指＋生支の比率'],
+        sv.key==='shuroB'&&['mokuhyoAll','目標工賃達成 3職種合計の比率'],
+        sv.group!=='child'&&['senmon1Pct','福祉専門職員配置等Ⅰ（%）'],
+        sv.group!=='child'&&['senmon2Pct','福祉専門職員配置等Ⅱ（%）'],
+        sv.group!=='child'&&['senmon3FtPct','同Ⅲ 常勤率（%）'],
+        sv.group!=='child'&&['senmon3YearPct','同Ⅲ 勤続年数要件の割合（%）'],
+        sv.group!=='child'&&['senmon3Years','同Ⅲ 勤続年数（年）']
+      ]],
+      ['減算率（%）',[
+        ['rateStaffShort1','人員欠如 1〜2か月'],['rateStaffShort3','人員欠如 3か月以降'],
+        ['rateKanriShort1',sv.managerShort+'欠如 1〜4か月'],['rateKanriShort5',sv.managerShort+'欠如 5か月以降'],
+        ['rateOverCap','定員超過利用'],['overDaily','定員超過 1日の倍率'],['overAvg','定員超過 平均の倍率'],
+        sv.group==='child'&&['rateOpenShort4','開所時間 4時間未満'],
+        sv.group==='child'&&['rateOpenShort6','開所時間 4〜6時間']
+      ]],
+      ['労務管理',[
+        ['maxConsecDays','連続勤務日数の上限'],['maxWeeklyHours','週の労働時間上限'],
+        ['minMonthlyOff','月の公休日数の目安'],['intervalHours','勤務間インターバル（時間）'],
+        sv.night&&['maxNightsPerMonth','月の夜勤回数の上限']
+      ]]
+    ];
+    $('adv-params').innerHTML=P.map(([t,items])=>{
+      const its=items.filter(Boolean);
+      if(!its.length) return '';
+      return `<div class="sect"><span class="n">▸</span>${t}</div><div class="g3">`
+        +its.map(([k,l])=>`<div class="fld" style="margin:0"><label>${esc(l)}</label>
+          <input type="number" step="0.1" data-path="params.${k}" data-t="n" value="${p[k]}"></div>`).join('')+'</div>';
+    }).join('')
+    +`<div class="btnrow" style="margin-top:18px"><button class="btn gh sm" onclick="Adv.resetParams()">初期値に戻す</button></div>`;
+
+    /* --- データ管理 --- */
+    $('adv-data').innerHTML=`
+      <div class="btnrow">
+        <button class="btn pri" onclick="App.saveNow()">今すぐ保存</button>
+        <button class="btn gh" onclick="App.backup()">バックアップ（JSON書き出し）</button>
+        <button class="btn gh" onclick="document.getElementById('imp').click()">復元（JSON読み込み）</button>
+        <input type="file" id="imp" accept=".json" style="display:none" onchange="App.restore(this)">
+        <span style="flex:1"></span>
+        <button class="btn dg" onclick="App.resetAll()">すべて初期化</button>
+      </div>
+      <div class="hint" style="margin-top:12px">
+        入力内容はこのブラウザ内（localStorage）に自動保存されます。別のPC・ブラウザには引き継がれません。
+        事業所・月ごとにバックアップを取る運用を推奨します。</div>`;
+
+    bind();
+    document.querySelectorAll('.du').forEach(e=>e.onchange=()=>{ S.users[e.dataset.d]=Number(e.value)||0; UI.refresh(); });
+    document.querySelectorAll('.dn').forEach(e=>e.onchange=()=>{
+      const d=e.dataset.d;
+      S.needOv[d]=Object.assign({},S.needOv[d],{[e.dataset.k]:Number(e.value)||0});
+      UI.refresh();
+    });
+  },
+  calcHours(){
+    const f=S.facility;
+    if(!f.openStart||!f.openEnd){ toast('営業時間を入力してください','ng'); return; }
+    let m=(+f.openEnd.slice(0,2)*60+ +f.openEnd.slice(3))-(+f.openStart.slice(0,2)*60+ +f.openStart.slice(3));
+    if(m<0) m+=1440;
+    f.serviceHours=Math.round(m/60*2)/2; UI.refresh(); toast('開所時間を'+f.serviceHours+'時間に設定しました');
+  },
+  addHol(){
+    const v=$('hol').value; if(!v) return;
+    S.facility.holidays=S.facility.holidays||[];
+    if(!S.facility.holidays.includes(v)) S.facility.holidays.push(v);
+    UI.refresh();
+  },
+  delHol(x){ S.facility.holidays=S.facility.holidays.filter(h=>h!==x); UI.refresh(); },
+  clearOv(d){ delete S.needOv[d]; UI.refresh(); },
+  recalc(){ S.needOv={}; UI.refresh(); toast('必要配置数を自動計算に戻しました'); },
+  resetParams(){ S.params=Object.assign({},DEF_PARAMS); UI.refresh(); toast('しきい値を初期値に戻しました'); },
+  fillUsers(){
+    const u=SV().unit;
+    modal('利用者数の一括入力',`
+      <div class="note i">空欄のままにすると定員と同数で計算されます。曜日ごとに人数が違う場合だけ入力してください。</div>
+      <div class="g3">
+        <div class="fld"><label>平日（月〜金）</label><div class="row"><span class="f"><input type="number" id="fu-w" value="${S.facility.capacity}"></span><span class="u">${u}</span></div></div>
+        <div class="fld"><label>土曜</label><div class="row"><span class="f"><input type="number" id="fu-a" value="${Math.round(S.facility.capacity*0.7)}"></span><span class="u">${u}</span></div></div>
+        <div class="fld"><label>日曜</label><div class="row"><span class="f"><input type="number" id="fu-u" value="${Math.round(S.facility.capacity*0.7)}"></span><span class="u">${u}</span></div></div>
+      </div>`,
+      [{l:'キャンセル',c:'gh',f:closeModal},
+       {l:'反映',c:'pri',f:()=>{
+         const w=Number($('fu-w').value)||0,a=Number($('fu-a').value)||0,u2=Number($('fu-u').value)||0;
+         const {y,m}=pm(S.month);
+         for(let d=1;d<=dim(y,m);d++){
+           const dw=new Date(y,m-1,d).getDay();
+           S.users[ymd(y,m,d)]= dw===0?u2 : dw===6?a : w;
+         }
+         closeModal(); UI.refresh(); toast('利用者数を反映しました');
+       }}]);
+  }
+};
+
+/* ===================================================================
+   15. 起動
+   =================================================================== */
+App.load();
+UI.boot();
+window.addEventListener('beforeunload',()=>App.save());
+</script>
+</body>
+</html>
