@@ -66,6 +66,15 @@ tailwind.config = {
   <!-- ============ MAIN ============ -->
   <main class="flex-1 min-w-0 px-4 sm:px-6 py-6 space-y-6">
 
+    <!-- View tabs -->
+    <div class="inline-flex rounded-xl bg-slate-200/70 p-1 no-print">
+      <button data-view="month" class="vtab px-4 py-2.5 text-[13px] font-bold rounded-lg transition bg-brand-600 text-white shadow-sm">単月シミュレーション</button>
+      <button data-view="year"  class="vtab px-4 py-2.5 text-[13px] font-bold rounded-lg transition text-slate-500 hover:bg-white hover:text-slate-700">年間計画・実績管理</button>
+    </div>
+
+    <!-- ==================== 単月ビュー ==================== -->
+    <div id="viewMonth" class="space-y-6">
+
     <!-- Header -->
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -218,8 +227,189 @@ tailwind.config = {
       </div>
     </section>
 
+    </div>
+
+    <!-- ==================== 年間計画・実績管理ビュー ==================== -->
+    <div id="viewYear" class="hidden space-y-6">
+
+      <!-- 年度・サービス設定 -->
+      <section class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">年度・サービス設定</h3>
+            <p class="text-[11px] text-slate-500">単価は「1人1日あたりの総報酬額（10/10・加算込）」で入力します</p>
+          </div>
+          <div class="flex gap-2 no-print">
+            <button id="yBtnSample" class="text-[11px] font-bold px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-50">実績サンプルを再読込</button>
+            <button id="yBtnClear" class="text-[11px] font-bold px-3 py-2 rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-50">実績をクリア</button>
+            <button id="yBtnCsv" class="text-[11px] font-bold px-3 py-2 rounded-lg bg-slate-800 text-white hover:bg-slate-900">CSV出力</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 items-end">
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">事業年度 開始月</label>
+            <select id="y_startMonth" class="w-full text-[12px] font-bold border border-slate-300 rounded-lg px-2 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-400"></select>
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">期首契約者数 児発</label>
+            <input type="number" id="y_openJi" min="0" step="1" class="w-full text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-400">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">期首契約者数 放デイ</label>
+            <input type="number" id="y_openHo" min="0" step="1" class="w-full text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-400">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">問い合わせ→契約率 <span class="text-slate-400">%</span></label>
+            <input type="number" id="y_closeRate" min="1" max="100" step="1" class="w-full text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-400">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">
+              児発 単価 <span class="text-slate-400">円/人日</span>
+              <label class="ml-1 inline-flex items-center gap-1 font-normal"><input type="checkbox" id="y_linkJi" class="w-3 h-3 accent-brand-600"><span class="text-[9px] text-brand-600">単月タブと連動</span></label>
+            </label>
+            <input type="number" id="y_priceJi" min="0" step="100" class="w-full text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-400">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">放デイ 単価 <span class="text-slate-400">円/人日</span></label>
+            <input type="number" id="y_priceHo" min="0" step="100" class="w-full text-right text-[12px] font-bold tabular border border-slate-300 rounded-lg px-2 py-2 outline-none focus:ring-2 focus:ring-brand-400">
+          </div>
+          <div>
+            <label class="block text-[10px] font-bold text-slate-500 mb-1">実績「給付額」の入力基準</label>
+            <select id="y_basis" class="w-full text-[12px] font-bold border border-slate-300 rounded-lg px-2 py-2 bg-white outline-none focus:ring-2 focus:ring-brand-400">
+              <option value="gross">総報酬額（10/10）</option>
+              <option value="benefit">給付費のみ（9/10等）</option>
+            </select>
+          </div>
+        </div>
+        <p class="text-[10px] text-slate-400 mt-2">利用定員・固定費・変動費・実収率などの前提は左サイドバー（単月タブと共通）の値を使用します。</p>
+      </section>
+
+      <!-- 単月黒字化 逆算パネル -->
+      <section class="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-white p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 class="text-sm font-bold text-brand-900">単月黒字に必要な水準（逆算）</h3>
+            <p class="text-[11px] text-brand-700/70">現在の固定費・単価前提で、その月に営業利益が±0になるKPI水準</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold text-slate-500">基準月</span>
+            <select id="y_baseMonth" class="text-[12px] font-bold border border-brand-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-400"></select>
+            <select id="y_baseSrc" class="text-[12px] font-bold border border-brand-300 rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-brand-400">
+              <option value="actual">実績ベース</option>
+              <option value="plan">計画ベース</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-[10px] font-bold text-slate-400">① 必要 延べ利用日数</div>
+            <div class="mt-1 flex items-end gap-1"><span id="yq_users" class="text-3xl font-black text-slate-900 tabular">--</span><span class="text-sm font-bold text-slate-400 pb-0.5">人日/月</span></div>
+            <div id="yq_usersSub" class="text-[10px] mt-1 text-slate-500">現状 -- 人日</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-[10px] font-bold text-slate-400">② 必要 契約者数<span class="text-slate-300">（利用回数が現状のまま）</span></div>
+            <div class="mt-1 flex items-end gap-1"><span id="yq_contract" class="text-3xl font-black text-slate-900 tabular">--</span><span class="text-sm font-bold text-slate-400 pb-0.5">名</span></div>
+            <div id="yq_contractSub" class="text-[10px] mt-1 text-slate-500">現状 -- 名</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-[10px] font-bold text-slate-400">③ 必要 平均利用回数<span class="text-slate-300">（契約者数が現状のまま）</span></div>
+            <div class="mt-1 flex items-end gap-1"><span id="yq_visit" class="text-3xl font-black text-slate-900 tabular">--</span><span class="text-sm font-bold text-slate-400 pb-0.5">回/人月</span></div>
+            <div id="yq_visitSub" class="text-[10px] mt-1 text-slate-500">現状 -- 回</div>
+          </div>
+          <div class="bg-white rounded-xl border border-slate-200 p-4">
+            <div class="text-[10px] font-bold text-slate-400">④ 必要 問い合わせ件数<span class="text-slate-300">（累計・契約率 <span id="yq_cr">--</span>%）</span></div>
+            <div class="mt-1 flex items-end gap-1"><span id="yq_inq" class="text-3xl font-black text-slate-900 tabular">--</span><span class="text-sm font-bold text-slate-400 pb-0.5">件</span></div>
+            <div id="yq_inqSub" class="text-[10px] mt-1 text-slate-500">現状 -- 件</div>
+          </div>
+        </div>
+
+        <!-- KPIツリー -->
+        <div class="mt-4 bg-white rounded-xl border border-slate-200 p-4 overflow-x-auto">
+          <div class="text-[10px] font-bold text-slate-400 mb-3">KPIツリー（右の数字を動かすと左が決まる）</div>
+          <div id="yTree" class="flex items-stretch gap-2 min-w-[820px] text-[11px]"></div>
+        </div>
+        <div id="yq_msg" class="mt-3 text-xs rounded-lg px-3 py-2 bg-white text-slate-600 border border-slate-200"></div>
+      </section>
+
+      <!-- 月次グリッド -->
+      <section class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">月次グリッド</h3>
+            <p class="text-[11px] text-slate-500">白いセルが入力欄。Excelから複数セルをコピーして貼り付けできます（Ctrl+V）</p>
+          </div>
+          <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50 no-print">
+            <button data-ymode="plan"    class="ymode-btn px-3 py-1.5 text-[11px] font-bold rounded-md bg-white shadow-sm text-brand-700">計画</button>
+            <button data-ymode="actual"  class="ymode-btn px-3 py-1.5 text-[11px] font-bold rounded-md text-slate-500">実績</button>
+            <button data-ymode="compare" class="ymode-btn px-3 py-1.5 text-[11px] font-bold rounded-md text-slate-500">対比</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto border border-slate-200 rounded-xl">
+          <table class="text-[11px] tabular border-collapse w-full">
+            <thead id="yGridHead" class="bg-slate-50"></thead>
+            <tbody id="yGridBody"></tbody>
+          </table>
+        </div>
+        <p class="text-[10px] text-slate-400 mt-2">「⤓」ボタンでその行の値を全月に一括コピーできます。灰色の行は自動計算です。</p>
+      </section>
+
+      <!-- 年間サマリー -->
+      <section class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">年間 給付額（計画）</div>
+          <div id="ys_benefitPlan" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">年間 給付額（実績）</div>
+          <div id="ys_benefitAct" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+          <div id="ys_benefitRate" class="text-[10px] text-slate-400 mt-0.5">達成率 --</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">年間 営業利益（計画）</div>
+          <div id="ys_profitPlan" class="mt-1 text-lg font-black tabular">--</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">年間 営業利益（実績）</div>
+          <div id="ys_profitAct" class="mt-1 text-lg font-black tabular">--</div>
+          <div id="ys_profitGap" class="text-[10px] text-slate-400 mt-0.5">計画差 --</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">単月黒字 転換月</div>
+          <div id="ys_breakMonth" class="mt-1 text-lg font-black text-slate-900">--</div>
+          <div id="ys_breakSub" class="text-[10px] text-slate-400 mt-0.5">計画ベース</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 p-4">
+          <div class="text-[10px] font-bold text-slate-400">期末 契約者数（計画）</div>
+          <div id="ys_endContract" class="mt-1 text-lg font-black text-slate-900 tabular">--</div>
+          <div id="ys_endSub" class="text-[10px] text-slate-400 mt-0.5">児発 -- / 放デイ --</div>
+        </div>
+      </section>
+
+      <!-- グラフ -->
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="bg-white rounded-2xl border border-slate-200 p-5">
+          <h3 class="text-sm font-bold text-slate-900">月次 売上高 vs 総コスト</h3>
+          <p class="text-[11px] text-slate-500 mb-3">棒が線を超えた月が単月黒字</p>
+          <div class="h-[300px] relative"><canvas id="yChartPL"></canvas></div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-5">
+          <h3 class="text-sm font-bold text-slate-900">累計営業利益（黒字転換の推移）</h3>
+          <p class="text-[11px] text-slate-500 mb-3">0円ラインを超えると累計で黒字</p>
+          <div class="h-[300px] relative"><canvas id="yChartCum"></canvas></div>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-2xl border border-slate-200 p-5">
+        <h3 class="text-sm font-bold text-slate-900">契約者数・稼働率・平均利用回数の推移</h3>
+        <p class="text-[11px] text-slate-500 mb-3">契約者が増えても平均利用回数が落ちると稼働率は伸びません</p>
+        <div class="h-[320px] relative"><canvas id="yChartKpi"></canvas></div>
+      </section>
+
+    </div>
+
     <p class="text-[10px] text-slate-400 pb-4 leading-relaxed">
-      ※本シミュレーターは概算試算用ツールです。実際の報酬単位数・地域区分単価・加算要件は最新の告示および指定権者の取扱いをご確認ください。
+      ※本シミュレーターは概算試算用ツールです。入力条件はブラウザ内（localStorage）にのみ保存されます。実際の報酬単位数・地域区分単価・加算要件は最新の告示および指定権者の取扱いをご確認ください。
     </p>
   </main>
 </div>
@@ -772,6 +962,8 @@ function update(){
        <div class="flex justify-between"><span class="text-slate-500">限界利益率</span><span class="font-bold tabular">${pct(m.marginRate)}%</span></div>
        <div class="flex justify-between"><span class="text-slate-500">月間 限界利益</span><span class="font-bold tabular">${yenS(m.contribPerUserDay*m.cur.users)} 円</span></div>
      </div>`;
+
+  if(typeof yRefresh === "function") yRefresh();   // 年間ビューにも前提条件を反映
 }
 
 /* =========================================================
@@ -831,13 +1023,20 @@ function wire(){
   });
   document.getElementById("btnSave").addEventListener("click", ()=>{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(readState()));
+    if(typeof ySave === "function") ySave();
     flash("btnSave","保存しました ✓");
   });
   document.getElementById("btnReset").addEventListener("click", ()=>{
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(Y_KEY);
     unitPriceManual = false;
     setDefaults(null);
     updateUnitPrice();
+    if(typeof yDefaults === "function"){
+      Y = yDefaults();
+      if(window.__ySync) window.__ySync();
+      if(yInited) yBuildGrid();
+    }
     update();
     flash("btnReset","リセットしました");
   });
@@ -869,6 +1068,730 @@ function flash(btnId, text){
   buildChart();
   update();
 })();
+
+/* =========================================================
+   10. 年間計画・実績管理
+   ========================================================= */
+const Y_KEY = "jidoBepSimulator_year_v1";
+const z12 = () => Array(12).fill(0);
+const fill12 = v => Array(12).fill(v);
+
+/* --- 初期データ（実績は共有いただいた6〜9月の数値を初期値として投入） --- */
+function yDefaults(){
+  return {
+    startMonth: 4,
+    openJi: 0, openHo: 0,
+    closeRate: 40,
+    linkJi: true, priceJi: 13706, priceHo: 12000,
+    basis: "gross",
+    baseMonth: 5, baseSrc: "actual",
+    mode: "plan",
+    plan: {
+      openDays:  [22,22,22,22,20,19,22,22,21,20,20,22],
+      newJi:     [0,0,0,0,1,0,1,1,1,1,1,1],
+      newHo:     [0,0,4,2,1,1,2,2,2,2,2,2],
+      loseJi:    z12(),
+      loseHo:    z12(),
+      visitJi:   fill12(8),
+      visitHo:   fill12(8),
+      absentRate:fill12(5),
+      fixedAdj:  z12()
+    },
+    actual: {
+      openDays:  [0,0,22,22,20,19,0,0,0,0,0,0],
+      contractJi:[0,0,0,0,1,1,0,0,0,0,0,0],
+      contractHo:[0,0,4,6,6,6,0,0,0,0,0,0],
+      users:     [0,0,56,61,69,53,0,0,0,0,0,0],
+      benefit:   [0,0,444090,573890,707274,680200,0,0,0,0,0,0],
+      inquiry:   [0,0,1,0,0,2,0,0,0,0,0,0],
+      newC:      [0,0,1,1,1,0,0,0,0,0,0,0],
+      lostC:     z12(),
+      absent:    [0,0,1,0,0,0,0,0,0,0,0,0],
+      fixedAdj:  z12()
+    }
+  };
+}
+// var 宣言：init() 内の update() が yRefresh() を呼ぶ時点でも参照できるようにする（巻き上げ）
+var Y = yDefaults();
+var yInited = false, yPL, yCum, yKpi;
+
+const yLbl = i => (((Y.startMonth - 1 + i) % 12) + 1) + "月";
+
+/* --- 行定義 --- */
+const R_PLAN = [
+  {k:"openDays",   l:"開所日数",              u:"日",   t:"in",   d:0, agg:"sum"},
+  {k:"newJi",      l:"新規契約 児発",         u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"newHo",      l:"新規契約 放デイ",       u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"loseJi",     l:"解約 児発",             u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"loseHo",     l:"解約 放デイ",           u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"contractJi", l:"契約者数 児発",         u:"名",   t:"auto", d:0, agg:"last"},
+  {k:"contractHo", l:"契約者数 放デイ",       u:"名",   t:"auto", d:0, agg:"last"},
+  {k:"contractTotal", l:"契約者数 合計",      u:"名",   t:"auto", d:0, agg:"last", s:true},
+  {k:"visitJi",    l:"平均利用回数 児発",     u:"回",   t:"in",   d:2, agg:"none"},
+  {k:"visitHo",    l:"平均利用回数 放デイ",   u:"回",   t:"in",   d:2, agg:"none"},
+  {k:"absentRate", l:"欠席率",                u:"%",    t:"in",   d:1, agg:"none"},
+  {k:"usersJi",    l:"延べ利用日数 児発",     u:"人日", t:"auto", d:0, agg:"sum"},
+  {k:"usersHo",    l:"延べ利用日数 放デイ",   u:"人日", t:"auto", d:0, agg:"sum"},
+  {k:"users",      l:"延べ利用日数 合計",     u:"人日", t:"auto", d:0, agg:"sum", s:true},
+  {k:"utilization",l:"稼働率",                u:"%",    t:"auto", d:1, agg:"util", s:true},
+  {k:"visitAvg",   l:"平均利用回数（加重）",  u:"回",   t:"auto", d:2, agg:"visit"},
+  {k:"benefit",    l:"給付額（総報酬）",      u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"revenue",    l:"売上高",                u:"円",   t:"auto", d:0, agg:"sum", y:true, s:true},
+  {k:"fixedAdj",   l:"固定費 調整額",         u:"円",   t:"in",   d:0, agg:"sum"},
+  {k:"fixedCost",  l:"固定費",                u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"varCost",    l:"変動費",                u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"profit",     l:"営業利益",              u:"円",   t:"auto", d:0, agg:"sum", y:true, s:true, sg:true},
+  {k:"cumProfit",  l:"累計営業利益",          u:"円",   t:"auto", d:0, agg:"last", y:true, sg:true},
+  {k:"bepUsers",   l:"損益分岐 必要延べ人日", u:"人日", t:"auto", d:0, agg:"sum", m:true},
+  {k:"gapUsers",   l:"必要人日との過不足",    u:"人日", t:"auto", d:0, agg:"sum", m:true, sg:true}
+];
+
+const R_ACTUAL = [
+  {k:"openDays",   l:"開所日数",              u:"日",   t:"in",   d:0, agg:"sum"},
+  {k:"contractJi", l:"契約者数 児発",         u:"名",   t:"in",   d:0, agg:"last"},
+  {k:"contractHo", l:"契約者数 放デイ",       u:"名",   t:"in",   d:0, agg:"last"},
+  {k:"contractTotal", l:"契約者数 合計",      u:"名",   t:"auto", d:0, agg:"last", s:true},
+  {k:"users",      l:"延べ利用日数",          u:"人日", t:"in",   d:0, agg:"sum", s:true},
+  {k:"benefit",    l:"給付額",                u:"円",   t:"in",   d:0, agg:"sum", y:true, s:true},
+  {k:"inquiry",    l:"問い合わせ件数",        u:"件",   t:"in",   d:0, agg:"sum"},
+  {k:"newC",       l:"新規契約者",            u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"lostC",      l:"解約者",                u:"名",   t:"in",   d:0, agg:"sum"},
+  {k:"absent",     l:"欠席数",                u:"件",   t:"in",   d:0, agg:"sum"},
+  {k:"utilization",l:"稼働率",                u:"%",    t:"auto", d:2, agg:"util", s:true},
+  {k:"visitAvg",   l:"平均利用回数/人月",     u:"回",   t:"auto", d:2, agg:"visit", s:true},
+  {k:"absentRateC",l:"欠席率",                u:"%",    t:"auto", d:1, agg:"absent"},
+  {k:"unitPrice",  l:"1人1日あたり単価",      u:"円",   t:"auto", d:0, agg:"price", y:true, s:true},
+  {k:"closeRateC", l:"契約率（新規÷問合せ）", u:"%",    t:"auto", d:1, agg:"close"},
+  {k:"fixedAdj",   l:"固定費 調整額",         u:"円",   t:"in",   d:0, agg:"sum"},
+  {k:"revenue",    l:"売上高",                u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"fixedCost",  l:"固定費",                u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"varCost",    l:"変動費",                u:"円",   t:"auto", d:0, agg:"sum", y:true},
+  {k:"profit",     l:"営業利益",              u:"円",   t:"auto", d:0, agg:"sum", y:true, s:true, sg:true},
+  {k:"cumProfit",  l:"累計営業利益",          u:"円",   t:"auto", d:0, agg:"last", y:true, sg:true},
+  {k:"bepUsers",   l:"損益分岐 必要延べ人日", u:"人日", t:"auto", d:0, agg:"sum", m:true},
+  {k:"gapUsers",   l:"必要人日との過不足",    u:"人日", t:"auto", d:0, agg:"sum", m:true, sg:true}
+];
+
+const R_COMPARE = [
+  {k:"users",       l:"延べ利用日数", u:"人日", d:0, agg:"sum"},
+  {k:"utilization", l:"稼働率",       u:"%",    d:1, agg:"util"},
+  {k:"contractTotal", l:"契約者数",   u:"名",   d:0, agg:"last"},
+  {k:"visitAvg",    l:"平均利用回数", u:"回",   d:2, agg:"visit"},
+  {k:"benefit",     l:"給付額",       u:"円",   d:0, agg:"sum", y:true},
+  {k:"revenue",     l:"売上高",       u:"円",   d:0, agg:"sum", y:true},
+  {k:"profit",      l:"営業利益",     u:"円",   d:0, agg:"sum", y:true, sg:true},
+  {k:"cumProfit",   l:"累計営業利益", u:"円",   d:0, agg:"last", y:true, sg:true}
+];
+
+const yRows = () => Y.mode==="plan" ? R_PLAN : Y.mode==="actual" ? R_ACTUAL : R_COMPARE;
+
+/* --- 計算 --- */
+function yCalc(){
+  const s = readState();
+  const m = calc(s);
+  const priceJi = Y.linkJi ? m.grossPerUserDay : Y.priceJi;
+  const priceHo = Y.priceHo;
+  const collect = m.collectRate, jippi = s.jippiPerDay, misc = s.miscMonthly;
+  const varPer = m.varPerUserDay, capacity = s.capacity, baseFixed = m.fixedCost;
+
+  const money = (gross, users, fixedAdj) => {
+    const revenue = gross*collect + jippi*users + misc;
+    const fixedCost = baseFixed + fixedAdj;
+    const varCost = varPer*users;
+    return {revenue, fixedCost, varCost, profit: revenue - fixedCost - varCost};
+  };
+  const bepOf = (blendPrice, fixedCost) => {
+    const contrib = blendPrice*collect + jippi - varPer;
+    return contrib > 0 ? (fixedCost - misc)/contrib : Infinity;
+  };
+
+  /* === 計画 === */
+  const P = Array.from({length:12}, ()=>({}));
+  let cJi = Y.openJi, cHo = Y.openHo, cum = 0;
+  for(let i=0;i<12;i++){
+    const p = Y.plan, o = P[i];
+    cJi = Math.max(0, cJi + (p.newJi[i]||0) - (p.loseJi[i]||0));
+    cHo = Math.max(0, cHo + (p.newHo[i]||0) - (p.loseHo[i]||0));
+    o.openDays = p.openDays[i]||0;
+    o.newJi=p.newJi[i]||0; o.newHo=p.newHo[i]||0; o.loseJi=p.loseJi[i]||0; o.loseHo=p.loseHo[i]||0;
+    o.visitJi=p.visitJi[i]||0; o.visitHo=p.visitHo[i]||0; o.absentRate=p.absentRate[i]||0;
+    o.fixedAdj=p.fixedAdj[i]||0;
+    o.contractJi=cJi; o.contractHo=cHo; o.contractTotal=cJi+cHo;
+
+    const att = Math.max(0, 1 - o.absentRate/100);
+    let uJi = cJi * o.visitJi * att, uHo = cHo * o.visitHo * att;
+    const cap = capacity * o.openDays;
+    o.capped = false;
+    if(cap > 0 && uJi+uHo > cap){                       // 定員×開所日数を超えられない
+      const sc = cap/(uJi+uHo); uJi*=sc; uHo*=sc; o.capped = true;
+    }
+    o.usersJi=uJi; o.usersHo=uHo; o.users=uJi+uHo;
+    o.visitAvg = o.contractTotal>0 ? o.users/o.contractTotal : NaN;
+    o.utilization = cap>0 ? o.users/cap*100 : NaN;
+    o.benefit = uJi*priceJi + uHo*priceHo;
+    Object.assign(o, money(o.benefit, o.users, o.fixedAdj));
+    cum += o.profit; o.cumProfit = cum;
+    const blend = o.users>0 ? o.benefit/o.users
+                : (o.contractTotal>0 ? (cJi*priceJi + cHo*priceHo)/o.contractTotal : priceHo);
+    o.blendPrice = blend;
+    o.bepUsers = bepOf(blend, o.fixedCost);
+    o.gapUsers = isFinite(o.bepUsers) ? o.users - o.bepUsers : NaN;
+    o.has = true;
+  }
+
+  /* === 実績 === */
+  const A = Array.from({length:12}, ()=>({}));
+  let acum = 0;
+  for(let i=0;i<12;i++){
+    const a = Y.actual, o = A[i];
+    o.openDays=a.openDays[i]||0;
+    o.contractJi=a.contractJi[i]||0; o.contractHo=a.contractHo[i]||0;
+    o.contractTotal=o.contractJi+o.contractHo;
+    o.users=a.users[i]||0; o.inquiry=a.inquiry[i]||0; o.newC=a.newC[i]||0;
+    o.lostC=a.lostC[i]||0; o.absent=a.absent[i]||0; o.fixedAdj=a.fixedAdj[i]||0;
+    const input = a.benefit[i]||0;
+    o.benefitInput = input;
+    o.benefit = Y.basis==="gross" ? input : (s.publicRatio>0 ? input/(s.publicRatio/100) : input);
+    o.has = o.openDays>0 || o.users>0 || input>0;
+
+    const cap = capacity * o.openDays;
+    o.utilization = cap>0 ? o.users/cap*100 : NaN;
+    o.visitAvg = o.contractTotal>0 ? o.users/o.contractTotal : NaN;
+    o.absentRateC = o.users>0 ? o.absent/o.users*100 : NaN;
+    o.unitPrice = o.users>0 ? o.benefit/o.users : NaN;
+    o.closeRateC = o.inquiry>0 ? o.newC/o.inquiry*100 : NaN;
+    Object.assign(o, money(o.benefit, o.users, o.fixedAdj));
+    if(o.has){ acum += o.profit; o.cumProfit = acum; } else { o.cumProfit = NaN; }
+    const blend = o.users>0 ? o.unitPrice : P[i].blendPrice;
+    o.blendPrice = blend;
+    o.bepUsers = o.has ? bepOf(blend, o.fixedCost) : NaN;
+    o.gapUsers = (o.has && isFinite(o.bepUsers)) ? o.users - o.bepUsers : NaN;
+    if(!o.has){ o.revenue=NaN; o.varCost=NaN; o.profit=NaN; o.fixedCost=NaN; o.benefit=NaN; }
+  }
+  return {s, m, P, A, priceJi, priceHo, collect, jippi, misc, varPer, capacity, baseFixed};
+}
+
+/* --- 合計列 --- */
+function yAgg(row, rows, C, which){
+  const D = which==="plan" ? C.P : C.A;
+  const ok = D.filter(o=>o.has);
+  const S = k => ok.reduce((t,o)=> t + (isFinite(o[k])?o[k]:0), 0);
+  switch(row.agg){
+    case "sum":  return S(row.k);
+    case "last": { const l = ok.length? ok[ok.length-1] : null; return l ? l[row.k] : NaN; }
+    case "util": { const cap = C.capacity * S("openDays"); return cap>0 ? S("users")/cap*100 : NaN; }
+    case "visit":{ const c = S("contractTotal"); return c>0 ? S("users")/c : NaN; }
+    case "absent":{ const u = S("users"); return u>0 ? S("absent")/u*100 : NaN; }
+    case "price": { const u = S("users"); return u>0 ? S("benefit")/u : NaN; }
+    case "close": { const q = S("inquiry"); return q>0 ? S("newC")/q*100 : NaN; }
+    default: return NaN;
+  }
+}
+
+/* --- セル表示 --- */
+function yFmt(row, v){
+  if(v===null || v===undefined || !isFinite(v)) return "—";
+  if(row.y) return (v<0?"−":"") + Math.abs(Math.round(v)).toLocaleString("ja-JP");
+  if(row.d===0) return (v<0?"−":"") + Math.abs(Math.round(v)).toLocaleString("ja-JP");
+  return (v<0?"−":"") + Math.abs(v).toFixed(row.d);
+}
+function yCellClass(row, v){
+  let c = "px-1.5 py-1 text-right border-b border-slate-100 whitespace-nowrap ";
+  if(row.t==="auto" || !row.t) c += row.m ? "bg-slate-50/70 text-slate-400 " : "bg-slate-50/70 ";
+  if(row.s) c += "font-bold ";
+  if(row.sg && isFinite(v)) c += v>=0 ? "text-emerald-700 " : "text-rose-600 ";
+  return c;
+}
+
+/* --- グリッド構築 --- */
+function yBuildGrid(){
+  const rows = yRows(), cmp = Y.mode==="compare";
+  let head = '<tr><th class="sticky left-0 z-10 bg-slate-100 text-left font-bold text-slate-600 px-2 py-2 border-b border-slate-200 min-w-[168px]">指標</th>';
+  for(let i=0;i<12;i++) head += `<th class="px-1.5 py-2 text-right font-bold text-slate-600 border-b border-slate-200 min-w-[78px]">${yLbl(i)}</th>`;
+  head += '<th class="px-2 py-2 text-right font-bold text-brand-700 bg-brand-50 border-b border-slate-200 min-w-[92px]">合計/期末</th></tr>';
+  document.getElementById("yGridHead").innerHTML = head;
+
+  let body = "";
+  rows.forEach(r=>{
+    const isIn = r.t==="in";
+    body += `<tr data-row="${r.k}">`;
+    body += `<td class="sticky left-0 z-10 ${isIn?"bg-white":"bg-slate-50"} px-2 py-1 border-b border-slate-100 text-slate-600 ${r.s?"font-bold text-slate-800":""}">
+        <div class="flex items-center justify-between gap-1">
+          <span class="truncate">${r.l}<span class="text-slate-300 ml-1">${r.u}</span></span>
+          ${isIn?`<button class="yfill shrink-0 text-[9px] font-bold text-brand-600 hover:bg-brand-50 rounded px-1 border border-brand-200" data-k="${r.k}" title="${yLbl(0)}の値を全月にコピー">⤓</button>`:""}
+        </div></td>`;
+    for(let i=0;i<12;i++){
+      if(isIn){
+        body += `<td class="p-0 border-b border-slate-100"><input type="number" step="${r.d===0?1:0.1}" data-k="${r.k}" data-m="${i}"
+          class="ycell w-full text-right text-[11px] tabular px-1.5 py-1 border-0 bg-white outline-none focus:bg-brand-50 focus:ring-1 focus:ring-brand-400"></td>`;
+      } else if(cmp){
+        body += `<td class="px-1.5 py-1 text-right border-b border-slate-100 bg-slate-50/70 leading-tight">
+          <div class="text-[9px] text-slate-400" data-c="p" data-k="${r.k}" data-m="${i}">—</div>
+          <div class="text-[11px] font-bold" data-c="a" data-k="${r.k}" data-m="${i}">—</div>
+          <div class="text-[9px]" data-c="r" data-k="${r.k}" data-m="${i}">—</div></td>`;
+      } else {
+        body += `<td class="${yCellClass(r,0)}" data-c="v" data-k="${r.k}" data-m="${i}">—</td>`;
+      }
+    }
+    body += cmp
+      ? `<td class="px-2 py-1 text-right bg-brand-50 border-b border-slate-100 leading-tight">
+           <div class="text-[9px] text-slate-400" data-c="p" data-k="${r.k}" data-m="t">—</div>
+           <div class="text-[11px] font-bold" data-c="a" data-k="${r.k}" data-m="t">—</div>
+           <div class="text-[9px]" data-c="r" data-k="${r.k}" data-m="t">—</div></td>`
+      : `<td class="px-2 py-1 text-right bg-brand-50 border-b border-slate-100 font-bold" data-c="v" data-k="${r.k}" data-m="t">—</td>`;
+    body += "</tr>";
+  });
+  document.getElementById("yGridBody").innerHTML = body;
+
+  if(!cmp){
+    const src = Y.mode==="plan" ? Y.plan : Y.actual;
+    document.querySelectorAll("#yGridBody input.ycell").forEach(el=>{
+      const a = src[el.dataset.k];
+      if(a) el.value = a[+el.dataset.m];
+    });
+  }
+}
+
+/* --- 表示更新 --- */
+function yRefresh(){
+  if(!yInited) return;
+  const C = yCalc();
+  const rows = yRows(), cmp = Y.mode==="compare";
+  const which = Y.mode==="actual" ? "actual" : "plan";
+
+  rows.forEach(r=>{
+    if(cmp){
+      for(let i=0;i<12;i++){
+        const pv = C.P[i][r.k], av = C.A[i].has ? C.A[i][r.k] : NaN;
+        setTxt(`[data-c="p"][data-k="${r.k}"][data-m="${i}"]`, "計 "+yFmt(r,pv));
+        const ae = document.querySelector(`[data-c="a"][data-k="${r.k}"][data-m="${i}"]`);
+        if(ae){ ae.textContent = "実 "+yFmt(r,av); ae.className = "text-[11px] font-bold " + (r.sg&&isFinite(av) ? (av>=0?"text-emerald-700":"text-rose-600") : "text-slate-800"); }
+        const re = document.querySelector(`[data-c="r"][data-k="${r.k}"][data-m="${i}"]`);
+        if(re) yCmpDelta(re, r, pv, av);
+      }
+      const pt = yAgg(r, rows, C, "plan"), at = yAgg(r, rows, C, "actual");
+      setTxt(`[data-c="p"][data-k="${r.k}"][data-m="t"]`, "計 "+yFmt(r,pt));
+      setTxt(`[data-c="a"][data-k="${r.k}"][data-m="t"]`, "実 "+yFmt(r,at));
+      const te = document.querySelector(`[data-c="r"][data-k="${r.k}"][data-m="t"]`);
+      if(te) yCmpDelta(te, r, pt, at);
+    } else if(r.t!=="in"){
+      const D = which==="plan" ? C.P : C.A;
+      for(let i=0;i<12;i++){
+        const v = (which==="actual" && !D[i].has) ? NaN : D[i][r.k];
+        const el = document.querySelector(`[data-c="v"][data-k="${r.k}"][data-m="${i}"]`);
+        if(el){ el.textContent = yFmt(r,v); el.className = yCellClass(r,v);
+                if(which==="plan" && r.k==="users" && D[i].capped){ el.title = "定員×開所日数の上限に達しています"; el.classList.add("text-amber-600"); } }
+      }
+      setTxt(`[data-c="v"][data-k="${r.k}"][data-m="t"]`, yFmt(r, yAgg(r, rows, C, which)));
+    } else {
+      setTxt(`[data-c="v"][data-k="${r.k}"][data-m="t"]`, yFmt(r, yAgg(r, rows, C, which)));
+    }
+  });
+
+  yRenderQuota(C);
+  yRenderSummary(C);
+  yRenderCharts(C);
+}
+function setTxt(sel, t){ const e = document.querySelector(sel); if(e) e.textContent = t; }
+
+/* 対比セルの3段目。利益のようにマイナスを取り得る指標は達成率が意味を成さない
+   （計画△119万に対して実績△128万で「107%達成」になってしまう）ため差額で表示する */
+function yCmpDelta(el, row, plan, act){
+  if(row.sg){
+    const d = (isFinite(plan)&&isFinite(act)) ? act - plan : NaN;
+    el.textContent = isFinite(d) ? (d>=0?"+":"−") + Math.abs(Math.round(d)).toLocaleString("ja-JP") : "—";
+    el.className = "text-[9px] " + (!isFinite(d) ? "text-slate-300" : d>=0 ? "text-emerald-600 font-bold" : "text-rose-500 font-bold");
+    el.title = "実績 − 計画";
+    return;
+  }
+  const rt = (isFinite(plan)&&isFinite(act)&&plan!==0) ? act/plan*100 : NaN;
+  el.textContent = isFinite(rt) ? rt.toFixed(0)+"%" : "—";
+  el.className = "text-[9px] " + (!isFinite(rt) ? "text-slate-300" : rt>=100 ? "text-emerald-600 font-bold" : rt>=80 ? "text-amber-600" : "text-rose-500 font-bold");
+  el.title = "達成率（実績÷計画）";
+}
+
+/* --- 逆算パネル --- */
+function yRenderQuota(C){
+  const i = Y.baseMonth;
+  const useActual = Y.baseSrc==="actual" && C.A[i].has;
+  const o = useActual ? C.A[i] : C.P[i];
+  const need = o.bepUsers;
+  const curUsers = o.users, curContract = o.contractTotal;
+  const curVisit = isFinite(o.visitAvg) ? o.visitAvg : NaN;
+  const cr = Y.closeRate/100;
+
+  const needContract = (isFinite(need)&&curVisit>0) ? Math.ceil(need/curVisit) : NaN;
+  const needVisit    = (isFinite(need)&&curContract>0) ? need/curContract : NaN;
+  const addContract  = isFinite(needContract) ? Math.max(0, needContract - curContract) : NaN;
+  const needInq      = (isFinite(addContract)&&cr>0) ? Math.ceil(addContract/cr) : NaN;
+
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
+  set("yq_users",    isFinite(need)? Math.ceil(need).toLocaleString("ja-JP") : "—");
+  set("yq_usersSub", `現状 ${isFinite(curUsers)? Math.round(curUsers).toLocaleString("ja-JP") : "—"} 人日` +
+                     (isFinite(need)&&isFinite(curUsers) ? `（あと ${Math.max(0,Math.ceil(need-curUsers)).toLocaleString("ja-JP")} 人日）` : ""));
+  set("yq_contract", isFinite(needContract)? needContract : "—");
+  set("yq_contractSub", `現状 ${curContract} 名` + (isFinite(addContract)? `（あと ${addContract} 名）` : ""));
+  set("yq_visit",    isFinite(needVisit)? needVisit.toFixed(1) : "—");
+  // 1人が月に利用できるのは最大でも開所日数まで。それを超える必要回数は物理的に達成不可能
+  const visitImpossible = isFinite(needVisit) && o.openDays > 0 && needVisit > o.openDays;
+  set("yq_visitSub", visitImpossible
+    ? `開所日数 ${o.openDays} 日を超えるため、利用回数だけでは到達できません`
+    : `現状 ${isFinite(curVisit)? curVisit.toFixed(1) : "—"} 回` +
+      (isFinite(needVisit)&&isFinite(curVisit) ? `（あと ${Math.max(0,needVisit-curVisit).toFixed(1)} 回）` : ""));
+  const ve = document.getElementById("yq_visitSub");
+  if(ve) ve.className = "text-[10px] mt-1 " + (visitImpossible ? "text-rose-600 font-bold" : "text-slate-500");
+  set("yq_cr", Y.closeRate);
+  set("yq_inq", isFinite(needInq)? needInq.toLocaleString("ja-JP") : "—");
+  const avgInq = (()=>{ const a=C.A.filter(x=>x.has); return a.length? a.reduce((t,x)=>t+x.inquiry,0)/a.length : NaN; })();
+  set("yq_inqSub", isFinite(needInq)
+    ? (isFinite(avgInq)&&avgInq>0 ? `実績の月平均 ${avgInq.toFixed(1)} 件なら約 ${Math.ceil(needInq/avgInq)} ヶ月` : "問い合わせ実績が未入力です")
+    : "—");
+
+  const color = v => v>=0 ? "text-emerald-700" : "text-rose-600";
+  const node = (ttl, val, sub, hi) => `<div class="flex-1 rounded-lg border ${hi?"border-brand-300 bg-brand-50":"border-slate-200 bg-white"} p-2.5 min-w-0">
+      <div class="text-[9px] font-bold text-slate-400 truncate">${ttl}</div>
+      <div class="text-base font-black ${hi?"text-brand-700":"text-slate-800"} tabular truncate">${val}</div>
+      <div class="text-[9px] text-slate-400 truncate">${sub}</div></div>`;
+  const arw = t => `<div class="flex flex-col items-center justify-center px-1 shrink-0">
+      <div class="text-[9px] text-slate-400 whitespace-nowrap">${t}</div><div class="text-slate-300 text-sm leading-none">▶</div></div>`;
+  document.getElementById("yTree").innerHTML =
+      node("必要 問い合わせ件数", isFinite(needInq)? needInq+" 件" : "—", "累計", true)
+    + arw(`× 契約率 ${Y.closeRate}%`)
+    + node("必要 新規契約", isFinite(addContract)? addContract+" 名" : "—", `現状 ${curContract} 名に追加`, false)
+    + arw("＋ 既存契約者")
+    + node("必要 契約者数", isFinite(needContract)? needContract+" 名" : "—", `現状 ${curContract} 名`, true)
+    + arw(`× 平均利用回数 ${isFinite(curVisit)? curVisit.toFixed(1):"—"} 回`)
+    + node("必要 延べ利用日数", isFinite(need)? Math.ceil(need).toLocaleString("ja-JP")+" 人日" : "—", `現状 ${Math.round(curUsers).toLocaleString("ja-JP")} 人日`, true)
+    + arw(`× 単価 ${isFinite(o.blendPrice)? Math.round(o.blendPrice).toLocaleString("ja-JP"):"—"} 円`)
+    + node("損益分岐 売上高", isFinite(o.fixedCost)? Math.round(o.fixedCost + (isFinite(need)?C.varPer*need:0)).toLocaleString("ja-JP")+" 円" : "—", "＝ 総コスト", false);
+
+  const msg = document.getElementById("yq_msg");
+  const label = `${yLbl(i)}（${useActual?"実績":"計画"}ベース）`;
+  if(!isFinite(need)){
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-rose-50 text-rose-700 border border-rose-200";
+    msg.innerHTML = `<b>⚠ ${label}：</b>限界利益がマイナスのため、利用者を増やしても黒字化しません。単価（加算取得）または変動費を見直してください。`;
+  } else if(Y.baseSrc==="actual" && !C.A[i].has){
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200";
+    msg.innerHTML = `<b>${yLbl(i)} の実績が未入力です。</b>計画ベースの数値を表示しています。実績タブで開所日数・延べ利用日数・給付額を入力してください。`;
+  } else {
+    const maxUsers = C.capacity * o.openDays;
+    const overCap = isFinite(maxUsers) && maxUsers>0 && need > maxUsers;
+    msg.className = "mt-3 text-xs rounded-lg px-3 py-2 bg-white text-slate-600 border border-slate-200";
+    msg.innerHTML = `<b>${label}</b>：単月黒字には延べ <b class="text-brand-700">${Math.ceil(need).toLocaleString("ja-JP")} 人日</b>（稼働率 <b class="text-brand-700">${maxUsers>0? (need/maxUsers*100).toFixed(1):"—"}%</b>）が必要。`
+      + (isFinite(needContract)? ` 平均利用回数が現状の <b>${curVisit.toFixed(1)} 回</b>のままなら <b class="text-brand-700">契約者 ${needContract} 名</b>が必要。` : "")
+      + (isFinite(needVisit) ? (o.openDays>0 && needVisit>o.openDays
+          ? ` 契約者 ${curContract} 名のままでは、全員が全開所日（${o.openDays} 日）通っても届かないため、<b class="text-rose-600">契約者数を増やすことが必須</b>です。`
+          : ` 契約者が現状の <b>${curContract} 名</b>のままなら <b class="text-brand-700">平均 ${needVisit.toFixed(1)} 回</b>が必要です。`) : "")
+      + (overCap ? ` <span class="text-rose-600 font-bold">※ 定員×開所日数（${maxUsers} 人日）を超えるため、この月の条件では満床でも黒字化できません。</span>` : "");
+  }
+}
+
+/* --- 年間サマリー --- */
+function yRenderSummary(C){
+  const S = (D,k) => D.filter(o=>o.has).reduce((t,o)=> t + (isFinite(o[k])?o[k]:0), 0);
+  const set=(id,v,cls)=>{ const e=document.getElementById(id); if(e){ e.textContent=v; if(cls) e.className=cls; } };
+  const bp = S(C.P,"benefit"), ba = S(C.A,"benefit");
+  const pp = S(C.P,"profit"),  pa = S(C.A,"profit");
+  const hasAct = C.A.some(o=>o.has);
+  set("ys_benefitPlan", yen(bp)+" 円");
+  set("ys_benefitAct",  hasAct? yen(ba)+" 円" : "—");
+  set("ys_benefitRate", bp>0 && hasAct ? `達成率 ${(ba/bp*100).toFixed(1)}%（実績月のみ）` : "達成率 —");
+  set("ys_profitPlan", yenS(pp)+" 円", "mt-1 text-lg font-black tabular "+(pp>=0?"text-emerald-700":"text-rose-600"));
+  set("ys_profitAct",  hasAct? yenS(pa)+" 円" : "—", "mt-1 text-lg font-black tabular "+(!hasAct?"text-slate-400":pa>=0?"text-emerald-700":"text-rose-600"));
+  set("ys_profitGap",  hasAct? `計画差 ${yenS(pa-pp)} 円` : "計画差 —");
+  const bm = C.P.findIndex(o=>o.profit>=0);
+  set("ys_breakMonth", bm>=0 ? yLbl(bm) : "計画期間内で未達");
+  set("ys_breakSub",   bm>=0 ? `計画ベース（累計黒字は ${(()=>{const c=C.P.findIndex(o=>o.cumProfit>=0); return c>=0? yLbl(c):"期間内で未達";})()}）` : "計画ベース");
+  const last = C.P[11];
+  set("ys_endContract", last.contractTotal + " 名");
+  set("ys_endSub", `児発 ${last.contractJi} / 放デイ ${last.contractHo}`);
+}
+
+/* --- グラフ --- */
+function yRenderCharts(C){
+  const labels = Array.from({length:12}, (_,i)=>yLbl(i));
+  const na = (D,k) => D.map(o=> o.has && isFinite(o[k]) ? o[k] : null);
+
+  yPL.data.labels = labels;
+  yPL.data.datasets[0].data = C.P.map(o=>o.revenue);
+  yPL.data.datasets[1].data = na(C.A,"revenue");
+  yPL.data.datasets[2].data = C.P.map(o=>o.fixedCost + o.varCost);
+  yPL.data.datasets[3].data = C.A.map(o=> o.has ? o.fixedCost + o.varCost : null);
+  yPL.update("none");
+
+  yCum.data.labels = labels;
+  yCum.data.datasets[0].data = C.P.map(o=>o.cumProfit);
+  yCum.data.datasets[1].data = C.A.map(o=> o.has && isFinite(o.cumProfit) ? o.cumProfit : null);
+  yCum.update("none");
+
+  yKpi.data.labels = labels;
+  yKpi.data.datasets[0].data = na(C.A,"contractJi");
+  yKpi.data.datasets[1].data = na(C.A,"contractHo");
+  yKpi.data.datasets[2].data = C.P.map(o=>o.contractTotal);
+  yKpi.data.datasets[3].data = na(C.A,"visitAvg");
+  yKpi.data.datasets[4].data = na(C.A,"utilization");
+  yKpi.data.datasets[5].data = C.P.map(o=> isFinite(o.utilization)? o.utilization : null);
+  yKpi.update("none");
+}
+
+function yBuildCharts(){
+  const yenTick = v => { const n = v/10000; return (Object.is(n,-0) ? 0 : n).toLocaleString("ja-JP")+"万"; };
+  const common = {
+    responsive:true, maintainAspectRatio:false, interaction:{mode:"index", intersect:false},
+    plugins:{ legend:{position:"top", align:"end", labels:{boxWidth:12, boxHeight:8, font:{size:10, weight:"bold"}, color:"#475569"}},
+      tooltip:{backgroundColor:"rgba(15,23,42,.92)", padding:10, cornerRadius:8, titleFont:{size:11}, bodyFont:{size:11}} }
+  };
+  yPL = new Chart(document.getElementById("yChartPL"), {
+    type:"bar",
+    data:{labels:[], datasets:[
+      {label:"売上高（計画）", data:[], backgroundColor:"rgba(99,102,241,.35)", borderColor:"#6366f1", borderWidth:1, order:3},
+      {label:"売上高（実績）", data:[], backgroundColor:"#059669", order:2},
+      {label:"総コスト（計画）", type:"line", data:[], borderColor:"#fda4af", borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0, order:1},
+      {label:"総コスト（実績）", type:"line", data:[], borderColor:"#e11d48", borderWidth:2.5, pointRadius:3, tension:0, spanGaps:false, order:0}
+    ]},
+    options:{...common, scales:{
+      x:{grid:{display:false}, ticks:{color:"#94a3b8", font:{size:10}}},
+      y:{grid:{color:"#f1f5f9"}, ticks:{color:"#94a3b8", font:{size:10}, callback:yenTick}, title:{display:true, text:"金額（円）", font:{size:10, weight:"bold"}, color:"#64748b"}}
+    }, plugins:{...common.plugins, tooltip:{...common.plugins.tooltip, callbacks:{label:c=> c.parsed.y==null? null : `${c.dataset.label}: ${Math.round(c.parsed.y).toLocaleString("ja-JP")} 円`}}}}
+  });
+  yCum = new Chart(document.getElementById("yChartCum"), {
+    type:"line",
+    data:{labels:[], datasets:[
+      {label:"累計営業利益（計画）", data:[], borderColor:"#6366f1", backgroundColor:"rgba(99,102,241,.08)", borderWidth:2.5, borderDash:[5,4], pointRadius:2, fill:true, tension:0},
+      {label:"累計営業利益（実績）", data:[], borderColor:"#059669", backgroundColor:"rgba(5,150,105,.10)", borderWidth:3, pointRadius:4, fill:true, tension:0, spanGaps:false}
+    ]},
+    options:{...common, scales:{
+      x:{grid:{display:false}, ticks:{color:"#94a3b8", font:{size:10}}},
+      y:{ticks:{color:"#94a3b8", font:{size:10}, callback:yenTick},
+         grid:{color:c=> c.tick.value===0 ? "#94a3b8" : "#f1f5f9", lineWidth:c=> c.tick.value===0 ? 1.5 : 1}}
+    }, plugins:{...common.plugins, tooltip:{...common.plugins.tooltip, callbacks:{label:c=> c.parsed.y==null? null : `${c.dataset.label}: ${Math.round(c.parsed.y).toLocaleString("ja-JP")} 円`}}}}
+  });
+  yKpi = new Chart(document.getElementById("yChartKpi"), {
+    type:"bar",
+    data:{labels:[], datasets:[
+      // 左軸を stacked にすると棒だけでなく折れ線まで積み上がるため、棒は横並び（グループ）で描く
+      {label:"契約者数 児発（実績）", data:[], backgroundColor:"#4f46e5", order:5, barPercentage:0.9, categoryPercentage:0.55},
+      {label:"契約者数 放デイ（実績）", data:[], backgroundColor:"#818cf8", order:5, barPercentage:0.9, categoryPercentage:0.55},
+      {label:"契約者数（計画）", type:"line", data:[], borderColor:"#334155", borderWidth:2, borderDash:[4,3], pointRadius:0, tension:0, order:3},
+      {label:"平均利用回数（実績）", type:"line", data:[], borderColor:"#f59e0b", borderWidth:2.5, pointRadius:3, tension:0, spanGaps:false, order:2},
+      {label:"稼働率（実績）", type:"line", yAxisID:"y1", data:[], borderColor:"#059669", borderWidth:3, pointRadius:4, tension:0, spanGaps:false, order:1},
+      {label:"稼働率（計画）", type:"line", yAxisID:"y1", data:[], borderColor:"#6ee7b7", borderWidth:2, borderDash:[5,4], pointRadius:0, tension:0, order:4}
+    ]},
+    options:{...common, scales:{
+      x:{grid:{display:false}, ticks:{color:"#94a3b8", font:{size:10}}},
+      y:{position:"left", beginAtZero:true, grid:{color:"#f1f5f9"},
+         ticks:{color:"#94a3b8", font:{size:10}}, title:{display:true, text:"契約者数（名）/ 平均利用回数（回）", font:{size:10, weight:"bold"}, color:"#64748b"}},
+      y1:{position:"right", beginAtZero:true, max:100, grid:{display:false},
+         ticks:{color:"#059669", font:{size:10}, callback:v=>v+"%"}, title:{display:true, text:"稼働率（%）", font:{size:10, weight:"bold"}, color:"#059669"}}
+    }, plugins:{...common.plugins, tooltip:{...common.plugins.tooltip, callbacks:{label:c=>{
+        if(c.parsed.y==null) return null;
+        const u = c.dataset.yAxisID==="y1" ? "%" : (c.dataset.label.includes("利用回数") ? " 回" : " 名");
+        return `${c.dataset.label}: ${c.parsed.y.toFixed(c.dataset.yAxisID==="y1"||u===" 回"?1:0)}${u}`;
+      }, footer:items=>{
+        const d = items[0].chart.data.datasets, i = items[0].dataIndex;
+        const a = d[0].data[i], b2 = d[1].data[i];
+        return (a==null && b2==null) ? "" : `契約者数 合計（実績）: ${(a||0)+(b2||0)} 名`;
+      }}}}}
+  });
+}
+
+/* --- 入力配線 --- */
+function yWire(){
+  const sm = document.getElementById("y_startMonth");
+  sm.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join("");
+
+  const setts = [["y_openJi","openJi"],["y_openHo","openHo"],["y_closeRate","closeRate"],
+                 ["y_priceJi","priceJi"],["y_priceHo","priceHo"]];
+  const syncSettings = ()=>{
+    sm.value = Y.startMonth;
+    setts.forEach(([id,k])=> document.getElementById(id).value = Y[k]);
+    document.getElementById("y_linkJi").checked = Y.linkJi;
+    document.getElementById("y_priceJi").disabled = Y.linkJi;
+    document.getElementById("y_priceJi").classList.toggle("bg-slate-100", Y.linkJi);
+    document.getElementById("y_basis").value = Y.basis;
+    document.getElementById("y_baseSrc").value = Y.baseSrc;
+    document.querySelectorAll(".ymode-btn").forEach(x=>{
+      x.className = "ymode-btn px-3 py-1.5 text-[11px] font-bold rounded-md " +
+        (x.dataset.ymode===Y.mode ? "bg-white shadow-sm text-brand-700" : "text-slate-500");
+    });
+    yFillMonthSelect();
+  };
+  window.__ySync = syncSettings;
+
+  setts.forEach(([id,k])=>{
+    document.getElementById(id).addEventListener("input", e=>{
+      const v = parseFloat(e.target.value); Y[k] = isFinite(v) ? v : 0; yRefresh();
+    });
+  });
+  sm.addEventListener("change", e=>{ Y.startMonth = +e.target.value; yFillMonthSelect(); yBuildGrid(); yRefresh(); });
+  document.getElementById("y_linkJi").addEventListener("change", e=>{
+    Y.linkJi = e.target.checked;
+    const pj = document.getElementById("y_priceJi");
+    pj.disabled = Y.linkJi; pj.classList.toggle("bg-slate-100", Y.linkJi);
+    if(Y.linkJi) pj.value = Math.round(calc(readState()).grossPerUserDay);
+    yRefresh();
+  });
+  document.getElementById("y_basis").addEventListener("change", e=>{ Y.basis = e.target.value; yRefresh(); });
+  document.getElementById("y_baseMonth").addEventListener("change", e=>{ Y.baseMonth = +e.target.value; yRefresh(); });
+  document.getElementById("y_baseSrc").addEventListener("change", e=>{ Y.baseSrc = e.target.value; yRefresh(); });
+
+  document.querySelectorAll(".ymode-btn").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      Y.mode = b.dataset.ymode;
+      document.querySelectorAll(".ymode-btn").forEach(x=>{
+        x.className = "ymode-btn px-3 py-1.5 text-[11px] font-bold rounded-md " +
+          (x.dataset.ymode===Y.mode ? "bg-white shadow-sm text-brand-700" : "text-slate-500");
+      });
+      yBuildGrid(); yRefresh();
+    });
+  });
+
+  const body = document.getElementById("yGridBody");
+  body.addEventListener("input", e=>{
+    const el = e.target;
+    if(!el.classList.contains("ycell")) return;
+    const src = Y.mode==="plan" ? Y.plan : Y.actual;
+    const a = src[el.dataset.k];
+    if(!a) return;
+    const v = parseFloat(el.value);
+    a[+el.dataset.m] = isFinite(v) ? v : 0;
+    yRefresh();
+  });
+  body.addEventListener("click", e=>{
+    const b = e.target.closest(".yfill");
+    if(!b) return;
+    const src = Y.mode==="plan" ? Y.plan : Y.actual;
+    const a = src[b.dataset.k];
+    if(!a) return;
+    a.fill(a[0]);
+    document.querySelectorAll(`#yGridBody input.ycell[data-k="${b.dataset.k}"]`).forEach(el=> el.value = a[+el.dataset.m]);
+    yRefresh();
+  });
+  body.addEventListener("paste", e=>{
+    const el = e.target;
+    if(!el.classList.contains("ycell")) return;
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if(!text) return;
+    e.preventDefault();
+    const grid = text.replace(/\r/g,"").replace(/\n+$/,"").split("\n").map(r=>r.split("\t"));
+    const keys = yRows().filter(r=>r.t==="in").map(r=>r.k);
+    const src = Y.mode==="plan" ? Y.plan : Y.actual;
+    const r0 = keys.indexOf(el.dataset.k), m0 = +el.dataset.m;
+    grid.forEach((cols, dr)=>{
+      const key = keys[r0 + dr];
+      if(!key || !src[key]) return;
+      cols.forEach((raw, dc)=>{
+        const m = m0 + dc;
+        if(m > 11) return;
+        src[key][m] = yParse(raw);
+      });
+    });
+    document.querySelectorAll("#yGridBody input.ycell").forEach(inp=>{
+      const a = src[inp.dataset.k]; if(a) inp.value = a[+inp.dataset.m];
+    });
+    yRefresh();
+  });
+
+  document.getElementById("yBtnSample").addEventListener("click", ()=>{
+    const d = yDefaults(); Y.actual = d.actual; yBuildGrid(); yRefresh(); flash("yBtnSample","読み込みました ✓");
+  });
+  document.getElementById("yBtnClear").addEventListener("click", ()=>{
+    Object.keys(Y.actual).forEach(k=> Y.actual[k] = z12());
+    yBuildGrid(); yRefresh(); flash("yBtnClear","クリアしました");
+  });
+  document.getElementById("yBtnCsv").addEventListener("click", yExportCsv);
+
+  syncSettings();
+}
+
+function yParse(raw){
+  if(raw==null) return 0;
+  const t = String(raw).replace(/[,¥円%\s名日件回人]/g,"").replace(/[−–—]/g,"-").trim();
+  if(!t || /^#/.test(t)) return 0;         // 空欄・#DIV/0! 等は0扱い
+  const v = parseFloat(t);
+  return isFinite(v) ? v : 0;
+}
+
+function yFillMonthSelect(){
+  const sel = document.getElementById("y_baseMonth");
+  const cur = Y.baseMonth;
+  sel.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i}">${yLbl(i)}</option>`).join("");
+  sel.value = cur;
+}
+
+function yExportCsv(){
+  const C = yCalc(), rows = yRows(), cmp = Y.mode==="compare";
+  const which = Y.mode==="actual" ? "actual" : "plan";
+  const head = ["指標","単位", ...Array.from({length:12},(_,i)=>yLbl(i)), "合計/期末"];
+  const lines = [head];
+  rows.forEach(r=>{
+    if(cmp){
+      lines.push([r.l+"(計画)", r.u, ...C.P.map(o=>fmtCsv(o[r.k])), fmtCsv(yAgg(r,rows,C,"plan"))]);
+      lines.push([r.l+"(実績)", r.u, ...C.A.map(o=> o.has? fmtCsv(o[r.k]) : ""), fmtCsv(yAgg(r,rows,C,"actual"))]);
+    } else {
+      const D = which==="plan" ? C.P : C.A;
+      lines.push([r.l, r.u, ...D.map(o=> (which==="actual"&&!o.has)? "" : fmtCsv(o[r.k])), fmtCsv(yAgg(r,rows,C,which))]);
+    }
+  });
+  const csv = "﻿" + lines.map(l=>l.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv"}));
+  a.download = `月次収支_${Y.mode==="plan"?"計画":Y.mode==="actual"?"実績":"対比"}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(a.href), 5000);
+  flash("yBtnCsv","出力しました ✓");
+}
+function fmtCsv(v){ return (v==null || !isFinite(v)) ? "" : (Math.abs(v%1)<1e-9 ? Math.round(v) : +v.toFixed(2)); }
+
+/* --- タブ切替 --- */
+function yWireTabs(){
+  const tabs = document.querySelectorAll(".vtab");
+  tabs.forEach(b=>{
+    b.addEventListener("click", ()=>{
+      const v = b.dataset.view;
+      tabs.forEach(x=>{
+        const on = x.dataset.view===v;
+        x.className = "vtab px-4 py-2.5 text-[13px] font-bold rounded-lg transition " +
+          (on ? "bg-brand-600 text-white shadow-sm" : "text-slate-500 hover:bg-white hover:text-slate-700");
+      });
+      document.getElementById("viewMonth").classList.toggle("hidden", v!=="month");
+      document.getElementById("viewYear").classList.toggle("hidden", v!=="year");
+      if(v==="year"){
+        if(!yInited){ yBuildCharts(); yInited = true; yBuildGrid(); }
+        yRefresh();
+        [yPL,yCum,yKpi].forEach(c=> c && c.resize());
+      } else {
+        [bepChart, costChart].forEach(c=> c && c.resize());
+      }
+    });
+  });
+}
+
+/* --- 保存・復元 --- */
+function ySave(){ localStorage.setItem(Y_KEY, JSON.stringify(Y)); }
+function yLoad(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(Y_KEY) || "null");
+    if(raw){
+      const d = yDefaults();
+      Y = {...d, ...raw, plan:{...d.plan, ...(raw.plan||{})}, actual:{...d.actual, ...(raw.actual||{})}};
+      Object.keys(d.plan).forEach(k=>{ if(!Array.isArray(Y.plan[k]) || Y.plan[k].length!==12) Y.plan[k]=d.plan[k]; });
+      Object.keys(d.actual).forEach(k=>{ if(!Array.isArray(Y.actual[k]) || Y.actual[k].length!==12) Y.actual[k]=d.actual[k]; });
+    }
+  }catch(e){ Y = yDefaults(); }
+}
+
+/* --- 年間ビュー起動 --- */
+(function yInit(){
+  yLoad();
+  yWire();
+  yWireTabs();
+  if(Y.linkJi){
+    const pj = document.getElementById("y_priceJi");
+    pj.value = Math.round(calc(readState()).grossPerUserDay);
+  }
+})();
+
 </script>
 </body>
 </html>
