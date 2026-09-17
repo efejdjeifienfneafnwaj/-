@@ -1760,7 +1760,12 @@ var DEFAULT_CONFIG = {
   theme:'auto', /* auto / light / dark */
   /* 管理画面を開くための暗証番号。そのままではなく、変換した値だけを持つ。
      はじめて開いた人がその場で決める（ソースには書かない）。 */
-  adminHash:''
+  adminHash:'',
+  /* はじめの1人が決まったかどうか。名簿ではなく設定に持つ。
+     Creator 側で「自分の記録だけ」に絞ると、受講者からは名簿が自分の1行しか
+     見えなくなり、名簿を数えるやり方では「まだ管理者がいない」と誤判定して
+     しまうため（設定はコース定義と同じ行にあり、全員が読める）。 */
+  adminClaimed:false
 };
 function config(){
   var c = MEM.config || {};
@@ -7322,6 +7327,7 @@ function myAdminRank(){
    ふつうは「まだ誰も登録していない＝これから作る人（このアプリの持ち主）」。
    受講者だけを先に取り込んでしまった場合も、ここで詰まらないようにする。 */
 function noAdminYet(){
+  if(config().adminClaimed) return false;   /* もう誰かが名乗り出ている */
   var ps = people() || {}, none = true;
   Object.keys(ps).forEach(function(n){
     if(roleInfo(roleOf(ps[n])).rank >= 2) none = false;
@@ -7370,6 +7376,10 @@ function firstAdminSetup(){
       dept:document.getElementById('faDept').value || '',
       role:'admin', scope:''
     });
+    /* 以後、この入口は誰にも出さない */
+    var c0 = config();
+    c0.adminClaimed = true;
+    setConfig(c0);
     LS.set('me', { name:name, dept:document.getElementById('faDept').value || '',
                    group:'', emp:'', email:LOGIN_EMAIL });
     toast('システム管理者として登録しました');

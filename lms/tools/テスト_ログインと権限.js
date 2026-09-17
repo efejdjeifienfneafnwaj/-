@@ -151,6 +151,25 @@ const ROSTER = [
   p = await open('staff@example.com', ROSTER);
   check('ホームに登録の案内は出ない', (await p.$('#hmAdm')) === null);
 
+  console.log('⑤c 一度だれかが名乗り出たら、その入口は二度と出ないこと');
+  /* Creator 側で「自分の記録だけ」に絞ると、受講者からは名簿が自分の1行しか
+     見えない。名簿を数えるだけだと「まだ管理者がいない」と誤判定してしまう */
+  p = await open('owner@example.com', []);
+  await p.click('#gAdm');
+  await p.waitForSelector('#faName');
+  await p.fill('#faName', '田中 一郎');
+  await p.selectOption('#faDept', { index: 1 });
+  await p.click('#faGo');
+  await p.waitForTimeout(500);
+  check('設定に「決まった」印が付く', await p.evaluate(() => config().adminClaimed === true));
+  check('自分の1行しか見えなくても、もう入口は出ない',
+    await p.evaluate(() => {
+      /* 受講者から見える名簿が自分の1行だけ、という状況を作る */
+      MEM.people = { '渡辺 三郎':{ name:'渡辺 三郎', email:'x@example.com',
+                                   dept:'介護職', role:'learner' } };
+      return noAdminYet() === false;
+    }));
+
   console.log('⑥ 名簿に無いメールアドレス');
   p = await open('yoso@example.com', ROSTER);
   check('入口に管理者の登録ボタンが出ない', (await admLabel(p)) === null);
