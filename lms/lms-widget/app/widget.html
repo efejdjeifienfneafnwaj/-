@@ -203,19 +203,6 @@ a{color:var(--acc);}
 .hub-i .ic{font-size:24px;}
 .hub-s{font-size:12.5px;color:var(--ink-3);}
 /* 入口（ログイン画面）に並べる3つのアプリ */
-.gate-apps{display:grid;gap:9px;margin-top:6px;}
-.gate-app{
-  display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:13px;
-  align-items:center;text-align:left;padding:12px 14px;border:1px solid var(--rule);
-  border-radius:var(--r-md);background:#fff;color:var(--ink-1);cursor:pointer;
-  transition:border-color .16s, box-shadow .16s;
-}
-.gate-app .hub-i{grid-row:1 / span 2;width:42px;height:42px;margin:0;}
-.gate-app b{font-size:15px;}
-.gate-app .hub-s{grid-column:2;}
-.gate-app:hover{border-color:var(--acc);box-shadow:0 6px 18px rgba(4,26,60,.14);}
-.gate-app.off{opacity:.55;cursor:default;}
-.gate-app.off:hover{border-color:var(--rule);box-shadow:none;}
 
 /* ───── 船井コネクト ───── */
 .fd-card{
@@ -456,8 +443,8 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
    ══════════════════════════════════════════════════════════════ */
 .gate{
   min-height:100vh;position:relative;overflow:hidden;
-  display:grid;grid-template-rows:auto 1fr auto auto;gap:18px;
-  padding:22px clamp(18px,5vw,64px) 26px;
+  display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;align-content:start;gap:14px;
+  padding:18px clamp(18px,5vw,64px) 22px;
   /* 明るいオフィスの写真が無いときの、淡い背景 */
   background:
     radial-gradient(ellipse 60% 50% at 18% 30%,rgba(120,180,240,.35),transparent 70%),
@@ -474,52 +461,64 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   position:relative;display:grid;grid-template-columns:1fr minmax(320px,470px) 1fr;
   align-items:center;gap:24px;
 }
-.gate-copy h2{font-size:clamp(30px,3.6vw,46px);line-height:1.35;letter-spacing:.08em;font-weight:700;color:#26364a;margin:0 0 14px;}
-.gate-copy p{font-size:15px;letter-spacing:.12em;color:#3b4c5c;margin:0 0 14px;line-height:1.9;}
-.gate-copy i{display:block;font-style:normal;font-size:13px;color:#6b7c8b;line-height:1.9;letter-spacing:.04em;}
+.gate-copy h2{font-size:clamp(16px,1.4vw,19px);line-height:1.9;letter-spacing:.14em;font-weight:500;color:#26364a;margin:0 0 12px;}
+.gate-copy hr{width:26px;border:0;border-top:1px solid #7a8a99;margin:0 0 12px;}
+.gate-copy p{font-size:14px;letter-spacing:.06em;color:#3b4c5c;margin:0;line-height:1.9;}
 .gate-script{
   font-family:"Segoe Script","Brush Script MT","Snell Roundhand","Apple Chancery",cursive;
   font-size:clamp(34px,4vw,56px);color:#2f7bd6;line-height:1.2;text-align:right;
   letter-spacing:.02em;opacity:.92;transform:rotate(-6deg);
 }
-.gate-col{position:relative;width:100%;text-align:center;}
-.wordmark{font-size:32px;font-weight:800;letter-spacing:-.01em;line-height:1.1;color:#1e2b3b;margin-top:8px;}
-.wordmark .e{color:#1e2b3b;}
-.wordsub{margin-top:8px;font-size:12.5px;letter-spacing:.34em;color:#4a5c6b;text-indent:.34em;}
+.gate-col{position:relative;width:100%;text-align:center;display:grid;justify-items:center;}
+.wordmark{
+  font-size:clamp(40px,4.4vw,56px);font-weight:800;letter-spacing:-.02em;line-height:1.05;margin-top:4px;
+  background:linear-gradient(90deg,#1e2b3b 0%,#1e2b3b 55%,#1f6fd0 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.wordmark .e{color:inherit;}
+.wordsub{
+  margin-top:10px;font-size:13px;letter-spacing:.34em;color:#2c3e50;text-indent:.34em;
+  display:flex;align-items:center;justify-content:center;gap:12px;
+}
+.wordsub::before,.wordsub::after{content:"";display:block;width:44px;height:1px;background:#7a8a99;}
+.gate-catch{margin-top:18px;font-size:clamp(17px,1.9vw,25px);letter-spacing:.1em;font-weight:600;color:#1e2b3b;line-height:1.6;}
+.gate-catch-sub{margin-top:10px;font-size:13px;letter-spacing:.06em;color:#3b4c5c;line-height:1.9;}
+.gate-kw{margin:14px 0 6px;font-size:10.5px;letter-spacing:.3em;color:#7a8a99;}
+/* アプリは丸いアイコン。押した瞬間にそのアプリへ入る */
 .gate-apps{
-  position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;
-  max-width:1360px;width:100%;margin:0 auto;
+  position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:clamp(22px,4vw,64px);
+  width:100%;margin:0 auto;
 }
 .gate-app{
-  display:grid;grid-template-columns:auto 1fr auto;column-gap:16px;align-items:center;
-  text-align:left;padding:22px 24px;border-radius:18px;border:1px solid rgba(255,255,255,.7);
-  background:rgba(255,255,255,.72);box-shadow:0 10px 30px rgba(20,50,90,.10);
-  cursor:pointer;color:#1c2b38;transition:transform .16s, box-shadow .16s;
+  display:grid;justify-items:center;gap:8px;width:168px;padding:4px 4px;
+  background:transparent;border:0;cursor:pointer;color:#1c2b38;text-align:center;
+  transition:transform .16s;
 }
-.gate-app:hover{transform:translateY(-2px);box-shadow:0 16px 36px rgba(20,50,90,.16);}
+.gate-app .hub-i{
+  width:100px;height:100px;border-radius:50%;margin:0;
+  background:rgba(255,255,255,.78);box-shadow:0 12px 30px rgba(20,50,90,.16), 0 0 0 1px rgba(255,255,255,.8) inset;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  transition:transform .16s, box-shadow .16s;position:relative;
+}
+.gate-app .hub-i .ic{font-size:40px;}
+.gate-app:hover .hub-i{transform:translateY(-3px) scale(1.04);box-shadow:0 18px 40px rgba(20,50,90,.22);}
+.gate-app:focus-visible{outline:none;}
+.gate-app:focus-visible .hub-i{box-shadow:0 0 0 4px rgba(44,111,214,.45), 0 12px 30px rgba(20,50,90,.16);}
 .gate-app.off{opacity:.55;cursor:default;}
-.gate-app .hub-i{width:64px;height:64px;border-radius:50%;margin:0;}
-.gate-app .hub-i .ic{font-size:28px;}
-.gate-app b{font-size:18px;display:block;margin-bottom:4px;}
-.gate-app .hub-s{font-size:13px;color:#4a5c6b;line-height:1.55;}
-.gate-app .arrow{font-size:22px;font-weight:700;}
-.gate-app.c-shinsei{background:rgba(232,240,251,.85);}
-.gate-app.c-shinsei .hub-i{background:#d7e6fb;color:#2c6fd6;} .gate-app.c-shinsei .arrow{color:#2c6fd6;}
-.gate-app.c-lms{background:rgba(233,247,239,.85);}
-.gate-app.c-lms .hub-i{background:#d3efdf;color:#2e9e5b;} .gate-app.c-lms .arrow{color:#2e9e5b;}
-.gate-app.c-connect{background:rgba(253,243,227,.85);}
-.gate-app.c-connect .hub-i{background:#fbe6c4;color:#d08a1e;} .gate-app.c-connect .arrow{color:#d08a1e;}
-.gate-app.c-staff{background:rgba(238,238,244,.85);border-style:dashed;}
-.gate-app.c-staff .hub-i{background:#e2e2ec;color:#4b4f6b;} .gate-app.c-staff .arrow{color:#4b4f6b;}
-.gate-apps:has(.c-staff){grid-template-columns:repeat(4,minmax(0,1fr));}
-@media (max-width:1100px){ .gate-apps:has(.c-staff){grid-template-columns:1fr;} }
+.gate-app b{font-size:16px;display:block;line-height:1.3;}
+.gate-app .hub-s{font-size:12px;color:#4a5c6b;line-height:1.5;}
+.gate-app .arrow{display:none;}
+.gate-app.c-shinsei .hub-i{color:#2c6fd6;background:rgba(224,236,252,.92);}
+.gate-app.c-lms .hub-i{color:#2e9e5b;background:rgba(224,245,232,.92);}
+.gate-app.c-connect .hub-i{color:#d08a1e;background:rgba(253,240,220,.92);}
+.gate-app.c-staff .hub-i{color:#4b4f6b;background:rgba(236,236,244,.92);border:2px dashed rgba(75,79,107,.35);}
+.gate-app.c-staff b{color:#4b4f6b;}
 .gate-foot{position:relative;text-align:center;font-size:12px;color:#4a5c6b;letter-spacing:.06em;line-height:1.9;}
 .gate-foot small{display:block;font-size:11px;color:#7a8a99;}
 @media (max-width:1100px){
   .gate-mid{grid-template-columns:1fr;justify-items:center;}
   .gate-copy,.gate-script{display:none;}
-  .gate-col{max-width:470px;}
-  .gate-apps{grid-template-columns:1fr;max-width:470px;}
+  .gate-col{max-width:640px;}
 }
 .hero{position:absolute;inset:0;}
 .hero-svg{width:100%;height:100%;display:block;}
@@ -529,8 +528,9 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 /* 写真の上に白いかぶせを置いて、文字と入力欄を読みやすくする（明るい配色） */
 .hero-veil{
   position:absolute;inset:0;
-  background:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.35) 50%,rgba(255,255,255,.62) 100%);
+  background:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 50%,rgba(255,255,255,.40) 100%);
 }
+.gate-brand small{font-size:10.5px;letter-spacing:.16em;color:#4a5c6b;}
 
 .gate-col{position:relative;width:min(452px,100%);text-align:center;}
 .brand{display:inline-block;margin-bottom:6px;}
@@ -565,11 +565,24 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   color:var(--ink-2);
 }
 .gate-card{
-  background:#fff;border-radius:18px;padding:28px 30px 24px;
-  box-shadow:0 22px 60px rgba(20,50,90,.16);text-align:left;
-  border:1px solid rgba(255,255,255,.9);
+  /* 中央の丸いすりガラス */
+  width:min(570px,96vw);min-height:min(570px,96vw);border-radius:50%;
+  background:rgba(255,255,255,.62);
+  -webkit-backdrop-filter:blur(18px) saturate(1.1);backdrop-filter:blur(18px) saturate(1.1);
+  box-shadow:0 0 0 1px rgba(255,255,255,.75) inset, 0 0 0 14px rgba(255,255,255,.18),
+             0 0 0 15px rgba(140,190,240,.35), 0 30px 80px rgba(20,50,90,.16);
+  padding:40px 64px 36px;text-align:center;display:grid;align-content:center;gap:0;
 }
-.gate-card .card-head{text-align:center;margin-bottom:22px;}
+.gate-card .card-head{text-align:center;margin-bottom:6px;}
+/* 中身が多いとき（動作確認用の入力欄など）は、丸ではなく角丸にする */
+.gate-card.tall{border-radius:40px;min-height:0;}
+.gate-card .field{margin-bottom:8px;text-align:left;}
+.gate-card .who-me{justify-content:center;}
+.gate-card .ro{background:rgba(255,255,255,.7);}
+/* 丸の中は縦に長いので、ログイン情報は小さく1行に */
+.gate-me{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:14px;
+  font-size:13px;color:#1e2b3b;flex-wrap:wrap;}
+.gate-me .mail{font-size:11.5px;color:#4a5c6b;}
 .gate-card .field{margin-bottom:14px;}
 /* ラベルの横に添える小さな説明。くっついて読めなくなるので、必ず間を空ける */
 .note-s{font-weight:400;color:var(--ink-3);margin-left:6px;font-size:12px;}
@@ -633,9 +646,15 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   .gate-tag{display:none;}
   .wordmark{font-size:30px;}
   .wordsub{font-size:11.5px;letter-spacing:.24em;}
-  .gate-card{padding:20px 18px 18px;}
-  .gate-app{padding:16px 16px;}
-  .gate-app .hub-i{width:50px;height:50px;}
+  /* 小さい画面では丸ではなく角丸のカードにする（丸だと余白で読めなくなる） */
+  .gate-card{border-radius:28px;min-height:0;padding:26px 20px 22px;box-shadow:0 0 0 1px rgba(255,255,255,.75) inset,0 18px 50px rgba(20,50,90,.16);}
+  .wordsub::before,.wordsub::after{width:26px;}
+  .gate-apps{gap:14px 10px;}
+  .gate-app{width:104px;gap:7px;}
+  .gate-app .hub-i{width:72px;height:72px;}
+  .gate-app .hub-i .ic{font-size:30px;}
+  .gate-app b{font-size:13px;}
+  .gate-app .hub-s{display:none;}
   .gate-card .two{grid-template-columns:1fr;}
   .gate-help{left:16px;right:16px;bottom:16px;}
   .hbox{width:100%;}
@@ -1930,17 +1949,20 @@ function markNewsSeen(person){
    ══════════════════════════════════════════════════════════════ */
 var DEFAULT_CONFIG = {
   /* ポータル全体（ログイン画面）の名前。3つのアプリの上にかぶさるもの */
-  portalName:'Funai Portal',
-  portalSub:'社内ポータル',
-  catchCopy:'はたらく、\nつながる、\n学ぶ。',
-  catchSub:'現場の力が、\n未来をつくる。',
+  portalName:'e-Learning',
+  portalSub:'研修ポータル',
+  catchCopy:'学びで、人と組織の成長をもっと身近に。',
+  catchSub:'一人ひとりの学びが、より良い現場をつくり、\n持続可能な社会の実現につながっていく。',
+  sideCopy:'現場の力が、\n未来の福祉をつくる。\n\nLearn.\nGrow.\nMake an impact.',
   scriptCopy:'People\nCare\nFuture',
+  taglineSub:'Learning for a Better Society',
   /* e-ラーニング（アプリの1つ）の名前 */
   appName:'船井e-ラーニング',
   termStart:4,        /* 年度の開始月。4＝4月はじまり */
   appSub:'研修ポータル',
   orgName:'株式会社船井総合研究所',
   tagline:'学びが、現場を変えていく。',
+  brandSub:'ともに、地域の未来をつくる',
   /* 職種とグループの選択肢。Creator に入るので、全員の端末に同じものが配られる */
   depts:['介護職','看護職','相談員','事務','製造','その他'],
   /* グループは「配信のためのくくり」。役職（部長・主任など）とは別物。
@@ -3553,36 +3575,38 @@ function viewGate(){
   h +=   '<div class="hero">' + heroHTML() + '</div><span class="hero-veil"></span>';
   /* 上：ロゴと一言 */
   h +=   '<header class="gate-top">';
-  h +=     '<div class="gate-brand">' + logoHTML(30) + '<small>' + esc(cfg.orgName) + '</small></div>';
-  h +=     '<div class="gate-tag">' + esc(cfg.tagline || '') + '</div>';
+  h +=     '<div class="gate-brand">' + logoHTML(30) + '<small>' + esc(cfg.brandSub || cfg.orgName) + '</small></div>';
+  h +=     '<div class="gate-tag">' + esc(cfg.tagline || '') +
+             (cfg.taglineSub ? '<small>' + esc(cfg.taglineSub) + '</small>' : '') + '</div>';
   h +=   '</header>';
-  /* 中：左の言葉・ログインのカード・右の飾り文字 */
+  /* 中：左の言葉・丸いすりガラス・右の飾り文字 */
+  var sideParts = String(cfg.sideCopy || '').split(/\n\s*\n/);
   h +=   '<div class="gate-mid">';
-  h +=     '<div class="gate-copy"><h2>' + br(cfg.catchCopy) + '</h2>' +
-             '<p>' + br(cfg.catchSub) + '</p></div>';
+  h +=     '<div class="gate-copy"><h2>' + br(sideParts[0] || '') + '</h2>' +
+             (sideParts[1] ? '<hr><p>' + br(sideParts[1]) + '</p>' : '') + '</div>';
   h +=     '<div class="gate-col">';
-  h +=       '<div class="gate-card">';
+  h +=       '<div class="gate-card' + (mode === 'known' ? '' : ' tall') + '">';
   h +=         '<div class="card-head"><div class="brand">' + logoHTML(30) + '</div>' +
                '<h1 class="wordmark">' + esc(cfg.portalName || 'Portal') + '</h1>' +
-               '<div class="wordsub">' + esc(cfg.portalSub || '') + '</div></div>';
-
-  if(LOGIN_EMAIL){
-    h +=     '<div class="who-me">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
-  }
+               '<div class="wordsub">' + esc(cfg.portalSub || '') + '</div>' +
+               (cfg.catchCopy ? '<div class="gate-catch">' + br(cfg.catchCopy) + '</div>' : '') +
+               (cfg.catchSub ? '<div class="gate-catch-sub">' + br(cfg.catchSub) + '</div>' : '') +
+               '<div class="gate-kw">LEARN　·　GROW　·　MAKE AN IMPACT</div>' +
+               '</div>';
 
   if(mode === 'known'){
     /* ① 名簿にある。お名前を出して、本人に確かめてもらう */
-    h +=   '<div class="field"><label>お名前</label>' +
-             '<div class="ro ro-lg">' + ava(meRow.name, 'sm') +
-             '<b>' + esc(meRow.name) + '</b></div></div>';
-    h +=   '<div class="field"><label>職種・グループ</label><div class="ro">' +
-             esc([meRow.dept || '職種未設定', meRow.group || 'グループ未設定',
-                  meRow.title ? meRow.title : ''].filter(Boolean).join('　·　')) +
-           '</div></div>';
+    h +=   '<div class="gate-me">' + ava(meRow.name, 'sm') + '<b>' + esc(meRow.name) + '</b>' +
+             '<span class="cap">' + esc([meRow.dept || '', meRow.title || ''].filter(Boolean).join('　·　')) + '</span>' +
+             (LOGIN_EMAIL ? '<span class="mail">' + esc(LOGIN_EMAIL) + '</span>' : '') +
+           '</div>';
+    /* 見た目の確認用に .ro-lg の印は残す（名前を確かめて入る、という意味） */
+    h +=   '<span class="ro-lg" hidden></span>';
     h +=   '<p class="cardnote">下のアプリを押すと、そのアプリに入ります。お名前が違う場合は、研修担当にご連絡ください</p>';
   }else if(mode === 'none'){
     /* ② 名簿に無い。勝手に登録させない */
-    h +=   '<div class="note" style="margin-bottom:4px">' +
+    if(LOGIN_EMAIL) h += '<div class="who-me">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
+    h +=   '<div class="note" style="margin-bottom:4px;text-align:left">' +
              '<b>' + (roster.length ? 'まだ登録されていません' : '名簿がまだ登録されていません') +
              '</b><br>' +
              (roster.length
@@ -4822,7 +4846,7 @@ var APPS = [
   { id:'connect', name:'船井コネクト', sub:'掲示板とサンクスカード',
     icon:'users', go:'feed' },
   /* 職員登録は3つのアプリの中には置かず、ここだけ。システム管理者にだけ出す */
-  { id:'staff',   name:'職員登録', sub:'名簿・職種・権限（3つ共通・管理者用）',
+  { id:'staff',   name:'職員登録', sub:'名簿・職種・権限（管理者用）',
     icon:'gear',  go:'aimport', admin:true }
 ];
 
@@ -7884,10 +7908,18 @@ function viewASettings(){
            '<input class="inp" id="cfPortal" value="' + esc(cfg.portalName) + '"></div>';
   h +=   '<div class="field"><label for="cfPortalSub">ポータルのサブタイトル</label>' +
            '<input class="inp" id="cfPortalSub" value="' + esc(cfg.portalSub) + '"></div>';
-  h +=   '<div class="field"><label for="cfCatch">ログイン画面の左の言葉<span class="note-s">改行で行を分けます</span></label>' +
-           '<textarea class="inp" id="cfCatch" rows="3">' + esc(cfg.catchCopy) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfCatchSub">その下の一言</label>' +
+  h +=   '<div class="field"><label for="cfCatch">中央の見出し</label>' +
+           '<input class="inp" id="cfCatch" value="' + esc(cfg.catchCopy) + '"></div>';
+  h +=   '<div class="field"><label for="cfCatchSub">中央の説明<span class="note-s">改行で行を分けます</span></label>' +
            '<textarea class="inp" id="cfCatchSub" rows="2">' + esc(cfg.catchSub) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfSide">左の言葉<span class="note-s">空行で上下を分けます</span></label>' +
+           '<textarea class="inp" id="cfSide" rows="4">' + esc(cfg.sideCopy) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfScript">右の飾り文字<span class="note-s">改行で行を分けます</span></label>' +
+           '<textarea class="inp" id="cfScript" rows="3">' + esc(cfg.scriptCopy) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfBrandSub">ロゴの下の一言</label>' +
+           '<input class="inp" id="cfBrandSub" value="' + esc(cfg.brandSub) + '"></div>';
+  h +=   '<div class="field"><label for="cfTagSub">右上の英語の一言</label>' +
+           '<input class="inp" id="cfTagSub" value="' + esc(cfg.taglineSub) + '"></div>';
   h +=   '<div class="field"><label for="cfName">e-ラーニングの名前</label>' +
            '<input class="inp" id="cfName" value="' + esc(cfg.appName) + '"></div>';
   h +=   '<div class="field"><label for="cfSub">サブタイトル</label>' +
@@ -8116,6 +8148,10 @@ function viewASettings(){
     c.portalSub  = document.getElementById('cfPortalSub').value.trim();
     c.catchCopy  = document.getElementById('cfCatch').value.trim();
     c.catchSub   = document.getElementById('cfCatchSub').value.trim();
+    c.sideCopy   = document.getElementById('cfSide').value.trim();
+    c.scriptCopy = document.getElementById('cfScript').value.trim();
+    c.brandSub   = document.getElementById('cfBrandSub').value.trim();
+    c.taglineSub = document.getElementById('cfTagSub').value.trim();
     c.appSub  = document.getElementById('cfSub').value.trim();
     c.orgName = document.getElementById('cfOrg').value.trim();
     c.tagline = document.getElementById('cfTag').value.trim();
