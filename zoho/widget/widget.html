@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>社内申請システム</title>
+<link rel="stylesheet" href="app/css/style.css">
+<script src="https://js.zohostatic.com/creator/widgets/version/2.0/widgetsdk-min.js"></script>
+</head>
+<body>
+<div id="app" class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">稟</div>
+      <div class="brand-text"><strong>社内申請システム</strong><span>Workflow Suite</span></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="sidebar-foot">
+      <div class="mode-chip" id="modeChip">接続確認中…</div>
+    </div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn only-mobile" id="btnMenu" aria-label="メニュー">☰</button>
+      <div class="search-wrap">
+        <input id="globalSearch" class="global-search" type="search" placeholder="申請番号・件名・申請者で検索  （/）" aria-label="全体検索">
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="btnBell" aria-label="通知"><span>🔔</span><span class="badge-dot" id="bellBadge" hidden>0</span></button>
+        <button class="icon-btn" id="btnTheme" aria-label="テーマ切替">🌓</button>
+        <select id="userSwitch" class="user-switch" aria-label="ログインユーザー切替"></select>
+      </div>
+    </header>
+    <main id="view" class="view" tabindex="-1"></main>
+  </div>
+</div>
+<div id="drawerRoot"></div>
+<div id="modalRoot"></div>
+<div id="toastRoot" class="toast-root" role="status" aria-live="polite"></div>
+<script src="app/js/config.js"></script>
+<script src="app/js/data.js"></script>
+<script src="app/js/workflow.js"></script>
+<script src="app/js/seed.js"></script>
+<script src="app/js/ui.js"></script>
+<script src="app/js/views.js"></script>
+<script src="app/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+/* =============================================================================
+ * カスタム関数：act_on_step
+ *  用途：承認 / 却下 / 差戻し の実行（サーバー側で権限を再検証する）
+ *  ★ widget 側のボタン制御は「画面の親切」に過ぎません。
+ *    実際の可否判定はこの関数が行い、他人になりすました承認を防ぎます。
+ * ========================================================================== */
+string act_on_step(int requestId, string action, string comment, int backToStep)
+{
+	me = Employees[Email == zoho.loginuser];
+	if(me.count() == 0)
+	{
+		return "error:ログインユーザーが社員マスタに存在しません";
+	}
+	req = Requests[ID == requestId];
+	step = Approvals[Request == requestId && Step_No == req.Current_Step];
+	if(step.count() == 0)
+	{
+		return "error:処理対象のステップがありません";
+	}
+
+	/* --- 権限の再検証（本人 or 代理人のみ） --- */
+	allowed = false;
+	if(step.Approver.ID == me.ID)
+	{
+		allowed = true;
+	}
+	else if(step.Is_Delegate == true && step.Approver.Deputy != null && step.Approver.Deputy.ID == me.ID)
+	{
+		allowed = true;
+	}
+	if(!allowed)
+	{
+		/* 拒否も必ず証跡に残す */
+		dl = Access_Logs[ID == 0];
+		dl.Log_Time = zoho.currenttime;
+		dl.Actor = me.ID;
+		dl.Actor_Name = me.Employee_Name;
+		dl.Login_User = zoho.loginuser;
+		dl.Action = "アクセス拒否";
+		dl.Target_Type = "承認操作";
+		dl.Target_ID = requestId.toString();
+		dl.Target_No = req.Request_No;
+		dl.Detail = "権限のないユーザーが " + action + " を試行";
+		insert into Access_Logs(dl);
+		return "error:この申請を処理する権限がありません";
+	}
+	if((action == "却下" || action == "差戻し" || action == "条件付承認") && (comment == null || comment.trim() == ""))
+	{
+		return "error:コメントは必須です";
+	}
+
+	step.Action = action;
+	step.Acted_By = me.ID;
+	step.Acted_On = zoho.currenttime;
+	step.Comment = comment;
+
+	if(action == "却下")
+	{
+		req.Status = "却下";
+		req.Current_Step = 0;
+	}
+	else if(action == "差戻し")
+	{
+		if(backToStep > 0)
+		{
+			resetRows = Approvals[Request == requestId && Step_No >= backToStep && Action != "スキップ"];
+			for each r in resetRows
+			{
+				r.Action = "未処理";
+				r.Acted_By = null;
+				r.Acted_On = null;
+			}
+			req.Current_Step = backToStep;
+			req.Status = "申請中";
+		}
+		else
+		{
+			req.Status = "差戻し";
+			req.Current_Step = 0;
+		}
+	}
+	else
+	{
+		next = Approvals[Request == requestId && Action == "未処理"] sort by Step_No;
+		if(next.count() > 0)
+		{
+			req.Current_Step = next.Step_No;
+			req.Status = "申請中";
+		}
+		else
+		{
+			req.Current_Step = 0;
+			req.Status = "承認済";
+			req.Completed_On = zoho.currenttime;
+		}
+	}
+
+	/* 申請者への通知 */
+	n = Notifications[ID == 0];
+	n.To_User = req.Applicant.ID;
+	n.Request = requestId;
+	n.Kind = action;
+	n.Message = req.Request_No + " " + req.Subject + " が " + me.Employee_Name + " により" + action + "されました";
+	n.Is_Read = false;
+	n.Created_Time = zoho.currenttime;
+	insert into Notifications(n);
+
+	/* 操作証跡 */
+	a = Audit_Logs[ID == 0];
+	a.Log_Time = zoho.currenttime;
+	a.User = me.ID;
+	a.User_Name = me.Employee_Name;
+	a.Action_Type = action;
+	a.Target_Type = "申請";
+	a.Target_ID = requestId.toString();
+	a.Detail = req.Request_No + " / " + comment;
+	insert into Audit_Logs(a);
+
+	return "ok:" + req.Status;
+}

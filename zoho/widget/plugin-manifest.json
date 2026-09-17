@@ -1,0 +1,22 @@
+{
+  "service": "CREATOR",
+  "locale": ["ja", "en"],
+  "storage": true,
+  "widgets": [
+    {
+      "name": "shanai_shinsei",
+      "description": "社内申請・承認ワークフロー",
+      "url": "/widget.html",
+      "options": {
+        "height": "860px",
+        "width": "100%"
+      }
+    }
+  ],
+  "cspDomains": {
+    "connect-src": ["https://*.zohoapis.com", "https://*.zoho.com"],
+    "script-src": ["https://js.zohostatic.com"],
+    "style-src": [],
+    "img-src": ["data:"]
+  }
+}

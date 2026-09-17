@@ -1,0 +1,79 @@
+/* =============================================================================
+ * スケジュール（毎日 9:00 実行）：escalate_overdue
+ *  用途：標準処理日数を超過した承認を上位者へエスカレーションし、督促通知を出す
+ * ========================================================================== */
+void escalate_overdue()
+{
+	overdue = Approvals[Action == "未処理" && Due_Date < zoho.currentdate];
+	for each ap in overdue
+	{
+		req = ap.Request;
+		days = zoho.currentdate.daysBetween(ap.Due_Date);
+
+		/* 督促通知 */
+		n = Notifications[ID == 0];
+		n.To_User = ap.Approver.ID;
+		n.Request = req.ID;
+		n.Kind = "督促";
+		n.Message = req.Request_No + " " + req.Subject + " の承認が " + days + "日 遅延しています";
+		n.Is_Read = false;
+		n.Created_Time = zoho.currenttime;
+		insert into Notifications(n);
+
+		/* 5日以上の遅延で上長へエスカレーション */
+		if(days >= 5 && ap.Approver.Manager != null)
+		{
+			e = Notifications[ID == 0];
+			e.To_User = ap.Approver.Manager.ID;
+			e.Request = req.ID;
+			e.Kind = "エスカレーション";
+			e.Message = "[エスカレーション] " + ap.Approver.Employee_Name + " の承認が " + days + "日 遅延：" + req.Request_No;
+			e.Is_Read = false;
+			e.Created_Time = zoho.currenttime;
+			insert into Notifications(e);
+		}
+	}
+}
+
+/* =============================================================================
+ * スケジュール（毎週月曜 8:00）：weekly_access_audit
+ *  用途：閲覧証跡から要確認パターンを抽出し、管理者へレポート通知する
+ *   ・深夜（22時〜5時）のアクセス
+ *   ・他部署の機微度S/A申請の閲覧
+ *   ・1日3回を超えるCSV出力
+ * ========================================================================== */
+void weekly_access_audit()
+{
+	since = zoho.currentdate.subDay(7);
+	logs = Access_Logs[Log_Time >= since];
+	nightCount = 0;
+	crossCount = 0;
+	exportCount = 0;
+	for each l in logs
+	{
+		h = l.Log_Time.getHour();
+		if(h >= 22 || h < 5)
+		{
+			nightCount = nightCount + 1;
+		}
+		if(l.Cross_Dept == true && (l.Sensitivity == "S" || l.Sensitivity == "A"))
+		{
+			crossCount = crossCount + 1;
+		}
+		if(l.Action == "CSV出力")
+		{
+			exportCount = exportCount + 1;
+		}
+	}
+	admins = Employees[Roles.contains("管理者") && Is_Active == true];
+	for each ad in admins
+	{
+		n = Notifications[ID == 0];
+		n.To_User = ad.ID;
+		n.Kind = "週次監査";
+		n.Message = "先週の閲覧証跡：総" + logs.count() + "件／深夜" + nightCount + "件／他部署機微" + crossCount + "件／CSV出力" + exportCount + "件";
+		n.Is_Read = false;
+		n.Created_Time = zoho.currenttime;
+		insert into Notifications(n);
+	}
+}
