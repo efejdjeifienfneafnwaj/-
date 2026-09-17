@@ -6,10 +6,16 @@ var Seed = (function () {
   function empty() {
     return { Employees: [], Departments: [], Vendors: [], Accounts: [], RequestTypes: [], Requests: [], RequestLines: [], Approvals: [], RouteRules: [], AuditLogs: [], AccessLogs: [], Notifications: [], Files: [] };
   }
+  /**
+   * 日本時間の h 時ちょうど付近を表す ISO 文字列（UTC）を作る。
+   * 保存は UTC、判定は日本時間という前提に合わせるため、
+   * 意図した「日本時間の時刻」から9時間引いて組み立てる。
+   */
   function d(offsetDays, h) {
     var x = new Date(); x.setDate(x.getDate() + offsetDays);
-    if (h != null) x.setHours(h, Math.floor(Math.random() * 60), 0, 0);
-    return x.toISOString();
+    if (h == null) return x.toISOString();
+    var utc = Date.UTC(x.getFullYear(), x.getMonth(), x.getDate(), h - 9, Math.floor(Math.random() * 60), 0, 0);
+    return new Date(utc).toISOString();
   }
   function ymd(offsetDays) { var x = new Date(); x.setDate(x.getDate() + offsetDays); return x.toISOString().slice(0, 10); }
 

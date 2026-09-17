@@ -115,7 +115,7 @@ var UI = (function () {
   }
 
   /* ---------- ドロワー ---------- */
-  function drawer(title, bodyHtml, footHtml, onClose) {
+  function drawer(title, bodyHtml, footHtml, onClose, onPrint) {
     closeDrawer();
     var root = document.getElementById('drawerRoot');
     var scrim = document.createElement('div'); scrim.className = 'scrim';
@@ -127,21 +127,33 @@ var UI = (function () {
       '<div class="drawer-body">' + bodyHtml + '</div>' +
       (footHtml ? '<div class="drawer-foot">' + footHtml + '</div>' : '');
     root.appendChild(scrim); root.appendChild(el);
-    function shut() { if (onClose) onClose(); closeDrawer(); }
+    el._onClose = onClose;
+    function shut() { closeDrawer(); }
     scrim.addEventListener('click', shut);
     el.querySelector('[data-act="x"]').addEventListener('click', shut);
     el.querySelector('[data-act="print"]').addEventListener('click', function () {
-      if (onClose) { /* 印刷も証跡に残す */ }
+      /* 紙は最も基本的な持ち出し経路なので、必ず記録してから印刷する */
+      if (onPrint) { try { onPrint(); } catch (e) { console.warn('印刷の記録に失敗', e); } }
       window.print();
     });
+    /* ブラウザの Ctrl+P からの印刷も拾う */
+    if (onPrint) {
+      el._onBeforePrint = function () { try { onPrint(); } catch (e) { } };
+      window.addEventListener('beforeprint', el._onBeforePrint);
+    }
     function onKey(e) { if (e.key === 'Escape' && !document.querySelector('.modal')) shut(); }
     document.addEventListener('keydown', onKey); el._onKey = onKey;
     return el;
   }
-  function closeDrawer() {
+  function closeDrawer(skipCallback) {
     var root = document.getElementById('drawerRoot');
     var el = root.querySelector('.drawer');
-    if (el && el._onKey) document.removeEventListener('keydown', el._onKey);
+    if (el) {
+      if (el._onKey) document.removeEventListener('keydown', el._onKey);
+      if (el._onBeforePrint) window.removeEventListener('beforeprint', el._onBeforePrint);
+      /* 画面遷移やブラウザバックで閉じられた場合も滞在時間を残す */
+      if (!skipCallback && el._onClose) { try { el._onClose(); } catch (e) { } }
+    }
     root.innerHTML = '';
   }
 

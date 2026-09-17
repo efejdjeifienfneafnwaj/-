@@ -75,7 +75,7 @@ var CFG = {
                    Step_Name: 'step_name', Step_Type: 'step_type', Approver: 'approver_id',
                    Approver_name: 'approver_name', Acted_By: 'acted_by_id', Acted_By_name: 'acted_by_name',
                    Action: 'action', Comment: 'comment', Due_Date: 'due_date', Acted_On: 'acted_on',
-                   Is_Delegate: 'is_delegate' },
+                   Is_Delegate: 'is_delegate', Started_On: 'started_on', Required_Count: 'required_count' },
     AccessLogs:  { Log_Time: 'log_time', Session_ID: 'session_id', Actor: 'actor_id',
                    Actor_Name: 'actor_name', Actor_Dept: 'actor_dept', Actor_Role: 'actor_role',
                    Login_User: 'login_user', Action: 'action', Target_Type: 'target_type',
@@ -133,6 +133,7 @@ var CFG = {
     /* 記録する操作種別 */
     ACTIONS: {
       VIEW_DETAIL:  '詳細閲覧',
+      VIEW_END:     '閲覧終了',
       VIEW_LIST:    '一覧閲覧',
       SEARCH:       '検索',
       EXPORT_CSV:   'CSV出力',

@@ -104,11 +104,11 @@ var Views = (function () {
   function taskList(pending) {
     if (!pending.length) return UI.empty('✅', '未処理のタスクはありません', 'あなたが承認すべき申請は現在ありません');
     return '<div class="table-wrap"><table class="tbl"><tbody>' + pending.slice(0, 8).map(function (p) {
-      var delayed = WF.isDelayed(p.req, p.step);
+      var delayed = WF.isDelayed(p.req, p.step, routeOf(p.req));
       return '<tr data-req="' + E(p.req.ID) + '"><td class="nowrap"><span class="tag">' + E((tplOf(p.req.Type_Code) || {}).name || '') + '</span></td>' +
         '<td>' + E(p.req.Subject) + '<div class="page-sub">' + E(p.req.Applicant_name) + '／' + E(p.step.name) + '</div></td>' +
         '<td class="num nowrap">' + UI.yen(p.req.Amount) + '</td>' +
-        '<td class="nowrap">' + (delayed ? '<span class="delay">遅延 ' + WF.overdueDays(p.req, p.step) + '日</span>' : UI.relTime(p.req.Applied_On)) + '</td></tr>';
+        '<td class="nowrap">' + (delayed ? '<span class="delay">遅延 ' + WF.overdueDays(p.req, p.step, routeOf(p.req)) + '日</span>' : UI.relTime(p.req.Applied_On)) + '</td></tr>';
     }).join('') + '</tbody></table></div>';
   }
   function viewerList(logs) {
@@ -379,8 +379,12 @@ var Views = (function () {
   }
   function renderRoutePreview(box, t) {
     if (!box) return;
-    var route = WF.buildRoute(t, formState.data, me(), S().employees);
     var amount = WF.amountOf(t, formState.data);
+    var route = WF.buildRoute(t, formState.data, me(), S().employees, {
+      data: formState.data, applicant: me(), amount: amount, template: t,
+      attachmentCount: formState.pendingFiles.length
+    });
+    var needPick = route.filter(function (s) { return s.needsPick; });
     box.innerHTML = '<div class="page-sub" style="margin-bottom:10px">申請金額 <strong>' + UI.yen(amount) + '</strong> に基づく経路（入力に応じて自動で変わります）</div>' +
       '<div class="route">' + route.map(function (s) {
         return '<div class="route-step"><div class="route-dot' + (s.skipped ? '' : '') + '">' + s.step_no + '</div><div class="route-body">' +
@@ -388,8 +392,24 @@ var Views = (function () {
           '<div class="route-meta">' + (s.skipped ? '<span class="delay">' + E(s.skipReason) + '</span>' :
             E(s.approverName) + (s.approverTitle ? '（' + E(s.approverTitle) + '）' : '') +
             (s.delegateName ? ' <span class="tag">代理：' + E(s.delegateName) + '</span>' : '') +
-            ' ／ 標準 ' + s.days + '日') + '</div></div></div>';
+            ' ／ 標準 ' + s.days + '日') + '</div>' +
+          (s.warning ? '<div class="route-meta"><span class="badge b-sentback">' + E(s.warning) + '</span></div>' : '') +
+          (s.needsPick ?
+            '<div style="margin-top:6px"><select data-pick="' + E(s.pickKey) + '" style="width:100%;min-height:32px;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px">' +
+            '<option value="">承認者を選んでください</option>' +
+            S().employees.filter(function (e) { return e.Is_Active !== false && String(e.ID) !== String(me().ID); })
+              .map(function (e) {
+                return '<option value="' + E(e.ID) + '"' + (String(formState.data[s.pickKey]) === String(e.ID) ? ' selected' : '') +
+                  '>' + E(e.Employee_Name + '（' + (e.Department_name || '') + '／' + e.Title + '）') + '</option>';
+              }).join('') + '</select></div>' : '') +
+          '</div></div>';
       }).join('') + '</div>';
+    box.querySelectorAll('[data-pick]').forEach(function (n) {
+      n.addEventListener('change', function () {
+        formState.data[n.dataset.pick] = n.value;
+        renderRoutePreview(box, t);
+      });
+    });
   }
   function renderPolicy(box, t) {
     if (!box) return;
@@ -410,6 +430,14 @@ var Views = (function () {
 
   function validate(t) {
     var errs = [];
+    /* 申請者が承認者を選ぶ段があるのに未選択なら止める */
+    var rt = WF.buildRoute(t, formState.data, me(), S().employees, {
+      data: formState.data, applicant: me(), amount: WF.amountOf(t, formState.data),
+      template: t, attachmentCount: formState.pendingFiles.length
+    });
+    rt.forEach(function (st) {
+      if (st.needsPick && !formState.data[st.pickKey]) errs.push(st.name + 'の承認者');
+    });
     document.querySelectorAll('.field').forEach(function (w) { w.classList.remove('err'); var m = w.querySelector('.err-msg'); if (m) { m.hidden = true; m.textContent = ''; } });
     (t.fields || []).forEach(function (f) {
       if (!f.required) return;
@@ -432,13 +460,32 @@ var Views = (function () {
   }
 
   function submit(t, asDraft) {
+    if (App.blockIfImpersonating('申請')) return;
     if (!asDraft) {
       var errs = validate(t);
       if (errs.length) { UI.toast('未入力の必須項目があります：' + errs.slice(0, 3).join('、'), 'error'); return; }
     }
     var data = formState.data;
     var amount = WF.amountOf(t, data);
-    var route = WF.buildRoute(t, data, me(), S().employees);
+    if (amount < 0) { UI.toast('金額にマイナスは指定できません', 'error'); return; }
+    var route = WF.buildRoute(t, data, me(), S().employees, {
+      data: data, applicant: me(), amount: amount, template: t,
+      attachmentCount: formState.pendingFiles.length
+    });
+    /* 生きた承認段が1つも無いまま申請すると、誰の承認トレイにも出ず永久に止まる。
+       送信前に止めて、なぜ経路が組めなかったかを本人に見せる。 */
+    if (!asDraft && !WF.isRoutable(route)) {
+      var why = route.length
+        ? route.map(function (s) { return '・' + s.step_no + '段目「' + s.name + '」：' + (s.skipReason || '条件に合いません'); }).join('<br>')
+        : '・この申請区分に、条件を満たす承認ステップが1つもありません';
+      UI.modal({
+        title: '承認者が決まらないため申請できません',
+        bodyHtml: '<div class="page-sub" style="margin-bottom:10px">次の理由で承認経路を組めませんでした。管理者にご連絡ください。</div>' +
+          '<div style="font-size:12.5px;line-height:1.9">' + why + '</div>' +
+          '<div class="page-sub" style="margin-top:10px">下書きとしては保存できます。</div>'
+      });
+      return;
+    }
     var status = asDraft ? CFG.STATUS.DRAFT : CFG.STATUS.ACTIVE;
     var subject = data.subject || data.emp_name || (t.name + '（' + UI.fmtDate(new Date().toISOString()) + '）');
     var req = {
@@ -455,11 +502,14 @@ var Views = (function () {
     DB.add('Requests', req).then(function (saved) {
       S().requests.push(saved);
       var jobs = route.map(function (s) {
+        var due = WF.dueDateOf(req, route, s);
         return DB.add('Approvals', {
-          Request: saved.ID, Step_No: s.step_no, Step_Name: s.name, Step_Type: s.type,
+          Request: saved.ID, Request_No: saved.Request_No,
+          Step_No: s.step_no, Step_Name: s.name, Step_Type: s.type,
           Approver: s.approverId, Approver_name: s.approverName,
           Action: s.skipped ? CFG.ACTION.SKIP : CFG.ACTION.PENDING,
-          Comment: s.skipReason || '', Is_Delegate: !!s.delegateId
+          Comment: s.skipReason || '', Is_Delegate: !!s.delegateId,
+          Due_Date: due ? due.toISOString().slice(0, 10) : ''
         }).then(function (a) { S().approvals.push(a); });
       });
       return Promise.all(jobs).then(function () { return saved; });
@@ -523,7 +573,7 @@ var Views = (function () {
       rows.map(function (r) {
         var route = routeOf(r), cur = WF.currentStep(route);
         var step = route.filter(function (s) { return s.step_no === cur; })[0];
-        var delayed = step && WF.isDelayed(r, step);
+        var delayed = step && WF.isDelayed(r, step, route);
         return '<tr data-req="' + E(r.ID) + '"><td class="nowrap">' + E(r.Request_No) + '</td>' +
           '<td class="nowrap"><span class="tag">' + E((tplOf(r.Type_Code) || {}).name || r.Type_Code) + '</span></td>' +
           '<td>' + E(r.Subject) + '</td><td class="nowrap">' + E(r.Applicant_name) + '</td>' +
@@ -570,7 +620,7 @@ var Views = (function () {
     return '<div class="table-wrap"><table class="tbl"><thead><tr><th class="checkcell"><input type="checkbox" data-all></th>' +
       '<th>申請番号</th><th>区分</th><th>件名</th><th>申請者</th><th class="num">金額</th><th>あなたの役割</th><th>経過</th></tr></thead><tbody>' +
       pending.map(function (p) {
-        var delayed = WF.isDelayed(p.req, p.step);
+        var delayed = WF.isDelayed(p.req, p.step, routeOf(p.req));
         var isDel = p.step.delegateId && String(p.step.delegateId) === String(me().ID);
         return '<tr data-req="' + E(p.req.ID) + '"><td class="checkcell"><input type="checkbox" data-pick="' + E(p.req.ID) + '"></td>' +
           '<td class="nowrap">' + E(p.req.Request_No) + '</td>' +
@@ -578,7 +628,7 @@ var Views = (function () {
           '<td>' + E(p.req.Subject) + '</td><td class="nowrap">' + E(p.req.Applicant_name) + '<div class="page-sub">' + E(p.req.Applicant_Dept_name) + '</div></td>' +
           '<td class="num nowrap">' + UI.yen(p.req.Amount) + '</td>' +
           '<td class="nowrap">' + E(p.step.name) + ' <span class="tag">' + E(p.step.type) + '</span>' + (isDel ? '<span class="tag">代理</span>' : '') + '</td>' +
-          '<td class="nowrap">' + (delayed ? '<span class="delay">遅延' + WF.overdueDays(p.req, p.step) + '日</span>' : UI.relTime(p.req.Applied_On)) + '</td></tr>';
+          '<td class="nowrap">' + (delayed ? '<span class="delay">遅延' + WF.overdueDays(p.req, p.step, routeOf(p.req)) + '日</span>' : UI.relTime(p.req.Applied_On)) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
   function bulkApprove(el) {
@@ -648,7 +698,15 @@ var Views = (function () {
     }
     if (Perm.canExport(me())) foot += '<button class="btn btn-sm" data-a="csv" style="margin-left:auto">この申請をCSV出力</button>';
 
-    var el = UI.drawer(req.Request_No + '　' + req.Subject, body, foot, function () { Access.closeDetail(req); });
+    var el = UI.drawer(req.Request_No + '　' + req.Subject, body, foot,
+      function () { Access.closeDetail(req); },
+      function () {
+        Access.log(CFG.ACCESS.ACTIONS.PRINT, {
+          targetType: '申請', targetId: req.ID, targetNo: req.Request_No,
+          targetSubject: req.Subject, typeCode: req.Type_Code,
+          ownerDept: req.Applicant_Dept_name, detail: '申請書を印刷'
+        });
+      });
     var dbody = el.querySelector('#dbody');
     function paint(which) {
       if (which === 'content') dbody.innerHTML = contentHtml(t, data, req);
@@ -844,9 +902,23 @@ var Views = (function () {
 
   /** 承認処理の実体 */
   function act(reqId, action, comment, backToStep, silent) {
+    if (App.blockIfImpersonating('承認操作')) return Promise.resolve();
     var req = App.requestById(reqId);
     var route = routeOf(req);
     var cur = WF.currentStep(route);
+    /* 画面を開いてから他の承認者が処理して段が進んでいることがある。
+       押した瞬間に取り直して、自分がその段の担当かを必ず再確認する。 */
+    var step = route.filter(function (s) { return s.step_no === cur; })[0];
+    if (!step || step.action) {
+      Access.denied('承認操作', req.Request_No + '：すでに処理済みの段に対する操作');
+      UI.toast('この申請はすでに処理されています。画面を更新します。', 'warn');
+      return Promise.resolve().then(function () { App.refresh(); });
+    }
+    if (!WF.canAct(step, me().ID)) {
+      Access.denied('承認操作', req.Request_No + ' ' + cur + '段目：担当ではない利用者による ' + action);
+      UI.toast('この段の承認者はあなたではありません（記録しました）', 'error');
+      return Promise.resolve().then(function () { App.refresh(); });
+    }
     var res = WF.applyAction(req, route, cur, me().ID, me().Employee_Name, action, comment, backToStep);
     var patch = {
       Route_JSON: JSON.stringify(res.route), Status: res.status, Current_Step: res.nextStep,
@@ -859,6 +931,18 @@ var Views = (function () {
       var ap = { Action: action, Acted_By: me().ID, Acted_By_name: me().Employee_Name, Comment: comment || '', Acted_On: DB.nowISO() };
       Object.keys(ap).forEach(function (k) { apRow[k] = ap[k]; });
       jobs.push(DB.update('Approvals', apRow.ID, ap));
+    }
+    if (res.nextStep) {
+      var nextRow = S().approvals.filter(function (x) { return String(x.Request) === String(reqId) && Number(x.Step_No) === Number(res.nextStep); })[0];
+      var nextStepDef = res.route.filter(function (x) { return x.step_no === res.nextStep; })[0];
+      if (nextRow && nextStepDef) {
+        var d = WF.dueDateOf(req, res.route, nextStepDef);
+        if (d) {
+          var due2 = d.toISOString().slice(0, 10);
+          nextRow.Due_Date = due2;
+          jobs.push(DB.update('Approvals', nextRow.ID, { Due_Date: due2 }));
+        }
+      }
     }
     jobs.push(DB.add('Notifications', {
       To_User: req.Applicant, Request: reqId, Kind: action,
@@ -923,6 +1007,10 @@ var Views = (function () {
       return rows;
     }
     var current = run(false);
+    /* 画面を開いただけで一覧が見えるので、初期表示も記録する */
+    Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, {
+      targetType: '申請検索', resultCount: current.length, detail: '画面表示（前回条件を保持）'
+    });
     el.querySelector('[data-act="search"]').addEventListener('click', function () { current = run(true); });
     el.querySelector('[data-act="clear"]').addEventListener('click', function () { sf = { q: '', type: '', status: '', from: '', to: '', min: '', max: '', dept: '' }; App.refresh(); });
     var cs = el.querySelector('[data-act="csv"]');
@@ -930,6 +1018,7 @@ var Views = (function () {
   }
 
   function exportRequests(rows, name) {
+    if (App.blockIfImpersonating('CSV出力')) return;
     if (!Perm.canExport(me())) {
       Access.denied('CSV出力', '権限なし：' + name);
       UI.toast('CSV出力の権限がありません（記録しました）', 'error'); return;
@@ -956,9 +1045,9 @@ var Views = (function () {
       el.innerHTML = pageHead('経理処理') + UI.empty('🔒', 'この画面を開く権限がありません', 'アクセス拒否として証跡に記録しました');
       return;
     }
-    var rows = S().requests.filter(function (r) {
+    var rows = Perm.filterRequests(me(), S().requests.filter(function (r) {
       return r.Status === CFG.STATUS.APPROVED && CFG.SCOPE_TYPES.finance.indexOf(r.Type_Code) >= 0;
-    }).sort(function (a, b) { return new Date(b.Completed_On || 0) - new Date(a.Completed_On || 0); });
+    }), S().approvals).sort(function (a, b) { return new Date(b.Completed_On || 0) - new Date(a.Completed_On || 0); });
     var unpaid = rows.filter(function (r) { return !r.Paid; });
     el.innerHTML = pageHead('経理処理', '承認済の経費・支払申請の検収と支払処理',
       '<button class="btn" data-act="journal">仕訳CSV出力</button><button class="btn" data-act="fb">振込データ出力</button>') +
@@ -999,6 +1088,7 @@ var Views = (function () {
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '経理処理', resultCount: rows.length });
   }
   function exportJournal(rows) {
+    if (!Perm.canExport(me())) { Access.denied('CSV出力', '権限なし：仕訳データ'); UI.toast('出力の権限がありません（記録しました）', 'error'); return; }
     var headers = ['取引日', '借方勘定科目', '借方金額', '貸方勘定科目', '貸方金額', '税区分', '摘要', '取引先', '登録番号', '申請番号'];
     var out = [];
     rows.forEach(function (r) {
@@ -1023,6 +1113,7 @@ var Views = (function () {
     UI.toast('仕訳データを出力しました（' + out.length + '行）', 'success');
   }
   function exportFB(rows) {
+    if (!Perm.canExport(me())) { Access.denied('CSV出力', '権限なし：振込データ'); UI.toast('出力の権限がありません（記録しました）', 'error'); return; }
     var headers = ['支払期日', '取引先', '登録番号', '支払金額', '申請番号', '件名', '申請者'];
     var out = rows.map(function (r) {
       var data = dataOf(r), v = App.vendorById(data.vendor);
@@ -1030,6 +1121,7 @@ var Views = (function () {
     });
     UI.download('振込データ_' + new Date().toISOString().slice(0, 10) + '.csv', UI.toCSV(headers, out));
     Access.log(CFG.ACCESS.ACTIONS.EXPORT_CSV, { targetType: '振込データ', resultCount: out.length });
+    App.audit('振込データ出力', '経理', '', out.length + '件');
     UI.toast('振込データを出力しました', 'success');
   }
 
@@ -1105,6 +1197,7 @@ var Views = (function () {
       });
       UI.download('閲覧証跡_' + new Date().toISOString().slice(0, 10) + '.csv', UI.toCSV(headers, data));
       Access.log(CFG.ACCESS.ACTIONS.EXPORT_CSV, { targetType: '閲覧証跡', resultCount: data.length, detail: '監査証跡の出力' });
+      App.audit('閲覧証跡のCSV出力', '証跡', '', data.length + '件');
       UI.toast('証跡を出力しました（この出力自体も記録されます）', 'success');
     });
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LOG, { targetType: '閲覧証跡画面', resultCount: logs.length, detail: canAll ? '全社範囲' : '自分の範囲' });
@@ -1180,9 +1273,10 @@ var Views = (function () {
     return '<div class="card-body">' +
       '<div class="page-sub" style="margin-bottom:10px">テンプレート定義（JSON）。Creator の Request_Types フォームに保存されている内容です。</div>' +
       simpleTable(['コード', '名称', 'カテゴリ', '機微度', '段数', '経路の条件'], App.templates().map(function (t) {
-        var steps = (t.route.steps || []);
-        return [t.code, t.name, t.category, CFG.ACCESS.SENSITIVITY[t.code] || 'C', steps.length,
-        steps.map(function (s) { return s.name + (s.when ? '(' + s.when.field + (s.when.gte ? '≧' + UI.num(s.when.gte) : s.when.eq ? '=' + s.when.eq : '') + ')' : ''); }).join(' → ')];
+        var flds = RouteSpec.fieldsFor(t, { departments: S().departments.map(function (d) { return d.Department_Name; }), titles: CFG.TITLES });
+        var norm = RouteSpec.normalize(t.route, t).steps;
+        return [t.code, t.name, t.category, CFG.ACCESS.SENSITIVITY[t.code] || 'C', norm.length,
+        norm.map(function (s) { return s.name + (s.conditions ? '〔' + RouteSpec.describe(s.conditions, flds) + '〕' : ''); }).join(' → ')];
       })) + '</div>';
   }
   function sysAdmin() {

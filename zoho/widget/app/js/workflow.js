@@ -8,7 +8,8 @@
 var WF = (function () {
 
   /* ---------- 条件評価 ---------- */
-  function num(v) { if (v == null || v === '') return 0; return Number(String(v).replace(/[^\d.-]/g, '')) || 0; }
+  /* 数値の解釈は RouteSpec.num に一本化する（全角数字の扱いが食い違うのを防ぐ） */
+  function num(v) { return RouteSpec.num(v); }
   function match(when, data) {
     if (!when) return true;
     var v = data[when.field];
@@ -27,21 +28,33 @@ var WF = (function () {
   function resolveAssignee(step, applicant, employees, deptName) {
     var a = step.assignee || {};
     var byId = {}; employees.forEach(function (e) { byId[String(e.ID)] = e; });
-    if (a.mode === 'fixed') return byId[String(a.employeeId)] || null;
+    function active(e) { return (e && e.Is_Active !== false) ? e : null; }
+    if (a.mode === 'fixed') return active(byId[String(a.employeeId)]);
     if (a.mode === 'manager') {
-      var cur = applicant, lv = a.level || 1;
-      for (var i = 0; i < lv; i++) { cur = cur && cur.Manager ? byId[String(cur.Manager)] : null; if (!cur) return null; }
-      return cur || null;
+      /* 上長をたどる。途中に退職者がいたら、その人を飛ばしてさらに上をたどる。 */
+      var cur = applicant, lv = a.level || 1, guard = 0;
+      for (var i = 0; i < lv; i++) {
+        do {
+          cur = (cur && cur.Manager) ? byId[String(cur.Manager)] : null;
+          guard++;
+        } while (cur && cur.Is_Active === false && guard < 20);
+        if (!cur) return null;
+      }
+      return active(cur);
     }
     if (a.mode === 'title') {
       var dept = deptName || (applicant && (applicant.Department_name || applicant.Department));
       var sameDept = employees.filter(function (e) { return e.Is_Active !== false && e.Title === a.title && (e.Department_name || e.Department) === dept; });
       if (sameDept.length) return sameDept[0];
+      if (a.noCrossDept) return null;              // 部署外へのフォールバックを禁止する設定
+      /* 同部署に該当者がいない場合、他部署の同役職へ回る。
+         決裁権限のない他部署の人に回ることになるため、印を付けて画面に警告を出す。 */
       var any = employees.filter(function (e) { return e.Is_Active !== false && e.Title === a.title; });
+      if (any[0]) { any[0]._crossDeptFallback = true; }
       return any[0] || null;
     }
     if (a.mode === 'department') {
-      var mem = employees.filter(function (e) { return e.Is_Active !== false && (e.Department_name || e.Department) === a.department; });
+      var mem = departmentMembers(a.department, employees, (typeof App !== 'undefined' && App.state) ? App.state.departments : null, a.includeSub);
       /* 部署内で最上位の役職者を代表承認者にする */
       mem.sort(function (x, y) { return CFG.TITLES.indexOf(x.Title) - CFG.TITLES.indexOf(y.Title); });
       return mem[0] || null;
@@ -49,8 +62,31 @@ var WF = (function () {
     if (a.mode === 'applicantSelect') return null; // 申請時に選択
     return null;
   }
-  function departmentMembers(deptName, employees) {
-    return employees.filter(function (e) { return e.Is_Active !== false && (e.Department_name || e.Department) === deptName; });
+  /**
+   * 部署のメンバーを集める
+   * @param {boolean} includeSub 下位部署も含めるか（部署マスタの親子関係をたどる）
+   */
+  function departmentMembers(deptName, employees, departments, includeSub) {
+    var names = [deptName];
+    if (includeSub && departments && departments.length) {
+      var byId = {}, byName = {};
+      departments.forEach(function (d) { byId[String(d.ID)] = d; byName[d.Department_Name] = d; });
+      var root = byName[deptName];
+      if (root) {
+        var queue = [String(root.ID)];
+        while (queue.length) {
+          var cur = queue.shift();
+          departments.forEach(function (d) {
+            if (String(d.Parent_Department) === cur && names.indexOf(d.Department_Name) < 0) {
+              names.push(d.Department_Name); queue.push(String(d.ID));
+            }
+          });
+        }
+      }
+    }
+    return employees.filter(function (e) {
+      return e.Is_Active !== false && names.indexOf(e.Department_name || e.Department) >= 0;
+    });
   }
 
   /* ---------- 代理承認（職務代行）の判定 ---------- */
@@ -69,20 +105,49 @@ var WF = (function () {
    * 経路を組み立てる
    * @returns {Array} [{step_no, name, type, approverId, approverName, days, skipped, skipReason, members[]}]
    */
-  function buildRoute(template, formData, applicant, employees) {
-    var steps = (template.route && template.route.steps) || [];
+  /**
+   * 経路を組み立てる
+   * @param {object} template  申請テンプレート（route.steps を持つ）
+   * @param {object} formData  入力値
+   * @param {object} applicant 申請者
+   * @param {array}  employees 社員一覧
+   * @param {object} [ctxIn]   条件評価に使う文脈（経路テストから差し込む用）
+   * @returns {Array} [{step_no, name, type, approverId, approverName, days, skipped, skipReason, members[]}]
+   */
+  function buildRoute(template, formData, applicant, employees, ctxIn) {
+    var spec = RouteSpec.normalize(template.route || { steps: [] }, template);
+    var steps = spec.steps;
+    var ctx = ctxIn || {
+      data: formData || {},
+      applicant: applicant,
+      amount: amountOf(template, formData || {}),
+      template: template,
+      attachmentCount: 0
+    };
     var out = [], no = 0, seen = {};
     steps.forEach(function (st) {
-      if (!match(st.when, formData)) return;                       // 条件に合致しない段はそもそも生成しない
-      var approver = null, members = [];
-      if ((st.assignee || {}).mode === 'applicantSelect' && formData['__approver_' + st.name]) {
-        var byId = {}; employees.forEach(function (e) { byId[String(e.ID)] = e; });
-        approver = byId[String(formData['__approver_' + st.name])] || null;
+      /* 条件に合致しない段はそもそも生成しない */
+      if (!RouteSpec.evalGroup(st.conditions, ctx)) return;
+      var approver = null, members = [], needsPick = false;
+      var pickKey = '__approver_' + (st.id || st.name);
+      if ((st.assignee || {}).mode === 'applicantSelect') {
+        var picked = (ctx.data || {})[pickKey];
+        if (picked) {
+          var byId = {}; employees.forEach(function (e) { byId[String(e.ID)] = e; });
+          approver = byId[String(picked)] || null;
+        } else {
+          needsPick = true;   // 申請画面で選んでもらう。未選択でも段は消さない。
+        }
       } else {
         approver = resolveAssignee(st, applicant, employees);
       }
       if (st.type === '合議' || st.type === '或議') {
-        members = departmentMembers((st.assignee || {}).department || (applicant && applicant.Department_name), employees);
+        members = departmentMembers(
+          (st.assignee || {}).department || (applicant && applicant.Department_name), employees,
+          (typeof App !== 'undefined' && App.state) ? App.state.departments : null,
+          (st.assignee || {}).includeSub);
+        /* 申請者本人は自分の申請の合議に加われない */
+        members = members.filter(function (m) { return !applicant || String(m.ID) !== String(applicant.ID); });
       }
       no++;
       var row = {
@@ -90,13 +155,23 @@ var WF = (function () {
         approverId: approver ? approver.ID : '', approverName: approver ? approver.Employee_Name : '（該当者なし）',
         approverTitle: approver ? approver.Title : '',
         members: members.map(function (m) { return { id: m.ID, name: m.Employee_Name }; }),
-        skipped: false, skipReason: ''
+        quorum: st.quorum || null,
+        required: (st.type === '合議') ? RouteSpec.requiredApprovals(st, members.length) : 1,
+        skipped: false, skipReason: '',
+        needsPick: needsPick, pickKey: pickKey
       };
-      /* 自動スキップ判定 */
-      if (!approver) { row.skipped = true; row.skipReason = '該当する承認者が存在しないため自動スキップ'; }
+      /* 自動スキップ判定（重複は後段を残すため、ここでは判定しない） */
+      if (needsPick) { row.approverName = '（申請時に選択）'; }
+      else if (!approver) { row.skipped = true; row.skipReason = '該当する承認者が存在しないため自動スキップ'; }
       else if (applicant && String(approver.ID) === String(applicant.ID)) { row.skipped = true; row.skipReason = '申請者本人のため自動スキップ'; }
-      else if (seen[String(approver.ID)] && st.type === '承認') { row.skipped = true; row.skipReason = '同一承認者の重複のため自動スキップ'; }
-      if (!row.skipped && approver) seen[String(approver.ID)] = true;
+      if (approver && approver._crossDeptFallback) {
+        row.crossDeptFallback = true;
+        row.warning = '同じ部署に' + ((st.assignee || {}).title || '該当役職') + 'がいないため、他部署の' + approver.Employee_Name + ' が承認します';
+        delete approver._crossDeptFallback;
+      }
+      if (st.mustNotSkip && row.skipped) {
+        row.blocking = true;   // 統制上、省略してはいけない段（経理検収・法務レビューなど）
+      }
       /* 代理承認 */
       if (!row.skipped && approver) {
         var dep = delegateOf(approver, employees);
@@ -104,7 +179,35 @@ var WF = (function () {
       }
       out.push(row);
     });
+
+    /* 重複の解消：同じ人が複数の「承認」段に現れる場合、
+       後の段（＝より上位の決裁）を残し、先の段をスキップする。
+       先に消すと上位決裁が消えてしまい、内部統制上まったく逆の結果になる。 */
+    var lastIndexOf = {};
+    out.forEach(function (r, i) {
+      if (r.skipped || r.type !== '承認' || !r.approverId) return;
+      lastIndexOf[String(r.approverId)] = i;
+    });
+    out.forEach(function (r, i) {
+      if (r.skipped || r.type !== '承認' || !r.approverId) return;
+      var last = lastIndexOf[String(r.approverId)];
+      if (last !== i) {
+        r.skipped = true;
+        r.skipReason = '同じ承認者が' + (out[last].step_no) + '段目「' + out[last].name + '」にもいるため、上位の段に統合しました';
+        r.mergedInto = out[last].step_no;
+      }
+    });
     return out;
+  }
+
+  /** 経路が成立しているか（1段でも生きた承認段があるか）を判定する */
+  function isRoutable(route) {
+    return (route || []).some(function (s) { return !s.skipped && !s.needsPick; }) ||
+           (route || []).some(function (s) { return !s.skipped && s.needsPick && s.approverId; });
+  }
+  /** 省略できない段が成立していない場合、その一覧を返す */
+  function blockingSteps(route) {
+    return (route || []).filter(function (s) { return s.blocking; });
   }
 
   /** 経路のうち、現在処理すべきステップ番号（1始まり）。完了なら 0 */
@@ -140,7 +243,7 @@ var WF = (function () {
       s.approvedBy = s.approvedBy || [];
       if (s.approvedBy.indexOf(String(meId)) < 0) s.approvedBy.push(String(meId));
       s.comments = (s.comments || []).concat([{ by: meName, at: DB.nowISO(), text: comment || '' }]);
-      var need = (s.members || []).length || 1;
+      var need = s.required || RouteSpec.requiredApprovals(s, (s.members || []).length) || 1;
       if (s.approvedBy.length < need) {
         return { status: CFG.STATUS.ACTIVE, route: route, nextStep: stepNo }; // 全員承認までこの段に留まる
       }
@@ -161,21 +264,41 @@ var WF = (function () {
       return { status: CFG.STATUS.SENTBACK, route: route, nextStep: 0 };
     }
     var next = currentStep(route);
+    /* 次の段に回った時刻を記録しておく（遅延判定と督促の起点になる） */
+    route.forEach(function (x) { if (x.step_no === next && !x.started_on) x.started_on = DB.nowISO(); });
     return { status: next === 0 ? CFG.STATUS.APPROVED : CFG.STATUS.ACTIVE, route: route, nextStep: next };
   }
 
-  /** 遅延判定（標準処理日数を超過しているか） */
-  function isDelayed(req, step) {
-    if (!step || step.action) return false;
-    var base = req.Applied_On ? new Date(req.Applied_On) : null; if (!base) return false;
-    var limit = new Date(base.getTime() + (step.days || 3) * 86400000);
-    return new Date() > limit;
+  /**
+   * 遅延判定
+   *  申請日ではなく「その段に回ってきた時刻」を起点にする。
+   *  申請日起点だと、前の段で10日かかった場合に、次の承認者は
+   *  回ってきた瞬間に「遅延」と表示され、自分の責任でない遅延を突きつけられる。
+   */
+  function stepStartedAt(req, route, step) {
+    if (!step) return null;
+    var prev = null;
+    (route || []).forEach(function (s) {
+      if (s.step_no < step.step_no && s.acted_on) {
+        if (!prev || new Date(s.acted_on) > new Date(prev)) prev = s.acted_on;
+      }
+    });
+    return prev || step.started_on || req.Applied_On || null;
   }
-  function overdueDays(req, step) {
-    if (!isDelayed(req, step)) return 0;
-    var base = new Date(req.Applied_On);
-    var limit = new Date(base.getTime() + (step.days || 3) * 86400000);
-    return Math.floor((Date.now() - limit) / 86400000) + 1;
+  function dueDateOf(req, route, step) {
+    var base = stepStartedAt(req, route, step);
+    if (!base) return null;
+    return new Date(new Date(base).getTime() + (step.days || 3) * 86400000);
+  }
+  function isDelayed(req, step, route) {
+    if (!step || step.action) return false;
+    var limit = dueDateOf(req, route || [], step);
+    return !!limit && new Date() > limit;
+  }
+  function overdueDays(req, step, route) {
+    if (!isDelayed(req, step, route)) return 0;
+    var limit = dueDateOf(req, route || [], step);
+    return Math.floor((Date.now() - limit.getTime()) / 86400000) + 1;
   }
 
   /** 明細合計と税額を集計 */
@@ -204,6 +327,7 @@ var WF = (function () {
   return {
     buildRoute: buildRoute, currentStep: currentStep, canAct: canAct, applyAction: applyAction,
     isDelayed: isDelayed, overdueDays: overdueDays, sumLines: sumLines, amountOf: amountOf,
+    isRoutable: isRoutable, blockingSteps: blockingSteps, dueDateOf: dueDateOf, stepStartedAt: stepStartedAt,
     delegateOf: delegateOf, match: match, num: num, departmentMembers: departmentMembers
   };
 })();

@@ -26,6 +26,7 @@
         <input id="globalSearch" class="global-search" type="search" placeholder="申請番号・件名・申請者で検索  （/）" aria-label="全体検索">
       </div>
       <div class="topbar-right">
+        <span id="pendingLogs" class="pending-logs" hidden></span>
         <button class="icon-btn" id="btnBell" aria-label="通知"><span>🔔</span><span class="badge-dot" id="bellBadge" hidden>0</span></button>
         <button class="icon-btn" id="btnTheme" aria-label="テーマ切替">🌓</button>
         <span id="userLabel" class="user-label" hidden></span>
@@ -40,10 +41,12 @@
 <div id="toastRoot" class="toast-root" role="status" aria-live="polite"></div>
 <script src="js/config.js"></script>
 <script src="js/data.js"></script>
+<script src="js/routes.js"></script>
 <script src="js/workflow.js"></script>
 <script src="js/seed.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/views.js"></script>
+<script src="js/editor.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

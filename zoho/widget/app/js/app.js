@@ -7,12 +7,20 @@ var App = (function () {
     requests: [], approvals: [], accessLogs: [], notifications: [], files: []
   };
   var identityError = null;   // ログイン者が社員マスタに無い等、身元が確定できない場合の理由
+  var ssoUserId = null;       // ログイン情報から確定した本人（切替の有無を判定するため）
   var currentUserId = null;
   var templates = [];
   var route = { name: 'dashboard', arg: '', params: {} };
 
   /* ---------- 参照ヘルパ ---------- */
-  function me() { return employeeById(currentUserId) || state.employees[0] || { ID: '', Employee_Name: '未設定', Roles: ['申請者'] }; }
+  function me() {
+    var e = employeeById(currentUserId);
+    if (e) return e;
+    /* 本人が確定していないときに社員一覧の先頭を返すと、証跡に無関係な人の名前が載る。
+       空の利用者として扱い、ログイン情報だけを残す。 */
+    var p = DB.initParams() || {};
+    return { ID: '', Employee_Name: (p.loginUser || p.loginuser || '（未確定）'), Roles: [], Department_name: '' };
+  }
   function employeeById(id) { for (var i = 0; i < state.employees.length; i++) if (String(state.employees[i].ID) === String(id)) return state.employees[i]; return null; }
   function requestById(id) { for (var i = 0; i < state.requests.length; i++) if (String(state.requests[i].ID) === String(id)) return state.requests[i]; return null; }
   function vendorById(id) { for (var i = 0; i < state.vendors.length; i++) if (String(state.vendors[i].ID) === String(id)) return state.vendors[i]; return null; }
@@ -38,17 +46,50 @@ var App = (function () {
 
   /* ---------- テンプレート読み込み（Creator の Request_Types 優先） ---------- */
   function loadTemplates() {
-    if (state.requestTypes && state.requestTypes.length) {
-      templates = state.requestTypes.filter(function (t) { return t.Is_Active !== false; })
-        .sort(function (a, b) { return (a.Sort_Order || 0) - (b.Sort_Order || 0); })
-        .map(function (t) {
-          var fields = [], route2 = { steps: [] };
-          try { fields = (JSON.parse(t.Field_Schema || '{}').fields) || []; } catch (e) { console.warn('Field_Schema の解析に失敗', t.Type_Code); }
-          try { route2 = JSON.parse(t.Route_Rule || '{"steps":[]}'); } catch (e) { console.warn('Route_Rule の解析に失敗', t.Type_Code); }
-          return { code: t.Type_Code, name: t.Type_Name, icon: t.Icon || '📄', category: t.Category || 'その他', desc: t.Description || '', fields: fields, route: route2 };
-        });
-    }
-    if (!templates.length) templates = TEMPLATES;   // フォールバック（定義未投入時）
+    /* Creator に登録された定義を優先しつつ、組み込みの12種は残す。
+       以前は「1件でもあれば組み込みを全部捨てる」作りだったため、
+       経路を1つ保存しただけで他の申請区分が消える危険があった。 */
+    var fromCreator = (state.requestTypes || [])
+      .filter(function (t) { return t.Is_Active !== false && t.Type_Code; })
+      .map(function (t) {
+        var fields = null, route2 = null;
+        try { fields = (JSON.parse(t.Field_Schema || '{}').fields) || null; } catch (e) { console.warn('Field_Schema の解析に失敗', t.Type_Code); }
+        try { route2 = JSON.parse(t.Route_Rule || 'null'); } catch (e) { console.warn('Route_Rule の解析に失敗', t.Type_Code); }
+        return {
+          code: t.Type_Code, name: t.Type_Name, icon: t.Icon || '📄',
+          category: t.Category || 'その他', desc: t.Description || '',
+          fields: fields, route: route2, sensitivity: t.Sensitivity || null, _fromCreator: true
+        };
+      });
+
+    var byCode = {};
+    TEMPLATES.forEach(function (t) {
+      var o = {}; Object.keys(t).forEach(function (k) { o[k] = t[k]; });
+      o.sensitivity = CFG.ACCESS.SENSITIVITY[t.code] || 'C';
+      byCode[t.code] = o;
+    });
+    fromCreator.forEach(function (t) {
+      var base = byCode[t.code] || { code: t.code, fields: [], route: { steps: [] } };
+      byCode[t.code] = {
+        code: t.code,
+        name: t.name || base.name,
+        icon: t.icon || base.icon,
+        category: t.category || base.category,
+        desc: t.desc || base.desc,
+        /* 定義が壊れている・空のときは組み込みを使う（申請できなくなるのを防ぐ） */
+        fields: (t.fields && t.fields.length) ? t.fields : base.fields,
+        route: (t.route && t.route.steps && t.route.steps.length) ? t.route : base.route,
+        sensitivity: t.sensitivity || base.sensitivity || 'C',
+        _fromCreator: true
+      };
+    });
+    templates = Object.keys(byCode).map(function (k) { return byCode[k]; });
+    /* 表示順は Creator の Sort_Order → 組み込みの並び */
+    var order = {}; TEMPLATES.forEach(function (t, i) { order[t.code] = i; });
+    (state.requestTypes || []).forEach(function (t) {
+      if (t.Sort_Order != null && t.Sort_Order !== '') order[t.Type_Code] = Number(t.Sort_Order);
+    });
+    templates.sort(function (a, b) { return (order[a.code] == null ? 99 : order[a.code]) - (order[b.code] == null ? 99 : order[b.code]); });
   }
 
   /* ---------- データ取得 ---------- */
@@ -105,6 +146,7 @@ var App = (function () {
         return false;
       }
       currentUserId = hit.ID;
+      ssoUserId = hit.ID;
       identityError = null;
       return true;
     }
@@ -113,6 +155,24 @@ var App = (function () {
     currentUserId = (saved && employeeById(saved)) ? saved : (state.employees[0] || {}).ID;
     identityError = null;
     return false;
+  }
+
+  /**
+   * 他人に成り代わって表示しているか
+   *  管理者が切替中に承認や申請を行うと、記録が本人名義になり
+   *  「本当に本人が押したのか」を後から証明できなくなる（否認防止が成立しない）。
+   *  そのため切替中は閲覧のみに制限する。
+   */
+  function isImpersonating() {
+    return !!(DB.isConnected() && ssoUserId && String(currentUserId) !== String(ssoUserId));
+  }
+  function blockIfImpersonating(what) {
+    if (!isImpersonating()) return false;
+    Access.log(CFG.ACCESS.ACTIONS.DENIED, {
+      targetType: what, detail: '他ユーザーに切替表示中の操作を拒否（本人：' + ((employeeById(ssoUserId) || {}).Employee_Name || '') + '）'
+    });
+    UI.toast('他の利用者に切り替えて表示している間は、この操作はできません（閲覧のみ）', 'warn');
+    return true;
   }
 
   /** ユーザー切替を出してよいか（本番で他人になりすませないようにする） */
@@ -133,6 +193,7 @@ var App = (function () {
     { key: 'access', label: '閲覧証跡', ico: '👁' },
     { group: '管理' },
     { key: 'finance', label: '経理処理', ico: '💴', roles: ['経理', '管理者'] },
+    { key: 'routes', label: '承認経路の設定', ico: '🧭', roles: ['管理者'] },
     { key: 'admin', label: '設定・マスタ', ico: '⚙️', roles: ['管理者'] }
   ];
   function renderNav() {
@@ -208,6 +269,7 @@ var App = (function () {
         case 'search': Views.search(el); break;
         case 'finance': Views.finance(el); break;
         case 'access': Views.accessAudit(el); break;
+        case 'routes': RouteEditor.render(el); break;
         case 'admin': Views.admin(el); break;
         default: Views.dashboard(el);
       }
@@ -280,6 +342,7 @@ var App = (function () {
   /* ---------- 起動 ---------- */
   function boot() {
     initTheme();
+    Access.loadPending();          // 前回送り切れなかった証跡を引き継ぐ
     document.getElementById('view').innerHTML = UI.skeleton(7);
     DB.init().then(function (res) {
       var chip = document.getElementById('modeChip');
@@ -297,6 +360,7 @@ var App = (function () {
       }
       renderUserSwitch();
       Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: 'アプリ', detail: (DB.isConnected() ? 'Creator接続' : 'デモ') + (fromSSO ? '／SSOユーザー自動判定' : '') });
+      Access.updateBadge();
       render();
     }).catch(function (e) {
       console.error(e);
@@ -317,7 +381,8 @@ var App = (function () {
       currentUserId = e.target.value;
       DB.lsSet('current_user', currentUserId);
       Access.log(CFG.ACCESS.ACTIONS.SWITCH_USER, { targetType: 'アプリ', detail: prev + ' → ' + me().Employee_Name });
-      UI.toast(me().Employee_Name + ' として表示しています', 'success');
+      UI.toast(me().Employee_Name + ' として表示しています' + (isImpersonating() ? '（閲覧のみ・操作はできません）' : ''),
+        isImpersonating() ? 'warn' : 'success');
       renderNav(); render();
     });
     var gs = document.getElementById('globalSearch');
@@ -342,6 +407,7 @@ var App = (function () {
     employeeById: employeeById, requestById: requestById, vendorById: vendorById, accountById: accountById,
     templates: function () { return templates; }, templateByCode: templateByCode, nextRequestNo: nextRequestNo,
     canSwitchUser: canSwitchUser, identityError: function () { return identityError; },
+    isImpersonating: isImpersonating, blockIfImpersonating: blockIfImpersonating,
     showHelp: showHelp
   };
 })();

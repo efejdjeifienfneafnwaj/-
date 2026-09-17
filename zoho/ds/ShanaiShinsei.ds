@@ -1068,6 +1068,22 @@ application "社内申請システム"
 				column = 1
 				width = medium
 			)
+			started_on
+			(
+				type = text
+				displayname = "この段に回ってきた日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			required_count
+			(
+				type = number
+				displayname = "可決に必要な人数"
+				row = 1
+				column = 1
+				width = medium
+			)
 			updated_at
 			(
 				type = text
@@ -1833,6 +1849,8 @@ application "社内申請システム"
 				due_date as "期限"
 				acted_on as "処理日時"
 				is_delegate as "代理承認（true/false）"
+				started_on as "この段に回ってきた日時"
+				required_count as "可決に必要な人数"
 				updated_at as "更新日時"
 			)
 		}
@@ -2661,6 +2679,8 @@ application "社内申請システム"
 									due_date as "期限"
 									acted_on as "処理日時"
 									is_delegate as "代理承認（true/false）"
+									started_on as "この段に回ってきた日時"
+									required_count as "可決に必要な人数"
 									updated_at as "更新日時"
 							)
 						)
@@ -2716,6 +2736,8 @@ application "社内申請システム"
 									due_date as "期限"
 									acted_on as "処理日時"
 									is_delegate as "代理承認（true/false）"
+									started_on as "この段に回ってきた日時"
+									required_count as "可決に必要な人数"
 									updated_at as "更新日時"
 							)
 						)

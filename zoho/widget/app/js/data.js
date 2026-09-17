@@ -200,6 +200,22 @@ var Access = (function () {
   var queue = [];
   var sessionId = 'sess_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   var viewStart = {};
+  var PENDING_KEY = 'pending_access_logs';
+  var retryTimer = null;
+
+  /* 送信できなかった証跡をブラウザに退避する。
+     タブを閉じても次回起動時に送り直せるようにするため。 */
+  function savePending() {
+    try { DB.lsSet(PENDING_KEY, queue.slice(0, 500)); } catch (e) { }
+  }
+  function loadPending() {
+    var saved = DB.lsGet(PENDING_KEY, []);
+    if (saved && saved.length) {
+      queue = saved.concat(queue);
+      console.info('[社内申請システム] 未送信の閲覧証跡 ' + saved.length + ' 件を再送します');
+    }
+  }
+  function pendingCount() { return queue.length; }
 
   function ctx() {
     var p = DB.initParams() || {};
@@ -237,7 +253,8 @@ var Access = (function () {
       Request_Type_Code: opt.typeCode || '',
       Sensitivity: opt.typeCode ? sensitivityOf(opt.typeCode) : '',
       Owner_Dept: opt.ownerDept || '',
-      Cross_Dept: !!(opt.ownerDept && me.Department_name && opt.ownerDept !== me.Department_name),
+      /* どちらかの部署が不明なら「他部署」に倒す。検知漏れより過検知を選ぶ。 */
+      Cross_Dept: (!opt.ownerDept || !me.Department_name) ? !!opt.targetId : (opt.ownerDept !== me.Department_name),
       Result_Count: opt.resultCount == null ? '' : opt.resultCount,
       Duration_Sec: opt.durationSec == null ? '' : opt.durationSec,
       Detail: opt.detail || '',
@@ -248,6 +265,8 @@ var Access = (function () {
       if (typeof App !== 'undefined' && App.state && App.state.accessLogs) App.state.accessLogs.unshift(rec);
     } catch (e) { /* 起動直後は App 未定義のことがある */ }
     queue.push(rec);
+    savePending();
+    updateBadge();
     flush();
     return rec;
   }
@@ -267,7 +286,8 @@ var Access = (function () {
     var sec = Math.round((Date.now() - t) / 1000);
     delete viewStart[req.ID];
     if (sec >= 3) {
-      log(CFG.ACCESS.ACTIONS.VIEW_DETAIL, {
+      /* 開始と同じ種別で記録すると閲覧回数が二重に数えられるため、終了は別種別にする */
+      log(CFG.ACCESS.ACTIONS.VIEW_END, {
         targetType: '申請', targetId: req.ID, targetNo: req.Request_No,
         targetSubject: req.Subject, typeCode: req.Type_Code,
         ownerDept: req.Applicant_Dept_name || req.Applicant_Dept,
@@ -285,25 +305,66 @@ var Access = (function () {
     if (sending || !queue.length) return;
     sending = true;
     var batch = queue.splice(0, queue.length);
+    var failed = [];
     var jobs = batch.map(function (r) {
-      return DB.add('AccessLogs', r).catch(function (e) { queue.push(r); throw e; });
+      return DB.add('AccessLogs', r).catch(function (e) { failed.push(r); });
     });
-    Promise.all(jobs).then(function () { sending = false; })
-      .catch(function () { sending = false; /* 次回操作時に再送 */ });
+    Promise.all(jobs).then(function () {
+      sending = false;
+      if (failed.length) {
+        queue = failed.concat(queue);
+        savePending();
+        /* 操作が止まっても再送を続ける（最大30秒間隔） */
+        if (!retryTimer) {
+          retryTimer = setTimeout(function () { retryTimer = null; flush(); }, 30000);
+        }
+      } else {
+        DB.lsSet(PENDING_KEY, []);
+      }
+      updateBadge();
+    });
+  }
+  function updateBadge() {
+    var el = (typeof document !== 'undefined') && document.getElementById('pendingLogs');
+    if (!el) return;
+    if (queue.length) {
+      el.hidden = false;
+      el.textContent = '証跡 未送信 ' + queue.length + '件';
+    } else { el.hidden = true; }
+  }
+
+  /** 記録の成功を待ってから次に進みたい場面で使う（機微度S/Aの閲覧・出力） */
+  function logAndWait(action, opt) {
+    var rec = log(action, opt);
+    return new Promise(function (resolve) {
+      var tries = 0;
+      (function check() {
+        if (queue.indexOf(rec) < 0) return resolve(true);
+        if (++tries > 20) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
   }
 
   /** 異常検知：閲覧監査画面でフラグを立てる */
   function anomalies(logs) {
     var A = CFG.ACCESS.ANOMALY, byActorHour = {}, byActorDayExport = {}, flagged = [];
     logs.forEach(function (l) {
-      var d = new Date(l.Log_Time); if (isNaN(d)) return;
+      var d = new Date(l.Log_Time);
+      if (isNaN(d)) {
+        /* 日時が壊れた記録は、握りつぶさず検知対象にする（監査上むしろ重要） */
+        l._reasons = ['日時が不正']; l._hourKey = 'bad'; l._dayKey = 'bad';
+        return;
+      }
       var reasons = [];
-      var h = d.getHours();
+      /* 閲覧者の端末のタイムゾーンに左右されないよう、日本時間で判定する */
+      var jst = new Date(d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 60000);
+      var h = jst.getHours();
       if (h >= A.NIGHT_FROM || h < A.NIGHT_TO) reasons.push('深夜アクセス');
       if (A.CROSS_DEPT && l.Cross_Dept && (l.Sensitivity === 'S' || l.Sensitivity === 'A')) reasons.push('他部署の機微申請を閲覧');
-      var hk = l.Actor + '|' + d.toISOString().slice(0, 13);
+      var hk = l.Actor + '|' + jst.toISOString().slice(0, 13);
       if (l.Action === CFG.ACCESS.ACTIONS.VIEW_DETAIL) { byActorHour[hk] = (byActorHour[hk] || 0) + 1; }
-      var dk = l.Actor + '|' + d.toISOString().slice(0, 10);
+      var dk = l.Actor + '|' + jst.toISOString().slice(0, 10);
       if (l.Action === CFG.ACCESS.ACTIONS.EXPORT_CSV) { byActorDayExport[dk] = (byActorDayExport[dk] || 0) + 1; }
       l._hourKey = hk; l._dayKey = dk; l._reasons = reasons;
     });
@@ -316,7 +377,18 @@ var Access = (function () {
     return flagged;
   }
 
-  return { log: log, openDetail: openDetail, closeDetail: closeDetail, denied: denied, flush: flush, anomalies: anomalies, sessionId: function () { return sessionId; } };
+  /* 離脱時にも送り切ろうとする */
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', function () { savePending(); flush(); });
+    window.addEventListener('visibilitychange', function () { if (document.hidden) { savePending(); flush(); } });
+  }
+
+  return {
+    log: log, logAndWait: logAndWait, openDetail: openDetail, closeDetail: closeDetail,
+    denied: denied, flush: flush, anomalies: anomalies, loadPending: loadPending,
+    pendingCount: pendingCount, updateBadge: updateBadge,
+    sessionId: function () { return sessionId; }
+  };
 })();
 
 /* =========================================================================
@@ -483,45 +555,94 @@ var Files = (function () {
  * ========================================================================= */
 var Perm = (function () {
   function roles(me) { return (me && me.Roles) || ['申請者']; }
-  function best(me, key) {
-    var v = null;
+
+  /** 役職の序列（小さいほど上位）。未設定は最下位として扱う。 */
+  function rank(title) {
+    var i = CFG.TITLES.indexOf(title);
+    return i < 0 ? 999 : i;
+  }
+
+  /**
+   * そのユーザーが持つ「閲覧できる範囲」を集合で返す。
+   *  以前は単一の値にまとめていたため、経理と人事を兼務すると
+   *  ロールの記述順で片方の範囲を失っていた（同値の比較で先勝ちになるため）。
+   */
+  function scopes(me) {
+    var set = { own: true };
     roles(me).forEach(function (r) {
       var p = CFG.PERMISSIONS[r]; if (!p) return;
-      if (key === 'canExport') v = v || p.canExport;
-      else if (key === 'canViewLog') v = (p.canViewLog === 'all') ? 'all' : (v || p.canViewLog);
-      else if (key === 'scope') {
-        var order = { own: 0, assigned: 1, finance: 2, hr: 2, all: 3 };
-        if (v == null || order[p.scope] > order[v]) v = p.scope;
-      }
+      set[p.scope] = true;
     });
-    return v;
+    if (set.all) return { all: true, own: true, assigned: true, finance: true, hr: true };
+    return set;
   }
-  /** 申請レコードを閲覧してよいか */
-  function canViewRequest(me, req, approvals) {
-    if (!me) return false;
-    var sc = best(me, 'scope');
-    if (sc === 'all') return true;
-    if (String(req.Applicant) === String(me.ID)) return true;
+  function scope(me) {
+    var s = scopes(me);
+    return s.all ? 'all' : (s.finance ? 'finance' : (s.hr ? 'hr' : (s.assigned ? 'assigned' : 'own')));
+  }
+
+  /** 申請の機微度（テンプレート定義を優先し、無ければ最も厳しい側に倒す） */
+  function sensitivityOf(req) {
+    var t = (typeof App !== 'undefined' && App.templateByCode) ? App.templateByCode(req.Type_Code) : null;
+    if (t && t.sensitivity) return t.sensitivity;
+    var s = CFG.ACCESS.SENSITIVITY[req.Type_Code];
+    return s || 'S';   // 未知の区分は最も厳しく扱う（既定を緩めると設定漏れが漏洩になる）
+  }
+
+  /** 自分がこの申請の経路上にいるか（承認者・処理者・合議メンバー・代理人） */
+  function onRoute(me, req, approvals) {
     var mine = (approvals || []).some(function (a) {
       return String(a.Request) === String(req.ID) &&
         (String(a.Approver) === String(me.ID) || String(a.Acted_By) === String(me.ID));
     });
     if (mine) return true;
-    if (sc === 'finance' && CFG.SCOPE_TYPES.finance.indexOf(req.Type_Code) >= 0) return true;
-    if (sc === 'hr' && CFG.SCOPE_TYPES.hr.indexOf(req.Type_Code) >= 0) return true;
-    /* 同一部署の上位役職者は部下の申請を閲覧可（機微度Sを除く） */
-    if (roles(me).indexOf('承認者') >= 0 && req.Applicant_Dept_name === me.Department_name) {
-      if ((CFG.ACCESS.SENSITIVITY[req.Type_Code] || 'C') !== 'S') return true;
+    /* 合議メンバーと代理人は Approvals に行が無いことがあるので経路本体も見る */
+    var route = [];
+    try { route = JSON.parse(req.Route_JSON || '[]'); } catch (e) { route = []; }
+    return route.some(function (s) {
+      if (String(s.approverId) === String(me.ID)) return true;
+      if (s.delegateId && String(s.delegateId) === String(me.ID)) return true;
+      return (s.members || []).some(function (m) { return String(m.id) === String(me.ID); });
+    });
+  }
+
+  /** 申請レコードを閲覧してよいか */
+  function canViewRequest(me, req, approvals) {
+    if (!me || !req) return false;
+    var sc = scopes(me);
+    if (sc.all) return true;
+    if (String(req.Applicant) === String(me.ID)) return true;
+    if (onRoute(me, req, approvals)) return true;
+    if (sc.finance && CFG.SCOPE_TYPES.finance.indexOf(req.Type_Code) >= 0) return true;
+    if (sc.hr && CFG.SCOPE_TYPES.hr.indexOf(req.Type_Code) >= 0) return true;
+
+    /* 同一部署の「上位役職者」は部下の申請を閲覧できる。
+       以前は役職を見ておらず、承認者ロールさえ持てば同部署の全員分が読めていた。 */
+    if (roles(me).indexOf('承認者') >= 0) {
+      var myDept = me.Department_name || '';
+      var theirDept = req.Applicant_Dept_name || req.Applicant_Dept || '';
+      if (!myDept || !theirDept) return false;          // 部署不明どうしを一致させない
+      if (myDept !== theirDept) return false;
+      if (sensitivityOf(req) === 'S') return false;     // 機微度Sは部署ルールの対象外
+      var applicant = (typeof App !== 'undefined' && App.employeeById) ? App.employeeById(req.Applicant) : null;
+      if (!applicant) return false;
+      if (String(applicant.ID) === String(me.ID)) return true;
+      return rank(me.Title) < rank(applicant.Title);    // 自分の役職が申請者より上位のときだけ
     }
     return false;
   }
   function filterRequests(me, reqs, approvals) {
-    return reqs.filter(function (r) { return canViewRequest(me, r, approvals); });
+    return (reqs || []).filter(function (r) { return canViewRequest(me, r, approvals); });
   }
-  function canExport(me) { return !!best(me, 'canExport'); }
-  function canViewAllLogs(me) { return best(me, 'canViewLog') === 'all'; }
+  function canExport(me) {
+    return roles(me).some(function (r) { return (CFG.PERMISSIONS[r] || {}).canExport; });
+  }
+  function canViewAllLogs(me) {
+    return roles(me).some(function (r) { return (CFG.PERMISSIONS[r] || {}).canViewLog === 'all'; });
+  }
   function isAdmin(me) { return roles(me).indexOf('管理者') >= 0; }
   function isFinance(me) { return roles(me).indexOf('経理') >= 0; }
   function isHR(me) { return roles(me).indexOf('人事') >= 0; }
-  return { canViewRequest: canViewRequest, filterRequests: filterRequests, canExport: canExport, canViewAllLogs: canViewAllLogs, isAdmin: isAdmin, isFinance: isFinance, isHR: isHR, scope: function (me) { return best(me, 'scope'); } };
+
+  return { canViewRequest: canViewRequest, filterRequests: filterRequests, canExport: canExport, canViewAllLogs: canViewAllLogs, isAdmin: isAdmin, isFinance: isFinance, isHR: isHR, scope: scope, scopes: scopes, rank: rank, sensitivityOf: sensitivityOf, onRoute: onRoute };
 })();

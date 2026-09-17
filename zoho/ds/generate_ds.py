@@ -71,6 +71,7 @@ FORMS = [
         ('acted_by_id', '処理者ID', T), ('acted_by_name', '処理者', T),
         ('action', '処理', T), ('comment', 'コメント', TA), ('due_date', '期限', T),
         ('acted_on', '処理日時', T), ('is_delegate', '代理承認（true/false）', T),
+        ('started_on', 'この段に回ってきた日時', T), ('required_count', '可決に必要な人数', N),
         ('updated_at', '更新日時', T),
     ]),
     ('Wf_Access_Form', '【システム用】閲覧証跡（追記専用）', [

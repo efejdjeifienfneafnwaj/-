@@ -54,6 +54,7 @@ a{color:var(--primary)}
 .icon-btn{position:relative;width:34px;height:34px;border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);cursor:pointer;display:grid;place-items:center}
 .icon-btn:hover{background:var(--neutral-weak)}
 .badge-dot{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 4px;border-radius:999px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center}
+.pending-logs{font-size:11px;font-weight:700;color:var(--warning);background:var(--warning-weak);border-radius:6px;padding:3px 8px;white-space:nowrap}
 .user-label{font-size:12.5px;font-weight:600;padding:0 6px;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}
 .user-switch{height:34px;border:1px solid var(--border);background:var(--surface);border-radius:var(--radius);padding:0 8px;max-width:210px}
 .view{flex:1;overflow-y:auto;padding:22px 24px 60px}
@@ -225,3 +226,35 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   @page{size:A4 portrait;margin:14mm}
 }
 .print-title{display:none}
+
+/* ===== 承認経路の設定画面 ===== */
+.route-editor{display:grid;grid-template-columns:250px 1fr;gap:14px;align-items:start}
+.re-list{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px;position:sticky;top:0}
+.re-type{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:0;background:transparent;border-radius:var(--radius);cursor:pointer;text-align:left;color:var(--text-muted);margin-bottom:1px}
+.re-type:hover{background:var(--neutral-weak);color:var(--text)}
+.re-type.active{background:var(--primary-weak);color:var(--primary-strong);font-weight:600}
+.re-type-name{flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.re-type .tag{flex:0 0 auto}
+.re-main{min-width:0}
+.re-step{display:flex;gap:12px;padding:14px;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface-2);margin-bottom:10px;position:relative}
+.re-step::after{content:"↓";position:absolute;left:24px;bottom:-16px;color:var(--text-faint);font-size:13px;z-index:1}
+.re-step:last-of-type::after{display:none}
+.re-step-no{width:28px;height:28px;flex:0 0 28px;border-radius:50%;background:var(--primary);color:#fff;display:grid;place-items:center;font-weight:700;font-size:12px}
+.re-step-body{flex:1;min-width:0}
+.re-cond{margin-top:10px;padding:10px;background:var(--surface);border:1px dashed var(--border-strong);border-radius:var(--radius)}
+.re-cond-head{display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:6px}
+.re-cond-text{font-size:12px;color:var(--text)}
+.re-cond-text.muted{color:var(--text-faint)}
+.re-group{border-left:3px solid var(--primary);padding:10px;margin:8px 0;background:var(--surface-2);border-radius:var(--radius)}
+.re-group .re-group{border-left-color:var(--info)}
+.re-rule{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.re-rule select,.re-rule input{min-height:32px;padding:4px 8px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--surface);flex:1;min-width:110px}
+.re-preview{margin-top:12px;padding:10px 12px;background:var(--primary-weak);color:var(--primary-strong);border-radius:var(--radius);font-size:12px;font-weight:600}
+@media (max-width:860px){
+  .route-editor{grid-template-columns:1fr}
+  .re-list{position:static;display:flex;gap:6px;overflow-x:auto}
+  .re-list .nav-group{display:none}
+  .re-type{width:auto;white-space:nowrap}
+  .re-step{flex-direction:column}
+  .re-step::after{display:none}
+}
