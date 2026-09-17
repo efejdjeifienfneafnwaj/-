@@ -1,0 +1,25 @@
+:root{
+  --bg:#f6f7f9; --surface:#fff; --border:#e5e7eb; --text:#111827; --muted:#6b7280; --primary:#2563eb;
+}
+[data-theme="dark"]{ --bg:#0f1115; --surface:#161a20; --border:#272d36; --text:#e8eaed; --muted:#9aa3af; --primary:#60a5fa; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:"Hiragino Kaku Gothic ProN","Yu Gothic Medium",Meiryo,system-ui,sans-serif;font-size:13.5px;line-height:1.7}
+.topbar{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.chip{font-size:11px;color:var(--muted);background:var(--bg);border-radius:6px;padding:3px 8px}
+.view{padding:20px 16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+/* 表は必ず折り返さず横スクロールさせる。ページ全体が横に伸びると
+   スマホで操作できなくなるため、スクロールは表の内側に閉じ込める */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
+th{text-align:left;color:var(--muted);font-size:11.5px;padding:8px;border-bottom:1px solid var(--border)}
+td{padding:9px 8px;border-bottom:1px solid var(--border)}
+.btn{height:34px;padding:0 14px;border:1px solid var(--border);background:var(--surface);border-radius:8px;cursor:pointer;font-weight:600}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+input,select{min-height:34px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;width:100%}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+@media (max-width:640px){
+  .view{padding:14px 12px}
+  .row input{max-width:none!important;flex:1 1 140px}
+}
