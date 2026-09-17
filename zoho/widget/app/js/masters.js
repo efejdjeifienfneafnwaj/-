@@ -52,7 +52,32 @@ var Masters = (function () {
         { key: 'Is_Active', label: '在籍している', type: 'bool', def: true,
           help: '外すと、この人はログインできなくなり、承認経路からも自動で外れます。' }
       ],
-      label_of: function (r) { return r.Employee_Name; }
+      label_of: function (r) { return r.Employee_Name; },
+      csv: {
+        file: '社員名簿',
+        matchKey: 'Email',                 // この列で既存を判定する（一致すれば更新、無ければ追加）
+        columns: [
+          { key: 'Employee_ID',   label: '社員番号',       required: true,  example: 'S0001' },
+          { key: 'Employee_Name', label: '氏名',           required: true,  example: '山田 太郎' },
+          { key: 'Employee_Kana', label: 'フリガナ',       required: false, example: 'ヤマダ タロウ' },
+          { key: 'Email',         label: 'メールアドレス', required: true,  example: 'yamada@example.co.jp' },
+          { key: 'Department_name', label: '所属部署',     required: true,  example: '第一営業部', from: 'dept' },
+          { key: 'Title',         label: '役職',           required: true,  example: '一般', options: function () { return CFG.TITLES; } },
+          { key: 'Manager_name',  label: '上長（氏名）',   required: false, example: '佐藤 健太' },
+          { key: 'Roles',         label: '権限',           required: false, example: '申請者',
+            options: function () { return CFG.ROLES; }, multi: true },
+          { key: 'Join_Date',     label: '入社日',         required: false, example: '2020-04-01' },
+          { key: 'Is_Active',     label: '在籍',           required: false, example: '○', bool: true }
+        ],
+        notes: [
+          '役職と権限は、下の選択肢から選んで入力してください（それ以外を書くと取り込めません）。',
+          '権限を複数付けるときは「承認者・経理」のように中黒か、「承認者,経理」のようにカンマで区切ります。',
+          '権限を空にすると、役職と所属から自動で提案されます。',
+          '上長は氏名で書けます。社員番号やIDは不要です。',
+          '在籍は ○ か 空欄。退職した人は「×」と書いてください。',
+          'メールアドレスは1人1つにしてください。同じアドレスを複数人で使うと、誰が見たか・誰が承認したかを区別できなくなります。'
+        ]
+      }
     },
     Departments: {
       label: '部署', icon: '🏢', entity: 'Departments',
@@ -74,7 +99,21 @@ var Masters = (function () {
           help: '「下位の部署も含める」で対象を広げるときに使います。' },
         { key: 'Sort_Order', label: '表示順', type: 'number' }
       ],
-      label_of: function (r) { return r.Department_Name; }
+      label_of: function (r) { return r.Department_Name; },
+      csv: {
+        file: '部署一覧', matchKey: 'Department_Code',
+        columns: [
+          { key: 'Department_Code', label: '部署コード', required: true,  example: 'D100' },
+          { key: 'Department_Name', label: '部署名',     required: true,  example: '第一営業部' },
+          { key: 'Parent_Name',     label: '上位部署',   required: false, example: '営業本部' },
+          { key: 'Sort_Order',      label: '表示順',     required: false, example: '1' }
+        ],
+        notes: [
+          '部署名は、社員名簿の「所属部署」と同じ表記にしてください。文字が1つでも違うと紐づきません。',
+          '上位部署は、この表に書いた別の部署名で指定します。無ければ空欄で構いません。',
+          '上位部署を使うと、承認経路で「下位の部署も含める」が使えるようになります。'
+        ]
+      }
     },
     Vendors: {
       label: '取引先', icon: '🏪', entity: 'Vendors',
@@ -99,7 +138,22 @@ var Masters = (function () {
         { key: 'Payment_Terms', label: '支払条件', type: 'text' },
         { key: 'Note', label: '備考', type: 'textarea' }
       ],
-      label_of: function (r) { return r.Vendor_Name; }
+      label_of: function (r) { return r.Vendor_Name; },
+      csv: {
+        file: '取引先一覧', matchKey: 'Vendor_Code',
+        columns: [
+          { key: 'Vendor_Code',    label: '取引先コード', required: false, example: 'V001' },
+          { key: 'Vendor_Name',    label: '取引先名',     required: true,  example: '株式会社サンプル' },
+          { key: 'Invoice_Reg_No', label: '登録番号',     required: false, example: 'T1234567890123' },
+          { key: 'Is_New',         label: '新規',         required: false, example: '', bool: true },
+          { key: 'Payment_Terms',  label: '支払条件',     required: false, example: '月末締め翌月末払い' }
+        ],
+        notes: [
+          '登録番号は T に続く13桁の数字です。正しく入れると「適格請求書発行事業者」が自動で付きます。',
+          '登録番号が無い取引先は空欄のままで構いません。経費申請時に「仕入税額控除の対象外」と表示されます。',
+          '新規は ○ か 空欄。承認経路の条件「新規の取引先を含む」で使えます。'
+        ]
+      }
     },
     Accounts: {
       label: '勘定科目', icon: '📒', entity: 'Accounts',
@@ -118,9 +172,357 @@ var Masters = (function () {
         { key: 'Tax_Category', label: '既定の税区分', type: 'tax' },
         { key: 'Is_Active', label: '有効', type: 'bool', def: true }
       ],
-      label_of: function (r) { return r.Account_Name; }
+      label_of: function (r) { return r.Account_Name; },
+      csv: {
+        file: '勘定科目一覧', matchKey: 'Account_Code',
+        columns: [
+          { key: 'Account_Code',  label: '科目コード',   required: true,  example: '5110' },
+          { key: 'Account_Name',  label: '勘定科目',     required: true,  example: '旅費交通費' },
+          { key: 'Tax_Category',  label: '既定の税区分', required: false, example: '課税10%',
+            options: function () { return CFG.TAX.map(function (t) { return t.key; }); } },
+          { key: 'Is_Active',     label: '有効',         required: false, example: '○', bool: true }
+        ],
+        notes: [
+          '科目コードは会計システムのものと合わせてください。仕訳CSVにそのまま出力されます。',
+          '税区分は下の選択肢から選んでください。',
+          '有効は ○ か 空欄。使わなくなった科目は「×」と書いてください。'
+        ]
+      }
     }
   };
+
+
+  /* =======================================================================
+   * CSV の書き出しと取り込み
+   *
+   *  「決まった型で入力してください」と言うより、その型を配るほうが早い。
+   *  書き出したファイルには記入例と入力のしかたを同梱し、
+   *  そのまま Excel で開いて追記 → 戻す、という往復ができるようにする。
+   * ===================================================================== */
+
+  /** CSV の1セルを組み立てる */
+  function cell(v) {
+    var s2 = (v == null ? '' : String(v));
+    return /[",\n\r]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2;
+  }
+
+  /** 画面上の値を、CSV に書く形へ直す */
+  function toCsvValue(col, rec) {
+    if (col.key === 'Manager_name') {
+      var m = App.employeeById(rec.Manager);
+      return m ? m.Employee_Name : '';
+    }
+    if (col.key === 'Parent_Name') {
+      var d = S().departments.filter(function (x) { return String(x.ID) === String(rec.Parent_Department); })[0];
+      return d ? d.Department_Name : '';
+    }
+    var v = rec[col.key];
+    if (col.bool) return v === false ? '×' : (v ? '○' : '');
+    if (Array.isArray(v)) return v.join('・');
+    if (col.key === 'Join_Date' || col.key === 'First_Traded_On') return String(v || '').slice(0, 10);
+    return v == null ? '' : v;
+  }
+
+  /**
+   * 記入用のファイルを書き出す
+   * @param {string} key   マスタの種類
+   * @param {boolean} withData true なら現在の登録内容も入れる（直して戻すため）
+   */
+  function exportCsv(key, withData) {
+    var def = DEFS[key], spec = def.csv;
+    var lines = [];
+    lines.push(spec.columns.map(function (c) { return cell(c.label); }).join(','));
+
+    if (withData) {
+      def.list().forEach(function (r) {
+        lines.push(spec.columns.map(function (c) { return cell(toCsvValue(c, r)); }).join(','));
+      });
+    } else {
+      lines.push(spec.columns.map(function (c) { return cell(c.example || ''); }).join(','));
+    }
+
+    /* 空行より下は取り込まれない。Excel で開いたときに説明が見えるようにしておく */
+    var pad = new Array(spec.columns.length).join(',');
+    lines.push(pad);
+    lines.push(cell('■ 入力のしかた') + pad);
+    lines.push(cell('この行より下は読み込まれません。消さずに残して構いません。') + pad);
+    if (!withData) lines.push(cell('2行目は記入例です。書き換えるか、行ごと消してください。') + pad);
+    (spec.notes || []).forEach(function (n) { lines.push(cell('・' + n) + pad); });
+
+    spec.columns.forEach(function (c) {
+      if (!c.options) return;
+      lines.push(pad);
+      lines.push(cell('「' + c.label + '」に書ける値') + pad);
+      c.options().forEach(function (o) { lines.push(cell('　' + o) + pad); });
+    });
+    if (key === 'Employees' && S().departments.length) {
+      lines.push(pad);
+      lines.push(cell('「所属部署」に書ける値（部署マスタに登録済みのもの）') + pad);
+      S().departments.forEach(function (d) { lines.push(cell('　' + d.Department_Name) + pad); });
+    }
+
+    var name = spec.file + (withData ? '_現在の登録' : '_記入用') + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+    UI.download(name, lines.join('\r\n'));
+    Access.log(CFG.ACCESS.ACTIONS.EXPORT_CSV, {
+      targetType: def.label + 'マスタ', resultCount: withData ? def.list().length : 0,
+      detail: withData ? '現在の登録内容を書き出し' : '記入用の様式を書き出し'
+    });
+    UI.toast(name + ' を書き出しました', 'success');
+  }
+
+  /* ---------- 取り込み ---------- */
+
+  /** CSV を行と列に分解する（引用符の中の改行とカンマも扱う） */
+  function parseCsv(text) {
+    var rows = [], row = [], cur = '', q = false;
+    text = String(text).replace(/^\uFEFF/, '');
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+      else if (ch !== '\r') cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  /** 役職と所属から権限を提案する（空欄のときだけ使う） */
+  function suggestRoles(title, dept) {
+    var roles = ['申請者'];
+    var rank = CFG.TITLES.indexOf(title);
+    if (rank >= 0 && rank <= CFG.TITLES.indexOf('課長')) roles.push('承認者');
+    if (/経理/.test(dept || '')) roles.push('経理');
+    if (/人事/.test(dept || '')) roles.push('人事');
+    return roles;
+  }
+
+  /** 取り込む内容を1行ずつ検証する */
+  function analyze(key, text) {
+    var def = DEFS[key], spec = def.csv;
+    var rows = parseCsv(text);
+    if (!rows.length) return { error: 'ファイルが空です' };
+
+    /* 見出し行を列に対応づける（列の順番が入れ替わっていても読めるようにする） */
+    var header = rows[0].map(function (h) { return String(h).trim(); });
+    var idx = {};
+    spec.columns.forEach(function (c) {
+      var i = header.indexOf(c.label);
+      if (i >= 0) idx[c.key] = i;
+    });
+    var missing = spec.columns.filter(function (c) { return c.required && idx[c.key] === undefined; });
+    if (missing.length) {
+      return { error: '見出し行に必要な列がありません：' + missing.map(function (c) { return c.label; }).join('、') +
+        '　（「記入用の様式を書き出す」で出したファイルを使ってください）' };
+    }
+
+    var out = [], seenKey = {};
+    for (var r = 1; r < rows.length; r++) {
+      var raw = rows[r];
+      /* 空行より下は説明なので読まない */
+      if (!raw.length || raw.every(function (v) { return String(v).trim() === ''; })) break;
+
+      var rec = {}, problems = [], rawVal = {};
+      spec.columns.forEach(function (c) {
+        var v = idx[c.key] === undefined ? '' : String(raw[idx[c.key]] == null ? '' : raw[idx[c.key]]).trim();
+        rawVal[c.key] = v;
+        if (c.required && !v) problems.push(c.label + 'が空です');
+        if (v && c.options) {
+          var allowed = c.options();
+          if (c.multi) {
+            var parts = v.split(/[,、・]/).map(function (x) { return x.trim(); }).filter(Boolean);
+            var bad = parts.filter(function (x) { return allowed.indexOf(x) < 0; });
+            if (bad.length) problems.push(c.label + '「' + bad.join('・') + '」は選択肢にありません');
+            rec[c.key] = parts;
+            return;
+          }
+          if (allowed.indexOf(v) < 0) problems.push(c.label + '「' + v + '」は選択肢にありません');
+        }
+        if (c.bool) { rec[c.key] = !(v === '×' || v === 'x' || v === '✕' || v === 'false'); return; }
+        rec[c.key] = v;
+      });
+
+      /* 記入例の行をそのまま残している場合は飛ばす。
+         真偽値の列は変換後だと比較できないので、書かれていた文字列そのもので見る。 */
+      var withExample = spec.columns.filter(function (c) { return c.example; });
+      var isExample = withExample.length > 0 && withExample.every(function (c) {
+        return rawVal[c.key] === String(c.example);
+      });
+      if (isExample) { out.push({ line: r + 1, rec: rec, skip: true, problems: ['記入例の行なので取り込みません'] }); continue; }
+
+      /* マスタごとの追加検証 */
+      if (key === 'Employees') {
+        if (rec.Email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(rec.Email)) problems.push('メールアドレスの形式が正しくありません');
+        var lower = String(rec.Email || '').toLowerCase();
+        if (lower && seenKey[lower]) problems.push('このファイルの中でメールアドレスが重複しています（' + seenKey[lower] + '行目）');
+        if (lower) seenKey[lower] = r + 1;
+        if (rec.Department_name && !S().departments.some(function (d) { return d.Department_Name === rec.Department_name; })) {
+          problems.push('部署「' + rec.Department_name + '」が部署マスタにありません');
+        }
+        if (!rec.Roles || !rec.Roles.length) {
+          rec.Roles = suggestRoles(rec.Title, rec.Department_name);
+          rec._suggested = true;
+        }
+      }
+      if (key === 'Vendors' && rec.Invoice_Reg_No && !/^T\d{13}$/.test(rec.Invoice_Reg_No)) {
+        problems.push('登録番号は T に続く13桁の数字で入力してください');
+      }
+
+      /* 既存と照合して、追加か更新かを決める */
+      var mk = spec.matchKey, existing = null;
+      if (mk && rec[mk]) {
+        existing = def.list().filter(function (x) {
+          return String(x[mk] || '').toLowerCase() === String(rec[mk]).toLowerCase();
+        })[0] || null;
+      }
+      out.push({ line: r + 1, rec: rec, existing: existing, problems: problems, skip: false });
+    }
+    return { rows: out };
+  }
+
+  /** 取り込み画面 */
+  function openImport(key) {
+    var def = DEFS[key];
+    if (App.blockIfImpersonating('マスタの取り込み')) return;
+    if (!def.canEdit(me())) { Access.denied('マスタの取り込み', def.label); UI.toast('取り込みの権限がありません（記録しました）', 'error'); return; }
+
+    var analyzed = null;
+    UI.modal({
+      title: def.label + 'マスタの取り込み',
+      okText: '取り込む',
+      bodyHtml:
+        '<div class="page-sub" style="margin-bottom:10px">' +
+        '「記入用の様式を書き出す」で出したファイルに記入して、ここに戻してください。' +
+        '取り込む前に、何件入るか・何件弾かれるかを表示します。</div>' +
+        '<div class="inline-row" style="margin-bottom:10px">' +
+        '<input type="file" id="imp_file" accept=".csv,text/csv" style="flex:1">' +
+        '</div>' +
+        '<div class="page-sub" style="margin-bottom:6px">ファイルを選ばず、Excel からそのまま貼り付けることもできます。</div>' +
+        '<textarea id="imp_text" style="width:100%;min-height:110px;font-family:monospace;font-size:11.5px" ' +
+        'placeholder="ここに貼り付け（1行目は見出し行）"></textarea>' +
+        '<div id="imp_result" style="margin-top:12px"></div>',
+      onOk: function () {
+        if (!analyzed || !analyzed.rows) { UI.toast('先にファイルを選ぶか貼り付けてください', 'error'); return false; }
+        var ok = analyzed.rows.filter(function (r) { return !r.skip && !r.problems.length; });
+        if (!ok.length) { UI.toast('取り込める行がありません', 'error'); return false; }
+        runImport(key, ok);
+      }
+    });
+
+    var box = document.querySelector('.modal');
+    function show(text) {
+      analyzed = analyze(key, text);
+      var el = box.querySelector('#imp_result');
+      if (analyzed.error) {
+        el.innerHTML = '<div class="badge b-rejected" style="display:block;padding:8px 12px">' + E(analyzed.error) + '</div>';
+        return;
+      }
+      var rows = analyzed.rows;
+      var ok = rows.filter(function (r) { return !r.skip && !r.problems.length; });
+      var ng = rows.filter(function (r) { return r.problems.length; });
+      var add = ok.filter(function (r) { return !r.existing; }).length;
+      var upd = ok.length - add;
+      var sug = ok.filter(function (r) { return r.rec._suggested; }).length;
+
+      el.innerHTML =
+        '<div class="inline-row" style="margin-bottom:8px">' +
+        '<span class="badge ' + (ok.length ? 'b-approved' : 'b-draft') + '">取り込める ' + ok.length + '件</span>' +
+        (add ? '<span class="tag">新規 ' + add + '件</span>' : '') +
+        (upd ? '<span class="tag">更新 ' + upd + '件</span>' : '') +
+        (ng.length ? '<span class="badge b-rejected">取り込めない ' + ng.length + '件</span>' : '') +
+        (sug ? '<span class="tag">権限を自動提案 ' + sug + '件</span>' : '') +
+        '</div>' +
+        (ng.length ?
+          '<div class="table-wrap" style="max-height:220px;overflow:auto"><table class="tbl"><thead><tr>' +
+          '<th style="width:60px">行</th><th>内容</th><th>理由</th></tr></thead><tbody>' +
+          ng.slice(0, 40).map(function (r) {
+            return '<tr><td>' + r.line + '</td>' +
+              '<td>' + E(def.csv.columns.slice(0, 3).map(function (c) { return r.rec[c.key]; }).filter(Boolean).join(' / ')) + '</td>' +
+              '<td>' + r.problems.map(function (p) { return '<span class="badge b-sentback">' + E(p) + '</span>'; }).join(' ') + '</td></tr>';
+          }).join('') + '</tbody></table></div>' : '') +
+        (ok.length ?
+          '<div class="page-sub" style="margin-top:8px">取り込む例：' +
+          E(ok.slice(0, 3).map(function (r) { return def.csv.columns.slice(0, 2).map(function (c) { return r.rec[c.key]; }).filter(Boolean).join(' '); }).join('／')) +
+          (ok.length > 3 ? ' ほか' + (ok.length - 3) + '件' : '') + '</div>' : '');
+    }
+
+    box.querySelector('#imp_file').addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0]; if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () { box.querySelector('#imp_text').value = ''; show(String(rd.result || '')); };
+      rd.onerror = function () { UI.toast('ファイルを読み込めませんでした', 'error'); };
+      rd.readAsText(f, 'UTF-8');
+    });
+    var ta = box.querySelector('#imp_text');
+    var t = null;
+    ta.addEventListener('input', function () {
+      clearTimeout(t);
+      t = setTimeout(function () { if (ta.value.trim()) show(ta.value); }, 400);
+    });
+  }
+
+  /** 実際に登録する（直列に実行して、途中で失敗しても件数が分かるようにする） */
+  function runImport(key, rows) {
+    var def = DEFS[key];
+    var added = 0, updated = 0, failed = 0;
+    var i = 0;
+
+    function normalize(rec) {
+      var o = {};
+      Object.keys(rec).forEach(function (k) { if (k.indexOf('_') !== 0) o[k] = rec[k]; });
+      if (key === 'Employees') {
+        o.Department = o.Department_name;
+        /* 上長は氏名で書けるようにしてある。ここで実在の人に解決する */
+        if (o.Manager_name) {
+          var m = S().employees.filter(function (e) { return e.Employee_Name === o.Manager_name; })[0];
+          o.Manager = m ? m.ID : '';
+        }
+      }
+      if (key === 'Departments' && o.Parent_Name) {
+        var d = S().departments.filter(function (x) { return x.Department_Name === o.Parent_Name; })[0];
+        o.Parent_Department = d ? d.ID : '';
+        delete o.Parent_Name;
+      }
+      if (key === 'Vendors' && /^T\d{13}$/.test(o.Invoice_Reg_No || '')) o.Is_Qualified = true;
+      return o;
+    }
+
+    function step() {
+      if (i >= rows.length) return finish();
+      var r = rows[i++];
+      var obj = normalize(r.rec);
+      var p;
+      if (r.existing) {
+        Object.keys(obj).forEach(function (k) { r.existing[k] = obj[k]; });
+        p = DB.update(def.entity, r.existing.ID, obj).then(function () { updated++; });
+      } else {
+        p = DB.add(def.entity, obj).then(function (saved) { def.list().push(saved); added++; });
+      }
+      return p.catch(function (e) { failed++; console.warn('取り込みに失敗', r.line, e); }).then(step);
+    }
+
+    function finish() {
+      /* 上長を氏名で書いた行が、後から登録された人を指していることがあるので解決し直す */
+      if (key === 'Employees') {
+        var byName = {};
+        S().employees.forEach(function (e) { if (e.Employee_Name) byName[e.Employee_Name] = e.ID; });
+        S().employees.forEach(function (e) {
+          if (!e.Manager && e.Manager_name && byName[e.Manager_name]) e.Manager = byName[e.Manager_name];
+        });
+      }
+      App.audit('マスタ一括取り込み', def.label, '',
+        '新規' + added + '件／更新' + updated + '件' + (failed ? '／失敗' + failed + '件' : ''));
+      UI.toast('新規 ' + added + '件、更新 ' + updated + '件を取り込みました' + (failed ? '（失敗 ' + failed + '件）' : ''),
+        failed ? 'warn' : 'success');
+      App.refresh();
+    }
+
+    UI.toast('取り込んでいます…');
+    step();
+  }
 
   /* ---------- 一覧の描画 ---------- */
   function render(el, which, focusId) {
@@ -149,7 +551,12 @@ var Masters = (function () {
       '<div class="page-head"><div><div class="page-title">設定・マスタ</div>' +
       '<div class="page-sub">承認経路の前提になる情報です。変更はすべて操作証跡に残ります。</div></div>' +
       '<div class="page-actions">' +
-      (editable ? '<button class="btn btn-primary" data-act="add">＋ ' + E(def.label) + 'を追加</button>' : '<span class="tag">このマスタの編集権限がありません</span>') +
+      (editable ?
+        '<button class="btn" data-act="tpl">📄 記入用の様式を書き出す</button>' +
+        '<button class="btn" data-act="exp">現在の登録を書き出す</button>' +
+        '<button class="btn" data-act="imp">📥 ファイルから取り込む</button>' +
+        '<button class="btn btn-primary" data-act="add">＋ ' + E(def.label) + 'を追加</button>'
+        : '<span class="tag">このマスタの編集権限がありません</span>') +
       '</div></div>' +
       '<div class="tabs">' +
       Object.keys(DEFS).map(function (k) {
@@ -404,6 +811,12 @@ var Masters = (function () {
     }
     var add = el.querySelector('[data-act="add"]');
     if (add) add.addEventListener('click', function () { openForm(key, null); });
+    var tpl = el.querySelector('[data-act="tpl"]');
+    if (tpl) tpl.addEventListener('click', function () { exportCsv(key, false); });
+    var exp = el.querySelector('[data-act="exp"]');
+    if (exp) exp.addEventListener('click', function () { exportCsv(key, true); });
+    var imp = el.querySelector('[data-act="imp"]');
+    if (imp) imp.addEventListener('click', function () { openImport(key); });
     el.querySelectorAll('[data-edit]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -418,5 +831,6 @@ var Masters = (function () {
     }
   }
 
-  return { render: render, openForm: openForm, DEFS: DEFS };
+  return { render: render, openForm: openForm, DEFS: DEFS,
+           exportCsv: exportCsv, openImport: openImport, analyze: analyze, parseCsv: parseCsv, suggestRoles: suggestRoles };
 })();
