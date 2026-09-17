@@ -92,6 +92,20 @@ const cardText = (page, id, sel) =>
   await page.waitForSelector('#cfAppsSave');
   check('e-ラーニングの名前は上の欄で変えるので、ここでは触れない',
     await page.$eval('#cfA_lms_n', e => e.disabled) === true);
+  /* zip に bg.jpg があるとき、設定画面のプレビューの写真が枠から出て
+     画面全体を覆い、設定が「見当たらない」状態になっていた */
+  const pv = await page.evaluate(() => {
+    const img = document.querySelector('.hero-pv .hero-file');
+    if(!img) return { img:false };
+    const b = img.getBoundingClientRect(), box = img.parentElement.getBoundingClientRect();
+    return { img:true, h:Math.round(b.height), inBox: b.top >= box.top - 1 && b.bottom <= box.bottom + 1 && b.height < 200 };
+  });
+  check('背景画像のプレビューは枠の中に収まっている（画面を覆わない）', pv.img && pv.inBox, JSON.stringify(pv));
+  const covered = await page.evaluate(() => {
+    const el = document.elementFromPoint(640, 300);
+    return el ? (el.className || el.tagName) : '';
+  });
+  check('設定画面の中身が前に出ている（画像に隠れていない）', !/hero-file|hero-img/.test(String(covered)), String(covered));
   await page.fill('#cfA_shinsei_n', 'ワークフロー');
   await page.fill('#cfA_shinsei_s', '稟議と経費の申請');
   await page.selectOption('#cfA_shinsei_i', 'medal');

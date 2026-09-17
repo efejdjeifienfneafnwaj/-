@@ -924,8 +924,10 @@ kbd{
 }
 .up-pv .logo-set{font-size:.8em;}
 .up-pv .logo-wd{color:var(--ink);}
-.hero-pv{height:96px;overflow:hidden;padding:0;background:#04121d;}
-.hero-pv .hero-svg,.hero-pv .hero-img{width:100%;height:96px;position:static;}
+/* position:relative が無いと、中の絶対配置（inset:0）が枠ではなく画面全体に広がり、
+   設定画面をまるごと覆ってしまう（zip に bg.jpg を入れたときに起きた） */
+.hero-pv{height:96px;overflow:hidden;padding:0;background:#04121d;position:relative;}
+.hero-pv .hero-svg,.hero-pv .hero-img,.hero-pv .hero-file{width:100%;height:96px;position:static;object-fit:cover;}
 .up-b{min-width:0;}
 .up-b b{display:block;font-size:13px;margin-bottom:3px;}
 .up-b span{display:block;font-size:11.5px;color:var(--ink-3);line-height:1.7;}
