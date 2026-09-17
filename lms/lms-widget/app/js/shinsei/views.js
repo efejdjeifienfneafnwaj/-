@@ -1366,7 +1366,7 @@ var Views = (function () {
       '<button class="tab' + (tab === '__other' ? ' active' : '') + '" data-mtab="__other">⚙️ 運用設定</button>' +
       '</div><div class="card" id="abody"></div>';
     var b = el.querySelector('#abody');
-    if (tab === 'tpl') b.innerHTML = tplAdmin(); else b.innerHTML = sysAdmin();
+    if (tab === 'tpl') { b.innerHTML = tplAdmin(); bindTpl(b); } else b.innerHTML = sysAdmin();
     el.querySelectorAll('[data-mtab]').forEach(function (x) { x.addEventListener('click', function () { App.go('admin?tab=' + x.dataset.mtab); }); });
     bindSys(b);
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '管理設定', detail: 'タブ：' + tab });
@@ -1378,19 +1378,316 @@ var Views = (function () {
         return '<tr>' + r.map(function (c) { return '<td>' + E(c == null ? '' : c) + '</td>'; }).join('') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
+  /* =======================================================================
+   * 申請区分（テンプレート）の作成・編集
+   *
+   *  以前は JSON の一覧表を見せるだけで、区分を足すには Creator の
+   *  Request_Types フォームを直に触るしかなかった。設定作業が製品の外に
+   *  出ると運用が続かないので（masters.js と同じ理由）、画面で完結させる。
+   *
+   *  ・基本情報（名称・アイコン・カテゴリ・説明・機微度）と、
+   *    申請者が入力する項目（ラベル・種類・必須・選択肢）をここで直す。
+   *  ・承認経路は「承認経路の設定」（RouteEditor）がすでにあるので、そちらへ渡す。
+   *  ・消すのではなく「使わない」にする。過去の申請が開けなくなるのを防ぐため。
+   *  ・この画面で扱わない設定（明細の列・電子帳簿保存の印など）は、
+   *    そのまま持ち越す。ラベルを直しただけで列が消えるような事故を起こさない。
+   * ===================================================================== */
+  var TPL_TYPES = [
+    ['text', '1行の文字'], ['textarea', '複数行の文字'], ['currency', '金額'], ['number', '数値'],
+    ['date', '日付'], ['checkbox', 'チェック'], ['select', '選択（1つ選ぶ）'],
+    ['employee', '社員を選ぶ'], ['department', '部署を選ぶ'], ['vendor', '取引先を選ぶ'],
+    ['account', '勘定科目を選ぶ'], ['files', '添付ファイル'], ['lines', '明細（表）']
+  ];
+  var TPL_SENS = [['S', 'S：最重要（人事・退職など）'], ['A', 'A：重要'], ['B', 'B：通常'], ['C', 'C：軽微']];
+  /* 編集中の区分。draft が入っているあいだは一覧ではなく入力画面を出す */
+  var tplSt = { draft: null, isNew: false };
+
+  function tplTypeLabel(t) {
+    var hit = TPL_TYPES.filter(function (x) { return x[0] === t; })[0];
+    return hit ? hit[1] : t;
+  }
+  function tplBlank() {
+    return { code: '', name: '', icon: '📄', category: 'その他', desc: '', sensitivity: 'C',
+      fields: [{ key: 'subject', label: '件名', type: 'text', required: true, full: true }] };
+  }
+  function tplDraftFrom(t) {
+    return { code: t.code, name: t.name, icon: t.icon || '📄', category: t.category || 'その他',
+      desc: t.desc || '', sensitivity: t.sensitivity || CFG.ACCESS.SENSITIVITY[t.code] || 'C',
+      fields: JSON.parse(JSON.stringify(t.fields || [])) };
+  }
+  function tplRecord(code) {
+    return S().requestTypes.filter(function (r) { return r.Type_Code === code; })[0];
+  }
+
   function tplAdmin() {
-    return '<div class="card-body">' +
-      '<div class="page-sub" style="margin-bottom:10px">テンプレート定義（JSON）。Creator の Request_Types フォームに保存されている内容です。</div>' +
-      simpleTable(['コード', '名称', 'カテゴリ', '機微度', '段数', '経路の条件'], App.templates().map(function (t) {
-        var flds = RouteSpec.fieldsFor(t, {
-          departments: S().departments.map(function (d) { return d.Department_Name; }), titles: CFG.TITLES,
-          vendors: S().vendors.map(function (v) { return v.Vendor_Name; }),
-          accounts: S().accounts.map(function (a) { return a.Account_Name; })
-        });
-        var norm = RouteSpec.normalize(t.route, t).steps;
-        return [t.code, t.name, t.category, CFG.ACCESS.SENSITIVITY[t.code] || 'C', norm.length,
-        norm.map(function (s) { return s.name + (s.conditions ? '〔' + RouteSpec.describe(s.conditions, flds) + '〕' : ''); }).join(' → ')];
-      })) + '</div>';
+    return tplSt.draft ? tplFormHtml() : tplListHtml();
+  }
+
+  function tplListHtml() {
+    var list = App.templates();
+    var off = (S().requestTypes || []).filter(function (r) { return r.Is_Active === false && r.Type_Code; });
+    var h = '<div class="card-body">' +
+      '<div class="inline-row" style="justify-content:space-between;margin-bottom:12px">' +
+      '<div class="page-sub">申請の種類（申請区分）です。ここで作った区分が「申請する」に並びます。' +
+      '承認の順番は「経路」から組みます。</div>' +
+      '<button class="btn btn-primary" data-tpl-new>＋ 新しい申請区分</button></div>';
+    if (!list.length) {
+      h += UI.empty('📄', '申請区分がありません', '「＋ 新しい申請区分」から作ってください。');
+    } else {
+      h += '<div class="table-wrap"><table class="tbl"><thead><tr>' +
+        '<th></th><th>名称</th><th>コード</th><th>カテゴリ</th><th>項目</th><th>承認の段数</th><th>機微度</th><th></th>' +
+        '</tr></thead><tbody>' +
+        list.map(function (t) {
+          var steps = 0;
+          try { steps = RouteSpec.normalize(t.route, t).steps.length; } catch (e) { steps = 0; }
+          return '<tr>' +
+            '<td style="font-size:18px">' + E(t.icon || '📄') + '</td>' +
+            '<td><b>' + E(t.name) + '</b>' + (t.desc ? '<div class="page-sub">' + E(t.desc) + '</div>' : '') + '</td>' +
+            '<td class="nowrap"><span class="tag">' + E(t.code) + '</span></td>' +
+            '<td class="nowrap">' + E(t.category) + '</td>' +
+            '<td class="num">' + (t.fields || []).length + '</td>' +
+            '<td class="num">' + (steps ? steps + ' 段' : '<span class="badge b-sentback">未設定</span>') + '</td>' +
+            '<td class="nowrap">' + E(t.sensitivity || CFG.ACCESS.SENSITIVITY[t.code] || 'C') + '</td>' +
+            '<td class="nowrap"><div class="inline-row" style="gap:4px">' +
+            '<button class="btn btn-sm" data-tpl-edit="' + E(t.code) + '">編集</button>' +
+            '<button class="btn btn-sm" data-tpl-route="' + E(t.code) + '">経路</button>' +
+            '<button class="btn btn-sm" data-tpl-copy="' + E(t.code) + '">複製</button>' +
+            '<button class="btn btn-sm" data-tpl-off="' + E(t.code) + '">使わない</button>' +
+            '</div></td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    if (off.length) {
+      h += '<div class="page-sub" style="margin:18px 0 6px"><b>使っていない申請区分</b>（「申請する」には出ません。過去の申請はそのまま開けます）</div>' +
+        '<div class="table-wrap"><table class="tbl"><tbody>' +
+        off.map(function (r) {
+          return '<tr><td style="font-size:18px">' + E(r.Icon || '📄') + '</td><td><b>' + E(r.Type_Name) + '</b></td>' +
+            '<td class="nowrap"><span class="tag">' + E(r.Type_Code) + '</span></td>' +
+            '<td class="nowrap"><button class="btn btn-sm" data-tpl-on="' + E(r.Type_Code) + '">また使う</button></td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    return h + '</div>';
+  }
+
+  function tplFormHtml() {
+    var d = tplSt.draft;
+    var cats = {};
+    App.templates().forEach(function (t) { if (t.category) cats[t.category] = 1; });
+    var h = '<div class="card-body">' +
+      '<div class="inline-row" style="justify-content:space-between;margin-bottom:12px">' +
+      '<div class="page-title" style="font-size:15px">' + (tplSt.isNew ? '新しい申請区分' : '申請区分を編集：' + E(d.name)) + '</div>' +
+      '<div class="inline-row"><button class="btn" data-tpl-cancel>やめる</button>' +
+      '<button class="btn btn-primary" data-tpl-save>保存する</button></div></div>';
+
+    h += '<div class="form-grid" id="tplBasic">' +
+      '<div class="field"><label>コード <span class="help">英大文字・数字・_（あとから変えられません）</span></label>' +
+      '<input data-tb="code" value="' + E(d.code) + '" placeholder="例）FACILITY"' + (tplSt.isNew ? '' : ' disabled') + '></div>' +
+      '<div class="field"><label>名称</label><input data-tb="name" value="' + E(d.name) + '" placeholder="例）設備購入申請"></div>' +
+      '<div class="field"><label>アイコン <span class="help">絵文字を1つ</span></label><input data-tb="icon" value="' + E(d.icon) + '" style="max-width:90px"></div>' +
+      '<div class="field"><label>カテゴリ <span class="help">「申請する」の見出しになります</span></label>' +
+      '<input data-tb="category" list="tplCats" value="' + E(d.category) + '"><datalist id="tplCats">' +
+      Object.keys(cats).map(function (c) { return '<option value="' + E(c) + '">'; }).join('') + '</datalist></div>' +
+      '<div class="field"><label>機微度 <span class="help">誰が閲覧できるかの基準になります</span></label><select data-tb="sensitivity">' +
+      TPL_SENS.map(function (s) { return '<option value="' + s[0] + '"' + (d.sensitivity === s[0] ? ' selected' : '') + '>' + E(s[1]) + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field full"><label>説明 <span class="help">申請の種類を選ぶ画面に出ます</span></label><input data-tb="desc" value="' + E(d.desc) + '"></div>' +
+      '</div>';
+
+    h += '<div class="card-head" style="padding:14px 0 8px;margin-top:8px;border-top:1px solid var(--border)"><div class="card-title">申請者が入力する項目</div>' +
+      '<button class="btn btn-sm" data-tpl-addf style="margin-left:auto">＋ 項目を足す</button></div>';
+    if (!d.fields.length) {
+      h += '<div class="page-sub" style="padding:8px 0">項目がありません。「＋ 項目を足す」から足してください。</div>';
+    } else {
+      h += '<div class="table-wrap"><table class="tbl" id="tplFields"><thead><tr>' +
+        '<th style="width:26%">ラベル</th><th style="width:16%">キー</th><th style="width:18%">種類</th>' +
+        '<th>選択肢・補足</th><th class="nowrap">必須</th><th class="nowrap">横いっぱい</th><th></th></tr></thead><tbody>';
+      d.fields.forEach(function (f, i) {
+        var extra;
+        if (f.type === 'select' || f.type === 'radio') {
+          extra = '<input data-tf="options" data-i="' + i + '" value="' + E((f.options || []).join('、')) + '" placeholder="選択肢を「、」で区切る">';
+        } else if (f.type === 'lines') {
+          extra = '<span class="help">列：' + E((f.columns || []).map(function (c) { return c.label; }).join('・') || '（なし）') +
+            '　※列はこの画面では変えられません（そのまま保ちます）</span>';
+        } else {
+          extra = '<input data-tf="help" data-i="' + i + '" value="' + E(f.help || f.placeholder || '') + '" placeholder="入力のヒント（任意）">';
+        }
+        h += '<tr data-row="' + i + '">' +
+          '<td><input data-tf="label" data-i="' + i + '" value="' + E(f.label || '') + '"></td>' +
+          '<td><input data-tf="key" data-i="' + i + '" value="' + E(f.key || '') + '" style="font-family:monospace"></td>' +
+          '<td><select data-tf="type" data-i="' + i + '">' +
+          TPL_TYPES.map(function (x) { return '<option value="' + x[0] + '"' + (f.type === x[0] ? ' selected' : '') + '>' + E(x[1]) + '</option>'; }).join('') +
+          (TPL_TYPES.some(function (x) { return x[0] === f.type; }) ? '' : '<option value="' + E(f.type) + '" selected>' + E(f.type) + '</option>') +
+          '</select></td>' +
+          '<td>' + extra + '</td>' +
+          '<td class="nowrap" style="text-align:center"><input type="checkbox" data-tf="required" data-i="' + i + '" style="width:auto;min-height:auto"' + (f.required ? ' checked' : '') + '></td>' +
+          '<td class="nowrap" style="text-align:center"><input type="checkbox" data-tf="full" data-i="' + i + '" style="width:auto;min-height:auto"' + (f.full ? ' checked' : '') + '></td>' +
+          '<td class="nowrap"><div class="inline-row" style="gap:3px">' +
+          '<button class="btn btn-sm" data-tpl-up="' + i + '"' + (i === 0 ? ' disabled' : '') + ' aria-label="上へ">↑</button>' +
+          '<button class="btn btn-sm" data-tpl-dn="' + i + '"' + (i === d.fields.length - 1 ? ' disabled' : '') + ' aria-label="下へ">↓</button>' +
+          '<button class="btn btn-sm" data-tpl-del="' + i + '">削除</button></div></td></tr>';
+      });
+      h += '</tbody></table></div>';
+    }
+    h += '<div class="page-sub" style="margin-top:10px">承認の順番（誰が・どんなときに承認するか）は、保存したあと一覧の「経路」から組みます。' +
+      '金額で承認者を変えたいときは「金額」の項目のキーを <code>amount</code> にしてください。</div>';
+    return h + '</div>';
+  }
+
+  /* 画面の入力を draft に写す。行を足す・消す・並べ替えるたびに描き直すので、
+     その前に必ず呼ぶ（呼ばないと打ったものが消える） */
+  function tplReadForm(b) {
+    var d = tplSt.draft;
+    if (!d) return;
+    b.querySelectorAll('[data-tb]').forEach(function (inp) { d[inp.dataset.tb] = String(inp.value || '').trim(); });
+    b.querySelectorAll('[data-tf]').forEach(function (inp) {
+      var f = d.fields[Number(inp.dataset.i)], k = inp.dataset.tf;
+      if (!f) return;
+      if (k === 'required' || k === 'full') { if (inp.checked) f[k] = true; else delete f[k]; return; }
+      if (k === 'options') {
+        f.options = String(inp.value || '').split(/[、,\n]/).map(function (s) { return s.trim(); }).filter(Boolean);
+        return;
+      }
+      if (k === 'help') {
+        var v = String(inp.value || '').trim();
+        if (v) f.help = v; else delete f.help;
+        delete f.placeholder;
+        return;
+      }
+      if (k === 'type') {
+        if (inp.value === 'lines' && !(f.columns && f.columns.length)) {
+          f.columns = [{ key: 'date', label: '日付', type: 'date', w: '120px' }, { key: 'desc', label: '内容', type: 'text' },
+            { key: 'amount', label: '金額', type: 'currency', w: '120px' }];
+        }
+        f.type = inp.value;
+        return;
+      }
+      f[k] = String(inp.value || '').trim();
+    });
+  }
+
+  function tplValidate(d) {
+    if (!d.name) return '名称を入れてください';
+    if (!d.code) return 'コードを入れてください';
+    if (!/^[A-Z][A-Z0-9_]{1,29}$/.test(d.code)) return 'コードは英大文字ではじめ、英大文字・数字・_ だけで付けてください（例：FACILITY）';
+    if (tplSt.isNew && (App.templateByCode(d.code) || tplRecord(d.code))) return 'コード「' + d.code + '」はすでに使われています';
+    if (!d.fields.length) return '項目を1つ以上つくってください';
+    var seen = {};
+    for (var i = 0; i < d.fields.length; i++) {
+      var f = d.fields[i], n = i + 1;
+      if (!f.label) return n + '行目の項目にラベルを入れてください';
+      if (!f.key) return '「' + f.label + '」のキーを入れてください';
+      if (!/^[a-z][a-z0-9_]{0,29}$/.test(f.key)) return '「' + f.label + '」のキーは英小文字ではじめ、英小文字・数字・_ だけで付けてください';
+      if (seen[f.key]) return 'キー「' + f.key + '」が2回使われています';
+      seen[f.key] = 1;
+      if ((f.type === 'select' || f.type === 'radio') && !(f.options && f.options.length)) return '「' + f.label + '」の選択肢を入れてください';
+    }
+    return '';
+  }
+
+  function tplSave(b) {
+    tplReadForm(b);
+    var d = tplSt.draft;
+    d.icon = d.icon || '📄'; d.category = d.category || 'その他';
+    var ng = tplValidate(d);
+    if (ng) { UI.toast(ng, 'warn'); return; }
+    var payload = {
+      Type_Code: d.code, Type_Name: d.name, Category: d.category, Icon: d.icon, Description: d.desc,
+      Field_Schema: JSON.stringify({ fields: d.fields }), Sensitivity: d.sensitivity, Is_Active: true
+    };
+    var rec = tplRecord(d.code), base = App.templateByCode(d.code);
+    var summary = d.name + '／項目' + d.fields.length + '：' + d.fields.map(function (f) { return f.label; }).join('・');
+    function after() {
+      App.reloadTemplates();
+      App.audit(tplSt.isNew ? '申請区分の作成' : '申請区分の変更', '申請テンプレート', d.code, summary);
+      UI.toast(tplSt.isNew ? '申請区分を作りました。つづけて「経路」から承認の順番を組んでください' : '申請区分を保存しました', 'success');
+      tplSt.draft = null; tplSt.isNew = false;
+      App.refresh();
+    }
+    function fail(e) { UI.toast('保存に失敗しました：' + (e && e.message ? e.message : e), 'error'); }
+    if (rec) {
+      DB.update('RequestTypes', rec.ID, payload).then(function () { Object.keys(payload).forEach(function (k) { rec[k] = payload[k]; }); after(); }).catch(fail);
+    } else {
+      /* 組み込みの区分をはじめて直すときは、いまの経路ごと Creator に写す */
+      payload.Route_Rule = JSON.stringify(base && base.route ? base.route : { version: 2, steps: [] });
+      payload.Sort_Order = base ? App.templates().indexOf(base) : 99;
+      DB.add('RequestTypes', payload).then(function (saved) { S().requestTypes.push(saved); after(); }).catch(fail);
+    }
+  }
+
+  function tplSetActive(code, on, b) {
+    var rec = tplRecord(code), base = App.templateByCode(code);
+    var name = rec ? rec.Type_Name : (base ? base.name : code);
+    function after() {
+      App.reloadTemplates();
+      App.audit(on ? '申請区分を使う' : '申請区分を使わない', '申請テンプレート', code, name);
+      UI.toast(on ? '「' + name + '」をまた使うようにしました' : '「' + name + '」を使わないようにしました', 'success');
+      App.refresh();
+    }
+    function fail(e) { UI.toast('保存に失敗しました：' + (e && e.message ? e.message : e), 'error'); }
+    if (rec) {
+      DB.update('RequestTypes', rec.ID, { Is_Active: on }).then(function () { rec.Is_Active = on; after(); }).catch(fail);
+    } else if (base) {
+      DB.add('RequestTypes', {
+        Type_Code: base.code, Type_Name: base.name, Category: base.category, Icon: base.icon, Description: base.desc,
+        Field_Schema: JSON.stringify({ fields: base.fields }), Route_Rule: JSON.stringify(base.route || { version: 2, steps: [] }),
+        Sensitivity: base.sensitivity || CFG.ACCESS.SENSITIVITY[base.code] || 'C', Sort_Order: App.templates().indexOf(base), Is_Active: on
+      }).then(function (saved) { S().requestTypes.push(saved); after(); }).catch(fail);
+    }
+  }
+
+  function bindTpl(b) {
+    function on(sel, fn) { b.querySelectorAll(sel).forEach(function (x) { x.addEventListener('click', function () { fn(x); }); }); }
+    on('[data-tpl-new]', function () { tplSt.draft = tplBlank(); tplSt.isNew = true; App.refresh(); });
+    on('[data-tpl-edit]', function (x) {
+      var t = App.templateByCode(x.dataset.tplEdit); if (!t) return;
+      tplSt.draft = tplDraftFrom(t); tplSt.isNew = false; App.refresh();
+    });
+    on('[data-tpl-copy]', function (x) {
+      var t = App.templateByCode(x.dataset.tplCopy); if (!t) return;
+      var d = tplDraftFrom(t); d.code = ''; d.name = t.name + '（コピー）';
+      tplSt.draft = d; tplSt.isNew = true; App.refresh();
+    });
+    on('[data-tpl-route]', function (x) {
+      /* 承認経路の画面は「いま選んでいる区分」を自分で持っているので、そこに渡してから開く */
+      if (typeof RouteEditor !== 'undefined' && RouteEditor._state) { RouteEditor._state.code = x.dataset.tplRoute; RouteEditor._state.loadedFor = null; }
+      App.go('routes');
+    });
+    on('[data-tpl-off]', function (x) {
+      var t = App.templateByCode(x.dataset.tplOff); if (!t) return;
+      UI.confirmBox('申請区分を使わない', '「' + t.name + '」を「申請する」から外します。すでに出ている申請はそのまま残り、あとで戻せます。', '使わないにする', 'btn-danger')
+        .then(function (ok) { if (ok) tplSetActive(t.code, false, b); });
+    });
+    on('[data-tpl-on]', function (x) { tplSetActive(x.dataset.tplOn, true, b); });
+
+    if (!tplSt.draft) return;
+    on('[data-tpl-cancel]', function () {
+      UI.confirmBox('編集をやめる', '入力した内容は保存されません。', 'やめる', 'btn-danger')
+        .then(function (ok) { if (ok) { tplSt.draft = null; tplSt.isNew = false; App.refresh(); } });
+    });
+    on('[data-tpl-save]', function () { tplSave(b); });
+    on('[data-tpl-addf]', function () {
+      tplReadForm(b);
+      var fs = tplSt.draft.fields, n = fs.length + 1;
+      while (fs.some(function (f) { return f.key === 'item' + n; })) n++;
+      fs.push({ key: 'item' + n, label: '', type: 'text' });
+      App.refresh();
+      var last = document.querySelector('#tplFields tbody tr:last-child [data-tf="label"]');
+      if (last) last.focus();
+    });
+    on('[data-tpl-up]', function (x) {
+      tplReadForm(b); var fs = tplSt.draft.fields, i = Number(x.dataset.tplUp);
+      var t = fs[i - 1]; fs[i - 1] = fs[i]; fs[i] = t; App.refresh();
+    });
+    on('[data-tpl-dn]', function (x) {
+      tplReadForm(b); var fs = tplSt.draft.fields, i = Number(x.dataset.tplDn);
+      var t = fs[i + 1]; fs[i + 1] = fs[i]; fs[i] = t; App.refresh();
+    });
+    on('[data-tpl-del]', function (x) {
+      tplReadForm(b); tplSt.draft.fields.splice(Number(x.dataset.tplDel), 1); App.refresh();
+    });
+    /* 種類を変えると補足欄の形（選択肢／ヒント）が変わるので描き直す */
+    b.querySelectorAll('[data-tf="type"]').forEach(function (s) {
+      s.addEventListener('change', function () { tplReadForm(b); App.refresh(); });
+    });
   }
   function sysAdmin() {
     return '<div class="card-body"><div class="form-grid">' +

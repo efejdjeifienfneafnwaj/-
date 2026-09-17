@@ -83,6 +83,11 @@ var App = (function () {
         _fromCreator: true
       };
     });
+    /* 画面で「使わない」にした申請区分は、組み込みのものでも出さない。
+       消すのではなく隠すだけなので、過去の申請はそのまま開ける */
+    (state.requestTypes || []).forEach(function (t) {
+      if (t.Is_Active === false && t.Type_Code) delete byCode[t.Type_Code];
+    });
     templates = Object.keys(byCode).map(function (k) { return byCode[k]; });
     /* 表示順は Creator の Sort_Order → 組み込みの並び */
     var order = {}; TEMPLATES.forEach(function (t, i) { order[t.code] = i; });
@@ -473,6 +478,7 @@ var App = (function () {
     state: state, me: me, audit: audit,
     employeeById: employeeById, requestById: requestById, vendorById: vendorById, accountById: accountById,
     templates: function () { return templates; }, templateByCode: templateByCode, nextRequestNo: nextRequestNo,
+    reloadTemplates: loadTemplates,
     canSwitchUser: canSwitchUser, identityError: function () { return identityError; },
     isImpersonating: isImpersonating, blockIfImpersonating: blockIfImpersonating,
     showHelp: showHelp
