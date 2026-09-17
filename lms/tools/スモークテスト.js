@@ -45,7 +45,7 @@ function check(name, cond){
     await page.waitForSelector('#app.on');
   }
 
-  console.log('① 上の帯の「ユーザー／管理」切り替えが消えていること');
+  console.log('① 上の帯に「ユーザー／管理」の切り替えが無いこと');
   await page.goto(base);
   check('ソースに vsw が無い', !html.includes('vsw'));
   check('入口に #vsw が無い', (await page.$('#vsw')) === null);
@@ -60,7 +60,7 @@ function check(name, cond){
     !L1.some(t => /管理画面|受講者の画面|権限|配信|名簿/.test(t)));
   check('左メニューに受講者用の項目が出る', L1.some(t => /研修コース/.test(t)));
 
-  console.log('③ 入口→暗証番号→管理画面');
+  console.log('③ 動作確認用（Creator なし）は暗証番号で入れること');
   await ctx.clearCookies();
   await page.evaluate(() => { try{ localStorage.clear(); }catch(e){} });
   await page.goto(base);
@@ -73,15 +73,16 @@ function check(name, cond){
   await page.waitForTimeout(150);
   await openSide();
   const A1 = await sideLabels();
-  check('管理画面の左メニューが出る', A1.some(t => /コース/.test(t)));
+  check('管理の項目が出る', A1.some(t => t === 'コース管理'));
+  check('同じメニューに受講者の項目もある', A1.some(t => t === '研修コース'));
 
-  console.log('④ 管理画面と受講者画面を行き来するボタンは無いこと');
+  console.log('④ 画面を切り替えるボタンが無く、メニューが1つであること');
   check('「受講者の画面を見る」が無い', !A1.some(t => t === '受講者の画面を見る'));
   check('「管理画面にもどる」が無い',   !A1.some(t => t === '管理画面にもどる'));
   check('切り替え用のボタンが一つも無い',
     (await page.$$('#side [data-act="asuser"], #side [data-act="aadmin"]')).length === 0);
 
-  console.log('⑤ 開きなおすと、また入口の暗証番号からしか入れないこと');
+  console.log('⑤ 開きなおすと、また暗証番号からしか入れないこと');
   /* 端末には admin=true が残ったまま、受講者として入りなおす */
   await page.evaluate(() => { try{ localStorage.removeItem('lms_me'); }catch(e){} });
   await page.goto(base);

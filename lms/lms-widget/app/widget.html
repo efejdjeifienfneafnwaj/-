@@ -181,6 +181,10 @@ a{color:var(--acc);}
   content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc);
 }
 .nav-sep{height:1px;background:var(--side-rule);margin:8px 0;}
+.nav-h{
+  padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.06em;
+  color:var(--ink-3);border-top:1px solid var(--side-rule);margin-top:8px;
+}
 
 /* ───── 本文 ───── */
 .body{min-width:0;}
@@ -2915,8 +2919,14 @@ var NAV_OF = {
 };
 
 function drawNav(view){
-  /* 権限で開けない画面は、メニューに出さない */
-  var list = (MODE === 'admin') ? navFor(NAV_ADMIN) : NAV_USER;
+  /* メニューは1つ。受講者向けの項目に続けて、その人の権限で開ける
+     管理向けの項目を並べる。切り替えボタンは置かない。 */
+  var list = NAV_USER.slice();
+  var adm = canAdmin() ? navFor(NAV_ADMIN) : [];
+  if(adm.length){
+    list.push({ head:'管理' });
+    list = list.concat(adm);
+  }
   var cur = NAV_OF[view] || '';
   var u = me() || { name:'', dept:'' };
 
@@ -2930,6 +2940,10 @@ function drawNav(view){
 
   var h = '';
   list.forEach(function(n, i){
+    if(n.head){
+      h += '<div class="nav-h">' + esc(n.head) + '</div>';
+      return;
+    }
     if(n.sub){
       /* 中の項目が選ばれていれば開いておく */
       var inside = n.sub.some(function(s){ return s.go === cur; });
@@ -2950,7 +2964,6 @@ function drawNav(view){
              ? '<span class="pill req" style="margin-left:auto">' + pend + '</span>' : '') +
            '</button>';
     }
-    if(i === list.length - 2) h += '<div class="nav-sep"></div>';
   });
   /* 管理画面と受講者画面の行き来は出さない。
      管理者は設定する側なので、受講者の画面に入る必要がない。
@@ -3144,10 +3157,19 @@ function viewGate(){
     h +=   '<button class="btn-start" id="gGo">スタート</button>';
   }
 
-  /* 管理者の入口。名簿を作るのはここから */
-  h +=     '<div class="gate-adm"><button id="gAdm">' + ic('gear') +
-             (adminPassSet() ? '管理者の方はこちら' : 'はじめに管理画面をひらく') +
+  /* Zoho にログインできている時点で本人確認は済んでいる。
+     名簿で権限が付いている人は、そのままアプリに入って管理の項目が出るので、
+     ここに入口は要らない。
+     必要なのは
+       ・まだ管理できる人が一人もいない（最初の1人を決める）
+       ・Creator に繋がっていない動作確認用（暗証番号）
+     の2つだけ。 */
+  var admShow = demo || noAdminYet();
+  if(admShow){
+    h +=   '<div class="gate-adm"><button id="gAdm">' + ic('gear') +
+             (demo ? '管理画面をひらく' : 'はじめに管理者を登録する') +
            '</button></div>';
+  }
   h +=     '</div>';
   h +=     '<div class="ver">' + esc(cfg.appName) + '　·　' + esc(cfg.orgName) + '</div>';
   h +=   '</div>';
@@ -3158,11 +3180,17 @@ function viewGate(){
   document.getElementById('gate').innerHTML = h;
 
   document.getElementById('gHelp').onclick = gateHelp;
-  document.getElementById('gAdm').onclick = function(){
+  var gAdmBtn = document.getElementById('gAdm');
+  if(gAdmBtn) gAdmBtn.onclick = function(){
     document.getElementById('gate').innerHTML = '';
-    /* 名簿に載っていなくても管理画面には入れる（最初の1人のため） */
-    if(!me()) LS.set('me', { name:'管理者', dept:'', group:'', emp:'',
-                             email:LOGIN_EMAIL || '' });
+    if(meRow){
+      LS.set('me', { name:meRow.name, dept:meRow.dept || '', group:meRow.group || '',
+                     emp:meRow.emp || '', email:LOGIN_EMAIL });
+    }else if(!me()){
+      /* 名簿がまだ無いとき（最初の1人）。このあと名前を登録してもらう */
+      LS.set('me', { name:'管理者', dept:'', group:'', emp:'',
+                     email:LOGIN_EMAIL || '' });
+    }
     askAdmin();
   };
 
@@ -3273,6 +3301,16 @@ function viewHome(){
   h += '<div class="ph"><div><h2>マイダッシュボード</h2>' +
        '<div class="sub">' + esc(u.name) + ' さん　' + esc(u.dept || '') +
        (u.group ? '　/　' + esc(u.group) : '') + '</div></div></div>';
+
+  /* 名簿に管理できる人が一人もいない状態。誰かが名乗り出ないと設定が始められない */
+  if(LOGIN_EMAIL && noAdminYet()){
+    h += '<div class="note"><b>このアプリには、まだ管理者が登録されていません</b><br>' +
+         '研修担当の方は、ご自身を管理者として登録してください。' +
+         '（研修担当以外の方は、そのままで大丈夫です）' +
+         '<div class="bar" style="margin-top:9px">' +
+         '<button class="btn sm" id="hmAdm">' + ic('gear') +
+         '自分を管理者として登録する</button></div></div>';
+  }
 
   /* ── 上段のタイル ── */
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));' +
@@ -3422,6 +3460,8 @@ function bindOpen(){
   eachIn('[data-go2]', function(b){
     b.onclick = function(){ route(b.getAttribute('data-go2')); };
   });
+  var hmA = document.getElementById('hmAdm');
+  if(hmA) hmA.onclick = firstAdminSetup;
 }
 
 function viewCourses(){
@@ -6915,18 +6955,105 @@ function setAdminPass(v){
   c.adminHash = passHash(v);
   setConfig(c);
 }
-/* この端末を管理者として開く */
-function enterAdmin(){
-  ADMIN = true;
+/* 管理側を開く。
+   boot=true は「名簿がまだ無いので、名簿から権限を決められない」場合だけ。
+   ふだんは名簿の権限をそのまま使う（部門管理者は部門管理者のまま）。 */
+function enterAdmin(boot){
+  if(boot) ADMIN = true;
   refreshRole();
   MODE = 'admin';
   route('adash');
 }
 
+/* いまログインしている人が管理側を開けるか。
+   Zoho にログインできている時点で本人確認は済んでいるので、
+   名簿でその権限が付いていれば、暗証番号はいらない。 */
+function myAdminRank(){
+  if(!LOGIN_EMAIL) return 0;
+  var p = personByEmail(LOGIN_EMAIL);
+  return p ? roleInfo(roleOf(p)).rank : 0;
+}
+/* 名簿に管理できる人が一人もいない状態。
+   ふつうは「まだ誰も登録していない＝これから作る人（このアプリの持ち主）」。
+   受講者だけを先に取り込んでしまった場合も、ここで詰まらないようにする。 */
+function noAdminYet(){
+  var ps = people() || {}, none = true;
+  Object.keys(ps).forEach(function(n){
+    if(roleInfo(roleOf(ps[n])).rank >= 2) none = false;
+  });
+  return none;
+}
+
+/* はじめの1人を、システム管理者として名簿に登録する画面 */
+function firstAdminSetup(){
+  document.getElementById('app').classList.add('on');
+  var h = '<div class="wrap" style="max-width:520px">';
+  h += '<div class="ph"><div><h2>はじめに、あなたを登録します</h2>' +
+       '<div class="sub">このアプリを最初に開いた方を、システム管理者として登録します。' +
+       'ここから先は、この画面で登録された権限のとおりに開けるようになります。</div></div></div>';
+  h += '<div class="card pad" style="display:grid;gap:14px">';
+  var n0 = Object.keys(people() || {}).length;
+  if(n0){
+    h += '<div class="note"><b>すでに' + n0 + '名が名簿に登録されています</b>　' +
+         'ただ、管理できる権限を持った方がまだ一人もいません。' +
+         '研修担当の方以外は、ここで「やめる」を押してください。</div>';
+  }
+  h += '<div class="field"><label>ログイン中のメールアドレス</label>' +
+       '<div class="ro">' + esc(LOGIN_EMAIL) + '</div></div>';
+  h += '<div class="field"><label for="faName">お名前</label>' +
+       '<input class="inp" id="faName" placeholder="例）山田 太郎" autocomplete="name"></div>';
+  h += '<div class="two">';
+  h +=   '<div class="field"><label for="faDept">所属</label><select class="inp" id="faDept">' +
+           '<option value="">選択してください</option>' +
+           depts().map(function(d){ return '<option>' + esc(d) + '</option>'; }).join('') +
+         '</select></div>';
+  h +=   '<div class="field"><label for="faTitle">役職</label>' +
+           '<input class="inp" id="faTitle" placeholder="例）総務部長"></div>';
+  h += '</div>';
+  h += '<div class="note calm"><b>システム管理者にできること</b>　' +
+       '受講者の登録、コースの作成と配信、全員の受講状況の閲覧、権限の割り当てができます。</div>';
+  h += '<div class="bar"><button class="btn" id="faGo">' + ic('check') +
+       'この内容で登録して、管理画面をひらく</button>' +
+       '<button class="btn sub" id="faNo">やめる</button></div>';
+  h += '</div></div>';
+  document.getElementById('main').innerHTML = h;
+  document.getElementById('side').innerHTML = '';
+  crumb([]);
+
+  var nm = document.getElementById('faName');
+  document.getElementById('faGo').onclick = function(){
+    var name = normName(nm.value);
+    if(!name){ nm.focus(); toast('お名前を入れてください'); return; }
+    registerPerson({
+      name:name, email:LOGIN_EMAIL,
+      dept:document.getElementById('faDept').value || '',
+      title:String(document.getElementById('faTitle').value || '').trim(),
+      role:'admin', scope:''
+    });
+    LS.set('me', { name:name, dept:document.getElementById('faDept').value || '',
+                   group:'', emp:'', email:LOGIN_EMAIL });
+    toast('システム管理者として登録しました');
+    enterAdmin();
+  };
+  document.getElementById('faNo').onclick = function(){
+    MODE = 'user';
+    if(me()) route('home'); else viewGate();
+  };
+  nm.focus();
+}
+
 /* 管理画面の入口。
-   ・まだ暗証番号が決まっていない（はじめて）→ その場で決めてもらう
-   ・決まっている → 入力してもらう */
+   ・Zoho にログインしている  → 名簿の権限で判断する（暗証番号なし）
+   ・名簿がまだ空             → はじめの1人として登録してもらう
+   ・Creator に繋がっていない（動作確認用）→ そのときだけ暗証番号 */
 function askAdmin(){
+  if(LOGIN_EMAIL){
+    if(myAdminRank() >= 2){ enterAdmin(); return; }
+    if(noAdminYet()){ firstAdminSetup(); return; }
+    toast('管理画面を開く権限がありません。研修担当にご連絡ください');
+    MODE = 'user'; route('home');
+    return;
+  }
   var first = !adminPassSet();
   document.getElementById('app').classList.add('on');
   var h = '<div class="wrap" style="max-width:520px">';
@@ -6985,10 +7112,10 @@ function askAdmin(){
       }
       setAdminPass(v);
       toast('暗証番号を決めました。忘れないよう控えてください');
-      enterAdmin();
+      enterAdmin(true);
       return;
     }
-    if(checkAdminPass(v)){ enterAdmin(); return; }
+    if(checkAdminPass(v)){ enterAdmin(true); return; }
     a.value = ''; a.focus();
     toast('暗証番号が違います。もう一度お確かめください');
   }
