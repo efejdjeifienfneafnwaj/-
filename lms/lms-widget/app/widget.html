@@ -355,7 +355,7 @@ tbody tr:last-child td{border-bottom:none;}
 td.n{font-family:"IBM Plex Mono",monospace;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
 td.c,th.c{text-align:center;}
 td.c .ckbox input{accent-color:var(--acc);width:19px;height:19px;cursor:pointer;}
-/* 列が多いと所属やグループが1文字ずつ折り返されるので、折り返さない */
+/* 列が多いと職種やグループが1文字ずつ折り返されるので、折り返さない */
 td.nw{white-space:nowrap;}
 th.ck,td.ck{width:36px;padding-right:0;text-align:center;}
 td.ck input,th.ck input{accent-color:var(--acc);width:19px;height:19px;cursor:pointer;}
@@ -1344,7 +1344,7 @@ function setMe(o){
         email:o.email || LOGIN_EMAIL || '' };
   LS.set('me', o);
   /* 名簿を作るのは管理者だけ。受講者が入っただけで名簿が増えたり、
-     自己申告の所属で名簿が書き換わったりしてはいけない。
+     自己申告の職種で名簿が書き換わったりしてはいけない。
      ここで書き足すのは「メールアドレスの結びつけ」だけ（初回だけ）。 */
   var prev = MEM.people[o.name];
   if(prev){
@@ -1380,6 +1380,129 @@ function registerPerson(o){
   cacheFlush('people');
   queueSync('person', o.name);
 }
+/* ── 氏名を直す ──
+   氏名は受講記録のカギ（氏名|章ID|年度）に使っている。
+   名簿だけ直すと、その人の受講履歴がまるごと行方不明になるので、
+   記録のカギも一緒に付け替えて、Creator にも送り直す。 */
+var NAME_BOX = { records:'record', quizzes:'quiz', surveys:'survey', daily:'daily' };
+function renamePerson(oldName, newName){
+  var o = normName(oldName), n = normName(newName);
+  if(!o || !n || o === n) return { ok:false, why:'変更がありません' };
+  if(MEM.people[n]) return { ok:false, why:'その氏名は、すでに別の方で登録されています' };
+  var p = MEM.people[o];
+  if(!p) return { ok:false, why:'その方が名簿に見つかりません' };
+
+  delete MEM.people[o];
+  p.name = n;
+  MEM.people[n] = p;
+  if(RID.people[o]){ RID.people[n] = RID.people[o]; delete RID.people[o]; }
+  cacheFlush('people');
+  queueSync('person', n);
+
+  var moved = 0;
+  Object.keys(NAME_BOX).forEach(function(box){
+    var src = MEM[box], pairs = [];
+    Object.keys(src).forEach(function(k){
+      if(k.indexOf(o + '|') === 0) pairs.push([k, n + k.slice(o.length)]);
+    });
+    pairs.forEach(function(pr){
+      src[pr[1]] = src[pr[0]];
+      delete src[pr[0]];
+      if(RID[box][pr[0]]){ RID[box][pr[1]] = RID[box][pr[0]]; delete RID[box][pr[0]]; }
+      queueSync(NAME_BOX[box], pr[1]);
+      moved++;
+    });
+    if(pairs.length) cacheFlush(box);
+  });
+
+  /* いまこの端末で使っている人の名前が変わったら、手元の控えも直す */
+  var u = me();
+  if(u && normName(u.name) === o){ u.name = n; LS.set('me', u); }
+  refreshRole();
+  return { ok:true, moved:moved };
+}
+/* 名簿から消す。受講記録は残す（消すと集計が合わなくなるため） */
+function removePerson(name){
+  var n = normName(name);
+  if(!MEM.people[n]) return false;
+  var rid = RID.people[n];
+  delete MEM.people[n];
+  delete RID.people[n];
+  cacheFlush('people');
+  /* まだ送っていない登録が残っていると、消したはずの人の行があとから作られ、
+     「保存できなかった記録が1件あります」という的外れな知らせも出る */
+  if(SYNC.pend['person\u0000' + n]){
+    delete SYNC.pend['person\u0000' + n];
+    savePend();
+  }
+  if(ON_CREATOR && rid){
+    var del = pickMethod(['deleteRecordById', 'deleteRecord', 'deleteRecords']);
+    if(del){
+      dataApi()[del]({ report_name:FORM.personR, id:String(rid) })
+        .catch(function(e){
+          console.error('名簿の行を消せませんでした', e);
+          toast('名簿からは消しましたが、Creator 側の行が残っています。' +
+                '時間をおいて開き直してください');
+        });
+    }
+  }
+  return true;
+}
+/* ── 職種 ──
+   登録のときに選ぶくくり。この一覧はシステム管理者が足したり直したりできる。
+   （中では dept という名前で持っている） */
+function jobs(){ return depts(); }
+function setJobs(list){
+  var c = config();
+  c.depts = list.filter(function(x){ return String(x).trim(); })
+                .map(function(x){ return String(x).trim(); });
+  setConfig(c);
+}
+/* 使われている数 */
+function jobCount(name){
+  var ps = people() || {}, n = 0;
+  Object.keys(ps).forEach(function(k){ if((ps[k].dept || '') === name) n++; });
+  return n;
+}
+/* 職種の名前を変える。その職種の人と、部門管理者の「見られる範囲」も付け替える */
+function renameJob(oldName, newName){
+  var o = String(oldName || '').trim(), n = String(newName || '').trim();
+  if(!o || !n || o === n) return false;
+  var list = jobs().slice();
+  if(list.indexOf(n) >= 0) return false;
+  var at = list.indexOf(o);
+  if(at < 0) return false;
+  list[at] = n;
+  setJobs(list);
+  var ps = people() || {}, touched = 0;
+  Object.keys(ps).forEach(function(k){
+    var p = ps[k], hit = false;
+    if((p.dept || '') === o){ p.dept = n; hit = true; }
+    var sc = String(p.scope || '').split(',').map(function(x){ return x.trim(); })
+                                 .filter(Boolean);
+    if(sc.indexOf(o) >= 0){
+      p.scope = sc.map(function(x){ return x === o ? n : x; }).join(',');
+      hit = true;
+    }
+    if(hit){ queueSync('person', k); touched++; }
+  });
+  if(touched) cacheFlush('people');
+  /* 配信先に職種を指定しているコースも付け替える */
+  var cs = JSON.parse(JSON.stringify(courses())), moved = false;
+  cs.forEach(function(co){
+    var rules = (co.assign && co.assign.rules) || [];
+    rules.forEach(function(r){
+      if(r.mode !== 'dept' && r.mode !== 'ex_dept') return;
+      r.targets = (r.targets || []).map(function(t){
+        if(t === o){ moved = true; return n; }
+        return t;
+      });
+    });
+  });
+  if(moved) setCourses(cs);
+  return true;
+}
+
 /* メールアドレスから名簿の行を探す（大文字小文字は区別しない） */
 function personByEmail(mail){
   var m = String(mail || '').trim().toLowerCase();
@@ -1627,8 +1750,8 @@ var DEFAULT_CONFIG = {
   appSub:'研修ポータル',
   orgName:'株式会社船井総合研究所',
   tagline:'サステナグロースカンパニーをもっと。',
-  /* 所属とグループの選択肢。Creator に入るので、全員の端末に同じものが配られる */
-  depts:['本部','地域創生事業課','福祉事業部','生産事業部','管理部','その他'],
+  /* 職種とグループの選択肢。Creator に入るので、全員の端末に同じものが配られる */
+  depts:['介護職','看護職','相談員','事務','製造','その他'],
   /* グループは「配信のためのくくり」。役職（部長・主任など）とは別物。
      役職は名簿の「役職」欄に入れる（権限の初期値がそこから決まる）。 */
   groups:['全社員','新卒入社者','中途入社者','送迎担当','夜勤担当'],
@@ -1717,7 +1840,7 @@ function termLabel(t){ return (t || currentTerm()) + '年度'; }
      コースごとに assign を持つ。
        { mode:'all' }                          … 全員に配信
        { mode:'group', targets:['管理職',…] }   … グループ指定
-       { mode:'dept',  targets:['本部',…] }     … 所属指定
+       { mode:'dept',  targets:['本部',…] }     … 職種指定
        { mode:'person',targets:['山田 太郎',…] }… 個人指定
        { mode:'none' }                          … 配信停止（下書き）
      複数を組み合わせたい場合は rules に複数入れる（OR条件）。
@@ -1765,10 +1888,10 @@ function assignLabel(co){
     var t = (r.targets || []);
     if(!t.length) return;
     if(r.mode === 'group')  parts.push('グループ：' + t.join('、'));
-    if(r.mode === 'dept')   parts.push('所属：' + t.join('、'));
+    if(r.mode === 'dept')   parts.push('職種：' + t.join('、'));
     if(r.mode === 'person') parts.push('個人：' + few(t));
     if(r.mode === 'ex_group')  ex.push('グループ：' + t.join('、'));
-    if(r.mode === 'ex_dept')   ex.push('所属：' + t.join('、'));
+    if(r.mode === 'ex_dept')   ex.push('職種：' + t.join('、'));
     if(r.mode === 'ex_person') ex.push(few(t));
   });
   var base = isAll ? '全員' : (parts.length ? parts.join(' ／ ') : '配信なし');
@@ -2750,20 +2873,20 @@ function stPill(co, p){
    名簿の1人ずつに「役職」と「権限」と「見られる範囲」を持たせる。
      役職   … 部長・課長など。表示用。登録のときに権限の初期値を決めるのに使う
      権限   … 触れる画面。下の4段階
-     範囲   … 見られる所属。「福祉事業部;生産事業部」のように複数
-              空のときは、その人自身の所属だけ
+     範囲   … 見られる職種。「福祉事業部;生産事業部」のように複数
+              空のときは、その人自身の職種だけ
 
    役職と権限をわざと分けてある。現場では必ずこうなるため：
      ・主任だが研修担当なので全社を見たい
      ・部長だが名ばかりで、部下の受講状況を見る必要がない
-     ・エリアマネージャーで、所属は1つなのに3施設を見る
+     ・エリアマネージャーで、職種は1つなのに3施設を見る
    役職＝権限にすると、この全部が例外になって破綻する。
    ══════════════════════════════════════════════════════════════ */
 var ROLES = [
   { id:'learner', rank:1, label:'受講者',
     desc:'自分の受講状況と修了証だけ' },
   { id:'dept',    rank:2, label:'部門管理者',
-    desc:'決められた所属の人の受講状況・督促・CSV（アンケートの自由記述は見えません）' },
+    desc:'決められた職種の人の受講状況・督促・CSV（アンケートの自由記述は見えません）' },
   { id:'trainer', rank:3, label:'研修管理者',
     desc:'全社の受講状況・コースの作成と配信・アンケートの全文' },
   { id:'admin',   rank:4, label:'システム管理者',
@@ -2790,7 +2913,7 @@ function roleOf(p){
   if(p.role && roleInfo(p.role).id === p.role) return p.role;
   return roleFromTitle(p.title);
 }
-/* その人が見られる所属の一覧。空配列＝全社（研修管理者以上） */
+/* その人が見られる職種の一覧。空配列＝全社（研修管理者以上） */
 function scopeOf(p){
   var r = roleOf(p);
   if(r === 'trainer' || r === 'admin') return [];
@@ -2852,6 +2975,7 @@ var VIEW_RANK = {
   adash:2, ausers:2, audetail:2, agroups:2, aoverall:2, acourse:2,
   auser:2, aquiz:2, alog:2,
   acourses:3, aassign:3, anews:3, asurvey:3, aimport:3,
+  ajobs:4,
   acedit:3,
   asettings:4, aroles:4
 };
@@ -2876,7 +3000,8 @@ var NAV_ADMIN = [
   { icon:'users', label:'ユーザー管理', sub:[
       { go:'ausers',  label:'ユーザー' },
       { go:'agroups', label:'グループ' },
-      { go:'aimport', label:'一括登録' },
+      { go:'aimport', label:'職員の登録・編集' },
+      { go:'ajobs',   label:'職種' },
       { go:'aroles',  label:'権限の割り当て' }
   ]},
   { go:'acourses', icon:'book', label:'コース管理' },
@@ -2914,6 +3039,7 @@ var NAV_OF = {
   adash:'adash', ausers:'ausers', agroups:'agroups', acourses:'acourses',
   aoverall:'aoverall', alog:'alog', acourse:'acourse', auser:'auser', aquiz:'aquiz',
   asurvey:'asurvey', anews:'anews', aimport:'aimport', aroles:'aroles',
+  ajobs:'ajobs',
   aassign:'acourses', acedit:'acourses',
   asettings:'asettings', audetail:'ausers'
 };
@@ -3058,8 +3184,8 @@ function closeSide(){
    画面：名前の入力
    ══════════════════════════════════════════════════════════════ */
 /* 選択肢は config に入れて Creator 経由で全端末に配る。
-   以前は端末ごとの localStorage に持っていたので、人事のPCで足した所属が
-   現場のスマホには出ず、所属指定の配信が届かない事故が起きていた。 */
+   以前は端末ごとの localStorage に持っていたので、人事のPCで足した職種が
+   現場のスマホには出ず、職種指定の配信が届かない事故が起きていた。 */
 function depts(){
   var d = config().depts;
   return (d && d.length) ? d : DEFAULT_CONFIG.depts;
@@ -3113,8 +3239,8 @@ function viewGate(){
     h +=   '<div class="field"><label>お名前</label>' +
              '<div class="ro ro-lg">' + ava(meRow.name, 'sm') +
              '<b>' + esc(meRow.name) + '</b></div></div>';
-    h +=   '<div class="field"><label>所属・グループ</label><div class="ro">' +
-             esc([meRow.dept || '所属未設定', meRow.group || 'グループ未設定',
+    h +=   '<div class="field"><label>職種・グループ</label><div class="ro">' +
+             esc([meRow.dept || '職種未設定', meRow.group || 'グループ未設定',
                   meRow.title ? meRow.title : ''].filter(Boolean).join('　·　')) +
            '</div></div>';
     h +=   '<button class="btn-start" id="gGo">はじめる</button>';
@@ -3143,7 +3269,7 @@ function viewGate(){
              '<input id="gName" placeholder="例）山田 太郎" autocomplete="name" value="' +
              esc(prev.name || '') + '"></div>';
     h +=   '<div class="two">';
-    h +=     '<div class="field"><label for="gDept">所属</label><select id="gDept">' +
+    h +=     '<div class="field"><label for="gDept">職種</label><select id="gDept">' +
                '<option value="">選択してください</option>' +
                depts().map(function(d){
                  return '<option' + (prev.dept === d ? ' selected' : '') + '>' + esc(d) + '</option>';
@@ -3201,7 +3327,7 @@ function viewGate(){
     if(!box || !inp) return;
     var p = ps[normName(inp.value)];
     box.textContent = p
-      ? [p.dept || '所属未設定', p.group || 'グループ未設定',
+      ? [p.dept || '職種未設定', p.group || 'グループ未設定',
          p.emp ? '社員番号 ' + p.emp : ''].filter(Boolean).join('　·　')
       : 'お名前を選ぶと表示されます';
   }
@@ -3227,7 +3353,7 @@ function viewGate(){
       {
         var dv = document.getElementById('gDept').value;
         var gv = document.getElementById('gGrp').value;
-        if(!dv){ document.getElementById('gDept').focus(); toast('所属を選んでください'); return; }
+        if(!dv){ document.getElementById('gDept').focus(); toast('職種を選んでください'); return; }
         if(!gv){ document.getElementById('gGrp').focus(); toast('グループを選んでください'); return; }
         o = { name:n, dept:dv, group:gv, emp:'', email:LOGIN_EMAIL || '' };
       }
@@ -3254,7 +3380,7 @@ function gateHelp(){
   var h = '<div class="hbox" id="gHelpBox">' +
     '<b>' + ic('book') + 'この研修ポータルの使い方</b>' +
     '<ol>' +
-      '<li>お名前を選んで「はじめる」を押します（所属は名簿のものが使われます）</li>' +
+      '<li>お名前を選んで「はじめる」を押します（職種は名簿のものが使われます）</li>' +
       '<li>「研修コース」から受けるコースを選び、動画を再生します</li>' +
       '<li>動画を見終わったら「確認テスト」を受けます</li>' +
       '<li>合格すると修了になり、修了証を印刷できます</li>' +
@@ -4237,7 +4363,7 @@ function viewSurvey(courseId){
        '</div></div>';
   /* 匿名だと思って書く人が必ずいるので、記名であることを先に伝える */
   h += '<div class="note" style="margin-bottom:14px"><b>お名前とあわせて記録されます</b>　' +
-       'この回答は、お名前・所属とあわせて研修担当が確認します。匿名ではありません。</div>';
+       'この回答は、お名前・職種とあわせて研修担当が確認します。匿名ではありません。</div>';
   if(prev){
     h += '<div class="note calm" style="margin-bottom:14px"><b>回答済みです</b>　' +
          ymd(prev.at) + ' に回答いただきました。内容を変えて出し直すこともできます。</div>';
@@ -4291,7 +4417,7 @@ var SEL = {};      /* 選択中の受講者 */
 
 function adminMatrix(){
   var cs = courses(), recs = records();
-  /* 部門管理者は、決められた所属の人だけ。研修管理者以上は全社。
+  /* 部門管理者は、決められた職種の人だけ。研修管理者以上は全社。
      ここを通さない集計画面を作らないこと（全画面がこの関数を通っている） */
   var ppl = allPeople().filter(function(p){ return inScope(p.name); });
   return ppl.map(function(pn){
@@ -4412,11 +4538,11 @@ function toolsHTML(all, opt){
        o.groups.map(function(g){
          return '<option' + (ADM.group === g ? ' selected' : '') + '>' + esc(g) + '</option>';
        }).join('') + '</select>';
-  h += '<select class="inp" id="admDept"><option value="">すべての所属</option>' +
+  h += '<select class="inp" id="admDept"><option value="">すべての職種</option>' +
        o.depts.map(function(d){
          return '<option' + (ADM.dept === d ? ' selected' : '') + '>' + esc(d) + '</option>';
        }).join('') + '</select>';
-  h += '<input class="inp" id="admQ" placeholder="フリーワード（名前・所属・社員番号）" value="' +
+  h += '<input class="inp" id="admQ" placeholder="フリーワード（名前・職種・社員番号）" value="' +
        esc(ADM.q) + '">';
   h += '<div class="seg" id="admOnly">' +
          '<button data-o="all"  aria-pressed="' + (ADM.only==='all')  + '">全員</button>' +
@@ -4701,7 +4827,7 @@ function viewAUsers(){
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr>';
     h += '<th class="ck"><label class="ckbox"><input type="checkbox" id="selAll" aria-label="すべて選択"></label></th>';
-    h += th('name', 'ユーザー名', 'stick') + th('dept', '所属') + th('group', 'グループ');
+    h += th('name', 'ユーザー名', 'stick') + th('dept', '職種') + th('group', 'グループ');
     h += th('rate', 'コース完了率', 'c') + '<th class="c">受講状況</th>';
     cs.forEach(function(co){
       h += '<th class="c">' + esc(co.title) +
@@ -4838,7 +4964,7 @@ function viewAUserDetail(name){
    ══════════════════════════════════════════════════════════════ */
 function viewAGroups(){
   var all = adminMatrix(), cs = courses();
-  /* グループ別・所属別の2つの表を出す */
+  /* グループ別・職種別の2つの表を出す */
   function agg(keyOf, label){
     var map = {};
     all.forEach(function(r){
@@ -4878,11 +5004,12 @@ function viewAGroups(){
 
   var h = '<div class="wrap">';
   h += '<div class="ph"><div><h2>グループ</h2>' +
-       '<div class="sub">グループ・所属ごとの達成状況です。区分そのものの追加は「設定」から行います。</div>' +
+       '<div class="sub">グループ・職種ごとの達成状況です。</div>' +
        '</div><div class="sp"></div>' +
-       '<button class="btn sub" data-go2="asettings">' + ic('gear') + '区分を編集</button></div>';
+       '<button class="btn sub" data-go2="ajobs">' + ic('slider') + '職種を編集</button>' +
+       '<button class="btn sub" data-go2="asettings">' + ic('gear') + 'グループを編集</button></div>';
   h += agg(function(r){ return r.group; }, 'グループ');
-  h += agg(function(r){ return r.dept; },  '所属');
+  h += agg(function(r){ return r.dept; },  '職種');
   h += '</div>';
   document.getElementById('main').innerHTML = h;
   bindOpen();
@@ -5053,7 +5180,7 @@ function viewAOverall(){
   h += '<div class="cat">' + ic('chart') + 'コースごとの受講状況</div>';
   h += '<div class="card pad" style="margin-bottom:16px">' + courseBars(rows) + '</div>';
 
-  /* 所属ごとの視聴時間 */
+  /* 職種ごとの視聴時間 */
   var byDept = {};
   rows.forEach(function(r){
     var k = r.dept || '（未設定）';
@@ -5062,7 +5189,7 @@ function viewAOverall(){
   });
   var ks = Object.keys(byDept).sort(), max = 1;
   ks.forEach(function(k){ if(byDept[k].sec > max) max = byDept[k].sec; });
-  h += '<div class="cat">' + ic('clock') + '所属ごとの視聴時間</div>';
+  h += '<div class="cat">' + ic('clock') + '職種ごとの視聴時間</div>';
   h += '<div class="card pad"><div class="bars">';
   ks.forEach(function(k){
     h += '<div class="brow"><span class="nm" title="' + esc(k) + '">' + esc(k) + '</span>' +
@@ -5104,7 +5231,7 @@ function viewACourse(){
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr>';
     h += '<th class="ck"><label class="ckbox"><input type="checkbox" id="selAll" aria-label="すべて選択"></label></th>';
-    h += '<th class="stick">ユーザー名</th><th>所属</th><th>グループ</th>';
+    h += '<th class="stick">ユーザー名</th><th>職種</th><th>グループ</th>';
     co.chapters.forEach(function(ch){
       h += '<th class="c">' + esc(ch.title) + '<small>' + hhmm(ch.dur) + '</small></th>';
     });
@@ -5191,7 +5318,7 @@ function viewAQuiz(){
     h += '<div class="card"><div class="empty">' + ic('quiz') + '該当する受講者はいません。</div></div>';
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr><th class="stick">ユーザー名</th>' +
-         '<th>所属</th><th>グループ</th>';
+         '<th>職種</th><th>グループ</th>';
     withQuiz.forEach(function(co){
       h += '<th class="c">' + esc(co.title) + '<small>全' + co.quiz.length + '問・' +
            Math.round(quizPassRate(co)*100) + '%で合格</small></th>';
@@ -5257,7 +5384,7 @@ function viewALog(){
     h += '<div class="card"><div class="empty">' + ic('history') + 'まだ活動がありません。</div></div>';
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr><th class="stick">ユーザー名</th>' +
-         '<th>所属</th><th>コース / 章</th><th class="c">視聴率</th>' +
+         '<th>職種</th><th>コース / 章</th><th class="c">視聴率</th>' +
          '<th class="n">視聴時間</th><th class="n">日時</th></tr></thead><tbody>';
     page.forEach(function(r){
       h += '<tr><td class="stick"><div class="who-cell" title="' + esc(r.name) + '">' + ava(r.name, 'sm') +
@@ -5645,7 +5772,7 @@ function viewACEdit(courseId){
 /* ══════════════════════════════════════════════════════════════
    画面：コースの配信設定（管理）
      誰にこのコースを出すかを決める。
-       全員に配信 ／ 指定して配信（グループ・所属・個人のOR）／ 配信しない
+       全員に配信 ／ 指定して配信（グループ・職種・個人のOR）／ 配信しない
      どの出しかたでも「この人には出さない」除外を重ねられる。
 
    選んだ内容は ASG（下書き）に持つ。
@@ -5751,7 +5878,7 @@ function viewAAssign(courseId){
                 (ASG.mode === x[0]) + '">' + x[1] + '</button>';
        }).join('') + '</div>' +
        '<div class="cap" style="margin-top:7px">' +
-       '「指定して配信」は、グループ・所属・個人のどれかに当てはまる人に届きます（重ねて選べます）' +
+       '「指定して配信」は、グループ・職種・個人のどれかに当てはまる人に届きます（重ねて選べます）' +
        '</div></div>';
 
   /* ── 指定して配信 ── */
@@ -5763,7 +5890,7 @@ function viewAAssign(courseId){
                 (ASG.tg['group|' + g] ? ' checked' : '') + '><span>' + esc(g) +
                 '<i>' + n + '名</i></span></label>';
        }).join('') + '</div></div></div>';
-  h += '<div class="asg-box"><div class="field"><label>所属</label>' +
+  h += '<div class="asg-box"><div class="field"><label>職種</label>' +
        '<div class="chips">' + ds.map(function(d){
          var n = all.filter(function(pp){ return (pp.dept || '') === d; }).length;
          return '<label class="chip"><input type="checkbox" data-tg="dept|' + esc(d) + '"' +
@@ -5776,7 +5903,7 @@ function viewAAssign(courseId){
        Object.keys(ASG.tg).filter(function(k){ return ASG.tg[k] && k.indexOf('person|') === 0; }).length +
        '</b> 名を個人指定中</span>）</label>' +
        '<div class="bar" style="margin-bottom:9px">' +
-         '<input class="inp" id="asgQ" placeholder="名前・所属で絞り込む" value="' + esc(ASG.q) +
+         '<input class="inp" id="asgQ" placeholder="名前・職種で絞り込む" value="' + esc(ASG.q) +
          '" style="max-width:260px">' +
          '<button class="btn sub sm" id="asgAll">表示中をすべて選ぶ</button>' +
          '<button class="btn sub sm" id="asgNone">表示中の選択を外す</button>' +
@@ -5982,82 +6109,232 @@ function viewANews(){
    画面：受講者の一括登録（管理）
      名簿を貼り付けて、まとめて登録する。
    ══════════════════════════════════════════════════════════════ */
+/* 名簿の画面でおぼえておくもの */
+var ROS = { q:'', edit:'' };
+
+/* 名簿の1行を、入力欄のかたまりとして出す。新規も編集も同じ形にする */
+function personForm(pre, p){
+  var canRole = canOpen('aroles');
+  var h = '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 'n">氏名</label>' +
+           '<input class="inp" id="' + pre + 'n" placeholder="例）山田 太郎" value="' +
+           esc((p && p.name) || '') + '"></div>';
+  h +=   '<div class="field"><label for="' + pre + 'd">職種</label>' +
+           '<select class="inp" id="' + pre + 'd">' +
+           '<option value="">選択してください</option>' +
+           jobs().map(function(d){
+             return '<option' + ((p && p.dept) === d ? ' selected' : '') + '>' +
+                    esc(d) + '</option>';
+           }).join('') + '</select></div>';
+  h += '</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 'm">メールアドレス' +
+           '<span class="note-s">ログインに使います</span></label>' +
+           '<input class="inp" id="' + pre + 'm" type="email" ' +
+           'placeholder="例）yamada@example.co.jp" value="' +
+           esc((p && p.email) || '') + '"></div>';
+  if(canRole){
+    h += '<div class="field"><label for="' + pre + 'r">権限</label>' +
+           '<select class="inp" id="' + pre + 'r">' +
+           ROLES.map(function(x){
+             return '<option value="' + x.id + '"' +
+                    (roleOf(p || {}) === x.id ? ' selected' : '') + '>' +
+                    esc(x.label) + '</option>';
+           }).join('') + '</select></div>';
+  }else{
+    h += '<div class="field"><label>権限</label><div class="ro">' +
+         esc(roleInfo(roleOf(p || {})).label) +
+         '<span class="note-s">　変えられるのはシステム管理者だけです</span></div></div>';
+  }
+  h += '</div>';
+  return h;
+}
+/* 入力欄から読み取って、確かめる。だめなら why を返す */
+function personRead(pre, exceptName){
+  var g = function(id){ var e = document.getElementById(pre + id); return e ? e.value : ''; };
+  var n = normName(g('n'));
+  var m = String(g('m')).trim();
+  var d = g('d');
+  if(!n) return { why:'氏名を入れてください', focus:pre + 'n' };
+  if(badName(n)) return { why:'氏名に使えない文字（｜・改行）が入っています', focus:pre + 'n' };
+  if(!d) return { why:'職種を選んでください', focus:pre + 'd' };
+  if(m && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){
+    return { why:'メールアドレスの形が正しくありません', focus:pre + 'm' };
+  }
+  if(m){
+    var dup = personByEmail(m);
+    if(dup && normName(dup.name) !== normName(exceptName || '') && normName(dup.name) !== n){
+      return { why:'そのメールアドレスは「' + dup.name + '」さんに登録されています',
+               focus:pre + 'm' };
+    }
+  }
+  var r = document.getElementById(pre + 'r');
+  return { name:n, email:m, dept:d, role:r ? r.value : '' };
+}
+
 function viewAImport(){
   var ps = people() || {};
-  var h = '<div class="wrap" style="max-width:820px">';
-  h += '<div class="ph"><div><h2>受講者の登録</h2>' +
+  var names = Object.keys(ps).sort(function(a, b){
+    return String(ps[a].dept || '').localeCompare(String(ps[b].dept || ''), 'ja') ||
+           a.localeCompare(b, 'ja');
+  });
+  var kw = ROS.q.trim();
+  var shown = kw ? names.filter(function(n){
+    var p = ps[n];
+    return n.indexOf(kw) >= 0 || String(p.dept || '').indexOf(kw) >= 0 ||
+           String(p.email || '').toLowerCase().indexOf(kw.toLowerCase()) >= 0;
+  }) : names;
+
+  var h = '<div class="wrap" style="max-width:900px">';
+  h += '<div class="ph"><div><h2>職員の登録・編集</h2>' +
        '<div class="sub">1人ずつ足すことも、Excelから貼り付けてまとめて入れることもできます。' +
-       'すでにいる方は、同じ氏名で入れると上書きされます。</div></div></div>';
+       '登録済みの方は、下の一覧から直せます。</div></div><div class="sp"></div>' +
+       '<button class="btn sub" data-go2="ajobs">' + ic('slider') + '職種を編集</button></div>';
 
   /* ── 1人ずつ ── */
   h += '<div class="cat">' + ic('user') + '1人ずつ登録する</div>';
   h += '<div class="card pad" style="margin-bottom:22px;display:grid;gap:13px">';
-  h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="p1n">氏名</label>' +
-           '<input class="inp" id="p1n" placeholder="例）山田 太郎"></div>';
-  h +=   '<div class="field"><label for="p1m">メールアドレス' +
-           '<span class="note-s">ログインに使います</span></label>' +
-           '<input class="inp" id="p1m" type="email" placeholder="例）yamada@example.co.jp"></div>';
-  h += '</div>';
-  h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="p1d">所属</label><select class="inp" id="p1d">' +
-           '<option value="">選択してください</option>' +
-           depts().map(function(d){ return '<option>' + esc(d) + '</option>'; }).join('') +
-           '</select></div>';
-  h +=   '<div class="field"><label for="p1g">グループ' +
-           '<span class="note-s">配信のためのくくり</span></label>' +
-           '<select class="inp" id="p1g"><option value="">選択してください</option>' +
-           groups().map(function(d){ return '<option>' + esc(d) + '</option>'; }).join('') +
-           '</select></div>';
-  h += '</div>';
-  h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="p1t">役職' +
-           '<span class="note-s">権限の初期値が決まります</span></label>' +
-           '<input class="inp" id="p1t" list="p1tList" placeholder="例）施設長・主任・一般">' +
-           '<datalist id="p1tList">' +
-             ['部長','施設長','工場長','所長','課長','主任','リーダー','一般']
-               .map(function(x){ return '<option value="' + x + '">'; }).join('') +
-           '</datalist></div>';
-  h +=   '<div class="field"><label for="p1e">社員番号' +
-           '<span class="note-s">任意</span></label>' +
-           '<input class="inp" id="p1e" inputmode="numeric" placeholder="例）10231"></div>';
-  h += '</div>';
+  h += personForm('p1', null);
   h += '<div class="bar"><button class="btn" id="p1Go">' + ic('plus') + 'この内容で登録する</button>' +
-       '<span class="cap" id="p1Msg">メールアドレスを入れておくと、その方はログインするだけで' +
+       '<span class="cap">メールアドレスを入れておくと、その方はログインするだけで' +
        '受講を始められます</span></div>';
   h += '</div>';
 
+  /* ── 登録されている方 ── */
+  h += '<div class="cat">' + ic('users') + '登録されている方' +
+       '<span class="num">' + names.length + '名</span></div>';
+  if(!names.length){
+    h += '<div class="card" style="margin-bottom:22px"><div class="empty">' + ic('users') +
+         'まだどなたも登録されていません。</div></div>';
+  }else{
+    h += '<div class="bar" style="margin-bottom:12px">' +
+         '<input class="inp" id="rosQ" placeholder="氏名・職種・メールアドレスで絞り込む" value="' +
+         esc(ROS.q) + '" style="max-width:300px">' +
+         '<span class="sp"></span>' +
+         '<span class="cnt">' + shown.length + ' / ' + names.length + '名</span></div>';
+    h += '<div class="tbl-wrap" style="margin-bottom:22px"><table><thead><tr>' +
+         '<th class="stick">氏名</th><th>職種</th><th>メールアドレス</th>' +
+         '<th class="c">権限</th><th class="c" style="min-width:132px"></th>' +
+         '</tr></thead><tbody>';
+    shown.forEach(function(n){
+      var p = ps[n];
+      if(ROS.edit === n){
+        h += '<tr><td colspan="5" style="padding:0">' +
+             '<div class="card pad" style="margin:0;display:grid;gap:13px;border:none">' +
+             '<b>' + esc(n) + ' さんの登録内容</b>' +
+             personForm('pe', p) +
+             '<div class="note" style="margin:0"><b>氏名を直すと、その方の受講記録も一緒に付け替えます。</b>' +
+             '別の方の氏名にはできません。</div>' +
+             '<div class="bar"><button class="btn" id="peGo">' + ic('check') + '保存する</button>' +
+             '<button class="btn sub" id="peNo">やめる</button>' +
+             '<span class="sp"></span>' +
+             '<button class="btn sub" id="peDel">' + ic('cross') + '名簿から削除</button></div>' +
+             '</div></td></tr>';
+        return;
+      }
+      h += '<tr><td class="stick"><div class="who-cell" title="' + esc(n) + '">' +
+           ava(n, 'sm') + '<div class="who-t"><b>' + esc(n) + '</b></div></div></td>';
+      h += '<td class="nw">' + esc(p.dept || '—') + '</td>';
+      h += '<td class="mono" style="font-size:11.5px">' +
+           (p.email ? esc(p.email)
+                    : '<span class="pill bad">未登録</span>') + '</td>';
+      h += '<td class="c">' + roleBadge(roleOf(p)) + '</td>';
+      h += '<td class="c"><button class="btn sub sm" data-ed="' + esc(n) + '">' +
+           ic('slider') + '編集</button></td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+
+  /* ── まとめて ── */
   h += '<div class="cat">' + ic('users') + 'まとめて登録する（Excelから貼り付け）</div>';
   h += '<div class="note calm" style="margin-bottom:16px"><b>貼り付ける形</b>　' +
-       '<span class="mono">氏名 [タブ] 所属 [タブ] グループ [タブ] 社員番号 [タブ] ' +
-       'メールアドレス [タブ] 役職</span><br>' +
-       '所属より後ろは省略できます。すでに登録されている人は、内容が上書きされます。<br>' +
-       '<b>メールアドレス</b>を入れておくと、その方はポータルにログインしただけで' +
-       '受講を始められます（お名前を選ぶ手間がなくなります）。<br>' +
+       '<span class="mono">氏名 [タブ] 職種 [タブ] メールアドレス</span><br>' +
+       'すでに登録されている人は、内容が上書きされます。' +
+       '一覧に無い職種は、そのまま新しい職種として足されます。<br>' +
+       '<b>メールアドレス</b>が無い方は、ポータルからログインできません。<br>' +
        '<b>同姓同名の方</b>は、氏名を「佐藤 花子（1234）」のように区別してください。' +
        '同じ氏名は1人として扱われ、受講記録が混ざります。</div>';
   h += '<div class="card pad" style="display:grid;gap:12px">';
   h += '<div class="field"><label for="imT">名簿</label>' +
-       '<textarea class="inp mono" id="imT" rows="10" style="resize:vertical;font-size:12px" ' +
-       'placeholder="山田 太郎\t福祉事業部\t管理職\t10231\tyamada@example.co.jp\t施設長' +
-       '\n佐藤 花子\t本部\t中途入社者\t10044\tsato@example.co.jp\t一般"></textarea></div>';
+       '<textarea class="inp mono" id="imT" rows="8" style="resize:vertical;font-size:12px" ' +
+       'placeholder="山田 太郎\t介護職\tyamada@example.co.jp' +
+       '\n佐藤 花子\t看護職\tsato@example.co.jp"></textarea></div>';
   h += '<div class="bar"><button class="btn sub" id="imChk">内容を確認する</button>' +
        '<button class="btn" id="imGo" disabled>' + ic('check') + '登録する</button></div>';
   h += '<div id="imPre"></div>';
   h += '</div>';
-  var cnt = Object.keys(ps).length;
-  if(cnt){
-    h += '<div class="cat">' + ic('users') + 'いま登録されている方</div>';
-    h += '<div class="card pad"><div class="bar">' +
-         '<b class="mono" style="font-size:18px">' + cnt + '</b><span>名</span>' +
-         '<span class="sp"></span>' +
-         '<button class="btn sub sm" data-go2="ausers">一覧を見る</button>' +
-         '<button class="btn sub sm" data-go2="aroles">権限を割り当てる</button></div>' +
-         noMailNote(true) + '</div>';
-  }
   h += '</div>';
   document.getElementById('main').innerHTML = h;
 
+  /* 1人ずつの登録 */
+  document.getElementById('p1Go').onclick = function(){
+    var v = personRead('p1');
+    if(v.why){ var f = document.getElementById(v.focus); if(f) f.focus();
+               toast(v.why); return; }
+    var already = !!people()[v.name];
+    registerPerson({ name:v.name, email:v.email, dept:v.dept,
+                     role:v.role || undefined });
+    LOADED.all = false;
+    toast(v.name + ' さんを' + (already ? '上書きしました' : '登録しました') +
+          (v.email ? '' : '（メールアドレスが無いのでログインできません）'));
+    ROS.edit = '';
+    viewAImport();
+  };
+
+  /* 絞り込み */
+  var q = document.getElementById('rosQ');
+  if(q) q.oninput = function(){
+    ROS.q = this.value;
+    clearTimeout(q._t);
+    q._t = setTimeout(function(){
+      viewAImport();
+      var nx = document.getElementById('rosQ');
+      if(nx){ nx.focus(); nx.setSelectionRange(nx.value.length, nx.value.length); }
+    }, 250);
+  };
+
+  /* 編集をひらく */
+  eachIn('[data-ed]', function(b){
+    b.onclick = function(){ ROS.edit = b.getAttribute('data-ed'); viewAImport(); };
+  });
+  var peNo = document.getElementById('peNo');
+  if(peNo) peNo.onclick = function(){ ROS.edit = ''; viewAImport(); };
+
+  var peGo = document.getElementById('peGo');
+  if(peGo) peGo.onclick = function(){
+    var was = ROS.edit;
+    var v = personRead('pe', was);
+    if(v.why){ var f = document.getElementById(v.focus); if(f) f.focus();
+               toast(v.why); return; }
+    /* 先に中身を直してから、最後に氏名を付け替える */
+    registerPerson({ name:was, email:v.email, dept:v.dept, role:v.role || undefined });
+    if(v.name !== normName(was)){
+      var r = renamePerson(was, v.name);
+      if(!r.ok){ toast(r.why); return; }
+      toast(was + ' さんを「' + v.name + '」さんに直しました' +
+            (r.moved ? '（受講記録 ' + r.moved + ' 件も付け替えました）' : ''));
+    }else{
+      toast(v.name + ' さんの登録内容を直しました');
+    }
+    LOADED.all = false;
+    ROS.edit = '';
+    viewAImport();
+  };
+
+  var peDel = document.getElementById('peDel');
+  if(peDel) peDel.onclick = function(){
+    var n = ROS.edit;
+    if(!window.confirm('「' + n + '」さんを名簿から削除しますか？\n\n' +
+      '・その方はログインできなくなります\n' +
+      '・これまでの受講記録は残ります（集計には出ます）\n' +
+      '・受講状況の一覧からは消えません（記録があるため）')) return;
+    if(removePerson(n)) toast(n + ' さんを名簿から削除しました');
+    LOADED.all = false;
+    ROS.edit = '';
+    viewAImport();
+  };
+
+  /* まとめて登録 */
   var parsed = [];
   function parse(){
     var txt = document.getElementById('imT').value;
@@ -6066,49 +6343,13 @@ function viewAImport(){
       var t = line.trim();
       if(!t) return;
       /* Excelから貼るとタブ区切りになる。
-         所属名に半角カンマが入っていると列がずれるので、カンマでは割らない。 */
+         職種名に半角カンマが入っていると列がずれるので、カンマでは割らない。 */
       var c = t.split(/\t/).map(function(x){ return x.trim(); });
       if(!c[0]) return;
-      parsed.push({ name:normName(c[0]), dept:c[1] || '', group:c[2] || '',
-                    emp:c[3] || '', email:c[4] || '', title:c[5] || '' });
+      parsed.push({ name:normName(c[0]), dept:c[1] || '', email:c[2] || '' });
     });
     return parsed;
   }
-  /* 1人ずつの登録 */
-  document.getElementById('p1Go').onclick = function(){
-    var n = normName(document.getElementById('p1n').value);
-    var m = String(document.getElementById('p1m').value || '').trim();
-    var d = document.getElementById('p1d').value;
-    var g = document.getElementById('p1g').value;
-    if(!n){ document.getElementById('p1n').focus(); toast('氏名を入れてください'); return; }
-    if(badName(n)){
-      document.getElementById('p1n').focus();
-      toast('氏名に使えない文字（｜・改行）が入っています'); return;
-    }
-    if(!d){ document.getElementById('p1d').focus(); toast('所属を選んでください'); return; }
-    if(!g){ document.getElementById('p1g').focus(); toast('グループを選んでください'); return; }
-    if(m && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){
-      document.getElementById('p1m').focus();
-      toast('メールアドレスの形が正しくありません'); return;
-    }
-    /* 同じメールアドレスが別の人に付いていないか */
-    if(m){
-      var dup = personByEmail(m);
-      if(dup && dup.name !== n){
-        toast('そのメールアドレスは「' + dup.name + '」さんに登録されています'); return;
-      }
-    }
-    var already = !!people()[n];
-    registerPerson({ name:n, email:m, dept:d, group:g,
-                     title:String(document.getElementById('p1t').value || '').trim(),
-                     emp:String(document.getElementById('p1e').value || '').trim() });
-    ['p1n','p1m','p1t','p1e'].forEach(function(id){ document.getElementById(id).value = ''; });
-    LOADED.all = false;
-    toast(n + ' さんを' + (already ? '上書きしました' : '登録しました') +
-          (m ? '' : '（メールアドレスが無いのでログインできません）'));
-    viewAImport();
-  };
-
   document.getElementById('imChk').onclick = function(){
     var rows = parse();
     var box = document.getElementById('imPre');
@@ -6119,7 +6360,6 @@ function viewAImport(){
     }
     var known = people();
     var neu = rows.filter(function(r){ return !known[r.name]; }).length;
-    /* 貼り付けた中での氏名の重複（同姓同名）を先に知らせる */
     var seen = {}, dup = [];
     rows.forEach(function(r){
       if(seen[r.name] && dup.indexOf(r.name) < 0) dup.push(r.name);
@@ -6130,8 +6370,7 @@ function viewAImport(){
              '新規 ' + neu + '人 / 上書き ' + (rows.length - neu) + '人</div>';
     if(dup.length){
       hh += '<div class="note"><b>同じ氏名が' + dup.length + '件あります</b>　' +
-            esc(dup.slice(0, 5).join('、')) +
-            (dup.length > 5 ? ' ほか' : '') +
+            esc(dup.slice(0, 5).join('、')) + (dup.length > 5 ? ' ほか' : '') +
             '。このままだと1人として登録され、受講記録が混ざります。' +
             '「佐藤 花子（1234）」のように区別してください。</div>';
     }
@@ -6139,23 +6378,30 @@ function viewAImport(){
     if(noMail.length){
       hh += '<div class="note"><b>' + noMail.length + '名にメールアドレスがありません</b>　' +
             'この方々はポータルからログインできません。' +
-            '5列目にメールアドレスを入れてから登録してください。</div>';
+            '3列目にメールアドレスを入れてから登録してください。</div>';
     }
     if(bad.length){
       hh += '<div class="note"><b>使えない文字が入っています</b>　' +
             esc(bad.slice(0, 3).map(function(r){ return r.name; }).join('、')) +
             '。氏名に ｜ や改行は使えません。</div>';
     }
-    hh += '<div class="tbl-wrap"><table><thead><tr><th>氏名</th><th>所属</th>' +
-          '<th>グループ</th><th>社員番号</th><th>メールアドレス</th>' +
-          '<th>役職</th><th class="c">権限</th><th class="c">区分</th></tr></thead><tbody>';
+    /* 一覧に無い職種は、あとで足すことになる */
+    var known2 = jobs(), neuJob = [];
+    rows.forEach(function(r){
+      if(r.dept && known2.indexOf(r.dept) < 0 && neuJob.indexOf(r.dept) < 0) neuJob.push(r.dept);
+    });
+    if(neuJob.length){
+      hh += '<div class="note calm"><b>新しい職種が' + neuJob.length + '件あります</b>　' +
+            esc(neuJob.join('、')) + '　登録すると、職種の一覧にも足されます。</div>';
+    }
+    hh += '<div class="tbl-wrap"><table><thead><tr><th>氏名</th><th>職種</th>' +
+          '<th>メールアドレス</th><th class="c">権限</th><th class="c">区分</th>' +
+          '</tr></thead><tbody>';
     rows.slice(0, 30).forEach(function(r){
       hh += '<tr><td><b>' + esc(r.name) + '</b></td><td class="nw">' + esc(r.dept || '—') +
-            '</td><td class="nw">' + esc(r.group || '—') + '</td><td class="mono">' +
-            esc(r.emp || '—') + '</td><td class="mono" style="font-size:11.5px">' +
-            esc(r.email || '—') + '</td><td class="nw">' + esc(r.title || '—') +
+            '</td><td class="mono" style="font-size:11.5px">' + esc(r.email || '—') +
             '</td><td class="c">' + roleBadge(
-              (known[r.name] && known[r.name].role) || roleFromTitle(r.title)) +
+              (known[r.name] && known[r.name].role) || 'learner') +
             '</td><td class="c">' +
             (known[r.name] ? '<span class="pill mid">上書き</span>'
                            : '<span class="pill ok">新規</span>') + '</td></tr>';
@@ -6172,12 +6418,120 @@ function viewAImport(){
       toast('氏名に使えない文字（｜・改行）が入っている行があります。直してからもう一度どうぞ');
       return;
     }
+    /* 名簿に出てきた職種のうち、一覧に無いものを足しておく。
+       足さないと、あとで1人ずつ直すときに選べなくなる。 */
+    var list = jobs().slice(), add = 0;
+    parsed.forEach(function(r){
+      if(r.dept && list.indexOf(r.dept) < 0){ list.push(r.dept); add++; }
+    });
+    if(add) setJobs(list);
     parsed.forEach(function(r){ registerPerson(r); });
-    toast(parsed.length + '人を登録しました');
+    toast(parsed.length + '人を登録しました' + (add ? '（職種も' + add + '件足しました）' : ''));
     LOADED.all = false;
     route('ausers');
   };
-  bindOpen();          /* 「一覧を見る」「権限を割り当てる」 */
+  bindOpen();
+}
+
+/* ══════════════════════════════════════════════════════════════
+   画面：職種の管理
+   ══════════════════════════════════════════════════════════════ */
+var JOB_NEW = '';
+function viewAJobs(){
+  var list = jobs().slice();
+  var h = '<div class="wrap" style="max-width:720px">';
+  h += '<div class="ph"><div><h2>職種</h2>' +
+       '<div class="sub">職員を登録するときに選ぶ職種の一覧です。' +
+       'ここで足したり、名前を直したり、消したりできます。</div>' +
+       '</div><div class="sp"></div>' +
+       '<button class="btn sub" data-go2="aimport">' + ic('users') + '職員の登録へ</button></div>';
+
+  h += '<div class="card pad" style="margin-bottom:18px">';
+  h += '<div class="bar"><input class="inp" id="jbNew" placeholder="例）介護職" value="' +
+       esc(JOB_NEW) + '" style="max-width:280px">' +
+       '<button class="btn" id="jbAdd">' + ic('plus') + '職種を足す</button></div>';
+  h += '</div>';
+
+  if(!list.length){
+    h += '<div class="card"><div class="empty">' + ic('slider') +
+         'まだ職種がありません。上の欄から足してください。</div></div>';
+  }else{
+    h += '<div class="tbl-wrap"><table><thead><tr>' +
+         '<th class="stick">職種</th><th class="n">登録されている方</th>' +
+         '<th class="c" style="min-width:186px"></th></tr></thead><tbody>';
+    list.forEach(function(d, i){
+      var n = jobCount(d);
+      h += '<tr><td class="stick"><input class="inp" data-jb="' + i + '" value="' +
+           esc(d) + '" style="max-width:260px"></td>';
+      h += '<td class="n">' + n + '</td>';
+      h += '<td class="c"><button class="btn sub sm" data-jbup="' + i + '"' +
+           (i === 0 ? ' disabled' : '') + ' aria-label="上へ">↑</button> ' +
+           '<button class="btn sub sm" data-jbdn="' + i + '"' +
+           (i === list.length - 1 ? ' disabled' : '') + ' aria-label="下へ">↓</button> ' +
+           '<button class="btn sub sm" data-jbdel="' + i + '">削除</button></td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div class="bar" style="margin-top:14px">' +
+         '<button class="btn" id="jbSave">' + ic('check') + '名前の変更を保存する</button>' +
+         '<span class="cap">名前を直すと、その職種の方と、配信先の指定も一緒に付け替えます</span>' +
+         '</div>';
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+
+  var ni = document.getElementById('jbNew');
+  function add(){
+    var v = String(ni.value || '').trim();
+    if(!v){ ni.focus(); return; }
+    if(jobs().indexOf(v) >= 0){ toast('その職種はもうあります'); ni.focus(); return; }
+    setJobs(jobs().concat([v]));
+    JOB_NEW = '';
+    toast('「' + v + '」を足しました');
+    viewAJobs();
+  }
+  document.getElementById('jbAdd').onclick = add;
+  ni.addEventListener('keydown', function(e){ if(e.key === 'Enter') add(); });
+  ni.oninput = function(){ JOB_NEW = this.value; };
+
+  eachIn('[data-jbup]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-jbup')), l = jobs().slice();
+    var t = l[i-1]; l[i-1] = l[i]; l[i] = t; setJobs(l); viewAJobs();
+  }; });
+  eachIn('[data-jbdn]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-jbdn')), l = jobs().slice();
+    var t = l[i+1]; l[i+1] = l[i]; l[i] = t; setJobs(l); viewAJobs();
+  }; });
+  eachIn('[data-jbdel]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-jbdel')), l = jobs().slice(), d = l[i];
+    var n = jobCount(d);
+    if(n){
+      if(!window.confirm('「' + d + '」には ' + n + '名が登録されています。\n\n' +
+        '一覧から消しても、その方々の職種はそのまま残ります。\n' +
+        'ただし、新しく登録するときには選べなくなります。\n\n本当に消しますか？')) return;
+    }else if(!window.confirm('「' + d + '」を消しますか？')){ return; }
+    l.splice(i, 1);
+    setJobs(l);
+    toast('「' + d + '」を消しました');
+    viewAJobs();
+  }; });
+
+  var sv = document.getElementById('jbSave');
+  if(sv) sv.onclick = function(){
+    var l = jobs().slice(), changed = 0, ng = '';
+    l.forEach(function(d, i){
+      var e = byAttr('data-jb', String(i));
+      if(!e) return;
+      var v = String(e.value || '').trim();
+      if(!v || v === d) return;
+      if(!renameJob(d, v)) ng = v;
+      else changed++;
+    });
+    if(ng) toast('「' + ng + '」は、すでにある職種と同じ名前です');
+    else if(changed) toast(changed + '件の名前を直しました');
+    else toast('変更はありませんでした');
+    viewAJobs();
+  };
+  bindOpen();
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -6200,14 +6554,13 @@ function viewARoles(){
 
   var kw = ROLE_Q.trim();
   var shown = kw ? ppl.filter(function(p){
-    return p.name.indexOf(kw) >= 0 || String(p.dept).indexOf(kw) >= 0 ||
-           String(p.title).indexOf(kw) >= 0;
+    return p.name.indexOf(kw) >= 0 || String(p.dept).indexOf(kw) >= 0;
   }) : ppl;
 
   var h = '<div class="wrap">';
   h += '<div class="ph"><div><h2>権限の割り当て</h2>' +
        '<div class="sub">誰がどこまで見られるかを決めます。' +
-       '役職から自動で入っていますが、一人ずつ変えられます。</div></div></div>';
+       '職員の登録・編集からも変えられます。</div></div></div>';
 
   /* 権限の説明 */
   h += '<div class="card pad" style="margin-bottom:16px"><div class="rolelist">';
@@ -6225,7 +6578,7 @@ function viewARoles(){
        'レポートの権限を設定する必要があります。詳しくは導入手順書をご覧ください。</div>';
 
   h += '<div class="bar" style="margin-bottom:12px">' +
-       '<input class="inp" id="roQ" placeholder="名前・所属・役職で絞り込む" value="' +
+       '<input class="inp" id="roQ" placeholder="名前・職種で絞り込む" value="' +
        esc(ROLE_Q) + '" style="max-width:280px">' +
        '<span class="sp"></span>' +
        '<span class="cnt">' + shown.length + ' / ' + ppl.length + '名</span>' +
@@ -6236,7 +6589,7 @@ function viewARoles(){
          '該当する方がいません。</div></div>';
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr>' +
-         '<th class="stick">氏名</th><th>所属</th><th>役職</th>' +
+         '<th class="stick">氏名</th><th>職種</th>' +
          '<th style="min-width:170px">権限</th>' +
          '<th style="min-width:260px">見られる範囲<small>部門管理者のときだけ</small></th>' +
          '</tr></thead><tbody>';
@@ -6246,7 +6599,6 @@ function viewARoles(){
            ava(p.name, 'sm') + '<div class="who-t"><b>' + esc(p.name) + '</b>' +
            '<span>' + esc(p.email || 'メールアドレス未登録') + '</span></div></div></td>';
       h += '<td class="nw">' + esc(p.dept || '—') + '</td>';
-      h += '<td class="nw">' + esc(p.title || '—') + '</td>';
       h += '<td><select class="inp" data-role="' + esc(p.name) + '">' +
              ROLES.map(function(x){
                return '<option value="' + x.id + '"' + (r === x.id ? ' selected' : '') +
@@ -6464,24 +6816,20 @@ function viewASettings(){
        '<span class="cap">ロゴと背景画像は Creator に保存され、全員の画面に反映されます</span></div>';
   h += '</div>';
 
-  h += '<div class="cat">' + ic('users') + '所属・グループの選択肢</div>';
+  h += '<div class="cat">' + ic('users') + 'グループの選択肢</div>';
   h += '<div class="note calm" style="margin-bottom:12px">' +
-       '<b>所属・役職・グループの使い分け</b><br>' +
-       '<b>所属</b>＝部署（本部・福祉事業部など）。部門管理者が見られる範囲もこれで決めます。<br>' +
-       '<b>役職</b>＝部長・施設長・主任・一般など。<u>名簿の「役職」欄</u>に入れます。' +
-       '権限の初期値がここから決まります。<br>' +
+       '<b>職種とグループの使い分け</b><br>' +
+       '<b>職種</b>＝介護職・看護職・事務など。職員を登録するときに1つ選びます。' +
+       '部門管理者が見られる範囲も、これで決めます。' +
+       '足したり直したりは<b>「ユーザー管理 → 職種」</b>から行ってください。<br>' +
        '<b>グループ</b>＝配信のためのくくり（新卒入社者・送迎担当など）。' +
        '「このグループにだけ配信する」に使います。</div>';
   h += '<div class="card pad" style="display:grid;gap:14px">';
-  h += '<div class="field"><label for="stDepts">所属（1行に1つ）</label>' +
-       '<textarea class="inp" id="stDepts" rows="6" style="resize:vertical">' +
-       esc(depts().join('\n')) + '</textarea></div>';
   h += '<div class="field"><label for="stGroups">グループ（1行に1つ）</label>' +
        '<textarea class="inp" id="stGroups" rows="6" style="resize:vertical">' +
        esc(groups().join('\n')) + '</textarea></div>';
   h += '<div class="bar"><button class="btn" id="stSave">' + ic('check') + '保存する</button>' +
-       '<span class="cap">ここで足した所属・グループは、全員の端末に配られます。' +
-       'すでに入力されている受講記録の所属は書き換わりません</span></div>';
+       '<span class="cap">ここで足したグループは、全員の端末に配られます</span></div>';
   h += '</div>';
 
   h += '<div class="cat">' + ic('gear') + 'コースの設定</div>';
@@ -6657,13 +7005,10 @@ function viewASettings(){
   };
 
   document.getElementById('stSave').onclick = function(){
-    var d = document.getElementById('stDepts').value.split('\n')
-              .map(function(x){ return x.trim(); }).filter(Boolean);
     var g = document.getElementById('stGroups').value.split('\n')
               .map(function(x){ return x.trim(); }).filter(Boolean);
-    if(!d.length){ toast('所属は1つ以上必要です'); return; }
     var c = config();
-    c.depts = d; c.groups = g;
+    c.groups = g;
     setConfig(c);
     toast('保存しました（全員の端末に反映されます）');
   };
@@ -6832,7 +7177,7 @@ function openMailText(){
       }
     });
     if(!pend.length) return;
-    txt += '■ ' + r.name + ' さん（' + (r.dept || '所属未設定') + '）\n' + pend.join('\n') + '\n\n';
+    txt += '■ ' + r.name + ' さん（' + (r.dept || '職種未設定') + '）\n' + pend.join('\n') + '\n\n';
   });
   txt += '※ 視聴率は、実際に再生された時間で計算しています。\n';
   txt += '　 早送り・倍速で飛ばした区間は含まれません。\n';
@@ -6879,7 +7224,7 @@ function exportCsv(){
   var names = Object.keys(SEL);
   if(names.length) ppl = ppl.filter(function(p){ return SEL[p.name]; });
 
-  var head = ['受講者','所属','グループ','社員番号','コース','必須','期限','チャプター',
+  var head = ['受講者','職種','グループ','社員番号','コース','必須','期限','チャプター',
               '動画の長さ(分)','視聴した分数','視聴率(%)','コース進捗(%)',
               'テスト得点','テスト満点','テスト判定','コース判定','倍速の検知','最終視聴日時'];
   var lines = [head.map(csvCell).join(',')];
@@ -7002,14 +7347,10 @@ function firstAdminSetup(){
        '<div class="ro">' + esc(LOGIN_EMAIL) + '</div></div>';
   h += '<div class="field"><label for="faName">お名前</label>' +
        '<input class="inp" id="faName" placeholder="例）山田 太郎" autocomplete="name"></div>';
-  h += '<div class="two">';
-  h +=   '<div class="field"><label for="faDept">所属</label><select class="inp" id="faDept">' +
-           '<option value="">選択してください</option>' +
-           depts().map(function(d){ return '<option>' + esc(d) + '</option>'; }).join('') +
-         '</select></div>';
-  h +=   '<div class="field"><label for="faTitle">役職</label>' +
-           '<input class="inp" id="faTitle" placeholder="例）総務部長"></div>';
-  h += '</div>';
+  h += '<div class="field"><label for="faDept">職種</label><select class="inp" id="faDept">' +
+         '<option value="">選択してください</option>' +
+         jobs().map(function(d){ return '<option>' + esc(d) + '</option>'; }).join('') +
+       '</select></div>';
   h += '<div class="note calm"><b>システム管理者にできること</b>　' +
        '受講者の登録、コースの作成と配信、全員の受講状況の閲覧、権限の割り当てができます。</div>';
   h += '<div class="bar"><button class="btn" id="faGo">' + ic('check') +
@@ -7027,7 +7368,6 @@ function firstAdminSetup(){
     registerPerson({
       name:name, email:LOGIN_EMAIL,
       dept:document.getElementById('faDept').value || '',
-      title:String(document.getElementById('faTitle').value || '').trim(),
       role:'admin', scope:''
     });
     LS.set('me', { name:name, dept:document.getElementById('faDept').value || '',
@@ -7143,6 +7483,7 @@ var ADMIN_VIEWS = {
   acourses:viewACourses, aoverall:viewAOverall, acourse:viewACourse,
   auser:viewAUsers, aquiz:viewAQuiz, alog:viewALog, asettings:viewASettings,
   asurvey:viewASurvey, anews:viewANews, aimport:viewAImport, aassign:viewAAssign,
+  ajobs:viewAJobs,
   aroles:viewARoles, acedit:viewACEdit
 };
 function openAdminView(view, arg){
@@ -7183,7 +7524,8 @@ var CRUMB = {
   aquiz:    ['管理ダッシュボード|adash', '学習進捗管理', 'テスト'],
   asurvey:  ['管理ダッシュボード|adash', '学習進捗管理', 'アンケート'],
   anews:    ['管理ダッシュボード|adash', 'お知らせ配信'],
-  aimport:  ['管理ダッシュボード|adash', 'ユーザー管理', '一括登録'],
+  aimport:  ['管理ダッシュボード|adash', 'ユーザー管理', '職員の登録・編集'],
+  ajobs:    ['管理ダッシュボード|adash', 'ユーザー管理', '職種'],
   aroles:   ['管理ダッシュボード|adash', 'ユーザー管理', '権限の割り当て'],
   acedit:   ['管理ダッシュボード|adash', 'コース管理|acourses', 'コースの編集'],
   aassign:  ['管理ダッシュボード|adash', 'コース管理|acourses', '配信設定'],
@@ -7301,7 +7643,7 @@ function bindLogin(){
     try{ localStorage.removeItem(LS.key('me')); }catch(e){}
     return;
   }
-  /* 名簿が正。端末に残っている古い所属で上書きしない */
+  /* 名簿が正。端末に残っている古い職種で上書きしない */
   LS.set('me', { name:p.name, dept:p.dept || '', group:p.group || '',
                  emp:p.emp || '', email:LOGIN_EMAIL });
   refreshRole();

@@ -130,7 +130,7 @@ const ROSTER = [
     (await p.$eval('#main .ro', e => e.textContent.trim())) === 'owner@example.com');
   await p.fill('#faName', '田中 一郎');
   await p.selectOption('#faDept', { index: 1 });
-  await p.fill('#faTitle', '総務部長');
+  check('役職の欄は無い（登録は氏名と職種だけ）', (await p.$('#faTitle')) === null);
   await p.click('#faGo');
   await p.waitForTimeout(600);
   check('システム管理者として登録された',
