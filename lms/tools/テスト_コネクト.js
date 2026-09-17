@@ -139,6 +139,12 @@ const ROSTER = [
   await enter(hana, 'connect');
   check('コネクトを押すと掲示板が開く', (await hana.$('#fdBody')) !== null);
   const L = await side(hana);
+  check('上の帯は「船井コネクト」', (await hana.$eval('#topLogo .nm', e => e.textContent)) === '船井コネクト');
+  check('e-ラーニングの項目は出ない', !L.some(t => /研修コース|マイダッシュボード|修了証/.test(t)));
+  check('メンバーとプロフィールがある', L.some(t => t === 'メンバー') && L.some(t => t === 'プロフィール'));
+  await hana.evaluate(() => route('home'));
+  await hana.waitForTimeout(250);
+  check('コネクトの中から e-ラーニングの画面は開かない（掲示板に戻る）', (await hana.$('#fdBody')) !== null);
   check('メニューに「掲示板」がある', L.some(t => t === '掲示板'));
   check('メニューに「サンクスカード」がある', L.some(t => t === 'サンクスカード'));
   check('メニューに「アプリを選ぶ」がある', L.some(t => t === 'アプリを選ぶ'));

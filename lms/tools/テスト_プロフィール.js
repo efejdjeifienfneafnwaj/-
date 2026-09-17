@@ -66,7 +66,7 @@ const ROSTER = [
   }
 
   console.log('① プロフィール画面で写真と自己紹介を保存できること');
-  const hana = await open('hana@example.com', 'lms');
+  const hana = await open('hana@example.com', 'connect');
   await hana.evaluate(() => route('profile'));
   await hana.waitForSelector('#pfBio');
   check('写真が無いときは頭文字が出る', (await hana.$eval('.prof-photo', e => e.textContent.trim())) === '佐');

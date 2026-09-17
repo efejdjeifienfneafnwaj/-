@@ -455,30 +455,81 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
       背景は画面いっぱいに1枚。その中央に、ロゴ・タイトル・入力を縦に並べる。
    ══════════════════════════════════════════════════════════════ */
 .gate{
-  min-height:100vh;display:grid;position:relative;overflow:hidden;background:#04101c;
-  /* 背景の図は右側に寄せてあるので、入力は左に置いて図を隠さないようにする */
-  place-items:center start;padding:34px clamp(20px,7vw,110px);
+  min-height:100vh;position:relative;overflow:hidden;
+  display:grid;grid-template-rows:auto 1fr auto auto;gap:18px;
+  padding:22px clamp(18px,5vw,64px) 26px;
+  /* 明るいオフィスの写真が無いときの、淡い背景 */
+  background:
+    radial-gradient(ellipse 60% 50% at 18% 30%,rgba(120,180,240,.35),transparent 70%),
+    radial-gradient(ellipse 50% 45% at 82% 65%,rgba(140,220,190,.28),transparent 70%),
+    linear-gradient(180deg,#f2f6fb 0%,#e6eef7 100%);
+  color:#1c2b38;
 }
-@media (max-width:1100px){ .gate{place-items:center;padding:30px 20px;} }
+.gate-top{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;}
+.gate-brand{display:grid;gap:3px;justify-items:start;}
+.gate-brand small{font-size:11px;letter-spacing:.14em;color:#4a5c6b;}
+.gate-tag{text-align:right;color:#26364a;font-size:15px;letter-spacing:.16em;font-weight:500;}
+.gate-tag small{display:block;font-size:11px;letter-spacing:.14em;color:#7a8a99;margin-top:3px;}
+.gate-mid{
+  position:relative;display:grid;grid-template-columns:1fr minmax(320px,470px) 1fr;
+  align-items:center;gap:24px;
+}
+.gate-copy h2{font-size:clamp(30px,3.6vw,46px);line-height:1.35;letter-spacing:.08em;font-weight:700;color:#26364a;margin:0 0 14px;}
+.gate-copy p{font-size:15px;letter-spacing:.12em;color:#3b4c5c;margin:0 0 14px;line-height:1.9;}
+.gate-copy i{display:block;font-style:normal;font-size:13px;color:#6b7c8b;line-height:1.9;letter-spacing:.04em;}
+.gate-script{
+  font-family:"Segoe Script","Brush Script MT","Snell Roundhand","Apple Chancery",cursive;
+  font-size:clamp(34px,4vw,56px);color:#2f7bd6;line-height:1.2;text-align:right;
+  letter-spacing:.02em;opacity:.92;transform:rotate(-6deg);
+}
+.gate-col{position:relative;width:100%;text-align:center;}
+.wordmark{font-size:32px;font-weight:800;letter-spacing:-.01em;line-height:1.1;color:#1e2b3b;margin-top:8px;}
+.wordmark .e{color:#1e2b3b;}
+.wordsub{margin-top:8px;font-size:12.5px;letter-spacing:.34em;color:#4a5c6b;text-indent:.34em;}
+.gate-apps{
+  position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;
+  max-width:1360px;width:100%;margin:0 auto;
+}
+.gate-app{
+  display:grid;grid-template-columns:auto 1fr auto;column-gap:16px;align-items:center;
+  text-align:left;padding:22px 24px;border-radius:18px;border:1px solid rgba(255,255,255,.7);
+  background:rgba(255,255,255,.72);box-shadow:0 10px 30px rgba(20,50,90,.10);
+  cursor:pointer;color:#1c2b38;transition:transform .16s, box-shadow .16s;
+}
+.gate-app:hover{transform:translateY(-2px);box-shadow:0 16px 36px rgba(20,50,90,.16);}
+.gate-app.off{opacity:.55;cursor:default;}
+.gate-app .hub-i{width:64px;height:64px;border-radius:50%;margin:0;}
+.gate-app .hub-i .ic{font-size:28px;}
+.gate-app b{font-size:18px;display:block;margin-bottom:4px;}
+.gate-app .hub-s{font-size:13px;color:#4a5c6b;line-height:1.55;}
+.gate-app .arrow{font-size:22px;font-weight:700;}
+.gate-app.c-shinsei{background:rgba(232,240,251,.85);}
+.gate-app.c-shinsei .hub-i{background:#d7e6fb;color:#2c6fd6;} .gate-app.c-shinsei .arrow{color:#2c6fd6;}
+.gate-app.c-lms{background:rgba(233,247,239,.85);}
+.gate-app.c-lms .hub-i{background:#d3efdf;color:#2e9e5b;} .gate-app.c-lms .arrow{color:#2e9e5b;}
+.gate-app.c-connect{background:rgba(253,243,227,.85);}
+.gate-app.c-connect .hub-i{background:#fbe6c4;color:#d08a1e;} .gate-app.c-connect .arrow{color:#d08a1e;}
+.gate-foot{position:relative;text-align:center;font-size:12px;color:#4a5c6b;letter-spacing:.06em;line-height:1.9;}
+.gate-foot small{display:block;font-size:11px;color:#7a8a99;}
+@media (max-width:1100px){
+  .gate-mid{grid-template-columns:1fr;justify-items:center;}
+  .gate-copy,.gate-script{display:none;}
+  .gate-col{max-width:470px;}
+  .gate-apps{grid-template-columns:1fr;max-width:470px;}
+}
 .hero{position:absolute;inset:0;}
 .hero-svg{width:100%;height:100%;display:block;}
 .hero-img{position:absolute;inset:0;background-size:cover;background-position:center;}
 /* zipの中に置いた背景画像（app/bg.jpg） */
 .hero-file{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}
-/* 中央を少し暗く落として、文字と入力欄を読みやすくする */
+/* 写真の上に白いかぶせを置いて、文字と入力欄を読みやすくする（明るい配色） */
 .hero-veil{
   position:absolute;inset:0;
-  /* 背景は暗い図なので、かぶせは薄くてよい。左側だけ少し落として文字を読みやすくする */
-  background:
-    linear-gradient(100deg,rgba(3,12,22,.78) 0%,rgba(3,12,22,.46) 38%,rgba(3,12,22,.08) 62%,rgba(3,12,22,0) 100%),
-    linear-gradient(180deg,rgba(3,12,22,.30) 0%,rgba(3,12,22,0) 26%,rgba(3,12,22,.40) 100%);
+  background:linear-gradient(180deg,rgba(255,255,255,.55) 0%,rgba(255,255,255,.35) 50%,rgba(255,255,255,.62) 100%);
 }
 
 .gate-col{position:relative;width:min(452px,100%);text-align:center;}
-.brand{
-  display:inline-block;background:#fff;border-radius:11px;padding:11px 20px;
-  box-shadow:0 6px 26px rgba(4,30,70,.32);margin-bottom:22px;
-}
+.brand{display:inline-block;margin-bottom:6px;}
 .logo-set{display:inline-flex;align-items:center;gap:11px;}
 .logo-mk{display:block;}
 .logo-wd{
@@ -494,22 +545,6 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 }
 .logo-img{display:block;max-width:100%;object-fit:contain;}
 
-.wordmark{
-  font-size:60px;font-weight:900;letter-spacing:-.015em;line-height:1.02;color:#fff;
-  text-shadow:0 0 34px rgba(80,190,255,.55), 0 6px 26px rgba(4,26,60,.55);
-}
-.wordmark .e{color:#ffd83d;}
-.wordsub{
-  margin-top:12px;font-size:14px;letter-spacing:.34em;color:#fff;font-weight:500;
-  text-indent:.34em;text-shadow:0 2px 12px rgba(4,26,60,.5);
-}
-/* ─ ● ─ ● ─ の飾り線 */
-.rule{display:flex;align-items:center;justify-content:center;gap:9px;margin:14px 0 22px;}
-.rule i{display:block;height:1px;width:56px;background:rgba(255,255,255,.55);}
-.rule span{
-  display:block;width:6px;height:6px;border-radius:50%;background:#fff;opacity:.85;
-}
-.rule i:first-child,.rule i:last-child{width:34px;opacity:.5;}
 
 .gate-card,.hbox,.hbtn,.brand{
   /* 入口のカードは常に白い紙の上。暗い配色のときも明るい方の色に固定する */
@@ -526,10 +561,11 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   color:var(--ink-2);
 }
 .gate-card{
-  background:#fff;border-radius:14px;padding:26px 26px 22px;
-  box-shadow:0 18px 50px rgba(4,26,60,.42);text-align:left;
-  border:1px solid rgba(255,255,255,.7);
+  background:#fff;border-radius:18px;padding:28px 30px 24px;
+  box-shadow:0 22px 60px rgba(20,50,90,.16);text-align:left;
+  border:1px solid rgba(255,255,255,.9);
 }
+.gate-card .card-head{text-align:center;margin-bottom:22px;}
 .gate-card .field{margin-bottom:14px;}
 /* ラベルの横に添える小さな説明。くっついて読めなくなるので、必ず間を空ける */
 .note-s{font-weight:400;color:var(--ink-3);margin-left:6px;font-size:12px;}
@@ -567,10 +603,7 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   font-size:12.5px;color:var(--ink-3);border-radius:var(--r-sm);
 }
 .gate-adm button:hover{color:var(--acc);background:var(--surface-2);}
-.ver{
-  margin-top:20px;font-size:11.5px;letter-spacing:.1em;color:rgba(255,255,255,.75);
-  text-shadow:0 1px 8px rgba(4,26,60,.5);
-}
+.ver{margin-top:20px;font-size:11.5px;letter-spacing:.1em;color:#4a5c6b;}
 
 /* 左下の小さなボタン */
 .gate-help{position:absolute;left:22px;bottom:22px;display:grid;gap:10px;justify-items:start;}
@@ -592,10 +625,13 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .hbox .btn{margin-top:12px;}
 
 @media (max-width:640px){
-  .gate{padding:26px 16px 96px;}
-  .wordmark{font-size:44px;}
-  .wordsub{font-size:12.5px;letter-spacing:.24em;}
+  .gate{padding:18px 16px 96px;gap:14px;}
+  .gate-tag{display:none;}
+  .wordmark{font-size:30px;}
+  .wordsub{font-size:11.5px;letter-spacing:.24em;}
   .gate-card{padding:20px 18px 18px;}
+  .gate-app{padding:16px 16px;}
+  .gate-app .hub-i{width:50px;height:50px;}
   .gate-card .two{grid-template-columns:1fr;}
   .gate-help{left:16px;right:16px;bottom:16px;}
   .hbox{width:100%;}
@@ -1283,10 +1319,9 @@ function heroHTML(){
     /* 値は上で「画像のデータURI」だけに絞ってある。さらに esc() で属性も守る */
     return '<div class="hero-img" style="background-image:url(&quot;' + esc(bg) + '&quot;)"></div>';
   }
-  return '<div id="heroSvgBox">' + heroSVG() + '</div>' +
-    '<img class="hero-file" src="bg.jpg" alt="" ' +
-      'onload="var b=document.getElementById(\'heroSvgBox\');if(b)b.style.display=\'none\';" ' +
-      'onerror="this.remove();">';
+  /* zip に app/bg.jpg（明るいオフィスの写真など）を置けば、それを背景にする。
+     無ければ CSS の淡い背景のまま */
+  return '<img class="hero-file" src="bg.jpg" alt="" onerror="this.remove();">';
 }
 
 function icf(name){
@@ -1890,11 +1925,18 @@ function markNewsSeen(person){
      コース定義と同じ1レコードに相乗りさせる。管理者しか書き換えない。
    ══════════════════════════════════════════════════════════════ */
 var DEFAULT_CONFIG = {
-  appName:'Funai e-Learning',
+  /* ポータル全体（ログイン画面）の名前。3つのアプリの上にかぶさるもの */
+  portalName:'Funai Portal',
+  portalSub:'社内ポータル',
+  catchCopy:'はたらく、\nつながる、\n学ぶ。',
+  catchSub:'現場の力が、\n未来をつくる。',
+  scriptCopy:'People\nCare\nFuture',
+  /* e-ラーニング（アプリの1つ）の名前 */
+  appName:'船井e-ラーニング',
   termStart:4,        /* 年度の開始月。4＝4月はじまり */
   appSub:'研修ポータル',
   orgName:'株式会社船井総合研究所',
-  tagline:'サステナグロースカンパニーをもっと。',
+  tagline:'学びが、現場を変えていく。',
   /* 職種とグループの選択肢。Creator に入るので、全員の端末に同じものが配られる */
   depts:['介護職','看護職','相談員','事務','製造','その他'],
   /* グループは「配信のためのくくり」。役職（部長・主任など）とは別物。
@@ -3198,20 +3240,51 @@ function canOpen(view){
 }
 
 var MODE = 'user';
+/* いま開いているアプリ。ログイン画面で選ぶ。
+   アプリの中では、そのアプリの画面しか開けない（別のアプリの画面は入口に戻して選び直す）。 */
+var APP_NOW = 'lms';
+var APP_HOME = { lms:'home', connect:'feed', shinsei:'s_mine' };
+function appHome(){ return APP_HOME[APP_NOW] || 'home'; }
+function appLabel(id){
+  id = id || APP_NOW;
+  if(id === 'connect') return '船井コネクト';
+  if(id === 'shinsei') return '社内申請';
+  return config().appName;
+}
+/* その画面を開けるアプリ。名簿・職種・権限の管理は、どのアプリからも要るので両方に出す */
+function viewApps(view){
+  var v = String(view || '');
+  if(v === 'hub') return ['lms', 'connect', 'shinsei'];
+  if(v.indexOf('s_') === 0) return ['shinsei'];
+  if(v === 'feed' || v === 'thanks' || v === 'members' || v === 'profile') return ['connect'];
+  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['lms', 'connect'];
+  return ['lms'];
+}
 var NAV_USER = [
   { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'home',    icon:'home',   label:'マイダッシュボード' },
   { go:'courses', icon:'book',   label:'研修コース' },
   { icon:'user',  label:'マイページ', sub:[
-      { go:'profile', label:'プロフィール' },
       { go:'history', label:'受講履歴' },
       { go:'mytime',  label:'学習時間' },
       { go:'certs',   label:'修了証' },
       { go:'mynews',  label:'お知らせ' }
-  ]},
+  ]}
+];
+/* 船井コネクトのメニュー。e-ラーニングの項目は出さない（アプリごとに分ける） */
+var NAV_CONNECT = [
+  { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'feed',    icon:'mail',   label:'掲示板' },
+  { go:'thanks',  icon:'medal',  label:'サンクスカード' },
   { go:'members', icon:'users',  label:'メンバー' },
-  { go:'thanks',  icon:'medal',  label:'サンクスカード' }
+  { go:'profile', icon:'user',   label:'プロフィール' }
+];
+var NAV_CONNECT_ADMIN = [
+  { icon:'users', label:'ユーザー管理', sub:[
+      { go:'aimport', label:'職員の登録・編集' },
+      { go:'ajobs',   label:'職種' },
+      { go:'aroles',  label:'権限の割り当て' }
+  ]}
 ];
 var NAV_ADMIN = [
   { go:'adash',   icon:'home',  label:'管理ダッシュボード' },
@@ -3271,9 +3344,9 @@ function drawNav(view){
   /* メニューは1つ。受講者向けの項目に続けて、その人の権限で開ける
      管理向けの項目を並べる。切り替えボタンは置かない。
      社内申請の中では、社内申請の項目だけを並べる。 */
-  var inS = String(view || '').indexOf('s_') === 0;
-  var list = (inS ? NAV_SHINSEI : NAV_USER).slice();
-  var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : NAV_ADMIN) : [];
+  var inS = APP_NOW === 'shinsei';
+  var list = (inS ? NAV_SHINSEI : (APP_NOW === 'connect' ? NAV_CONNECT : NAV_USER)).slice();
+  var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : (APP_NOW === 'connect' ? NAV_CONNECT_ADMIN : NAV_ADMIN)) : [];
   if(adm.length){
     list.push({ head:'管理' });
     list = list.concat(adm);
@@ -3372,8 +3445,10 @@ function drawNav(view){
   document.getElementById('topLogo').innerHTML =
     (safeImageURI(cfg.logo) ? '<img class="logo-img" src="' + esc(safeImageURI(cfg.logo)) + '" alt="" style="height:24px">'
               : '<span class="mk">研</span>') +
-    '<span class="nm">' + esc(cfg.appName) + '</span>' +
-    '<small>' + ((MODE === 'admin') ? '　管理機能' : '　' + esc(cfg.appSub)) + '</small>';
+    '<span class="nm">' + esc(appLabel()) + '</span>' +
+    '<small>' + ((MODE === 'admin') ? '　管理機能' : '　' + esc(cfg.portalName)) + '</small>';
+  document.getElementById('icoBell').hidden = APP_NOW !== 'lms';
+  document.getElementById('icoMail').hidden = APP_NOW !== 'lms';
   var unread = u.name ? newsUnread(u) : 0;
   document.getElementById('mailDot').hidden = !unread;
   document.getElementById('bellDot').hidden = !pend;
@@ -3465,14 +3540,23 @@ function viewGate(){
   /* 入れるのは「ポータルのメールアドレスが名簿と一致した人」だけ */
   var mode = meRow ? 'known' : (demo ? 'demo' : 'none');
 
+  var br = function(t){ return esc(String(t || '')).replace(/\n/g, '<br>'); };
   var h = '<div class="gate">';
   h +=   '<div class="hero">' + heroHTML() + '</div><span class="hero-veil"></span>';
-  h +=   '<div class="gate-col">';
-  h +=     '<div class="brand">' + logoHTML(34) + '</div>';
-  h +=     '<h1 class="wordmark"><span class="e">e</span>-Learning</h1>';
-  h +=     '<div class="wordsub">' + esc(cfg.appSub || '研修ポータル') + '</div>';
-  h +=     '<div class="rule"><i></i><span></span><i></i><span></span><i></i></div>';
-  h +=     '<div class="gate-card">';
+  /* 上：ロゴと一言 */
+  h +=   '<header class="gate-top">';
+  h +=     '<div class="gate-brand">' + logoHTML(30) + '<small>' + esc(cfg.orgName) + '</small></div>';
+  h +=     '<div class="gate-tag">' + esc(cfg.tagline || '') + '</div>';
+  h +=   '</header>';
+  /* 中：左の言葉・ログインのカード・右の飾り文字 */
+  h +=   '<div class="gate-mid">';
+  h +=     '<div class="gate-copy"><h2>' + br(cfg.catchCopy) + '</h2>' +
+             '<p>' + br(cfg.catchSub) + '</p></div>';
+  h +=     '<div class="gate-col">';
+  h +=       '<div class="gate-card">';
+  h +=         '<div class="card-head"><div class="brand">' + logoHTML(30) + '</div>' +
+               '<h1 class="wordmark">' + esc(cfg.portalName || 'Portal') + '</h1>' +
+               '<div class="wordsub">' + esc(cfg.portalSub || '') + '</div></div>';
 
   if(LOGIN_EMAIL){
     h +=     '<div class="who-me">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
@@ -3487,8 +3571,7 @@ function viewGate(){
              esc([meRow.dept || '職種未設定', meRow.group || 'グループ未設定',
                   meRow.title ? meRow.title : ''].filter(Boolean).join('　·　')) +
            '</div></div>';
-    h +=   appPickHTML();
-    h +=   '<p class="cardnote">お名前が違う場合は、研修担当にご連絡ください</p>';
+    h +=   '<p class="cardnote">下のアプリを押すと、そのアプリに入ります。お名前が違う場合は、研修担当にご連絡ください</p>';
   }else if(mode === 'none'){
     /* ② 名簿に無い。勝手に登録させない */
     h +=   '<div class="note" style="margin-bottom:4px">' +
@@ -3524,7 +3607,7 @@ function viewGate(){
                  return '<option' + (prev.group === d ? ' selected' : '') + '>' + esc(d) + '</option>';
                }).join('') + '</select></div>';
     h +=   '</div>';
-    h +=   appPickHTML();
+    h +=   '<p class="cardnote">お名前を入れて、下のアプリを押してください</p>';
   }
 
   /* Zoho にログインできている時点で本人確認は済んでいる。
@@ -3540,9 +3623,14 @@ function viewGate(){
              (demo ? '管理画面をひらく' : 'はじめに管理者を登録する') +
            '</button></div>';
   }
-  h +=     '</div>';
-  h +=     '<div class="ver">' + esc(cfg.appName) + '　·　' + esc(cfg.orgName) + '</div>';
-  h +=   '</div>';
+  h +=       '</div>';   /* gate-card */
+  h +=     '</div>';     /* gate-col */
+  h +=     '<div class="gate-script">' + br(cfg.scriptCopy) + '</div>';
+  h +=   '</div>';       /* gate-mid */
+  /* 下：3つのアプリ。押した瞬間にそのアプリへ入る */
+  h +=   (mode === 'none') ? '' : appPickHTML();
+  h +=   '<footer class="gate-foot">' + esc(cfg.portalName) + '　·　' + esc(cfg.orgName) +
+         '<small>© ' + new Date().getFullYear() + ' ' + esc(cfg.orgName) + '</small></footer>';
   h +=   '<div class="gate-help">';
   h +=     '<button class="hbtn" id="gHelp">' + ic('book') + '使い方</button>';
   h +=   '</div>';
@@ -3552,6 +3640,7 @@ function viewGate(){
   document.getElementById('gHelp').onclick = gateHelp;
   var gAdmBtn = document.getElementById('gAdm');
   if(gAdmBtn) gAdmBtn.onclick = function(){
+    APP_NOW = 'lms';          /* 管理画面は e-ラーニング側にある */
     document.getElementById('gate').innerHTML = '';
     if(meRow){
       LS.set('me', { name:meRow.name, dept:meRow.dept || '', group:meRow.group || '',
@@ -3580,6 +3669,7 @@ function viewGate(){
   function go(appId){
     var o;
     var app = APPS.filter(function(a){ return a.id === appId; })[0] || APPS[1];
+    APP_NOW = app.id;
     if(mode === 'known'){
       o = { name:meRow.name, dept:meRow.dept || '', group:meRow.group || '',
             emp:meRow.emp || '', email:LOGIN_EMAIL };
@@ -3625,11 +3715,12 @@ function appPickHTML(){
   var h = '<div class="gate-apps">';
   APPS.forEach(function(a){
     var ready = !!a.go;
-    h += '<button class="gate-app' + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
+    h += '<button class="gate-app c-' + a.id + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
          (ready ? '' : ' disabled') + '>' +
          '<span class="hub-i">' + ic(a.icon) + '</span>' +
-         '<b>' + esc(a.name) + '</b>' +
-         '<span class="hub-s">' + esc(a.sub) + (ready ? '' : '　（準備中）') + '</span>' +
+         '<span><b>' + esc(appLabel(a.id)) + '</b>' +
+         '<span class="hub-s">' + esc(a.sub) + (ready ? '' : '　（準備中）') + '</span></span>' +
+         '<span class="arrow">→</span>' +
          '</button>';
   });
   h += '</div>';
@@ -7685,7 +7776,15 @@ function viewASettings(){
   h += '<div class="cat">' + ic('gear') + '見た目</div>';
   h += '<div class="card pad" style="display:grid;gap:14px;margin-bottom:16px">';
   h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="cfName">アプリ名</label>' +
+  h +=   '<div class="field"><label for="cfPortal">ポータル名<span class="note-s">ログイン画面の見出し</span></label>' +
+           '<input class="inp" id="cfPortal" value="' + esc(cfg.portalName) + '"></div>';
+  h +=   '<div class="field"><label for="cfPortalSub">ポータルのサブタイトル</label>' +
+           '<input class="inp" id="cfPortalSub" value="' + esc(cfg.portalSub) + '"></div>';
+  h +=   '<div class="field"><label for="cfCatch">ログイン画面の左の言葉<span class="note-s">改行で行を分けます</span></label>' +
+           '<textarea class="inp" id="cfCatch" rows="3">' + esc(cfg.catchCopy) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfCatchSub">その下の一言</label>' +
+           '<textarea class="inp" id="cfCatchSub" rows="2">' + esc(cfg.catchSub) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfName">e-ラーニングの名前</label>' +
            '<input class="inp" id="cfName" value="' + esc(cfg.appName) + '"></div>';
   h +=   '<div class="field"><label for="cfSub">サブタイトル</label>' +
            '<input class="inp" id="cfSub" value="' + esc(cfg.appSub) + '"></div>';
@@ -7909,6 +8008,10 @@ function viewASettings(){
   document.getElementById('cfSave').onclick = function(){
     var c = config();
     c.appName = document.getElementById('cfName').value.trim() || DEFAULT_CONFIG.appName;
+    c.portalName = document.getElementById('cfPortal').value.trim() || DEFAULT_CONFIG.portalName;
+    c.portalSub  = document.getElementById('cfPortalSub').value.trim();
+    c.catchCopy  = document.getElementById('cfCatch').value.trim();
+    c.catchSub   = document.getElementById('cfCatchSub').value.trim();
     c.appSub  = document.getElementById('cfSub').value.trim();
     c.orgName = document.getElementById('cfOrg').value.trim();
     c.tagline = document.getElementById('cfTag').value.trim();
@@ -8513,10 +8616,12 @@ function route(view, a, b){
   if(USER_VIEWS[view]) MODE = 'user';
   /* 権限で開けない画面は、開かせない
      ※これは画面の出し分け。本当にデータを渡さない設定は Creator 側で行うこと */
+  /* いま開いているアプリの画面だけ。別のアプリの画面は、そのアプリの入口からしか入れない */
+  if(viewApps(view).indexOf(APP_NOW) < 0){ view = appHome(); a = undefined; b = undefined; }
   if(ADMIN_VIEWS[view] && !canOpen(view)){
     if(MY_ROLE !== 'learner') toast('この画面を開く権限がありません');
-    view = canAdmin() ? 'adash' : 'home';
-    MODE = canAdmin() ? 'admin' : 'user';
+    view = (canAdmin() && APP_NOW === 'lms') ? 'adash' : appHome();
+    MODE = (canAdmin() && APP_NOW === 'lms') ? 'admin' : 'user';
   }
   var inS = String(view).indexOf('s_') === 0;
   if(inS && !canOpen(view)){
@@ -8553,10 +8658,12 @@ function route(view, a, b){
    起動
    ══════════════════════════════════════════════════════════════ */
 document.getElementById('icoBell').onclick = function(){
+  if(APP_NOW !== 'lms'){ route(appHome()); return; }
   if(MODE === 'admin') route('aoverall'); else route('home');
 };
 document.getElementById('icoOut').onclick = leaveDevice;
 document.getElementById('icoMail').onclick = function(){
+  if(APP_NOW !== 'lms'){ route(appHome()); return; }
   if(MODE === 'admin') route('anews'); else route('mynews');
 };
 document.getElementById('burger').onclick = openSide;

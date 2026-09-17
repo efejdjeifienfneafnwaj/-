@@ -179,16 +179,29 @@ const ROSTER = [
   check('左メニューの「承認する」にバッジ',
     await jiro.$$eval('#side .nav-i', els => els.some(e => /承認する/.test(e.textContent) && /1/.test(e.textContent))));
 
-  console.log('⑥ e-ラーニングに戻れること／キー操作が漏れないこと');
+  console.log('⑥ アプリは完全に分かれていること／キー操作が漏れないこと');
   await jiro.evaluate(() => route('home'));
   await jiro.waitForTimeout(300);
+  check('社内申請の中から e-ラーニングの画面は開かない', !(await jiro.$eval('#shinsei', e => e.hidden)));
+  check('上の帯は「社内申請」', (await jiro.$eval('#topLogo .nm', e => e.textContent)) === '社内申請');
+  /* 入口に戻って e-ラーニングに入りなおす */
+  await jiro.evaluate(() => route('hub'));
+  await jiro.waitForSelector('#gate [data-app="lms"]');
+  await jiro.click('#gate [data-app="lms"]');
+  await jiro.waitForSelector('#app.on');
+  await jiro.waitForTimeout(400);
   check('e-ラーニングの入れ物が出る', !(await jiro.$eval('#main', e => e.hidden)));
   check('社内申請の入れ物は隠れる', await jiro.$eval('#shinsei', e => e.hidden));
-  const before = location => location;
+  check('e-ラーニングの左メニューに社内申請の項目は無い',
+    !(await side(jiro)).some(t => /申請する|承認する/.test(t)));
   const h0 = await jiro.evaluate(() => location.hash);
   await jiro.keyboard.press('n');       /* 社内申請では「新規申請」のショートカット */
   await jiro.waitForTimeout(200);
   check('e-ラーニングで n を押しても社内申請が動かない', (await jiro.evaluate(() => location.hash)) === h0);
+  await jiro.evaluate(() => route('hub'));
+  await jiro.waitForSelector('#gate [data-app="shinsei"]');
+  await jiro.click('#gate [data-app="shinsei"]');
+  await jiro.waitForSelector('#shinsei:not([hidden]) #view .page-title', { timeout:15000 });
   await jiro.evaluate(() => route('s_inbox'));
   await jiro.waitForTimeout(400);
   check('社内申請に戻ると承認トレイが開く',
