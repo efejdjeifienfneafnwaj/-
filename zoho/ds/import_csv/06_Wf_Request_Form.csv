@@ -1,2 +1,2 @@
 ﻿request_no,type_code,type_name,subject,applicant_id,applicant_name,applicant_dept,amount,status,applied_on,completed_on,current_step,route_json,form_data_json,payment_due,paid,journal_exported,updated_at
-サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,0,サンプル,サンプル,サンプル,0,{},{},サンプル,サンプル,サンプル,サンプル
+サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,0,サンプル,サンプル,サンプル,0,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル

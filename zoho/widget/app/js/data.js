@@ -577,7 +577,16 @@ var Files = (function () {
  *  ※ Creator 側のロール／レコードレベル条件と必ず二重にかけること。
  * ========================================================================= */
 var Perm = (function () {
-  function roles(me) { return (me && me.Roles) || ['申請者']; }
+  /**
+   * 権限は「一般」「システム管理者」の2種類だけ。
+   * 旧データ（申請者・承認者・経理・人事・管理者）が入っていても、
+   * 管理者だけをシステム管理者とみなし、残りは一般として読む。
+   */
+  function normalizeRoles(list) {
+    var admin = (list || []).some(function (r) { return CFG.ROLE_ALIAS[r] === CFG.ROLE_ADMIN; });
+    return admin ? [CFG.ROLE_ADMIN] : [CFG.ROLE_USER];
+  }
+  function roles(me) { return normalizeRoles((me && me.Roles) || []); }
 
   /** 役職の序列（小さいほど上位）。未設定は最下位として扱う。 */
   function rank(title) {
@@ -641,8 +650,9 @@ var Perm = (function () {
     if (sc.hr && CFG.SCOPE_TYPES.hr.indexOf(req.Type_Code) >= 0) return true;
 
     /* 同一部署の「上位役職者」は部下の申請を閲覧できる。
-       以前は役職を見ておらず、承認者ロールさえ持てば同部署の全員分が読めていた。 */
-    if (roles(me).indexOf('承認者') >= 0) {
+       承認は全員ができる建て付けなので、役職の上下だけで判断する。
+       同じ役職どうし（一般と一般など）は互いに見えない。 */
+    {
       var myDept = me.Department_name || '';
       var theirDept = req.Applicant_Dept_name || req.Applicant_Dept || '';
       if (!myDept || !theirDept) return false;          // 部署不明どうしを一致させない
@@ -653,7 +663,6 @@ var Perm = (function () {
       if (String(applicant.ID) === String(me.ID)) return true;
       return rank(me.Title) < rank(applicant.Title);    // 自分の役職が申請者より上位のときだけ
     }
-    return false;
   }
   function filterRequests(me, reqs, approvals) {
     return (reqs || []).filter(function (r) { return canViewRequest(me, r, approvals); });
@@ -664,9 +673,10 @@ var Perm = (function () {
   function canViewAllLogs(me) {
     return roles(me).some(function (r) { return (CFG.PERMISSIONS[r] || {}).canViewLog === 'all'; });
   }
-  function isAdmin(me) { return roles(me).indexOf('管理者') >= 0; }
-  function isFinance(me) { return roles(me).indexOf('経理') >= 0; }
-  function isHR(me) { return roles(me).indexOf('人事') >= 0; }
+  function isAdmin(me) { return roles(me).indexOf(CFG.ROLE_ADMIN) >= 0; }
+  /* 経理処理・人事情報の画面もシステム管理者だけが扱う（権限は2種類のため） */
+  function isFinance(me) { return isAdmin(me); }
+  function isHR(me) { return isAdmin(me); }
 
-  return { canViewRequest: canViewRequest, filterRequests: filterRequests, canExport: canExport, canViewAllLogs: canViewAllLogs, isAdmin: isAdmin, isFinance: isFinance, isHR: isHR, scope: scope, scopes: scopes, rank: rank, sensitivityOf: sensitivityOf, onRoute: onRoute };
+  return { normalizeRoles: normalizeRoles, canViewRequest: canViewRequest, filterRequests: filterRequests, canExport: canExport, canViewAllLogs: canViewAllLogs, isAdmin: isAdmin, isFinance: isFinance, isHR: isHR, scope: scope, scopes: scopes, rank: rank, sensitivityOf: sensitivityOf, onRoute: onRoute };
 })();

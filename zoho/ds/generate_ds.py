@@ -29,7 +29,9 @@ FORMS = [
         ('roles', '権限（カンマ区切り）', T), ('join_date', '入社日', T),
         ('leave_balance', '有給残日数', N), ('deputy_id', '代理人ID', T),
         ('deputy_from', '代理開始日', T), ('deputy_to', '代理終了日', T),
-        ('is_active', '在籍（true/false）', T), ('updated_at', '更新日時', T),
+        ('is_active', '在籍（true/false）', T),
+        ('admin_pass', '管理者パスワード（ハッシュ）', T), ('admin_salt', '管理者パスワード（ソルト）', T),
+        ('updated_at', '更新日時', T),
     ]),
     ('Wf_Vendor_Form', '【システム用】取引先マスタ', [
         ('vendor_id', '取引先ID', T), ('vendor_code', '取引先コード', T), ('vendor_name', '取引先名', T),

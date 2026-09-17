@@ -613,13 +613,31 @@ var Views = (function () {
     var shown = tab === 'すべて' ? rows : rows.filter(function (r) { return r.Status === tab; });
     shown.sort(function (a, b) { return new Date(b.Applied_On || 0) - new Date(a.Applied_On || 0); });
 
-    el.innerHTML = pageHead('自分の申請', '申請したものと、その閲覧状況を確認できます',
+    /* ログイン直後に最初に開く画面。
+       「自分が出したもの」と「自分が止めているもの」が一目で分かるようにする。 */
+    var pending = myPendingSteps();
+    var todo = '';
+    if (pending.length) {
+      todo =
+        '<div class="card" style="border-color:var(--warning);margin-bottom:14px">' +
+        '<div class="card-head"><div class="card-title">あなたの承認待ち ' + pending.length + ' 件</div>' +
+        '<button class="btn btn-sm btn-primary" data-go="inbox" style="margin-left:auto">承認画面を開く</button></div>' +
+        '<div class="card-body" style="padding-top:0">' +
+        requestTable(pending.map(function (x) { return x.req; }), false) + '</div></div>';
+    }
+    var setupCard = (typeof Setup !== 'undefined' && Perm.isAdmin(me())) ? Setup.progressCard() : '';
+
+    el.innerHTML = pageHead('マイページ', me().Employee_Name + ' さん（' + (me().Department_name || '所属未設定') + '／' +
+      (me().Title || '役職未設定') + '）｜' + Perm.normalizeRoles(me().Roles || [])[0],
       '<button class="btn btn-primary" data-go="new">＋ 新規申請</button>') +
+      setupCard + todo +
+      '<div class="card-title" style="margin:4px 0 8px">自分の申請</div>' +
       '<div class="tabs">' + Object.keys(counts).map(function (k) {
         return '<button class="tab' + (k === tab ? ' active' : '') + '" data-tab="' + E(k) + '">' + E(k) + '<span class="n">' + counts[k] + '</span></button>';
       }).join('') + '</div>' +
       '<div class="card">' + requestTable(shown, true) + '</div>';
     bindTable(el);
+    if (setupCard) Setup.bindProgress(el);
     el.querySelectorAll('[data-tab]').forEach(function (b) { b.addEventListener('click', function () { App.go('mine?tab=' + encodeURIComponent(b.dataset.tab)); }); });
     el.querySelectorAll('[data-go]').forEach(function (b) { b.addEventListener('click', function () { App.go(b.dataset.go); }); });
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '自分の申請', resultCount: shown.length, detail: 'タブ：' + tab });

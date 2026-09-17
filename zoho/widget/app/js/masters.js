@@ -44,7 +44,8 @@ var Masters = (function () {
         { key: 'Title', label: '役職', w: '90px' },
         { key: 'Department_name', label: '所属' },
         { key: 'Manager', label: '上長', render: function (v) { var e = App.employeeById(v); return e ? e.Employee_Name : '（未設定）'; } },
-        { key: 'Roles', label: '権限', render: function (v) { return (v || []).join('・'); } },
+        { key: 'Roles', label: '権限', w: '120px',
+          render: function (v) { return Perm.normalizeRoles(v || [])[0]; } },
         { key: 'Email', label: 'メール' },
         { key: 'Is_Active', label: '在籍', w: '70px', render: function (v) { return v === false ? '退職' : '在籍'; } }
       ],
@@ -59,7 +60,8 @@ var Masters = (function () {
           help: '閲覧範囲の判定に使います。同じ部署で自分より下位の役職の申請だけが見えます。' },
         { key: 'Manager', label: '上長', type: 'employee',
           help: '承認経路の「申請者の上長」で使います。未設定だと経路が組めません。' },
-        { key: 'Roles', label: '権限', type: 'roles', required: true },
+        { key: 'Roles', label: '権限', type: 'roles', required: true,
+          help: '「一般」は申請と承認だけ。「システム管理者」はすべての設定と元データを編集できます。' },
         { key: 'Join_Date', label: '入社日', type: 'date' },
         { key: 'Paid_Leave_Balance', label: '有給残日数', type: 'number' },
         { key: 'Deputy', label: '代理人（職務代行）', type: 'employee',
@@ -81,15 +83,17 @@ var Masters = (function () {
           { key: 'Department_name', label: '所属部署',     required: true,  example: '第一営業部', from: 'dept' },
           { key: 'Title',         label: '役職',           required: true,  example: '一般', options: function () { return CFG.TITLES; } },
           { key: 'Manager_name',  label: '上長（氏名）',   required: false, example: '佐藤 健太' },
-          { key: 'Roles',         label: '権限',           required: false, example: '申請者',
+          { key: 'Roles',         label: '権限',           required: false, example: '一般',
             options: function () { return CFG.ROLES; }, multi: true },
           { key: 'Join_Date',     label: '入社日',         required: false, example: '2020-04-01' },
           { key: 'Is_Active',     label: '在籍',           required: false, example: '○', bool: true }
         ],
         notes: [
           '役職と権限は、下の選択肢から選んで入力してください（それ以外を書くと取り込めません）。',
-          '権限を複数付けるときは「承認者・経理」のように中黒か、「承認者,経理」のようにカンマで区切ります。',
-          '権限を空にすると、役職と所属から自動で提案されます。',
+          '権限は「一般」か「システム管理者」の2つだけです。',
+          '一般は、申請と承認だけができます。社員・部署・取引先・勘定科目・承認経路・申請区分は一切さわれません。',
+          'システム管理者は、すべてを閲覧・編集できます。最初のログイン時にパスワードを決めてもらいます。',
+          '権限を空にすると「一般」として取り込みます。',
           '上長は氏名で書けます。社員番号やIDは不要です。',
           '在籍は ○ か 空欄。退職した人は「×」と書いてください。',
           'メールアドレスは1人1つにしてください。同じアドレスを複数人で使うと、誰が見たか・誰が承認したかを区別できなくなります。'
@@ -308,14 +312,10 @@ var Masters = (function () {
     return rows;
   }
 
-  /** 役職と所属から権限を提案する（空欄のときだけ使う） */
-  function suggestRoles(title, dept) {
-    var roles = ['申請者'];
-    var rank = CFG.TITLES.indexOf(title);
-    if (rank >= 0 && rank <= CFG.TITLES.indexOf('課長')) roles.push('承認者');
-    if (/経理/.test(dept || '')) roles.push('経理');
-    if (/人事/.test(dept || '')) roles.push('人事');
-    return roles;
+  /** 権限が空欄のときの既定。権限は2種類しかないため、既定は必ず一般にする。
+      （管理者は取り違えると全部見えてしまうので、自動では付けない） */
+  function suggestRoles() {
+    return [CFG.ROLE_USER];
   }
 
   /** 取り込む内容を1行ずつ検証する */
@@ -688,7 +688,7 @@ var Masters = (function () {
     var rec = id ? def.list().filter(function (r) { return String(r.ID) === String(id); })[0] : null;
     var draft = {};
     def.fields.forEach(function (f) {
-      draft[f.key] = rec ? rec[f.key] : (f.def !== undefined ? f.def : (f.type === 'roles' ? ['申請者'] : ''));
+      draft[f.key] = rec ? rec[f.key] : (f.def !== undefined ? f.def : (f.type === 'roles' ? [CFG.ROLE_USER] : ''));
     });
     /* 新規追加のときはコードの連番を入れておく（必須なのに空で止まるのを防ぐ） */
     if (!rec && def.codeKey && !draft[def.codeKey]) draft[def.codeKey] = nextCode(def);
@@ -698,7 +698,15 @@ var Masters = (function () {
       okText: '保存する',
       bodyHtml: '<div class="form-grid">' + def.fields.map(function (f) { return fieldHtml(f, draft[f.key]); }).join('') + '</div>' +
         (rec && key === 'Employees' ? '<div class="page-sub" style="margin-top:10px">※ 役職・上長・権限を変えると、次に出される申請から経路と閲覧範囲が変わります。' +
-          '進行中の申請は従前のまま流れます。</div>' : ''),
+          '進行中の申請は従前のまま流れます。</div>' +
+          (Setup.hasPassword(rec)
+            ? '<div class="inline-row" style="margin-top:10px">' +
+              '<span class="tag">管理者パスワード設定済み</span>' +
+              '<button type="button" class="btn btn-sm" data-act="pwreset">パスワードを解除する</button>' +
+              '</div>'
+            : ((rec.Roles || []).indexOf(CFG.ROLE_ADMIN) >= 0
+              ? '<div class="page-sub" style="margin-top:10px">管理者パスワードは未設定です。次回ログイン時にご本人が決めます。</div>'
+              : '')) : ''),
       onOk: function (box) {
         /* 入力を集める */
         def.fields.forEach(function (f) {
@@ -707,7 +715,8 @@ var Masters = (function () {
           if (f.type === 'bool') draft[f.key] = n.checked;
           else if (f.type === 'number') draft[f.key] = Number(n.value) || 0;
           else if (f.type === 'roles') {
-            draft[f.key] = Array.prototype.slice.call(box.querySelectorAll('[data-role]:checked')).map(function (c) { return c.dataset.role; });
+            var picked = box.querySelector('[data-role]:checked');
+            draft[f.key] = [picked ? picked.dataset.role : CFG.ROLE_USER];
           } else draft[f.key] = n.value;
         });
         var err = validate(key, def, draft, rec);
@@ -716,6 +725,8 @@ var Masters = (function () {
       }
     });
     UI.bindMoneyInputs(document.querySelector('.modal'));
+    var pwr = document.querySelector('[data-act="pwreset"]');
+    if (pwr) pwr.addEventListener('click', function () { UI.closeModal(); Setup.resetPassword(rec); });
     /* 登録番号を入れたら自動で「適格」にする */
     var reg = document.querySelector('[data-m="Invoice_Reg_No"]');
     if (reg) {
@@ -750,9 +761,19 @@ var Masters = (function () {
         input = sel(f.key, S().employees.filter(function (e) { return e.Is_Active !== false; })
           .map(function (e) { return { v: e.ID, t: e.Employee_Name + '（' + (e.Department_name || '') + '／' + e.Title + '）' }; }), v); break;
       case 'roles':
-        input = '<div class="inline-row" style="gap:14px;flex-wrap:wrap">' + CFG.ROLES.map(function (r) {
-          return '<label class="inline-row" style="gap:5px"><input type="checkbox" data-role="' + E(r) + '" style="width:auto;min-height:auto"' +
-            ((v || []).indexOf(r) >= 0 ? ' checked' : '') + '> ' + E(r) + '</label>';
+        /* 権限は2つに1つ。複数選択にすると「承認者だけど管理者」のような
+           中間状態が生まれ、どこまでさわれるのか誰も説明できなくなる。 */
+        var isAdminRole = Perm.normalizeRoles(v || [])[0] === CFG.ROLE_ADMIN;
+        input = '<div style="display:grid;gap:8px">' + CFG.ROLES.map(function (r) {
+          var on = (r === CFG.ROLE_ADMIN) === isAdminRole;
+          return '<label class="inline-row" style="gap:8px;align-items:flex-start">' +
+            '<input type="radio" name="m_role" data-role="' + E(r) + '" style="width:auto;min-height:auto;margin-top:3px"' +
+            (on ? ' checked' : '') + '>' +
+            '<span><b>' + E(r) + '</b><br><span class="page-sub">' +
+            (r === CFG.ROLE_ADMIN
+              ? 'すべての申請を閲覧でき、社員・部署・取引先・勘定科目・承認経路・申請区分を編集できます。ログイン時にパスワードを求められます。'
+              : '申請と承認だけができます。元データや承認経路は開けません。') +
+            '</span></span></label>';
         }).join('') + '</div><input type="hidden" data-m="' + E(f.key) + '">'; break;
       default:
         input = '<input data-m="' + E(f.key) + '" value="' + E(v == null ? '' : v) + '">';

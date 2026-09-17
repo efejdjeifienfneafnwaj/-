@@ -249,6 +249,22 @@ application "社内申請システム"
 				column = 1
 				width = medium
 			)
+			admin_pass
+			(
+				type = text
+				displayname = "管理者パスワード（ハッシュ）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			admin_salt
+			(
+				type = text
+				displayname = "管理者パスワード（ソルト）"
+				row = 1
+				column = 1
+				width = medium
+			)
 			updated_at
 			(
 				type = text
@@ -1784,6 +1800,8 @@ application "社内申請システム"
 				deputy_from as "代理開始日"
 				deputy_to as "代理終了日"
 				is_active as "在籍（true/false）"
+				admin_pass as "管理者パスワード（ハッシュ）"
+				admin_salt as "管理者パスワード（ソルト）"
 				updated_at as "更新日時"
 			)
 		}
@@ -2193,6 +2211,8 @@ application "社内申請システム"
 									deputy_from as "代理開始日"
 									deputy_to as "代理終了日"
 									is_active as "在籍（true/false）"
+									admin_pass as "管理者パスワード（ハッシュ）"
+									admin_salt as "管理者パスワード（ソルト）"
 									updated_at as "更新日時"
 							)
 						)
@@ -2250,6 +2270,8 @@ application "社内申請システム"
 									deputy_from as "代理開始日"
 									deputy_to as "代理終了日"
 									is_active as "在籍（true/false）"
+									admin_pass as "管理者パスワード（ハッシュ）"
+									admin_salt as "管理者パスワード（ソルト）"
 									updated_at as "更新日時"
 							)
 						)

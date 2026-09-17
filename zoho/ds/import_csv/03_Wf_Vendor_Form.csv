@@ -1,2 +1,2 @@
-﻿vendor_id,vendor_code,vendor_name,invoice_reg_no,is_qualified,payment_terms,updated_at
-サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル
+﻿vendor_id,vendor_code,vendor_name,invoice_reg_no,is_qualified,payment_terms,is_new,first_traded_on,note,updated_at
+サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル

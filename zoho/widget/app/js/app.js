@@ -10,11 +10,21 @@ var App = (function () {
   var ssoUserId = null;       // ログイン情報から確定した本人（切替の有無を判定するため）
   var currentUserId = null;
   var templates = [];
-  var route = { name: 'dashboard', arg: '', params: {} };
+  var route = { name: 'mine', arg: '', params: {} };
+  /* 管理者だがパスワードを入れずに「一般利用者として使う」を選んだ状態。
+     この間は管理者の権限を一切与えない（見せない・さわらせない）。 */
+  var adminDeclined = false;
 
   /* ---------- 参照ヘルパ ---------- */
   function me() {
     var e = employeeById(currentUserId);
+    /* パスワードを入れずに一般利用者として使っている間は、管理者の権限を外して返す。
+       画面の出し分けも書き込みの可否も、すべてここを通る Roles で決まる。 */
+    if (e && adminDeclined && (e.Roles || []).indexOf(CFG.ROLE_ADMIN) >= 0) {
+      var copy = {}; Object.keys(e).forEach(function (k) { copy[k] = e[k]; });
+      copy.Roles = [CFG.ROLE_USER];
+      return copy;
+    }
     if (e) return e;
     /* 本人が確定していないときに社員一覧の先頭を返すと、証跡に無関係な人の名前が載る。
        空の利用者として扱い、ログイン情報だけを残す。 */
@@ -107,7 +117,9 @@ var App = (function () {
       /* Creator 側の Roles は複数選択（カンマ区切り文字列）で返ることがある */
       state.employees.forEach(function (e) {
         if (typeof e.Roles === 'string') e.Roles = e.Roles.split(/[,、・]/).map(function (s) { return s.trim(); }).filter(Boolean);
-        if (!e.Roles || !e.Roles.length) e.Roles = ['申請者'];
+        /* 権限は「一般」「システム管理者」の2種類に読み替える。
+           旧データ（申請者・承認者・経理・人事）が入っていても、そのまま一般として扱う。 */
+        e.Roles = Perm.normalizeRoles(e.Roles || []);
         if (!e.Department_name) e.Department_name = e.Department || '';
       });
       /* 上長・代理人の解決：ID で引けないときは氏名で引き直す。
@@ -178,23 +190,29 @@ var App = (function () {
   /** ユーザー切替を出してよいか（本番で他人になりすませないようにする） */
   function canSwitchUser() {
     if (!DB.isConnected()) return true;                 // デモモードは自由
-    return (me().Roles || []).indexOf('管理者') >= 0;    // 本番は管理者のみ
+    return Perm.isAdmin(me());                          // 本番はシステム管理者のみ
   }
 
   /* ---------- ナビゲーション ---------- */
+  /* 一般利用者に出すのは、申請・承認と自分の周りだけ。
+     元データ（社員・部署・取引先・勘定科目）、承認経路、申請区分、
+     全社の申請、閲覧証跡、経理処理はシステム管理者だけに出す。 */
+  /* 閲覧証跡だけは全員に出す。範囲は権限で絞られ、一般利用者には
+     「自分の申請を誰が見たか」しか出ない。自分の情報が誰に見られたかを
+     本人が確認できることは、このアプリの根幹なので閉じない。 */
+  var ADMIN_ONLY = ['search', 'finance', 'routes', 'admin'];
   var NAV = [
     { group: 'マイページ' },
-    { key: 'dashboard', label: 'ダッシュボード', ico: '🏠' },
+    { key: 'mine', label: 'マイページ', ico: '🏠' },
     { key: 'new', label: '申請する', ico: '✏️' },
-    { key: 'mine', label: '自分の申請', ico: '📂' },
     { key: 'inbox', label: '承認する', ico: '🖊', badge: 'pending' },
-    { group: '全社' },
-    { key: 'search', label: 'すべての申請', ico: '🔍' },
+    { key: 'dashboard', label: '集計を見る', ico: '📊' },
     { key: 'access', label: '閲覧証跡', ico: '👁' },
-    { group: '管理' },
-    { key: 'finance', label: '経理処理', ico: '💴', roles: ['経理', '管理者'] },
-    { key: 'routes', label: '承認経路の設定', ico: '🧭', roles: ['管理者'] },
-    { key: 'admin', label: '設定・マスタ', ico: '⚙️', roles: ['管理者', '人事', '経理'] }
+    { group: '管理（システム管理者のみ）', admin: true },
+    { key: 'search', label: 'すべての申請', ico: '🔍', admin: true },
+    { key: 'finance', label: '経理処理', ico: '💴', admin: true },
+    { key: 'routes', label: '承認経路の設定', ico: '🧭', admin: true },
+    { key: 'admin', label: '設定・マスタ', ico: '⚙️', admin: true }
   ];
   function renderNav() {
     var pending = 0;
@@ -205,16 +223,22 @@ var App = (function () {
       var st = rt.filter(function (s) { return s.step_no === cur; })[0];
       if (st && WF.canAct(st, me().ID) && !st.action) pending++;
     });
-    var roles = me().Roles || [];
-    var html = NAV.filter(function (n) { return !n.roles || n.roles.some(function (r) { return roles.indexOf(r) >= 0; }); })
+    var admin = Perm.isAdmin(me());
+    var html = NAV.filter(function (n) { return !n.admin || admin; })
       .map(function (n) {
         if (n.group) return '<div class="nav-group">' + UI.esc(n.group) + '</div>';
         return '<button class="nav-item' + (route.name === n.key ? ' active' : '') + '" data-nav="' + n.key + '">' +
           '<span class="ico">' + n.ico + '</span><span>' + UI.esc(n.label) + '</span>' +
           (n.badge === 'pending' && pending ? '<span class="count">' + pending + '</span>' : '') + '</button>';
       }).join('');
+    if (adminDeclined) {
+      html += '<div class="nav-group">管理</div>' +
+        '<button class="nav-item" data-act="unlock"><span class="ico">🔐</span><span>管理者として入る</span></button>';
+    }
     var nav = document.getElementById('nav');
     nav.innerHTML = html;
+    var unlock = nav.querySelector('[data-act="unlock"]');
+    if (unlock) unlock.addEventListener('click', function () { promptAdmin(); });
     nav.querySelectorAll('[data-nav]').forEach(function (b) {
       b.addEventListener('click', function () { go(b.dataset.nav); document.getElementById('sidebar').classList.remove('open'); });
     });
@@ -255,7 +279,8 @@ var App = (function () {
 
   /* ---------- ルーティング ---------- */
   function parseHash() {
-    var h = (location.hash || '#dashboard').slice(1);
+    /* ログイン直後はマイページ（自分の申請と承認待ち）を開く */
+    var h = (location.hash || '#mine').slice(1);
     var qi = h.indexOf('?');
     var params = {};
     if (qi >= 0) {
@@ -263,14 +288,38 @@ var App = (function () {
       h = h.slice(0, qi);
     }
     var parts = h.split('/');
-    return { name: parts[0] || 'dashboard', arg: parts[1] || '', params: params };
+    return { name: parts[0] || 'mine', arg: parts[1] || '', params: params };
   }
   function go(path) { location.hash = '#' + path; }
+  /** 一般利用者として使っている管理者が、あとから管理者に切り替えるとき */
+  function promptAdmin() {
+    var real = employeeById(currentUserId);
+    if (!real || (real.Roles || []).indexOf(CFG.ROLE_ADMIN) < 0) return;
+    document.getElementById('nav').innerHTML = '';
+    Setup.renderAdminGate(document.getElementById('view'), real, function (asAdmin) {
+      adminDeclined = !asAdmin;
+      renderUserSwitch();
+      location.hash = asAdmin ? '#admin' : '#mine';
+      render();
+    });
+  }
+  function navLabel(key) {
+    var hit = NAV.filter(function (n) { return n.key === key; })[0];
+    return hit ? hit.label : key;
+  }
   function param(k) { return route.params[k] || ''; }
   function render() {
     route = parseHash();
     var el = document.getElementById('view');
     el.innerHTML = '';
+    /* URL を直接叩かれても管理画面は開かせない。拒否は証跡に残す。 */
+    if (ADMIN_ONLY.indexOf(route.name) >= 0 && !Perm.isAdmin(me())) {
+      Access.denied(navLabel(route.name), 'システム管理者以外');
+      el.innerHTML = UI.empty('🔒', 'この画面はシステム管理者のみが開けます',
+        'アクセスを拒否した記録を残しました。設定の変更が必要な場合はシステム管理者にご依頼ください。');
+      renderNav(); renderUserSwitch();
+      return;
+    }
     try {
       switch (route.name) {
         case 'new': Views.newRequest(el); break;
@@ -379,9 +428,22 @@ var App = (function () {
         document.getElementById('nav').innerHTML = '';
         return;
       }
-      renderUserSwitch();
       Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: 'アプリ', detail: (DB.isConnected() ? 'Creator接続' : 'デモ') + (fromSSO ? '／SSOユーザー自動判定' : '') });
       Access.updateBadge();
+      /* システム管理者だけ、管理画面を開く前にもう一度パスワードで確認する。
+         一般利用者はそのままマイページへ入る。 */
+      if (Perm.isAdmin(me()) && !Setup.unlocked(me())) {
+        document.getElementById('nav').innerHTML = '';
+        document.getElementById('userSwitch').hidden = true;
+        Setup.renderAdminGate(document.getElementById('view'), me(), function (asAdmin) {
+          if (!asAdmin) adminDeclined = true;
+          document.getElementById('userSwitch').hidden = false;
+          renderUserSwitch();
+          render();
+        });
+        return;
+      }
+      renderUserSwitch();
       render();
     }).catch(function (e) {
       console.error(e);

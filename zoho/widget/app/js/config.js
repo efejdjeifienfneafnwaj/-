@@ -52,7 +52,7 @@ var CFG = {
                    Title: 'title', Manager: 'manager_id', Manager_name: 'manager_name',
                    Roles: 'roles', Join_Date: 'join_date', Paid_Leave_Balance: 'leave_balance',
                    Deputy: 'deputy_id', Deputy_From: 'deputy_from', Deputy_To: 'deputy_to',
-                   Is_Active: 'is_active' },
+                   Is_Active: 'is_active', Admin_Pass: 'admin_pass', Admin_Salt: 'admin_salt' },
     Vendors:     { Vendor_Key: 'vendor_id', Vendor_Code: 'vendor_code', Vendor_Name: 'vendor_name',
                    Invoice_Reg_No: 'invoice_reg_no', Is_Qualified: 'is_qualified',
                    Payment_Terms: 'payment_terms', Is_New: 'is_new',
@@ -169,12 +169,14 @@ var CFG = {
    * ※ Creator 側でも Roles + レコードレベル条件で同じ制限を必ず設定すること。
    *   widget だけの制御は「画面の親切」であって「守り」ではありません。
    * ===================================================================== */
+  /* 権限は2種類だけ。
+     ・一般利用者：申請と承認だけ。元データ（社員・部署・取引先・勘定科目）、
+       承認経路、申請区分は一切さわれない。見えるのは自分の申請と、
+       自分が承認に関わる申請、同じ部署の下位者の申請（機微度Sを除く）。
+     ・システム管理者：すべて閲覧・編集できる。ログイン時にパスワードを求める。 */
   PERMISSIONS: {
-    申請者: { scope: 'own',        canExport: false, canViewLog: 'own',  canViewAmountOfOthers: false },
-    承認者: { scope: 'assigned',   canExport: false, canViewLog: 'own',  canViewAmountOfOthers: true  },
-    経理:   { scope: 'finance',    canExport: true,  canViewLog: 'own',  canViewAmountOfOthers: true  },
-    人事:   { scope: 'hr',         canExport: true,  canViewLog: 'own',  canViewAmountOfOthers: true  },
-    管理者: { scope: 'all',        canExport: true,  canViewLog: 'all',  canViewAmountOfOthers: true  }
+    一般:           { scope: 'assigned', canExport: false, canViewLog: 'own', canViewAmountOfOthers: true },
+    システム管理者: { scope: 'all',      canExport: true,  canViewLog: 'all', canViewAmountOfOthers: true }
   },
   /* 経理が閲覧してよい申請区分 / 人事が閲覧してよい申請区分 */
   SCOPE_TYPES: {
@@ -191,7 +193,11 @@ var CFG = {
     COND: '条件付承認', READ: '既読', SKIP: 'スキップ'
   },
   TITLES: ['社長', '本部長', '部長', '課長', '主任', '一般'],
-  ROLES: ['申請者', '承認者', '管理者', '経理', '人事'],
+  ROLES: ['一般', 'システム管理者'],
+  ROLE_ADMIN: 'システム管理者',
+  ROLE_USER: '一般',
+  /* 旧データ（申請者・承認者・経理・人事・管理者）を2種類に読み替える */
+  ROLE_ALIAS: { '管理者': 'システム管理者', 'システム管理者': 'システム管理者' },
   TAX: [
     { key: '課税10%', rate: 0.10 }, { key: '軽減8%', rate: 0.08 },
     { key: '非課税', rate: 0 }, { key: '不課税', rate: 0 }

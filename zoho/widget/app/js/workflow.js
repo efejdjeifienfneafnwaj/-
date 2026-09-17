@@ -43,7 +43,7 @@ var WF = (function () {
   function fallbackApprover(applicant, employees) {
     var cand = (employees || []).filter(function (e) {
       return e.Is_Active !== false &&
-        ((e.Roles || []).indexOf('管理者') >= 0) &&
+        Perm.normalizeRoles(e.Roles || [])[0] === CFG.ROLE_ADMIN &&
         (!applicant || String(e.ID) !== String(applicant.ID));
     });
     cand.sort(function (x, y) { return CFG.TITLES.indexOf(x.Title) - CFG.TITLES.indexOf(y.Title); });
