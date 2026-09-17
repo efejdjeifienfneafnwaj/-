@@ -84,35 +84,52 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
     { email:'owner@example.com', persons:[OWNER, STAFF] });
   await page.goto(base);
   await page.waitForSelector('#gate [data-app="lms"]');
+
+  console.log('① 職員登録は、ログイン画面の専用の入口からだけ開けること');
+  check('管理者のログイン画面に「職員登録」のカードが出る', (await page.$('#gate [data-app="staff"]')) !== null);
   await page.click('#gate [data-app="lms"]');
   await page.waitForSelector('#app.on');
   await page.waitForTimeout(400);
-
-  console.log('① 職員の登録・編集がメニューから開けること');
-  const side = await page.$$eval('#side .nav-i span, #side .nav-s',
-    els => els.map(e => e.textContent.trim()));
-  check('管理メニューに「職員登録」が1つだけある', side.filter(t => t === '職員登録').length === 1);
-  check('「職員の登録・編集」「職種」は別項目として出ない', !side.some(t => t === '職員の登録・編集' || t === '職種'));
+  let side = await page.$$eval('#side .nav-i span, #side .nav-s', els => els.map(e => e.textContent.trim()));
+  check('e-ラーニングの管理メニューに職員登録は無い', !side.some(t => t === '職員登録'));
   await page.evaluate(() => route('aimport'));
+  await page.waitForTimeout(300);
+  check('e-ラーニングの中から職員登録は開かない', (await page.$('#p1n')) === null);
+  await page.evaluate(() => route('hub'));
+  await page.waitForSelector('#gate [data-app="staff"]');
+  await page.click('#gate [data-app="staff"]');
   await page.waitForSelector('#p1n');
+  side = await page.$$eval('#side .nav-i span, #side .nav-s', els => els.map(e => e.textContent.trim()));
+  check('職員登録の左メニューは 職員／職種／権限', side.some(t => t === '職員') && side.some(t => t === '職種') && side.some(t => t === '権限'));
+  check('上の帯は「職員登録」', (await page.$eval('#topLogo .nm', e => e.textContent)) === '職員登録');
   check('職員・職種・権限のタブが1つのページにある', (await page.$$('[data-stab]')).length === 3);
 
   console.log('② 1人ずつ登録できること（氏名と職種だけ）');
-  check('入力欄は氏名・職種・メール・権限の4つ',
+  check('基本の欄（氏名・職種・メール・権限）がある',
     (await page.$('#p1n')) && (await page.$('#p1d')) &&
     (await page.$('#p1m')) && (await page.$('#p1r')) !== null);
-  check('社員番号の欄は無い', (await page.$('#p1e')) === null);
-  check('グループの欄は無い', (await page.$('#p1g')) === null);
+  check('社内申請の欄（役職・上長・社員番号・フリガナ・入社日・有給残）がある',
+    (await page.$('#p1t')) && (await page.$('#p1mg')) && (await page.$('#p1e')) &&
+    (await page.$('#p1k')) && (await page.$('#p1j')) && (await page.$('#p1l')) !== null);
+  check('e-ラーニングの欄（グループ）と在籍がある', (await page.$('#p1g')) && (await page.$('#p1a')) !== null);
   await page.fill('#p1n', '鈴木 次郎');
   await page.selectOption('#p1d', '看護職');
   await page.fill('#p1m', 'suzuki@example.com');
   await page.selectOption('#p1r', 'admin');
+  await page.fill('#p1t', '課長');
+  await page.selectOption('#p1mg', '田中 一郎');
+  await page.fill('#p1e', 'S0003');
   await page.click('#p1Go');
   await page.waitForTimeout(400);
   check('名簿に入った', await page.evaluate(() => !!people()['鈴木 次郎']));
   check('職種が入っている', await page.evaluate(() => people()['鈴木 次郎'].dept) === '看護職');
   check('権限がシステム管理者になった',
     await page.evaluate(() => roleOf(people()['鈴木 次郎'])) === 'admin');
+  check('役職・上長・社員番号も入った',
+    await page.evaluate(() => { const p = people()['鈴木 次郎']; return p.title === '課長' && p.manager === '田中 一郎' && p.emp === 'S0003'; }));
+  await page.waitForFunction(() => Object.keys(SYNC.pend).length === 0, null, { timeout:15000 });
+  const rowS = await page.evaluate(() => (window.__db.Lms_Person || []).filter(r => r.person_name === '鈴木 次郎')[0]);
+  check('Creator にも役職・上長が送られた', rowS && rowS.title === '課長' && rowS.manager_name === '田中 一郎');
 
   console.log('③ 職種を選ばないと登録できないこと');
   await page.fill('#p1n', '欠け 太郎');
@@ -226,6 +243,9 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   const s2 = await p2.$$eval('#side .nav-i span, #side .nav-s',
     els => els.map(e => e.textContent.trim()));
   check('「職員登録」が出ない', !s2.some(t => t === '職員登録'));
+  await p2.evaluate(() => route('hub'));
+  await p2.waitForSelector('#gate [data-app="lms"]');
+  check('受講者のログイン画面に「職員登録」のカードは出ない', (await p2.$('#gate [data-app="staff"]')) === null);
   await p2.evaluate(() => route('ajobs'));
   await p2.waitForTimeout(300);
   check('直に呼んでも開かない', (await p2.$('#jbNew')) === null);

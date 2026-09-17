@@ -509,6 +509,10 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .gate-app.c-lms .hub-i{background:#d3efdf;color:#2e9e5b;} .gate-app.c-lms .arrow{color:#2e9e5b;}
 .gate-app.c-connect{background:rgba(253,243,227,.85);}
 .gate-app.c-connect .hub-i{background:#fbe6c4;color:#d08a1e;} .gate-app.c-connect .arrow{color:#d08a1e;}
+.gate-app.c-staff{background:rgba(238,238,244,.85);border-style:dashed;}
+.gate-app.c-staff .hub-i{background:#e2e2ec;color:#4b4f6b;} .gate-app.c-staff .arrow{color:#4b4f6b;}
+.gate-apps:has(.c-staff){grid-template-columns:repeat(4,minmax(0,1fr));}
+@media (max-width:1100px){ .gate-apps:has(.c-staff){grid-template-columns:1fr;} }
 .gate-foot{position:relative;text-align:center;font-size:12px;color:#4a5c6b;letter-spacing:.06em;line-height:1.9;}
 .gate-foot small{display:block;font-size:11px;color:#7a8a99;}
 @media (max-width:1100px){
@@ -1540,8 +1544,8 @@ function registerPerson(o){
     name:normName(o.name),
     email:o.email || (prev && prev.email) || '',
     dept:o.dept || (prev && prev.dept) || '',
-    group:o.group || (prev && prev.group) || '',
-    emp:o.emp || (prev && prev.emp) || '',
+    group:(o.group !== undefined) ? o.group : ((prev && prev.group) || ''),
+    emp:(o.emp !== undefined) ? o.emp : ((prev && prev.emp) || ''),
     title:title,
     /* 権限が指定されていなければ、役職から初期値を決める。
        いちど決まったものは、権限設定の画面からしか変わらない */
@@ -3243,12 +3247,13 @@ var MODE = 'user';
 /* いま開いているアプリ。ログイン画面で選ぶ。
    アプリの中では、そのアプリの画面しか開けない（別のアプリの画面は入口に戻して選び直す）。 */
 var APP_NOW = 'lms';
-var APP_HOME = { lms:'home', connect:'feed', shinsei:'s_mine' };
+var APP_HOME = { lms:'home', connect:'feed', shinsei:'s_mine', staff:'aimport' };
 function appHome(){ return APP_HOME[APP_NOW] || 'home'; }
 function appLabel(id){
   id = id || APP_NOW;
   if(id === 'connect') return '船井コネクト';
   if(id === 'shinsei') return '社内申請';
+  if(id === 'staff')   return '職員登録';
   return config().appName;
 }
 /* その画面を開けるアプリ。名簿・職種・権限の管理は、どのアプリからも要るので両方に出す */
@@ -3257,8 +3262,8 @@ function viewApps(view){
   if(v === 'hub') return ['lms', 'connect', 'shinsei'];
   if(v.indexOf('s_') === 0) return ['shinsei'];
   if(v === 'feed' || v === 'thanks' || v === 'members' || v === 'profile') return ['connect'];
-  /* 職員登録（職員・職種・権限）は1か所。どのアプリの管理メニューからも同じ画面 */
-  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['lms', 'connect', 'shinsei'];
+  /* 職員登録（職員・職種・権限）は、ログイン画面の専用の入口からだけ */
+  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['staff'];
   return ['lms'];
 }
 var NAV_USER = [
@@ -3280,12 +3285,16 @@ var NAV_CONNECT = [
   { go:'members', icon:'users',  label:'メンバー' },
   { go:'profile', icon:'user',   label:'プロフィール' }
 ];
-var NAV_CONNECT_ADMIN = [
-  { go:'aimport', icon:'users', label:'職員登録' }
+var NAV_CONNECT_ADMIN = [];
+/* 職員登録（4つめの入口）のメニュー */
+var NAV_STAFF = [
+  { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
+  { go:'aimport', icon:'users',  label:'職員' },
+  { go:'ajobs',   icon:'slider', label:'職種' },
+  { go:'aroles',  icon:'check',  label:'権限' }
 ];
 var NAV_ADMIN = [
   { go:'adash',   icon:'home',  label:'管理ダッシュボード' },
-  { go:'aimport', icon:'users', label:'職員登録' },
   { icon:'chart', label:'受講者の状況', sub:[
       { go:'ausers',  label:'ユーザー' },
       { go:'agroups', label:'グループ' }
@@ -3332,7 +3341,7 @@ var NAV_OF = {
   asurvey:'asurvey', anews:'anews', aimport:'aimport', aroles:'aroles',
   ajobs:'ajobs',
   aassign:'acourses', acedit:'acourses',
-  ajobs:'aimport', aroles:'aimport',
+  ajobs:'ajobs', aroles:'aroles',
   asettings:'asettings', audetail:'ausers'
 };
 
@@ -3341,8 +3350,10 @@ function drawNav(view){
      管理向けの項目を並べる。切り替えボタンは置かない。
      社内申請の中では、社内申請の項目だけを並べる。 */
   var inS = APP_NOW === 'shinsei';
-  var list = (inS ? NAV_SHINSEI : (APP_NOW === 'connect' ? NAV_CONNECT : NAV_USER)).slice();
-  var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : (APP_NOW === 'connect' ? NAV_CONNECT_ADMIN : NAV_ADMIN)) : [];
+  var list = (inS ? NAV_SHINSEI : (APP_NOW === 'connect' ? NAV_CONNECT :
+              (APP_NOW === 'staff' ? NAV_STAFF : NAV_USER))).slice();
+  var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : (APP_NOW === 'connect' ? NAV_CONNECT_ADMIN :
+            (APP_NOW === 'staff' ? [] : NAV_ADMIN))) : [];
   if(adm.length){
     list.push({ head:'管理' });
     list = list.concat(adm);
@@ -3444,6 +3455,7 @@ function drawNav(view){
     '<span class="nm">' + esc(appLabel()) + '</span>' +
     '<small>' + ((MODE === 'admin') ? '　管理機能' : '　' + esc(cfg.portalName)) + '</small>';
   document.getElementById('icoBell').hidden = APP_NOW !== 'lms';
+  /* 職員登録の入口では「管理機能」ではなくポータル名を出す */
   document.getElementById('icoMail').hidden = APP_NOW !== 'lms';
   var unread = u.name ? newsUnread(u) : 0;
   document.getElementById('mailDot').hidden = !unread;
@@ -3624,7 +3636,9 @@ function viewGate(){
   h +=     '<div class="gate-script">' + br(cfg.scriptCopy) + '</div>';
   h +=   '</div>';       /* gate-mid */
   /* 下：3つのアプリ。押した瞬間にそのアプリへ入る */
-  h +=   (mode === 'none') ? '' : appPickHTML();
+  /* 職員登録の入口は、名簿でシステム管理者の人と、動作確認（暗証番号あり）のときだけ */
+  var gateAdmin = demo || (meRow && roleOf(meRow) === 'admin');
+  h +=   (mode === 'none') ? '' : appPickHTML(gateAdmin);
   h +=   '<footer class="gate-foot">' + esc(cfg.portalName) + '　·　' + esc(cfg.orgName) +
          '<small>© ' + new Date().getFullYear() + ' ' + esc(cfg.orgName) + '</small></footer>';
   h +=   '<div class="gate-help">';
@@ -3665,6 +3679,9 @@ function viewGate(){
   function go(appId){
     var o;
     var app = APPS.filter(function(a){ return a.id === appId; })[0] || APPS[1];
+    if(app.admin && !demo && !(meRow && roleOf(meRow) === 'admin')){
+      toast('職員登録はシステム管理者だけが開けます'); return;
+    }
     APP_NOW = app.id;
     if(mode === 'known'){
       o = { name:meRow.name, dept:meRow.dept || '', group:meRow.group || '',
@@ -3707,9 +3724,10 @@ function viewGate(){
   }
 }
 /* 入口に並べる3つのアプリ */
-function appPickHTML(){
+function appPickHTML(isAdmin){
   var h = '<div class="gate-apps">';
   APPS.forEach(function(a){
+    if(a.admin && !isAdmin) return;
     var ready = !!a.go;
     h += '<button class="gate-app c-' + a.id + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
          (ready ? '' : ' disabled') + '>' +
@@ -4691,7 +4709,10 @@ function shinseiToPerson(name, o){
 var SHINSEI_BRIDGE = {
   initParams:function(){ return { loginUser:LOGIN_EMAIL || '', appLinkName:'', environment:'' }; },
   /* 社内申請の「設定・マスタ → 社員／部署」は、統合の職員登録に一本化する */
-  openStaff:function(){ route('aimport'); },
+  openStaff:function(){
+    toast('職員の登録・編集は、ログイン画面の「職員登録」から行います');
+    route('hub');
+  },
   list:function(entity){
     if(entity === 'Employees'){
       return Object.keys(people() || {}).sort().map(shinseiEmployee);
@@ -4756,7 +4777,6 @@ var NAV_SHINSEI = [
   { go:'s_access',    icon:'eye',    label:'閲覧証跡' }
 ];
 var NAV_SHINSEI_ADMIN = [
-  { go:'aimport',   icon:'users',  label:'職員登録' },
   { go:'s_search',  icon:'folder', label:'すべての申請' },
   { go:'s_finance', icon:'flag',   label:'経理処理' },
   { go:'s_routes',  icon:'slider', label:'承認経路の設定' },
@@ -4800,7 +4820,10 @@ var APPS = [
   { id:'lms',     name:'船井e-ラーニング', sub:'研修動画の受講と修了証',
     icon:'book',  go:'home' },
   { id:'connect', name:'船井コネクト', sub:'掲示板とサンクスカード',
-    icon:'users', go:'feed' }
+    icon:'users', go:'feed' },
+  /* 職員登録は3つのアプリの中には置かず、ここだけ。システム管理者にだけ出す */
+  { id:'staff',   name:'職員登録', sub:'名簿・職種・権限（3つ共通・管理者用）',
+    icon:'gear',  go:'aimport', admin:true }
 ];
 
 function parseVideoId(s){
@@ -7141,7 +7164,7 @@ function staffHead(cur){
   var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['aroles', '権限']];
   var h = '<div class="ph"><div><h2>職員登録</h2>' +
           '<div class="sub">ここで登録した内容が、社内申請・e-ラーニング・コネクトの3つ全部に効きます。' +
-          '登録する場所はここだけです。</div></div></div>';
+          '登録する場所はここだけです（3つのアプリの中には登録画面はありません）。</div></div></div>';
   h += '<div class="seg" style="margin-bottom:18px">' +
        tabs.map(function(t){
          return '<button data-stab="' + t[0] + '" aria-pressed="' + (cur === t[0]) + '">' + t[1] + '</button>';
@@ -7189,6 +7212,51 @@ function personForm(pre, p){
          '<span class="note-s">　変えられるのはシステム管理者だけです</span></div></div>';
   }
   h += '</div>';
+  /* 社内申請が使う項目 */
+  var names = Object.keys(people() || {}).sort().filter(function(n){ return !p || n !== p.name; });
+  h += '<div class="cat" style="margin-top:4px">' + ic('quiz') + '社内申請で使う項目' +
+       '<span class="num">承認経路に使います</span></div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 't">役職' +
+           '<span class="note-s">承認者を決めるのに使います</span></label>' +
+           '<input class="inp" id="' + pre + 't" list="' + pre + 'tList" placeholder="例）一般・主任・課長・部長" value="' +
+           esc((p && p.title) || '') + '"><datalist id="' + pre + 'tList">' +
+           SHINSEI_TITLES.map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') +
+           '</datalist></div>';
+  h +=   '<div class="field"><label for="' + pre + 'mg">直属の上長' +
+           '<span class="note-s">「直属上長の承認」に使います</span></label>' +
+           '<select class="inp" id="' + pre + 'mg"><option value="">（なし）</option>' +
+           names.map(function(n){
+             return '<option' + ((p && p.manager) === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+           }).join('') + '</select></div>';
+  h += '</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 'e">社員番号<span class="note-s">任意</span></label>' +
+           '<input class="inp" id="' + pre + 'e" placeholder="例）S0001" value="' + esc((p && p.emp) || '') + '"></div>';
+  h +=   '<div class="field"><label for="' + pre + 'k">フリガナ<span class="note-s">任意</span></label>' +
+           '<input class="inp" id="' + pre + 'k" placeholder="例）ヤマダ タロウ" value="' + esc((p && p.kana) || '') + '"></div>';
+  h += '</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 'j">入社日<span class="note-s">任意</span></label>' +
+           '<input class="inp" id="' + pre + 'j" type="date" value="' + esc((p && p.joined) || '') + '"></div>';
+  h +=   '<div class="field"><label for="' + pre + 'l">有給残日数<span class="note-s">任意</span></label>' +
+           '<input class="inp" id="' + pre + 'l" type="number" step="0.5" min="0" value="' +
+           esc((p && p.leave !== undefined && p.leave !== '') ? String(p.leave) : '') + '"></div>';
+  h += '</div>';
+  /* e-ラーニングが使う項目 */
+  h += '<div class="cat" style="margin-top:4px">' + ic('book') + 'e-ラーニングで使う項目' +
+       '<span class="num">研修の配信先に使います</span></div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="' + pre + 'g">グループ<span class="note-s">任意</span></label>' +
+           '<select class="inp" id="' + pre + 'g"><option value="">（なし）</option>' +
+           groups().map(function(d){
+             return '<option' + ((p && p.group) === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+           }).join('') + '</select></div>';
+  h +=   '<div class="field"><label>在籍</label>' +
+           '<label class="chk" style="min-height:42px"><input type="checkbox" id="' + pre + 'a"' +
+           ((!p || p.active !== false) ? ' checked' : '') + '><span>在籍している' +
+           '<span class="note-s">外すと、ログインできず、承認経路からも外れます</span></span></label></div>';
+  h += '</div>';
   return h;
 }
 /* 入力欄から読み取って、確かめる。だめなら why を返す */
@@ -7211,7 +7279,21 @@ function personRead(pre, exceptName){
     }
   }
   var r = document.getElementById(pre + 'r');
-  return { name:n, email:m, dept:d, role:r ? r.value : '' };
+  var mg = String(g('mg') || '').trim();
+  if(mg && mg === n) return { why:'自分自身を上長にはできません', focus:pre + 'mg' };
+  var lv = String(g('l') || '').trim();
+  var act = document.getElementById(pre + 'a');
+  return { name:n, email:m, dept:d, role:r ? r.value : '',
+           title:String(g('t') || '').trim(), manager:mg,
+           emp:String(g('e') || '').trim(), kana:String(g('k') || '').trim(),
+           joined:String(g('j') || '').trim(), leave:(lv === '' ? '' : Number(lv)),
+           group:String(g('g') || ''), active:act ? !!act.checked : true };
+}
+/* 読み取った内容を、名簿に入れる形にする */
+function personFields(v){
+  return { email:v.email, dept:v.dept, role:v.role || undefined,
+           title:v.title, manager:v.manager, emp:v.emp, kana:v.kana,
+           joined:v.joined, leave:v.leave, group:v.group, active:v.active };
 }
 
 function viewAImport(){
@@ -7317,8 +7399,8 @@ function viewAImport(){
     if(v.why){ var f = document.getElementById(v.focus); if(f) f.focus();
                toast(v.why); return; }
     var already = !!people()[v.name];
-    registerPerson({ name:v.name, email:v.email, dept:v.dept,
-                     role:v.role || undefined });
+    var o1 = personFields(v); o1.name = v.name;
+    registerPerson(o1);
     LOADED.all = false;
     toast(v.name + ' さんを' + (already ? '上書きしました' : '登録しました') +
           (v.email ? '' : '（メールアドレスが無いのでログインできません）'));
@@ -7352,7 +7434,8 @@ function viewAImport(){
     if(v.why){ var f = document.getElementById(v.focus); if(f) f.focus();
                toast(v.why); return; }
     /* 先に中身を直してから、最後に氏名を付け替える */
-    registerPerson({ name:was, email:v.email, dept:v.dept, role:v.role || undefined });
+    var o2 = personFields(v); o2.name = was;
+    registerPerson(o2);
     if(v.name !== normName(was)){
       var r = renamePerson(was, v.name);
       if(!r.ok){ toast(r.why); return; }
@@ -8587,9 +8670,9 @@ var CRUMB = {
   thanks:   ['アプリを選ぶ|hub', '船井コネクト', 'サンクスカード'],
   members:  ['アプリを選ぶ|hub', '船井コネクト', 'メンバー'],
   profile:  ['マイダッシュボード|home', 'マイページ', 'プロフィール'],
-  aimport:  ['職員登録'],
-  ajobs:    ['職員登録', '職種'],
-  aroles:   ['職員登録', '権限'],
+  aimport:  ['アプリを選ぶ|hub', '職員登録', '職員'],
+  ajobs:    ['アプリを選ぶ|hub', '職員登録', '職種'],
+  aroles:   ['アプリを選ぶ|hub', '職員登録', '権限'],
   acedit:   ['管理ダッシュボード|adash', 'コース管理|acourses', 'コースの編集'],
   aassign:  ['管理ダッシュボード|adash', 'コース管理|acourses', '配信設定'],
   asettings:['管理ダッシュボード|adash', '設定']

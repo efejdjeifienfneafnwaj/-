@@ -52,7 +52,7 @@ function check(name, cond){
   check('ソースに vsw が無い', !html.includes('vsw'));
   check('入口に #vsw が無い', (await page.$('#vsw')) === null);
   check('入口に「管理者の方はこちら」がある', (await page.$('#gAdm')) !== null);
-  check('入口に3つのアプリのカードがある', (await page.$$('#gate [data-app]')).length === 3);
+  check('入口に3つのアプリ＋職員登録のカードがある（動作確認用は管理者あつかい）', (await page.$$('#gate [data-app]')).length === 4);
 
   console.log('② 受講者は管理画面への道がどこにも無いこと');
   await loginAsLearner();
