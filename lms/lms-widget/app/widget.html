@@ -818,6 +818,19 @@ kbd{
 #shinsei{background:var(--bg);color:var(--text);font-family:var(--font);
   font-size:13.5px;line-height:1.65;min-height:60vh;}
 #shinsei .view{flex:none;overflow:visible;padding:22px 26px 60px;}
+#shinsei #view:focus{outline:none;}
+/* 顔写真 */
+.ava img{width:100%;height:100%;object-fit:cover;display:block;}
+.prof-photo{width:112px;height:112px;border-radius:50%;overflow:hidden;background:var(--surface-2);
+  border:1px solid var(--rule);display:grid;place-items:center;font-size:36px;color:#fff;}
+.prof-photo img{width:100%;height:100%;object-fit:cover;}
+.members{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:13px;}
+.mem{background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-md);
+  padding:16px 14px;display:grid;justify-items:center;text-align:center;gap:6px;}
+.mem .ava{width:72px;height:72px;font-size:24px;}
+.mem b{font-size:14.5px;}
+.mem .mem-t{font-size:12px;color:var(--ink-3);}
+.mem .mem-b{font-size:12.5px;line-height:1.6;color:var(--ink-2);word-break:break-word;}
 @media (max-width:860px){ #shinsei .view{padding:16px 14px 80px;} }
 .scope .chip span{padding:6px 11px;font-size:12px;}
 @media (max-width:860px){ .rolerow{flex-wrap:wrap;} }
@@ -1428,7 +1441,18 @@ function migrateTerms(){
 }
 var _quotaWarned = false;
 function cacheFlush(k){
-  if(LS.set(k, MEM[k])) return;
+  var v = MEM[k];
+  /* 顔写真は端末の控えに入れない。人数ぶん貯まると端末の空きを食いつぶし、
+     受講記録の控えが残せなくなる。写真は開くたびに Creator から読む。
+     （Creator に繋がっていない動作確認では、控えに入れないと消えるので入れる） */
+  if(k === 'people' && ON_CREATOR){
+    v = {};
+    Object.keys(MEM.people).forEach(function(n){
+      var o = {}; Object.keys(MEM.people[n]).forEach(function(f){ if(f !== 'photo') o[f] = MEM.people[n][f]; });
+      v[n] = o;
+    });
+  }
+  if(LS.set(k, v)) return;
   /* 端末の空きが足りない。記録が消えるので必ず知らせる */
   syncBadge('端末の空きが足りません', 'err');
   if(!_quotaWarned){
@@ -1472,7 +1496,8 @@ function setMe(o){
 function people(){ return MEM.people; }
 /* 社内申請だけが使う項目。空のときは Creator に送らない
    （その項目を Creator に足していない環境で、名簿の保存が止まらないように） */
-var PERSON_EXTRA = ['kana', 'manager', 'joined', 'leave', 'deputy', 'deputyFrom', 'deputyTo'];
+var PERSON_EXTRA = ['kana', 'manager', 'joined', 'leave', 'deputy', 'deputyFrom', 'deputyTo',
+                    'photo', 'bio'];
 function registerPerson(o){
   var prev = MEM.people[normName(o.name)];
   var title = (o.title !== undefined) ? o.title : (prev && prev.title) || '';
@@ -2422,7 +2447,8 @@ function payloadFor(kind, key){
                first_at:p.first || '' };
     /* 社内申請の項目は、入っているときだけ送る */
     var xm = { kana:'kana', manager:'manager_name', joined:'join_date', leave:'leave_balance',
-               deputy:'deputy_name', deputyFrom:'deputy_from', deputyTo:'deputy_to' };
+               deputy:'deputy_name', deputyFrom:'deputy_from', deputyTo:'deputy_to',
+               photo:'photo', bio:'profile' };
     Object.keys(xm).forEach(function(k){
       if(p[k] !== undefined && p[k] !== null && p[k] !== '') pp[xm[k]] = p[k];
     });
@@ -2674,6 +2700,8 @@ function rowsToPeople(rows){
     if(r.deputy_name) row.deputy = r.deputy_name;
     if(r.deputy_from) row.deputyFrom = r.deputy_from;
     if(r.deputy_to) row.deputyTo = r.deputy_to;
+    if(r.photo) row.photo = safeImageURI(r.photo);
+    if(r.profile) row.bio = r.profile;
     var ia = String(r.is_active === undefined || r.is_active === null ? '' : r.is_active).trim().toLowerCase();
     if(ia === 'true') row.active = true;
     if(ia === 'false') row.active = false;
@@ -2977,6 +3005,12 @@ function avaColor(name){
   return AVA_COLORS[n % AVA_COLORS.length];
 }
 function ava(name, cls){
+  var p = (people() || {})[normName(name)];
+  var ph = p ? safeImageURI(p.photo) : '';
+  if(ph){
+    return '<span class="ava' + (cls ? ' ' + cls : '') + '"><img src="' + esc(ph) +
+           '" alt=""></span>';
+  }
   return '<span class="ava' + (cls ? ' ' + cls : '') + '" style="background:' +
          avaColor(name) + '">' + esc(initial(name)) + '</span>';
 }
@@ -3169,12 +3203,14 @@ var NAV_USER = [
   { go:'home',    icon:'home',   label:'マイダッシュボード' },
   { go:'courses', icon:'book',   label:'研修コース' },
   { icon:'user',  label:'マイページ', sub:[
+      { go:'profile', label:'プロフィール' },
       { go:'history', label:'受講履歴' },
       { go:'mytime',  label:'学習時間' },
       { go:'certs',   label:'修了証' },
       { go:'mynews',  label:'お知らせ' }
   ]},
   { go:'feed',    icon:'mail',   label:'掲示板' },
+  { go:'members', icon:'users',  label:'メンバー' },
   { go:'thanks',  icon:'medal',  label:'サンクスカード' }
 ];
 var NAV_ADMIN = [
@@ -3221,6 +3257,7 @@ var NAV_OF = {
   s_admin:'s_admin',
   home:'home', courses:'courses', learn:'courses', quiz:'courses',
   cert:'certs', survey:'courses', certs:'certs', mynews:'mynews',
+  profile:'profile', members:'members',
   history:'history', mytime:'mytime',
   adash:'adash', ausers:'ausers', agroups:'agroups', acourses:'acourses',
   aoverall:'aoverall', alog:'alog', acourse:'acourse', auser:'auser', aquiz:'aquiz',
@@ -3318,8 +3355,14 @@ function drawNav(view){
 
   /* 上の帯 */
   var av = document.getElementById('topAva');
-  av.textContent = initial(u.name);
-  av.style.background = avaColor(u.name);
+  var myPhoto = safeImageURI(((people() || {})[normName(u.name)] || {}).photo);
+  if(myPhoto){
+    av.innerHTML = '<img src="' + esc(myPhoto) + '" alt="">';
+    av.style.background = 'transparent';
+  }else{
+    av.textContent = initial(u.name);
+    av.style.background = avaColor(u.name);
+  }
   document.getElementById('topName').textContent = u.name || '';
   /* メールアドレスで入っているときは、端末に残るのは自分のぶんだけなので出さない */
   document.getElementById('icoOut').hidden = !!LOGIN_EMAIL;
@@ -4320,6 +4363,139 @@ function viewThanks(){
     FEED.draft = ''; FEED.to = '';
     toast(to + ' さんにサンクスを贈りました');
     viewThanks();
+  };
+}
+
+/* ── 画面：プロフィール（顔写真と自己紹介） ── */
+var PHOTO_PX = 128;          /* 保存する写真の一辺。名簿に入れるので小さくする */
+/* 選んだ画像を、正方形に切って小さくし、JPEG のデータURIにする */
+function shrinkPhoto(file){
+  return new Promise(function(resolve, reject){
+    if(!file || !/^image\//.test(file.type)){ reject(new Error('画像ファイルを選んでください')); return; }
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function(){
+      try{
+        var s = Math.min(img.naturalWidth, img.naturalHeight);
+        var sx = (img.naturalWidth - s) / 2, sy = (img.naturalHeight - s) / 2;
+        var c = document.createElement('canvas');
+        c.width = PHOTO_PX; c.height = PHOTO_PX;
+        c.getContext('2d').drawImage(img, sx, sy, s, s, 0, 0, PHOTO_PX, PHOTO_PX);
+        URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      }catch(e){ reject(e); }
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('画像を読み込めませんでした')); };
+    img.src = url;
+  });
+}
+var PROF = { photo:null };   /* 保存前の写真（null＝変更なし、''＝消す） */
+function viewProfile(){
+  var u = me() || {};
+  var p = people()[normName(u.name)] || {};
+  var ph = (PROF.photo === null) ? safeImageURI(p.photo) : PROF.photo;
+  var h = '<div class="wrap" style="max-width:640px">';
+  h += '<div class="ph"><div><h2>プロフィール</h2>' +
+       '<div class="sub">顔写真と自己紹介は、掲示板やメンバー一覧でみなさんに見えます。</div></div></div>';
+  h += '<div class="card pad" style="display:grid;gap:16px">';
+  h += '<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">';
+  h +=   '<div class="prof-photo" style="background:' + avaColor(u.name) + '">' +
+           (ph ? '<img src="' + esc(ph) + '" alt="">' : esc(initial(u.name))) + '</div>';
+  h +=   '<div style="display:grid;gap:8px">' +
+           '<input type="file" id="pfFile" accept="image/*" hidden>' +
+           '<button class="btn sub" id="pfPick">' + ic('user') + '写真を選ぶ</button>' +
+           (ph ? '<button class="btn sub" id="pfClear">' + ic('cross') + '写真を消す</button>' : '') +
+           '<span class="cap">正方形に切り取って小さく保存します（' + PHOTO_PX + 'px）</span>' +
+         '</div>';
+  h += '</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label>お名前</label><div class="ro">' + esc(u.name || '') + '</div></div>';
+  h +=   '<div class="field"><label>職種・役職</label><div class="ro">' +
+           esc([p.dept || '—', p.title || ''].filter(Boolean).join('　·　')) + '</div></div>';
+  h += '</div>';
+  h += '<div class="field"><label for="pfBio">自己紹介<span class="note-s">200文字まで</span></label>' +
+       '<textarea class="inp" id="pfBio" rows="4" maxlength="200" style="resize:vertical" ' +
+       'placeholder="例）介護職3年目です。趣味は登山。気軽に声をかけてください。">' +
+       esc(p.bio || '') + '</textarea></div>';
+  h += '<div class="bar"><button class="btn" id="pfSave">' + ic('check') + '保存する</button>' +
+       '<span class="cap">お名前や職種は、研修担当が名簿で直します</span></div>';
+  h += '</div></div>';
+  document.getElementById('main').innerHTML = h;
+
+  var file = document.getElementById('pfFile');
+  document.getElementById('pfPick').onclick = function(){ file.click(); };
+  file.onchange = function(){
+    var f = file.files && file.files[0];
+    if(!f) return;
+    shrinkPhoto(f).then(function(uri){
+      PROF.photo = uri;
+      viewProfile();
+      toast('写真を選びました。「保存する」で確定します');
+    }).catch(function(e){ toast(e.message || '画像を読み込めませんでした'); });
+  };
+  var clr = document.getElementById('pfClear');
+  if(clr) clr.onclick = function(){ PROF.photo = ''; viewProfile(); };
+  document.getElementById('pfSave').onclick = function(){
+    var o = { name:u.name, bio:String(document.getElementById('pfBio').value || '').trim() };
+    if(PROF.photo !== null) o.photo = PROF.photo;
+    registerPerson(o);
+    /* 空にしたときは、名簿の写真を消す */
+    if(PROF.photo === ''){ delete MEM.people[normName(u.name)].photo; cacheFlush('people'); queueSync('person', normName(u.name)); }
+    PROF.photo = null;
+    toast('プロフィールを保存しました');
+    drawNav('profile');
+    viewProfile();
+  };
+}
+
+/* ── 画面：メンバー（顔写真と自己紹介の一覧） ── */
+var MEM_Q = '';
+function viewMembers(){
+  var ps = people() || {};
+  var names = Object.keys(ps).filter(function(n){ return ps[n].active !== false; })
+    .sort(function(a, b){
+      return String(ps[a].dept || '').localeCompare(String(ps[b].dept || ''), 'ja') ||
+             a.localeCompare(b, 'ja');
+    });
+  var kw = MEM_Q.trim();
+  var shown = kw ? names.filter(function(n){
+    var p = ps[n];
+    return n.indexOf(kw) >= 0 || String(p.dept || '').indexOf(kw) >= 0 ||
+           String(p.title || '').indexOf(kw) >= 0 || String(p.bio || '').indexOf(kw) >= 0;
+  }) : names;
+  var h = '<div class="wrap">';
+  h += '<div class="ph"><div><h2>メンバー</h2>' +
+       '<div class="sub">職員の顔と自己紹介です。自分の分は「マイページ → プロフィール」で直せます。</div>' +
+       '</div></div>';
+  h += '<div class="bar" style="margin-bottom:14px">' +
+       '<input class="inp" id="memQ" placeholder="名前・職種・自己紹介で探す" value="' + esc(MEM_Q) +
+       '" style="max-width:300px"><span class="sp"></span>' +
+       '<span class="cnt">' + shown.length + ' / ' + names.length + '名</span></div>';
+  if(!shown.length){
+    h += '<div class="card"><div class="empty">' + ic('users') + '該当する方がいません。</div></div>';
+  }else{
+    h += '<div class="members">';
+    shown.forEach(function(n){
+      var p = ps[n];
+      h += '<div class="mem">' + ava(n) +
+           '<b>' + esc(n) + '</b>' +
+           '<span class="mem-t">' + esc([p.dept || '', p.title || ''].filter(Boolean).join('　·　') || '—') + '</span>' +
+           (p.bio ? '<span class="mem-b">' + esc(p.bio) + '</span>' : '') +
+           '</div>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  var q = document.getElementById('memQ');
+  q.oninput = function(){
+    MEM_Q = this.value;
+    clearTimeout(q._t);
+    q._t = setTimeout(function(){
+      viewMembers();
+      var nx = document.getElementById('memQ');
+      if(nx){ nx.focus(); nx.setSelectionRange(nx.value.length, nx.value.length); }
+    }, 250);
   };
 }
 
@@ -8270,6 +8446,8 @@ var CRUMB = {
   hub:      ['アプリを選ぶ'],
   feed:     ['アプリを選ぶ|hub', '船井コネクト', '掲示板'],
   thanks:   ['アプリを選ぶ|hub', '船井コネクト', 'サンクスカード'],
+  members:  ['アプリを選ぶ|hub', '船井コネクト', 'メンバー'],
+  profile:  ['マイダッシュボード|home', 'マイページ', 'プロフィール'],
   aimport:  ['管理ダッシュボード|adash', 'ユーザー管理', '職員の登録・編集'],
   ajobs:    ['管理ダッシュボード|adash', 'ユーザー管理', '職種'],
   aroles:   ['管理ダッシュボード|adash', 'ユーザー管理', '権限の割り当て'],
@@ -8307,7 +8485,7 @@ function crumbFor(view, arg){
 }
 
 var USER_VIEWS = {
-  feed:viewFeed, thanks:viewThanks,
+  feed:viewFeed, thanks:viewThanks, members:viewMembers, profile:viewProfile,
   home:viewHome, courses:viewCourses, history:viewHistory, mytime:viewMyTime,
   certs:viewCerts, mynews:viewMyNews
 };
