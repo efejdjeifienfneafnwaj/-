@@ -502,7 +502,9 @@ var Views = (function () {
     DB.add('Requests', req).then(function (saved) {
       S().requests.push(saved);
       var jobs = route.map(function (s) {
-        var due = WF.dueDateOf(req, route, s);
+        /* 期限は「その段に回ってきた時点」で確定する。
+           申請時に全段ぶん書くと、後の段ほど期限が早いという不整合になる。 */
+        var due = (s.step_no === WF.currentStep(route)) ? WF.dueDateOf(req, route, s) : null;
         return DB.add('Approvals', {
           Request: saved.ID, Request_No: saved.Request_No,
           Step_No: s.step_no, Step_Name: s.name, Step_Type: s.type,
@@ -715,6 +717,11 @@ var Views = (function () {
       if (which === 'views') Access.log(CFG.ACCESS.ACTIONS.VIEW_LOG, { targetType: '申請の閲覧者一覧', targetId: req.ID, targetNo: req.Request_No });
       dbody.querySelectorAll('[data-dlfile]').forEach(function (b) {
         b.addEventListener('click', function () {
+          if (App.blockIfImpersonating('添付ファイルの取得')) return;
+          if (!Perm.canViewRequest(me(), req, S().approvals)) {
+            Access.denied('添付ファイルの取得', req.Request_No + ' への閲覧権限なし');
+            UI.toast('この添付を取得する権限がありません（記録しました）', 'error'); return;
+          }
           b.disabled = true; b.textContent = '取得中…';
           Files.download(b.dataset.dlfile, req).then(function (h) {
             UI.toast(h.File_Name + ' を取得しました', 'success');
@@ -810,6 +817,7 @@ var Views = (function () {
         return '<div class="route-step"><div class="route-dot ' + cls + '">' + E(String(mark)) + '</div><div class="route-body">' +
           '<div class="route-name">' + E(s.name) + ' <span class="tag">' + E(s.type) + '</span>' + E(need) + '</div>' +
           '<div class="route-meta">' + E(meta) + '</div>' +
+          (s.warning ? '<div class="route-meta"><span class="badge b-sentback">⚠ ' + E(s.warning) + '</span></div>' : '') +
           (s.comment ? '<div class="route-comment">' + E(s.comment) + '</div>' : '') + '</div></div>';
       }).join('') + '</div></div></div>';
   }
@@ -1068,6 +1076,7 @@ var Views = (function () {
     el.querySelectorAll('[data-open]').forEach(function (b) { b.addEventListener('click', function () { openDetail(b.dataset.open); }); });
     el.querySelectorAll('[data-pay]').forEach(function (b) {
       b.addEventListener('click', function () {
+        if (App.blockIfImpersonating('支払状態の変更')) return;
         var r = App.requestById(b.dataset.pay);
         DB.update('Requests', r.ID, { Paid: !r.Paid }).then(function () {
           r.Paid = !r.Paid; App.audit(r.Paid ? '支払済に変更' : '支払取消', '申請', r.ID, r.Request_No);
@@ -1077,6 +1086,7 @@ var Views = (function () {
     });
     el.querySelectorAll('[data-due]').forEach(function (inp) {
       inp.addEventListener('change', function () {
+        if (App.blockIfImpersonating('支払期日の設定')) return;
         var r = App.requestById(inp.dataset.due);
         DB.update('Requests', r.ID, { Payment_Due_Date: inp.value }).then(function () {
           r.Payment_Due_Date = inp.value; App.audit('支払期日設定', '申請', r.ID, inp.value); UI.toast('支払期日を設定しました', 'success');
@@ -1088,6 +1098,7 @@ var Views = (function () {
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '経理処理', resultCount: rows.length });
   }
   function exportJournal(rows) {
+    if (App.blockIfImpersonating('仕訳CSV出力')) return;
     if (!Perm.canExport(me())) { Access.denied('CSV出力', '権限なし：仕訳データ'); UI.toast('出力の権限がありません（記録しました）', 'error'); return; }
     var headers = ['取引日', '借方勘定科目', '借方金額', '貸方勘定科目', '貸方金額', '税区分', '摘要', '取引先', '登録番号', '申請番号'];
     var out = [];
@@ -1113,6 +1124,7 @@ var Views = (function () {
     UI.toast('仕訳データを出力しました（' + out.length + '行）', 'success');
   }
   function exportFB(rows) {
+    if (App.blockIfImpersonating('振込データ出力')) return;
     if (!Perm.canExport(me())) { Access.denied('CSV出力', '権限なし：振込データ'); UI.toast('出力の権限がありません（記録しました）', 'error'); return; }
     var headers = ['支払期日', '取引先', '登録番号', '支払金額', '申請番号', '件名', '申請者'];
     var out = rows.map(function (r) {
@@ -1190,6 +1202,7 @@ var Views = (function () {
     el.querySelector('[data-act="filter"]').addEventListener('click', function () { cur = run(); });
     var c = el.querySelector('[data-act="csv"]');
     if (c) c.addEventListener('click', function () {
+      if (App.blockIfImpersonating('閲覧証跡のCSV出力')) return;
       var headers = ['日時', '操作者', '所属', '権限', '操作', '対象申請番号', '件名', '申請区分', '機微度', '所有部署', '他部署', '滞在秒', '件数', '備考'];
       var data = cur.map(function (l) {
         return [UI.fmtDateTime(l.Log_Time), l.Actor_Name, l.Actor_Dept, l.Actor_Role, l.Action, l.Target_No, l.Target_Subject,

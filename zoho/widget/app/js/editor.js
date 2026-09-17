@@ -125,9 +125,14 @@ var RouteEditor = (function () {
       assigneeParamHtml(def, a) +
       (def.warn ? '<div class="help" style="color:var(--warning)">⚠ ' + E(def.warn) + '</div>' : '') +
       ((def.options || []).length ?
-        '<label class="inline-row" style="margin-top:6px;font-size:11.5px"><input type="checkbox" data-f="opt" style="width:auto;min-height:auto"' +
-        (a.includeSub ? ' checked' : '') + '> ' + E(def.options[0].label) + '</label>' : '') +
+        '<label class="inline-row" style="margin-top:6px;font-size:11.5px"><input type="checkbox" data-f="opt" data-optkey="' + E(def.options[0].key) + '" style="width:auto;min-height:auto"' +
+        (a[def.options[0].key] ? ' checked' : '') + '> ' + E(def.options[0].label) + '</label>' : '') +
       '</div>' +
+      '<div class="field full"><label>この段の扱い</label>' +
+      '<label class="inline-row" style="font-size:11.5px"><input type="checkbox" data-f="mustnotskip" style="width:auto;min-height:auto"' +
+      (s.mustNotSkip ? ' checked' : '') + '> この段は省略しない（該当者がいない場合、申請を止める）</label>' +
+      '<div class="help">経理検収・法務レビューのように、必ず通さなければならない段に使います。' +
+      '通常は該当者がいなければ自動でスキップされますが、これを入れると申請自体を止めます。</div></div>' +
       (s.type === '合議' ? '<div class="field"><label>何人の承認で次へ進むか</label>' +
         '<div class="inline-row"><select data-f="qmode" style="flex:1">' +
         RouteSpec.QUORUM_MODES.map(function (q) {
@@ -136,7 +141,8 @@ var RouteEditor = (function () {
         (((s.quorum || {}).mode === 'count' || (s.quorum || {}).mode === 'percent') ?
           '<input data-f="qval" type="number" min="1" value="' + E((s.quorum || {}).value || 1) + '" style="width:90px">' +
           '<span class="page-sub">' + E((s.quorum || {}).mode === 'percent' ? '%' : '人') + '</span>' : '') +
-        '</div><div class="help">例：5人中3人の承認で可決、といった規程をそのまま表せます。</div></div>' : '') +
+        '</div><div class="help">例：5人中3人の承認で可決、といった規程をそのまま表せます。</div>' +
+        consensusMembersHtml(s) + '</div>' : '') +
       '<div class="field"><label>標準処理日数</label>' +
       '<input data-f="days" type="number" min="1" max="30" value="' + E(s.days) + '">' +
       '<div class="help">この段に回ってきてからの日数です。超えると遅延として表示されます。</div></div>' +
@@ -153,6 +159,21 @@ var RouteEditor = (function () {
       '<div class="re-cond-text' + (s.conditions ? '' : ' muted') + '">' +
       E(RouteSpec.describe(s.conditions, flds)) + '</div></div>' +
       '</div></div>';
+  }
+
+  /** 合議の対象者が誰になるかを実名で見せる（誰が数えられるのか分からないのを防ぐ） */
+  function consensusMembersHtml(step) {
+    var a = step.assignee || {};
+    var dept = (a.department === '__first__') ? '' : a.department;
+    if (!dept) {
+      return '<div class="help">対象は「申請者の所属部署の全員（申請者本人を除く）」です。部署で指定すると対象が固定できます。</div>';
+    }
+    var mem = WF.departmentMembers(dept, S().employees, S().departments, a.includeSub);
+    var need = RouteSpec.requiredApprovals(step, mem.length);
+    if (!mem.length) return '<div class="help" style="color:var(--danger)">⚠ ' + E(dept) + ' に在籍者がいません。この段は成立しません。</div>';
+    return '<div class="help">対象は ' + E(dept) + ' の ' + mem.length + '名（' +
+      E(mem.slice(0, 5).map(function (m) { return m.Employee_Name; }).join('・')) + (mem.length > 5 ? ' ほか' : '') +
+      '）。<strong>' + need + '名</strong>の承認で次へ進みます。</div>';
   }
 
   function assigneeParamHtml(def, a) {
@@ -246,14 +267,22 @@ var RouteEditor = (function () {
       ' → <strong>' + live.length + '段</strong>で流れます</div>' +
       '<div class="route">' + route.map(function (s) {
         return '<div class="route-step"><div class="route-dot' + (s.skipped ? '' : ' current') + '">' +
-          (s.skipped ? '–' : s.step_no) + '</div><div class="route-body">' +
-          '<div class="route-name">' + E(s.name) + ' <span class="tag">' + E(s.type) + '</span></div>' +
+          (s.skipped ? '–' : s.live_no) + '</div><div class="route-body">' +
+          '<div class="route-name">' + E(s.name) + ' <span class="tag">' + E(s.type) + '</span>' +
+          (s.mustNotSkip ? ' <span class="badge b-info">省略不可</span>' : '') + '</div>' +
           '<div class="route-meta">' + (s.skipped ? '<span class="delay">' + E(s.skipReason) + '</span>' :
             E(s.approverName) + (s.approverTitle ? '（' + E(s.approverTitle) + '）' : '') +
             (s.delegateName ? ' <span class="tag">代理：' + E(s.delegateName) + '</span>' : '') +
-            ' ／ 標準 ' + s.days + '日') + '</div></div></div>';
+            (s.type === '合議' ? ' <span class="tag">' + E(RouteSpec.quorumLabel(s, (s.members || []).length)) + '</span>' : '') +
+            ' ／ 標準 ' + s.days + '日') + '</div>' +
+          (s.warning ? '<div class="route-meta"><span class="badge b-sentback">⚠ ' + E(s.warning) + '</span></div>' : '') +
+          (s.blocking ? '<div class="route-meta"><span class="badge b-rejected">省略不可の段が成立していないため、この条件では申請できません</span></div>' : '') +
+          '</div></div>';
       }).join('') + '</div>' +
-      (live.length === 0 ? '<div class="badge b-rejected" style="margin-top:10px">すべてのステップがスキップされます。承認者が存在しないか、条件に合っていません。</div>' : '');
+      (live.length === 0 ? '<div class="badge b-rejected" style="margin-top:10px">すべてのステップがスキップされます。この条件では申請できません。</div>' : '') +
+      (route.some(function (s) { return s.warning; }) ?
+        '<div class="page-sub" style="margin-top:10px">⚠ の付いた段は、同じ部署に該当役職者がいないため他部署の人に回っています。' +
+        '「同じ部署にいない場合、他部署には回さない」を入れるか、組織マスタを見直してください。</div>' : '');
   }
 
   /* =======================================================================
@@ -290,6 +319,8 @@ var RouteEditor = (function () {
     var emps = S().employees.filter(function (e) { return e.Is_Active !== false; });
     var amounts = amountSamples();
     var fatal = [], warn = [], okCount = 0, cases = 0;
+    var topTitle = CFG.TITLES[0];
+    var crossByStep = {};
 
     emps.forEach(function (ap) {
       var bad = null, soft = null;
@@ -302,10 +333,29 @@ var RouteEditor = (function () {
         var unresolved = route.filter(function (s) { return s.skipped && /承認者が存在しない/.test(s.skipReason); });
 
         /* 致命的：誰も承認しないまま承認済みになる */
+        var blocked = route.filter(function (s) { return s.blocking; });
+        var crossed = route.filter(function (s) { return !s.skipped && s.warning; });
         if (!route.length) {
           bad = bad || { kind: '経路が空', detail: UI.yen(amt) + ' のとき、条件に合うステップが1つもありません', amt: amt };
         } else if (!live.length) {
-          bad = bad || { kind: '承認されずに完了', detail: UI.yen(amt) + ' のとき、全ステップがスキップされます', amt: amt };
+          /* 組織の最上位に上長がいないだけのケースは、構造上あたりまえなので赤にしない */
+          var onlyTop = (ap.Title === topTitle) && route.every(function (r) {
+            var def = st.steps.filter(function (x) { return x.name === r.name; })[0];
+            return !def || (def.assignee || {}).mode === 'manager';
+          });
+          if (onlyTop) {
+            soft = soft || { kind: '最上位者は経路が組めない', detail: '上長がいないため ' + UI.yen(amt) + ' のとき申請できません。社長・会長の申請を想定するなら、上長以外の段を足してください', amt: amt };
+          } else {
+            bad = bad || { kind: 'この経路では申請できない', detail: UI.yen(amt) + ' のとき、承認者が1人も決まりません', amt: amt };
+          }
+        } else if (blocked.length) {
+          bad = bad || { kind: '省略不可の段が成立しない', detail: blocked.map(function (b) { return '「' + b.name + '」'; }).join('、') + ' の該当者がいません', amt: amt };
+        } else if (crossed.length) {
+          /* 他部署フォールバックは段ごとにまとめて出す（人数分並べるとノイズになる） */
+          crossed.forEach(function (c) {
+            crossByStep[c.name] = crossByStep[c.name] || { step: c.name, warning: c.warning, depts: {} };
+            crossByStep[c.name].depts[ap.Department_name || '（部署未設定）'] = true;
+          });
         } else if (unresolved.length) {
           /* 注意：一部の段が解決できないが、他の段が生きているので流れる。
              ただし「組織の最上位に上長が居ない」のは構造上あたりまえなので報告しない。
@@ -340,12 +390,25 @@ var RouteEditor = (function () {
         }).join('') + '</tbody></table></div>';
     }
 
-    if (!fatal.length && !warn.length) {
+    var crossList = Object.keys(crossByStep).map(function (k) { return crossByStep[k]; });
+    var crossHtml = crossList.length ?
+      '<div class="card" style="border-color:var(--warning);margin-bottom:12px"><div class="card-head">' +
+      '<div class="card-title">他部署の役職者に回る段（' + crossList.length + '件）</div></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>段</th><th>内容</th><th>対象となる申請者の部署</th><th>直し方</th></tr></thead><tbody>' +
+      crossList.map(function (c) {
+        return '<tr><td class="nowrap">' + E(c.step) + '</td><td>' + E(c.warning) + '</td>' +
+          '<td>' + E(Object.keys(c.depts).join('・')) + '</td>' +
+          '<td class="nowrap">「他部署には回さない」を入れる</td></tr>';
+      }).join('') + '</tbody></table></div></div>' : '';
+
+    if (!fatal.length && !warn.length && !crossList.length) {
       box.innerHTML = head + '<div class="badge b-approved" style="font-size:12.5px;padding:8px 14px">' +
-        '全 ' + emps.length + '名で経路が成立しました。このまま保存して問題ありません。</div>';
+        '全 ' + emps.length + '名について、承認者が決まらないケースはありませんでした。</div>' +
+        '<div class="page-sub" style="margin-top:8px">※ 検査したのは「承認者が決まるか」「他部署に回らないか」「省略できない段が成立するか」です。' +
+        '決裁権限の妥当性そのもの（誰が決裁すべきか）は判断していません。</div>';
       return;
     }
-    box.innerHTML = head +
+    box.innerHTML = head + crossHtml +
       (fatal.length ?
         '<div class="badge b-rejected" style="font-size:12.5px;padding:8px 14px;margin-bottom:8px">' +
         '要修正 ' + fatal.length + '名：誰の承認も経ないまま完了してしまいます</div>' + table(fatal, 'b-rejected') : '') +
@@ -353,11 +416,17 @@ var RouteEditor = (function () {
         '<div class="badge b-sentback" style="font-size:12.5px;padding:8px 14px;margin-bottom:8px">' +
         '確認 ' + warn.length + '名：一部の段で承認者が決まりません（他の段があるため申請自体は流れます）</div>' +
         table(warn, 'b-sentback') : '') +
+      (!fatal.length && !warn.length ?
+        '<div class="badge b-approved" style="font-size:12.5px;padding:8px 14px">承認者が決まらないケースはありませんでした。</div>' : '') +
       '<div class="page-sub">問題なし ' + okCount + '名。' +
       '「承認者が決まらない」の多くは、社員マスタの上長が未設定か、その役職の人が在籍していないことが原因です。</div>';
   }
 
   function remedy(x) {
+    if (x.p.kind === '他部署の役職者に回る') return '「他部署には回さない」を入れる';
+    if (x.p.kind === '省略不可の段が成立しない') return '該当部署に在籍者を登録';
+    if (x.p.kind === 'この経路では申請できない') return '申請者以外が承認者になる段を入れる';
+    if (x.p.kind === '最上位者は経路が組めない') return '上長以外の段を足す';
     if (x.p.kind === '一部の段が決まらない') {
       if (!x.emp.Manager) return '社員マスタで上長を設定';
       return '該当役職の在籍を確認';
@@ -419,6 +488,12 @@ var RouteEditor = (function () {
         valHtml = '<select data-c="val" data-path="' + E(p) + '">' + f.options.map(function (o) {
           return '<option' + (String(r.value) === String(o) ? ' selected' : '') + '>' + E(o) + '</option>';
         }).join('') + '</select>';
+      } else if (f.type === 'number') {
+        var pv = RouteSpec.parseNum(r.value);
+        valHtml = '<input data-c="val" data-path="' + E(p) + '" value="' + E(r.value == null ? '' : r.value) + '" placeholder="300000 または 30万">' +
+          '<span class="page-sub" style="min-width:110px">' +
+          (r.value === '' || r.value == null ? '金額を入力' : (isNaN(pv) ? '<span style="color:var(--danger)">数値として読めません</span>' : '＝' + UI.yen(pv))) +
+          '</span>';
       } else {
         valHtml = '<input data-c="val" data-path="' + E(p) + '" value="' + E(r.value == null ? '' : r.value) + '">';
       }
@@ -449,6 +524,42 @@ var RouteEditor = (function () {
     var box = UI.modal({
       title: 'ステップ「' + s.name + '」を通す条件', okText: 'この条件にする', bodyHtml: body(),
       onOk: function () {
+        /* 空の値や、数値として読めない金額のまま確定させない。
+           そのまま保存すると「申請金額が〔空〕以上」＝常に通る条件になってしまう。 */
+        var bad = [];
+        (function walk(g) {
+          if (!g) return;
+          if (g.field) {
+            var f2 = flds.filter(function (x) { return x.key === g.field; })[0] || {};
+            var op = RouteSpec.OPERATORS.filter(function (o) { return o.key === g.operator; })[0];
+            if (op && op.value !== 'none') {
+              if (g.value === '' || g.value == null) bad.push((f2.label || g.field) + ' の値が空です');
+              else if (f2.type === 'number' && isNaN(RouteSpec.parseNum(g.value))) {
+                bad.push((f2.label || g.field) + ' の「' + g.value + '」は数値として読めません（例：300000／300,000／30万）');
+              }
+              if (op.value === 'range') {
+                if (g.value2 === '' || g.value2 == null) bad.push((f2.label || g.field) + ' の上限が空です');
+                else if (isNaN(RouteSpec.parseNum(g.value2))) bad.push((f2.label || g.field) + ' の上限が数値として読めません');
+              }
+            }
+            return;
+          }
+          (g.rules || []).forEach(walk);
+        })(draft);
+        if (bad.length) { UI.toast(bad[0], 'error'); return false; }
+        /* 金額は数値に正規化して保存する（「30万」→ 300000） */
+        (function norm(g) {
+          if (!g) return;
+          if (g.field) {
+            var f2 = flds.filter(function (x) { return x.key === g.field; })[0] || {};
+            if (f2.type === 'number') {
+              if (g.value !== '' && g.value != null) g.value = RouteSpec.parseNum(g.value);
+              if (g.value2 !== '' && g.value2 != null) g.value2 = RouteSpec.parseNum(g.value2);
+            }
+            return;
+          }
+          (g.rules || []).forEach(norm);
+        })(draft);
         st.steps[idx].conditions = draft && (draft.rules || []).length ? draft : null;
         st.dirty = true;
         App.refresh();
@@ -460,11 +571,25 @@ var RouteEditor = (function () {
       mb.innerHTML = body();
       wire();
     }
+    /* 入力途中は再描画するとカーソルが飛ぶので、円換算とプレビューだけ書き換える */
+    function repaintPreviewOnly() {
+      var pv = document.querySelector('#condPreview');
+      if (pv) pv.textContent = RouteSpec.describe(draft, flds);
+      document.querySelectorAll('.re-rule').forEach(function (row) {
+        var inp = row.querySelector('[data-c="val"]');
+        var note = row.querySelector('.page-sub');
+        if (!inp || !note || inp.tagName === 'SELECT') return;
+        var v = inp.value, n2 = RouteSpec.parseNum(v);
+        if (v === '') note.textContent = '金額を入力';
+        else if (isNaN(n2)) note.innerHTML = '<span style="color:var(--danger)">数値として読めません</span>';
+        else note.textContent = '＝' + UI.yen(n2);
+      });
+    }
     function wire() {
       var mb = document.querySelector('.modal-body');
       mb.querySelectorAll('[data-c]').forEach(function (n) {
         var kind = n.dataset.c, path = parsePath(n.dataset.path || '');
-        var ev = (n.tagName === 'SELECT' || n.tagName === 'INPUT') ? 'change' : 'click';
+        var ev = (n.tagName === 'SELECT') ? 'change' : (n.tagName === 'INPUT' ? 'input' : 'click');
         n.addEventListener(ev, function (e) {
           e.preventDefault();
           if (kind === 'addroot') { draft = RouteSpec.newGroup(); return repaint(); }
@@ -491,8 +616,8 @@ var RouteEditor = (function () {
             return repaint();
           }
           if (kind === 'op2') { r.operator = n.value; return repaint(); }
-          if (kind === 'val') { r.value = n.value; }
-          if (kind === 'val2') { r.value2 = n.value; }
+          if (kind === 'val') { r.value = n.value; if (n.type !== 'select-one') { repaintPreviewOnly(); return; } }
+          if (kind === 'val2') { r.value2 = n.value; repaintPreviewOnly(); return; }
           var pv = document.querySelector('#condPreview');
           if (pv) pv.textContent = RouteSpec.describe(draft, flds);
         });
@@ -525,9 +650,16 @@ var RouteEditor = (function () {
           else if (k === 'mode') {
             var def = RouteSpec.assigneeDef(n.value);
             s.assignee = { mode: n.value };
-            if (def.params.length && def.params[0].def != null) s.assignee[def.params[0].key] = def.params[0].def;
+            /* 画面が「選択済み」に見えるのに内部が空、という食い違いを無くすため既定値を入れる */
+            if (def.params.length) {
+              var pk0 = def.params[0].key, dv = def.params[0].def;
+              if (dv === '__first__') dv = (S().departments[0] || {}).Department_Name || '';
+              if (dv != null && dv !== '') s.assignee[pk0] = dv;
+            }
           } else if (k === 'opt') {
-            s.assignee.includeSub = n.checked;
+            s.assignee[n.dataset.optkey || 'includeSub'] = n.checked;
+          } else if (k === 'mustnotskip') {
+            s.mustNotSkip = n.checked;
           } else if (k === 'qmode') {
             s.quorum = { mode: n.value, value: (s.quorum || {}).value || (n.value === 'percent' ? 100 : 1) };
             if (n.value === 'all') s.quorum = null;
@@ -572,7 +704,10 @@ var RouteEditor = (function () {
       b.addEventListener('click', function () {
         var a = b.dataset.act;
         if (a === 'addstep') { st.steps.push(RouteSpec.newStep(st.steps.length + 1)); st.dirty = true; App.refresh(); }
-        else if (a === 'reset') { st.loadedFor = null; App.refresh(); }
+        else if (a === 'reset') {
+          if (st.dirty && !confirm('保存していない変更をすべて破棄します。よろしいですか？')) return;
+          st.loadedFor = null; App.refresh();
+        }
         else if (a === 'runtest') { runTest(el); }
         else if (a === 'diagnose') { diagnose(el); }
         else if (a === 'save') { save(); }

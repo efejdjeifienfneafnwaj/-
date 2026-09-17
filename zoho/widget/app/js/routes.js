@@ -89,10 +89,11 @@ var RouteSpec = (function () {
       params: [{ key: 'level', label: '何段上', type: 'number', def: 1, min: 1, max: 5 }] },
     { mode: 'title',          label: '役職で指定',
       hint: '申請者と同じ部署の、指定した役職の人。いなければ他部署の同役職を探します。',
-      params: [{ key: 'title', label: '役職', type: 'title' }] },
+      params: [{ key: 'title', label: '役職', type: 'title', def: '部長' }],
+      options: [{ key: 'noCrossDept', label: '同じ部署にいない場合、他部署には回さない', type: 'bool' }] },
     { mode: 'department',     label: '部署で指定',
       hint: '指定した部署の中で、いちばん役職が上の人が代表で承認します。',
-      params: [{ key: 'department', label: '部署', type: 'department' }],
+      params: [{ key: 'department', label: '部署', type: 'department', def: '__first__' }],
       options: [{ key: 'includeSub', label: '下位の部署も含める', type: 'bool' }] },
     { mode: 'fixed',          label: '特定の人を指名',
       hint: 'この人だけが承認します。',
@@ -109,9 +110,9 @@ var RouteSpec = (function () {
   /* ---------- ステップの種類 ---------- */
   var STEP_TYPES = [
     { key: '承認', label: '承認（1人）',        hint: '指定された1人が承認すれば次へ進みます。' },
-    { key: '合議', label: '合議（複数人）',      hint: '対象者が複数います。何人の承認で次へ進むかを下で指定します。', quorum: true },
-    { key: '或議', label: '或議（誰か1人）',    hint: '対象者のうち誰か1人が承認すれば次へ進みます。' },
-    { key: '回覧', label: '回覧（確認のみ）',    hint: '承認ではなく既読の記録だけ。差戻しはできません。' }
+    { key: '合議', label: '全員または過半数の承認（合議）', hint: '対象者が複数います。何人の承認で次へ進むかを下で指定します。', quorum: true },
+    { key: '或議', label: 'いずれか1人の承認（或議）', hint: '対象者のうち誰か1人が承認すれば次へ進みます。' },
+    { key: '回覧', label: '回覧（確認のみ）',    hint: 'この段では止まりません。既読を記録して次へ進みます。差戻しはできません。' }
   ];
 
   /* 可決条件：「全員」「何人」「何%」を同じ仕組みで表す。
@@ -143,11 +144,34 @@ var RouteSpec = (function () {
 
   /* ---------- 条件の評価 ---------- */
   function num(v) {
-    if (v == null || v === '') return 0;
-    /* 全角数字とカンマ・円記号を取り除いてから数値化する */
-    var s = String(v).replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); });
-    var n = Number(s.replace(/[^\d.\-]/g, ''));
-    return isFinite(n) ? n : 0;
+    var n = parseNum(v);
+    return isNaN(n) ? 0 : n;
+  }
+  /**
+   * 金額として読めるかを判定しながら数値化する。読めなければ NaN。
+   *  「30万円」のような入力を黙って 30 と解釈すると、
+   *  画面には正しく見えたまま全く違う経路が組まれてしまう。
+   *  そのため、単位語や単なる文字が混ざった入力は数値として認めない。
+   */
+  function parseNum(v) {
+    if (v == null || v === '') return NaN;
+    if (typeof v === 'number') return isFinite(v) ? v : NaN;
+    /* 全角を半角に、カンマ・空白・円記号は許す */
+    var s = String(v)
+      .replace(/[０-９．－]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+      .replace(/[，]/g, ',')
+      .trim();
+    /* 「万」「千」「億」は正しく展開する（総務担当者はこう書きたくなる） */
+    var unit = s.match(/^([\d,\.]+)\s*(億|万|千)?\s*円?$/);
+    if (unit) {
+      var base = Number(unit[1].replace(/,/g, ''));
+      if (!isFinite(base)) return NaN;
+      var mul = { '億': 100000000, '万': 10000, '千': 1000 }[unit[2]] || 1;
+      return base * mul;
+    }
+    var plain = s.replace(/[¥￥,\s]/g, '');
+    if (!/^-?\d+(\.\d+)?$/.test(plain)) return NaN;
+    return Number(plain);
   }
   function isBlank(v) { return v == null || v === '' || (Array.isArray(v) && !v.length); }
 
@@ -182,6 +206,13 @@ var RouteSpec = (function () {
   function valueOf(key, ctx) {
     var data = (ctx && ctx.data) || {};
     var ap = (ctx && ctx.applicant) || {};
+    /* 経路テストから明示的に与えられた組み込み項目は、そちらを優先する。
+       これが無いと、テスト画面で部署や役職を変えても結果が変わらず、
+       「テストした」つもりの設定が本番で違う動きをする。 */
+    if (key.indexOf('__') === 0 && data[key] !== undefined && data[key] !== '') {
+      if (key === '__amount' || key === '__line_count' || key === '__attachment_count') return num(data[key]);
+      return data[key];
+    }
     switch (key) {
       case '__amount':           return (ctx && ctx.amount != null) ? ctx.amount : 0;
       case '__applicant_dept':   return ap.Department_name || ap.Department || '';
@@ -289,6 +320,10 @@ var RouteSpec = (function () {
       function walk(g) {
         if (!g) return;
         if (g.field) {
+          if (g._was) {
+            out.push({ step: i, kind: 'retargeted',
+              message: label + 'の条件は、存在しない項目「' + g._was + '」を指していたため「申請金額」として扱っています。意図した項目か確認してください。' });
+          }
           if (g._unknown || known.indexOf(g.field) < 0) {
             out.push({ step: i, kind: 'unknownField',
               message: label + 'の条件が、この申請区分に存在しない項目「' + (g._unknown || g.field) + '」を指しています。この条件は成立しません。' });
@@ -353,8 +388,10 @@ var RouteSpec = (function () {
   function newRule(field) { return { field: field || '__amount', operator: 'gte', value: 0 }; }
   function newGroup() { return { op: 'AND', rules: [newRule()] }; }
   function newStep(n) {
-    return { id: 's' + Date.now().toString(36), name: '承認' + (n || 1), type: '承認',
-             assignee: { mode: 'manager', level: 1 }, days: 3, conditions: null };
+    return { id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+             name: '承認' + (n || 1), type: '承認',
+             assignee: { mode: 'manager', level: 1 }, days: 3, conditions: null,
+             mustNotSkip: false };
   }
 
   return {
@@ -362,7 +399,7 @@ var RouteSpec = (function () {
     QUORUM_MODES: QUORUM_MODES, requiredApprovals: requiredApprovals, quorumLabel: quorumLabel,
     operatorsFor: operatorsFor, operatorLabel: operatorLabel, fieldsFor: fieldsFor, fieldType: fieldType,
     assigneeDef: assigneeDef, evalGroup: evalGroup, evalRule: evalRule, valueOf: valueOf,
-    normalize: normalize, whenToGroup: whenToGroup, describe: describe,
+    normalize: normalize, whenToGroup: whenToGroup, describe: describe, parseNum: parseNum,
     knownKeys: knownKeys, problems: problems,
     newRule: newRule, newGroup: newGroup, newStep: newStep, num: num, toList: toList
   };

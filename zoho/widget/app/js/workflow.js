@@ -148,6 +148,12 @@ var WF = (function () {
           (st.assignee || {}).includeSub);
         /* 申請者本人は自分の申請の合議に加われない */
         members = members.filter(function (m) { return !applicant || String(m.ID) !== String(applicant.ID); });
+        /* 代表者が申請者本人だと段ごと消えてしまうため、メンバーの次順位に繰り上げる。
+           部門長が自ら起票した退職・入社手続きで、部門の合議が丸ごと落ちるのを防ぐ。 */
+        if (applicant && approver && String(approver.ID) === String(applicant.ID) && members.length) {
+          var byId2 = {}; employees.forEach(function (e) { byId2[String(e.ID)] = e; });
+          approver = byId2[String(members[0].ID)] || null;
+        }
       }
       no++;
       var row = {
@@ -183,6 +189,9 @@ var WF = (function () {
     /* 重複の解消：同じ人が複数の「承認」段に現れる場合、
        後の段（＝より上位の決裁）を残し、先の段をスキップする。
        先に消すと上位決裁が消えてしまい、内部統制上まったく逆の結果になる。 */
+    /* 重複は「承認者本人」で判定する。
+       代理人で判定すると、2人の承認者がたまたま同じ人を代理に立てているだけで
+       別人の決裁段が消えてしまう（代理期間が終わっても経路は凍結済みなので戻らない）。 */
     var lastIndexOf = {};
     out.forEach(function (r, i) {
       if (r.skipped || r.type !== '承認' || !r.approverId) return;
@@ -193,17 +202,44 @@ var WF = (function () {
       var last = lastIndexOf[String(r.approverId)];
       if (last !== i) {
         r.skipped = true;
-        r.skipReason = '同じ承認者が' + (out[last].step_no) + '段目「' + out[last].name + '」にもいるため、上位の段に統合しました';
+        r.skipReason = r.approverName + ' は' + (out[last].step_no) + '段目「' + out[last].name + '」でも承認するため、上位の段に統合しました';
         r.mergedInto = out[last].step_no;
       }
     });
+    /* 代理人が複数段に重なる場合は、統合せずに知らせるだけにする。
+       決裁の階層は保ったまま、同一人物が続けて押すことになる点を示す。 */
+    var seenDelegate = {};
+    out.forEach(function (r) {
+      if (r.skipped || !r.delegateId) return;
+      var k = String(r.delegateId);
+      if (seenDelegate[k]) {
+        r.warning = (r.warning ? r.warning + '／' : '') +
+          r.delegateName + ' が ' + seenDelegate[k] + ' と この段の両方を代理で処理します';
+      } else {
+        seenDelegate[k] = r.step_no + '段目「' + r.name + '」';
+      }
+    });
+    /* 実際に流れる段に通し番号を振り直す（画面の「N段で流れます」と一致させる） */
+    var liveNo = 0;
+    out.forEach(function (r) { if (!r.skipped) { liveNo++; r.live_no = liveNo; } });
     return out;
   }
 
   /** 経路が成立しているか（1段でも生きた承認段があるか）を判定する */
+  /**
+   * 経路が成立しているか。
+   *  回覧（既読のみ）は承認ではないため、回覧だけの経路は成立とみなさない。
+   *  みなしてしまうと、誰の承認も無いまま「承認済」のレコードが生まれ、
+   *  経理処理や仕訳出力の対象になってしまう。
+   *  申請者が承認者を選ぶ段は、選ばれていなければ未成立として扱う。
+   */
   function isRoutable(route) {
-    return (route || []).some(function (s) { return !s.skipped && !s.needsPick; }) ||
-           (route || []).some(function (s) { return !s.skipped && s.needsPick && s.approverId; });
+    return (route || []).some(function (s) {
+      if (s.skipped) return false;
+      if (s.type === '回覧') return false;
+      if (s.needsPick && !s.approverId) return false;
+      return true;
+    });
   }
   /** 省略できない段が成立していない場合、その一覧を返す */
   function blockingSteps(route) {

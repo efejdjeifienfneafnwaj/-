@@ -79,7 +79,7 @@ var App = (function () {
         /* 定義が壊れている・空のときは組み込みを使う（申請できなくなるのを防ぐ） */
         fields: (t.fields && t.fields.length) ? t.fields : base.fields,
         route: (t.route && t.route.steps && t.route.steps.length) ? t.route : base.route,
-        sensitivity: t.sensitivity || base.sensitivity || 'C',
+        sensitivity: t.sensitivity || base.sensitivity || null,
         _fromCreator: true
       };
     });
@@ -397,7 +397,12 @@ var App = (function () {
         }, 60);
       }
     });
-    window.addEventListener('hashchange', render);
+    window.addEventListener('hashchange', function () {
+      /* ブラウザバックや画面遷移で開いたままのドロワーを閉じる。
+         閉じ処理を通さないと閲覧終了（滞在時間）が記録されない。 */
+      UI.closeDrawer();
+      render();
+    });
     initKeys();
   }
 

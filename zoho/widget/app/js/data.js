@@ -205,8 +205,12 @@ var Access = (function () {
 
   /* 送信できなかった証跡をブラウザに退避する。
      タブを閉じても次回起動時に送り直せるようにするため。 */
+  var inFlight = [];
   function savePending() {
-    try { DB.lsSet(PENDING_KEY, queue.slice(0, 500)); } catch (e) { }
+    /* 送信中のレコードも一緒に退避する。
+       queue から抜いた直後にタブを閉じると、送信中のぶんが
+       Creator にも退避先にも残らずに消えてしまうため。 */
+    try { DB.lsSet(PENDING_KEY, inFlight.concat(queue).slice(0, 500)); } catch (e) { }
   }
   function loadPending() {
     var saved = DB.lsGet(PENDING_KEY, []);
@@ -225,7 +229,11 @@ var Access = (function () {
       env: p.environment || ''
     };
   }
-  function sensitivityOf(typeCode) { return (CFG.ACCESS.SENSITIVITY[typeCode] || 'C'); }
+  /* 機微度は権限判定と同じ基準を使う（証跡の記録と閲覧制御が食い違わないようにする） */
+  function sensitivityOf(typeCode) {
+    if (typeof Perm !== 'undefined' && Perm.sensitivityOf) return Perm.sensitivityOf({ Type_Code: typeCode });
+    return CFG.ACCESS.SENSITIVITY[typeCode] || 'C';
+  }
 
   /**
    * 閲覧・操作を記録する
@@ -305,12 +313,14 @@ var Access = (function () {
     if (sending || !queue.length) return;
     sending = true;
     var batch = queue.splice(0, queue.length);
+    inFlight = batch.slice();
     var failed = [];
     var jobs = batch.map(function (r) {
       return DB.add('AccessLogs', r).catch(function (e) { failed.push(r); });
     });
     Promise.all(jobs).then(function () {
       sending = false;
+      inFlight = [];
       if (failed.length) {
         queue = failed.concat(queue);
         savePending();
@@ -357,14 +367,17 @@ var Access = (function () {
         return;
       }
       var reasons = [];
-      /* 閲覧者の端末のタイムゾーンに左右されないよう、日本時間で判定する */
-      var jst = new Date(d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 60000);
-      var h = jst.getHours();
+      /* 閲覧者の端末のタイムゾーンに左右されないよう、日本時間で判定する。
+         時刻の読み取り用（getHours が JST を返す）と、
+         日付キー用（toISOString が JST の年月日時を返す）を分けて作る。 */
+      var jstLocal = new Date(d.getTime() + (9 * 60 + d.getTimezoneOffset()) * 60000);
+      var jstKey = new Date(d.getTime() + 9 * 3600000);
+      var h = jstLocal.getHours();
       if (h >= A.NIGHT_FROM || h < A.NIGHT_TO) reasons.push('深夜アクセス');
       if (A.CROSS_DEPT && l.Cross_Dept && (l.Sensitivity === 'S' || l.Sensitivity === 'A')) reasons.push('他部署の機微申請を閲覧');
-      var hk = l.Actor + '|' + jst.toISOString().slice(0, 13);
+      var hk = l.Actor + '|' + jstKey.toISOString().slice(0, 13);
       if (l.Action === CFG.ACCESS.ACTIONS.VIEW_DETAIL) { byActorHour[hk] = (byActorHour[hk] || 0) + 1; }
-      var dk = l.Actor + '|' + jst.toISOString().slice(0, 10);
+      var dk = l.Actor + '|' + jstKey.toISOString().slice(0, 10);
       if (l.Action === CFG.ACCESS.ACTIONS.EXPORT_CSV) { byActorDayExport[dk] = (byActorDayExport[dk] || 0) + 1; }
       l._hourKey = hk; l._dayKey = dk; l._reasons = reasons;
     });
@@ -591,6 +604,7 @@ var Perm = (function () {
 
   /** 自分がこの申請の経路上にいるか（承認者・処理者・合議メンバー・代理人） */
   function onRoute(me, req, approvals) {
+    if (!me || !me.ID) return false;   // 身元未確定。空文字どうしの一致で全件が通るのを防ぐ
     var mine = (approvals || []).some(function (a) {
       return String(a.Request) === String(req.ID) &&
         (String(a.Approver) === String(me.ID) || String(a.Acted_By) === String(me.ID));
@@ -608,7 +622,7 @@ var Perm = (function () {
 
   /** 申請レコードを閲覧してよいか */
   function canViewRequest(me, req, approvals) {
-    if (!me || !req) return false;
+    if (!me || !me.ID || !req) return false;
     var sc = scopes(me);
     if (sc.all) return true;
     if (String(req.Applicant) === String(me.ID)) return true;

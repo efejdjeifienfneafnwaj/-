@@ -131,16 +131,20 @@ var UI = (function () {
     function shut() { closeDrawer(); }
     scrim.addEventListener('click', shut);
     el.querySelector('[data-act="x"]').addEventListener('click', shut);
-    el.querySelector('[data-act="print"]').addEventListener('click', function () {
-      /* 紙は最も基本的な持ち出し経路なので、必ず記録してから印刷する */
-      if (onPrint) { try { onPrint(); } catch (e) { console.warn('印刷の記録に失敗', e); } }
-      window.print();
-    });
-    /* ブラウザの Ctrl+P からの印刷も拾う */
+    /* 紙は最も基本的な持ち出し経路なので必ず記録する。
+       印刷ボタンからの window.print() も beforeprint を発火させるため、
+       記録は beforeprint に一本化して二重計上を防ぐ。 */
     if (onPrint) {
-      el._onBeforePrint = function () { try { onPrint(); } catch (e) { } };
+      var lastPrintAt = 0;
+      el._onBeforePrint = function () {
+        var now = Date.now();
+        if (now - lastPrintAt < 1500) return;   // 同じ印刷操作で2回数えない
+        lastPrintAt = now;
+        try { onPrint(); } catch (e) { console.warn('印刷の記録に失敗', e); }
+      };
       window.addEventListener('beforeprint', el._onBeforePrint);
     }
+    el.querySelector('[data-act="print"]').addEventListener('click', function () { window.print(); });
     function onKey(e) { if (e.key === 'Escape' && !document.querySelector('.modal')) shut(); }
     document.addEventListener('keydown', onKey); el._onKey = onKey;
     return el;
@@ -243,7 +247,9 @@ var UI = (function () {
       });
     });
   }
-  function rawNum(v) { return Number(String(v == null ? '' : v).replace(/[^\d.-]/g, '')) || 0; }
+  /* 数値の解釈は RouteSpec.num に一本化する。
+     独自実装を残すと「30万円」が 30 になるなど、画面と出力で金額が食い違う。 */
+  function rawNum(v) { return (typeof RouteSpec !== 'undefined') ? RouteSpec.num(v) : (Number(String(v == null ? '' : v).replace(/[^\d.-]/g, '')) || 0); }
 
   return {
     esc: esc, yen: yen, num: num, fmtDate: fmtDate, fmtDateTime: fmtDateTime, relTime: relTime,
