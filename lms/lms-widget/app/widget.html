@@ -1726,6 +1726,50 @@ function renameJob(oldName, newName){
   return true;
 }
 
+/* ── 役職 ──
+   部長・課長など。社内申請の承認経路が「◯◯の承認」で名指しするので、
+   職種と同じくシステム管理者が画面から足したり直したりできる。 */
+function titles(){
+  var l = config().titles;
+  return (l && l.length) ? l : DEFAULT_CONFIG.titles.slice();
+}
+function setTitles(list){
+  var c = config();
+  c.titles = list.filter(function(x){ return String(x).trim(); })
+                 .map(function(x){ return String(x).trim(); });
+  setConfig(c);
+  syncShinseiTitles();
+}
+/* その役職の人数 */
+function titleCount(name){
+  var ps = people() || {}, n = 0;
+  Object.keys(ps).forEach(function(k){ if((ps[k].title || '') === name) n++; });
+  return n;
+}
+/* 役職の名前を変える。その役職の人と、承認経路の名指しも付け替える。
+   経路を付け替えないと、「部長の承認」が誰にも当たらず申請が止まる */
+function renameTitle(oldName, newName){
+  var o = String(oldName || '').trim(), n = String(newName || '').trim();
+  if(!o || !n || o === n) return false;
+  var list = titles().slice();
+  if(list.indexOf(n) >= 0) return false;
+  var at = list.indexOf(o);
+  if(at < 0) return false;
+  list[at] = n;
+  setTitles(list);
+  var ps = people() || {}, touched = 0;
+  Object.keys(ps).forEach(function(k){
+    if((ps[k].title || '') === o){ ps[k].title = n; queueSync('person', k); touched++; }
+  });
+  if(touched) cacheFlush('people');
+  return true;
+}
+/* 社内申請側（CFG.TITLES）に、いまの役職の一覧を配る。
+   社内申請は自前の定数を持っているが、登録する場所を1つにするため上書きする */
+function syncShinseiTitles(){
+  if(typeof CFG !== 'undefined' && CFG && CFG.TITLES) CFG.TITLES = titles();
+}
+
 /* メールアドレスから名簿の行を探す（大文字小文字は区別しない） */
 function personByEmail(mail){
   var m = String(mail || '').trim().toLowerCase();
@@ -2069,8 +2113,14 @@ var DEFAULT_CONFIG = {
   /* グループは「配信のためのくくり」。役職（部長・主任など）とは別物。
      役職は名簿の「役職」欄に入れる（権限の初期値がそこから決まる）。 */
   groups:['全社員','新卒入社者','中途入社者','送迎担当','夜勤担当'],
+  /* 役職の選択肢。社内申請の承認経路（「部長の承認」など）がこれを使うので、
+     ソースに固定せず設定に置く。職員登録の「役職」タブから直せる */
+  titles:['社長','本部長','部長','課長','主任','一般'],
   logo:'',      /* 画像のデータURI。空なら組み込みのロゴを描く */
   hero:'',      /* 入口の背景画像。空なら組み込みの図を描く */
+  /* 入口に並べるカードの上書き。{ shinsei:{ name, sub, icon }, … }
+     入っていない項目は APPS の初期値を使う */
+  apps:{},
   theme:'auto', /* auto / light / dark */
   /* 管理画面を開くための暗証番号。そのままではなく、変換した値だけを持つ。
      はじめて開いた人がその場で決める（ソースには書かない）。 */
@@ -3371,7 +3421,7 @@ var VIEW_RANK = {
   adash:2, ausers:2, audetail:2, agroups:2, aoverall:2, acourse:2,
   auser:2, aquiz:2, alog:2,
   acourses:3, aassign:3, anews:3, asurvey:3, aimport:3,
-  ajobs:4,
+  ajobs:4, atitles:4,
   acedit:3,
   asettings:4, aroles:4,
   /* 社内申請の管理側 */
@@ -3390,10 +3440,28 @@ var APP_HOME = { lms:'home', connect:'feed', shinsei:'s_mine', staff:'aimport' }
 function appHome(){ return APP_HOME[APP_NOW] || 'home'; }
 function appLabel(id){
   id = id || APP_NOW;
+  /* e-ラーニングの名前は、修了証や見出しでも使う config().appName が正。
+     二重に持つと片方だけ直したときに食い違うので、ここでは上書きを見ない */
+  if(id === 'lms') return config().appName;
+  var ov = (config().apps || {})[id] || {};
+  if(ov.name) return ov.name;
   if(id === 'connect') return '船井コネクト';
   if(id === 'shinsei') return '社内申請';
   if(id === 'staff')   return '職員登録';
   return config().appName;
+}
+/* 入口に並べるカード1枚ぶん。説明とアイコンは設定から差し替えられる */
+function appDef(id){
+  var base = null;
+  APPS.forEach(function(a){ if(a.id === id) base = a; });
+  if(!base) return null;
+  var ov = (config().apps || {})[id] || {};
+  return {
+    id:base.id, go:base.go, admin:base.admin,
+    name:appLabel(base.id),
+    sub:(ov.sub != null && String(ov.sub).trim()) ? String(ov.sub) : base.sub,
+    icon:(ov.icon && SVG[ov.icon]) ? ov.icon : base.icon
+  };
 }
 /* その画面を開けるアプリ。名簿・職種・権限の管理は、どのアプリからも要るので両方に出す */
 function viewApps(view){
@@ -3402,7 +3470,7 @@ function viewApps(view){
   if(v.indexOf('s_') === 0) return ['shinsei'];
   if(v === 'feed' || v === 'thanks' || v === 'members' || v === 'profile') return ['connect'];
   /* 職員登録（職員・職種・権限）は、ログイン画面の専用の入口からだけ */
-  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['staff'];
+  if(v === 'aimport' || v === 'ajobs' || v === 'atitles' || v === 'aroles') return ['staff'];
   return ['lms'];
 }
 var NAV_USER = [
@@ -3430,6 +3498,7 @@ var NAV_STAFF = [
   { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'aimport', icon:'users',  label:'職員' },
   { go:'ajobs',   icon:'slider', label:'職種' },
+  { go:'atitles', icon:'medal',  label:'役職' },
   { go:'aroles',  icon:'check',  label:'権限' }
 ];
 var NAV_ADMIN = [
@@ -3478,9 +3547,8 @@ var NAV_OF = {
   adash:'adash', ausers:'ausers', agroups:'agroups', acourses:'acourses',
   aoverall:'aoverall', alog:'alog', acourse:'acourse', auser:'auser', aquiz:'aquiz',
   asurvey:'asurvey', anews:'anews', aimport:'aimport', aroles:'aroles',
-  ajobs:'ajobs',
   aassign:'acourses', acedit:'acourses',
-  ajobs:'ajobs', aroles:'aroles',
+  ajobs:'ajobs', atitles:'atitles',
   asettings:'asettings', audetail:'ausers'
 };
 
@@ -3867,13 +3935,14 @@ function viewGate(){
 /* 入口に並べる3つのアプリ */
 function appPickHTML(isAdmin){
   var h = '<div class="gate-apps">';
-  APPS.forEach(function(a){
-    if(a.admin && !isAdmin) return;
+  APPS.forEach(function(base){
+    if(base.admin && !isAdmin) return;
+    var a = appDef(base.id);
     var ready = !!a.go;
     h += '<button class="gate-app c-' + a.id + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
          (ready ? '' : ' disabled') + '>' +
          '<span class="hub-i">' + ic(a.icon) + '</span>' +
-         '<span><b>' + esc(appLabel(a.id)) + '</b>' +
+         '<span><b>' + esc(a.name) + '</b>' +
          '<span class="hub-s">' + esc(a.sub) + (ready ? '' : '　（準備中）') + '</span></span>' +
          '<span class="arrow">→</span>' +
          '</button>';
@@ -4811,7 +4880,6 @@ function bindFeed(){
    ログイン情報も統合側のものを渡す。
    ══════════════════════════════════════════════════════════════ */
 var SHINSEI_MOUNTED = false;
-var SHINSEI_TITLES = ['社長', '本部長', '部長', '課長', '主任', '一般'];
 function shinseiEmployee(n){
   var p = people()[n] || {};
   return {
@@ -4947,6 +5015,8 @@ function viewShinsei(key){
     try{ history.replaceState(null, '', location.pathname + location.search + want); }
     catch(e){ location.hash = want; }
   }
+  /* 役職は統合側の設定が正。社内申請の組み込みの一覧を毎回上書きする */
+  syncShinseiTitles();
   if(!SHINSEI_MOUNTED){
     SHINSEI_MOUNTED = true;
     App.mount();
@@ -4966,6 +5036,14 @@ var APPS = [
   { id:'staff',   name:'職員登録', sub:'名簿・職種・権限（管理者用）',
     icon:'gear',  go:'aimport', admin:true }
 ];
+/* 入口のカードで選べるアイコン。SVG に入っているものから、業務で選びやすいものだけ */
+var APP_ICONS = ['quiz', 'book', 'users', 'gear', 'folder', 'home', 'mail', 'medal',
+                 'chart', 'play', 'check', 'clock', 'target', 'flag', 'user', 'slider'];
+var APP_ICON_LABEL = {
+  quiz:'書類', book:'本', users:'人（複数）', gear:'歯車', folder:'フォルダ',
+  home:'家', mail:'封筒', medal:'メダル', chart:'グラフ', play:'再生',
+  check:'チェック', clock:'時計', target:'的', flag:'旗', user:'人', slider:'つまみ'
+};
 
 function parseVideoId(s){
   s = String(s || '').trim();
@@ -7304,7 +7382,7 @@ function viewANews(){
 var ROS = { q:'', edit:'' };
 /* 職員登録は1つのページ。職員・職種・権限をタブで切り替える */
 function staffHead(cur){
-  var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['aroles', '権限']];
+  var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['atitles', '役職'], ['aroles', '権限']];
   var h = '<div class="ph"><div><h2>職員登録</h2>' +
           '<div class="sub">ここで登録した内容が、社内申請・e-ラーニング・コネクトの3つ全部に効きます。' +
           '登録する場所はここだけです（3つのアプリの中には登録画面はありません）。</div></div></div>';
@@ -7364,7 +7442,7 @@ function personForm(pre, p){
            '<span class="note-s">承認者を決めるのに使います</span></label>' +
            '<input class="inp" id="' + pre + 't" list="' + pre + 'tList" placeholder="例）一般・主任・課長・部長" value="' +
            esc((p && p.title) || '') + '"><datalist id="' + pre + 'tList">' +
-           SHINSEI_TITLES.map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') +
+           titles().map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') +
            '</datalist></div>';
   h +=   '<div class="field"><label for="' + pre + 'mg">直属の上長' +
            '<span class="note-s">「直属上長の承認」に使います</span></label>' +
@@ -7807,6 +7885,108 @@ function viewAJobs(){
 }
 
 /* ══════════════════════════════════════════════════════════════
+   画面：役職（管理）
+     社内申請の承認経路が「部長の承認」のように役職を名指しするため、
+     ここを直すと経路の当たり先も変わる。名前を直したときは、
+     その役職の職員も一緒に付け替える（経路が空振りしないように）。
+   ══════════════════════════════════════════════════════════════ */
+var TITLE_NEW = '';
+function viewATitles(){
+  var list = titles().slice();
+  var h = '<div class="wrap" style="max-width:720px">';
+  h += staffHead('atitles');
+  h += '<div class="cap" style="margin:-8px 0 14px">職員を登録するときに選ぶ役職の一覧です。' +
+       '社内申請の承認経路で「部長の承認」のように使われます。' +
+       '上にあるものほど偉い順に並べてください。</div>';
+
+  h += '<div class="card pad" style="margin-bottom:18px">';
+  h += '<div class="bar"><input class="inp" id="ttNew" placeholder="例）施設長" value="' +
+       esc(TITLE_NEW) + '" style="max-width:280px">' +
+       '<button class="btn" id="ttAdd">' + ic('plus') + '役職を足す</button></div>';
+  h += '</div>';
+
+  if(!list.length){
+    h += '<div class="card"><div class="empty">' + ic('slider') +
+         'まだ役職がありません。上の欄から足してください。</div></div>';
+  }else{
+    h += '<div class="tbl-wrap"><table><thead><tr>' +
+         '<th class="stick">役職</th><th class="n">登録されている方</th>' +
+         '<th class="c" style="min-width:186px"></th></tr></thead><tbody>';
+    list.forEach(function(d, i){
+      h += '<tr><td class="stick"><input class="inp" data-tt="' + i + '" value="' +
+           esc(d) + '" style="max-width:260px"></td>';
+      h += '<td class="n">' + titleCount(d) + '</td>';
+      h += '<td class="c"><button class="btn sub sm" data-ttup="' + i + '"' +
+           (i === 0 ? ' disabled' : '') + ' aria-label="上へ">↑</button> ' +
+           '<button class="btn sub sm" data-ttdn="' + i + '"' +
+           (i === list.length - 1 ? ' disabled' : '') + ' aria-label="下へ">↓</button> ' +
+           '<button class="btn sub sm" data-ttdel="' + i + '">削除</button></td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div class="bar" style="margin-top:14px">' +
+         '<button class="btn" id="ttSave">' + ic('check') + '名前の変更を保存する</button>' +
+         '<span class="cap">名前を直すと、その役職の方も一緒に付け替えます</span>' +
+         '</div>';
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+
+  bindStaffHead();
+  var ni = document.getElementById('ttNew');
+  function add(){
+    var v = String(ni.value || '').trim();
+    if(!v){ ni.focus(); return; }
+    if(titles().indexOf(v) >= 0){ toast('その役職はもうあります'); ni.focus(); return; }
+    setTitles(titles().concat([v]));
+    TITLE_NEW = '';
+    toast('「' + v + '」を足しました');
+    viewATitles();
+  }
+  document.getElementById('ttAdd').onclick = add;
+  ni.addEventListener('keydown', function(e){ if(e.key === 'Enter') add(); });
+  ni.oninput = function(){ TITLE_NEW = this.value; };
+
+  eachIn('[data-ttup]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-ttup')), l = titles().slice();
+    var t = l[i-1]; l[i-1] = l[i]; l[i] = t; setTitles(l); viewATitles();
+  }; });
+  eachIn('[data-ttdn]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-ttdn')), l = titles().slice();
+    var t = l[i+1]; l[i+1] = l[i]; l[i] = t; setTitles(l); viewATitles();
+  }; });
+  eachIn('[data-ttdel]', function(b){ b.onclick = function(){
+    var i = Number(b.getAttribute('data-ttdel')), l = titles().slice(), d = l[i];
+    var n = titleCount(d);
+    if(n){
+      if(!window.confirm('「' + d + '」には ' + n + '名が登録されています。\n\n' +
+        '一覧から消しても、その方々の役職はそのまま残ります。\n' +
+        'ただし、新しく登録するときには選べなくなります。\n\n本当に消しますか？')) return;
+    }else if(!window.confirm('「' + d + '」を消しますか？')){ return; }
+    l.splice(i, 1);
+    setTitles(l);
+    toast('「' + d + '」を消しました');
+    viewATitles();
+  }; });
+
+  var sv = document.getElementById('ttSave');
+  if(sv) sv.onclick = function(){
+    var l = titles().slice(), changed = 0, ng = '';
+    l.forEach(function(d, i){
+      var e = byAttr('data-tt', String(i));
+      if(!e) return;
+      var v = String(e.value || '').trim();
+      if(!v || v === d) return;
+      if(!renameTitle(d, v)) ng = v;
+      else changed++;
+    });
+    if(ng) toast('「' + ng + '」は、すでにある役職と同じ名前です');
+    else if(changed) toast(changed + '件の名前を直しました');
+    else toast('変更はありませんでした');
+    viewATitles();
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════
    画面：権限の割り当て（管理）
      誰がどこまで見られるかを決める。システム管理者だけが開ける。
 
@@ -8084,6 +8264,38 @@ function viewASettings(){
        '<span class="cap">ロゴと背景画像は Creator に保存され、全員の画面に反映されます</span></div>';
   h += '</div>';
 
+  /* ── 入口に並ぶアプリのカード ── */
+  h += '<div class="cat">' + ic('folder') + 'ログイン画面のアプリ</div>';
+  h += '<div class="card pad" style="display:grid;gap:16px;margin-bottom:16px">';
+  h += '<div class="cap">ログイン画面に並ぶカードの、名前・説明・アイコンを変えられます。' +
+       '「職員登録」はシステム管理者にだけ出ます。</div>';
+  APPS.forEach(function(base){
+    var a = appDef(base.id);
+    h += '<div class="up"><div class="up-pv" style="display:flex;align-items:center;justify-content:center">' +
+         '<span class="hub-i">' + ic(a.icon) + '</span></div>';
+    h += '<div class="up-b" style="flex:1"><div class="two-g">';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_n">名前</label>' +
+             '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '"' +
+             (base.id === 'lms' ? ' disabled' : '') + '>' +
+             (base.id === 'lms'
+               ? '<span class="note-s">上の「e-ラーニングの名前」で変わります</span>' : '') +
+           '</div>';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_i">アイコン</label>' +
+             '<select class="inp" id="cfA_' + base.id + '_i">' +
+             APP_ICONS.map(function(k){
+               return '<option value="' + k + '"' + (a.icon === k ? ' selected' : '') + '>' +
+                      esc(APP_ICON_LABEL[k] || k) + '</option>';
+             }).join('') + '</select></div>';
+    h += '</div>';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_s">説明</label>' +
+             '<input class="inp" id="cfA_' + base.id + '_s" value="' + esc(a.sub) + '"></div>';
+    h += '</div></div>';
+  });
+  h += '<div class="bar"><button class="btn" id="cfAppsSave">' + ic('check') +
+       'アプリのカードを保存する</button>' +
+       '<button class="btn sub" id="cfAppsReset">はじめの状態に戻す</button></div>';
+  h += '</div>';
+
   h += '<div class="cat">' + ic('users') + 'グループの選択肢</div>';
   h += '<div class="note calm" style="margin-bottom:12px">' +
        '<b>職種とグループの使い分け</b><br>' +
@@ -8277,6 +8489,35 @@ function viewASettings(){
   var d2 = document.getElementById('cfHeroDel');
   if(d2) d2.onclick = function(){
     var c = config(); c.hero = ''; setConfig(c); toast('背景画像の登録を取り消しました'); viewASettings();
+  };
+  document.getElementById('cfAppsSave').onclick = function(){
+    var c = config(), ov = {};
+    APPS.forEach(function(base){
+      var n = document.getElementById('cfA_' + base.id + '_n');
+      var s = document.getElementById('cfA_' + base.id + '_s');
+      var i = document.getElementById('cfA_' + base.id + '_i');
+      var one = {};
+      /* 初期値と同じものは持たない。あとで初期値を直したときに追従できるように */
+      if(base.id !== 'lms'){
+        var nv = String((n && n.value) || '').trim();
+        if(nv && nv !== base.name) one.name = nv;
+      }
+      var sv = String((s && s.value) || '').trim();
+      if(sv && sv !== base.sub) one.sub = sv;
+      var iv = String((i && i.value) || '');
+      if(iv && iv !== base.icon && SVG[iv]) one.icon = iv;
+      if(Object.keys(one).length) ov[base.id] = one;
+    });
+    c.apps = ov;
+    setConfig(c);
+    toast('アプリのカードを保存しました');
+    viewASettings();
+  };
+  document.getElementById('cfAppsReset').onclick = function(){
+    if(!window.confirm('アプリのカードの名前・説明・アイコンを、はじめの状態に戻しますか？')) return;
+    var c = config(); c.apps = {}; setConfig(c);
+    toast('はじめの状態に戻しました');
+    viewASettings();
   };
   Array.prototype.forEach.call(document.querySelectorAll('#cfTheme button'), function(b){
     b.onclick = function(){
@@ -8803,12 +9044,12 @@ var ADMIN_VIEWS = {
   acourses:viewACourses, aoverall:viewAOverall, acourse:viewACourse,
   auser:viewAUsers, aquiz:viewAQuiz, alog:viewALog, asettings:viewASettings,
   asurvey:viewASurvey, anews:viewANews, aimport:viewAImport, aassign:viewAAssign,
-  ajobs:viewAJobs,
+  ajobs:viewAJobs, atitles:viewATitles,
   aroles:viewARoles, acedit:viewACEdit
 };
 /* 受講記録がなくても描ける管理画面。全員ぶんの読み込みを待たせない
    （読み込みが詰まると「ボタンを押しても何も起きない」に見える） */
-var LIGHT_ADMIN = { aimport:1, ajobs:1, aroles:1, asettings:1, acourses:1, acedit:1, aassign:1, anews:1 };
+var LIGHT_ADMIN = { aimport:1, ajobs:1, atitles:1, aroles:1, asettings:1, acourses:1, acedit:1, aassign:1, anews:1 };
 function openAdminView(view, arg){
   var fn = ADMIN_VIEWS[view] || viewADash;
   if(!ON_CREATOR || LOADED.all || LIGHT_ADMIN[view]){ fn(arg); return; }
@@ -8866,6 +9107,7 @@ var CRUMB = {
   profile:  ['マイダッシュボード|home', 'マイページ', 'プロフィール'],
   aimport:  ['アプリを選ぶ|hub', '職員登録', '職員'],
   ajobs:    ['アプリを選ぶ|hub', '職員登録', '職種'],
+  atitles:  ['アプリを選ぶ|hub', '職員登録', '役職'],
   aroles:   ['アプリを選ぶ|hub', '職員登録', '権限'],
   acedit:   ['管理ダッシュボード|adash', 'コース管理|acourses', 'コースの編集'],
   aassign:  ['管理ダッシュボード|adash', 'コース管理|acourses', '配信設定'],

@@ -100,9 +100,10 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   await page.click('#gate [data-app="staff"]');
   await page.waitForSelector('#p1n');
   side = await page.$$eval('#side .nav-i span, #side .nav-s', els => els.map(e => e.textContent.trim()));
-  check('職員登録の左メニューは 職員／職種／権限', side.some(t => t === '職員') && side.some(t => t === '職種') && side.some(t => t === '権限'));
+  check('職員登録の左メニューは 職員／職種／役職／権限',
+    ['職員', '職種', '役職', '権限'].every(t => side.some(s => s === t)));
   check('上の帯は「職員登録」', (await page.$eval('#topLogo .nm', e => e.textContent)) === '職員登録');
-  check('職員・職種・権限のタブが1つのページにある', (await page.$$('[data-stab]')).length === 3);
+  check('職員・職種・役職・権限のタブが1つのページにある', (await page.$$('[data-stab]')).length === 4);
 
   console.log('② 1人ずつ登録できること（氏名と職種だけ）');
   check('基本の欄（氏名・職種・メール・権限）がある',
@@ -207,6 +208,28 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   await page.click('[data-jbdel="' + di + '"]');
   await page.waitForTimeout(350);
   check('職種が消せた', (await page.evaluate(() => jobs())).indexOf('送迎') < 0);
+
+  console.log('⑦-2 役職を足す・名前を直す・消す');
+  await page.evaluate(() => route('atitles'));
+  await page.waitForSelector('#ttNew');
+  await page.fill('#ttNew', '施設長');
+  await page.click('#ttAdd');
+  await page.waitForTimeout(300);
+  check('役職が足せた', (await page.evaluate(() => titles())).indexOf('施設長') >= 0);
+  const ti = await page.evaluate(() => titles().indexOf('課長'));
+  await page.fill('[data-tt="' + ti + '"]', 'マネージャー');
+  await page.click('#ttSave');
+  await page.waitForTimeout(400);
+  check('役職の名前が変わった', (await page.evaluate(() => titles())).indexOf('マネージャー') >= 0);
+  check('その役職の人も付け替わった',
+    await page.evaluate(() => people()['鈴木 次郎'].title) === 'マネージャー');
+  check('社内申請にも同じ役職が渡っている',
+    await page.evaluate(() => CFG.TITLES.indexOf('マネージャー') >= 0));
+  page.once('dialog', d => d.accept());
+  const td = await page.evaluate(() => titles().indexOf('施設長'));
+  await page.click('[data-ttdel="' + td + '"]');
+  await page.waitForTimeout(350);
+  check('役職が消せた', (await page.evaluate(() => titles())).indexOf('施設長') < 0);
 
   console.log('⑧ 名簿から削除できること');
   /* 送信待ちが片づくまで待つ（レコード番号が付いてから消す） */
