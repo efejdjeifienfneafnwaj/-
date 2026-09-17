@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const serveAsset = require('./_部品を返す');
 
 const FILE = path.join(__dirname, '..', 'lms-widget', 'app', 'widget.html');
 const html = fs.readFileSync(FILE, 'utf8');
@@ -16,6 +17,7 @@ function check(name, cond){
 
 (async () => {
   const srv = http.createServer((req, res) => {
+    if(serveAsset(req, res)) return;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(html);
   });
@@ -41,7 +43,7 @@ function check(name, cond){
     await page.fill('#gName', '山田 太郎');
     await page.selectOption('#gDept', { index: 1 });
     await page.selectOption('#gGrp',  { index: 1 });
-    await page.click('#gGo');
+    await page.click('#gate [data-app="lms"]');
     await page.waitForSelector('#app.on');
   }
 
@@ -50,6 +52,7 @@ function check(name, cond){
   check('ソースに vsw が無い', !html.includes('vsw'));
   check('入口に #vsw が無い', (await page.$('#vsw')) === null);
   check('入口に「管理者の方はこちら」がある', (await page.$('#gAdm')) !== null);
+  check('入口に3つのアプリのカードがある', (await page.$$('#gate [data-app]')).length === 3);
 
   console.log('② 受講者は管理画面への道がどこにも無いこと');
   await loginAsLearner();

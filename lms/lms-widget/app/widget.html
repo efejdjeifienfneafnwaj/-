@@ -11,6 +11,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- 社内申請システム（shinsei/ から tools/申請を取り込む.py が作る。#shinsei の中だけに効く） -->
+<link rel="stylesheet" href="css/shinsei.css">
 <style>
 /* ══════════════════════════════════════════════════════════════
    1. 色とサイズ
@@ -200,6 +202,20 @@ a{color:var(--acc);}
 }
 .hub-i .ic{font-size:24px;}
 .hub-s{font-size:12.5px;color:var(--ink-3);}
+/* 入口（ログイン画面）に並べる3つのアプリ */
+.gate-apps{display:grid;gap:9px;margin-top:6px;}
+.gate-app{
+  display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:13px;
+  align-items:center;text-align:left;padding:12px 14px;border:1px solid var(--rule);
+  border-radius:var(--r-md);background:#fff;color:var(--ink-1);cursor:pointer;
+  transition:border-color .16s, box-shadow .16s;
+}
+.gate-app .hub-i{grid-row:1 / span 2;width:42px;height:42px;margin:0;}
+.gate-app b{font-size:15px;}
+.gate-app .hub-s{grid-column:2;}
+.gate-app:hover{border-color:var(--acc);box-shadow:0 6px 18px rgba(4,26,60,.14);}
+.gate-app.off{opacity:.55;cursor:default;}
+.gate-app.off:hover{border-color:var(--rule);box-shadow:none;}
 
 /* ───── 船井コネクト ───── */
 .fd-card{
@@ -797,6 +813,12 @@ kbd{
 .scope{display:flex;flex-wrap:wrap;gap:7px;}
 /* display を指定した要素は hidden が効かなくなるので、明示的に消す */
 .scope[hidden],.chips[hidden],.bar[hidden],.seg[hidden]{display:none;}
+/* 社内申請の入れ物。中の見た目は css/shinsei.css */
+#main[hidden],#shinsei[hidden]{display:none;}
+#shinsei{background:var(--bg);color:var(--text);font-family:var(--font);
+  font-size:13.5px;line-height:1.65;min-height:60vh;}
+#shinsei .view{flex:none;overflow:visible;padding:22px 26px 60px;}
+@media (max-width:860px){ #shinsei .view{padding:16px 14px 80px;} }
 .scope .chip span{padding:6px 11px;font-size:12px;}
 @media (max-width:860px){ .rolerow{flex-wrap:wrap;} }
 /* 除外している人の札（×で取り消せる） */
@@ -985,12 +1007,42 @@ kbd{
     <div class="body">
       <div class="crumb-bar"><nav class="crumb" id="crumb"></nav></div>
       <main id="main"></main>
+      <!-- 社内申請システム。画面の枠（上の帯・左メニュー・ログイン）は統合側のものを使い、
+           中身だけをここに描く。元のアプリが id で探す部品は、隠したまま置いておく。 -->
+      <section id="shinsei" hidden>
+        <div hidden>
+          <div id="sidebar"><nav id="nav"></nav><div id="modeChip"></div></div>
+          <button id="btnMenu" type="button"></button>
+          <input id="globalSearch" type="search">
+          <span id="pendingLogs" hidden></span>
+          <button id="btnBell" type="button"><span id="bellBadge" hidden></span></button>
+          <button id="btnTheme" type="button"></button>
+          <span id="userLabel" hidden></span>
+          <select id="userSwitch"></select>
+        </div>
+        <main id="view" class="view" tabindex="-1"></main>
+        <div id="drawerRoot"></div>
+        <div id="modalRoot"></div>
+        <div id="toastRoot" class="toast-root" role="status" aria-live="polite"></div>
+      </section>
     </div>
   </div>
 </div>
 
 <div class="scrim" id="scrim"></div>
 <div class="toast" id="toast"></div>
+
+<!-- 社内申請システムの部品。自動では起動せず、統合側が App.mount() で起動する -->
+<script src="js/shinsei/config.js"></script>
+<script src="js/shinsei/data.js"></script>
+<script src="js/shinsei/routes.js"></script>
+<script src="js/shinsei/workflow.js"></script>
+<script src="js/shinsei/ui.js"></script>
+<script src="js/shinsei/views.js"></script>
+<script src="js/shinsei/editor.js"></script>
+<script src="js/shinsei/masters.js"></script>
+<script src="js/shinsei/setup.js"></script>
+<script src="js/shinsei/app.js"></script>
 
 <script>
 /* ══════════════════════════════════════════════════════════════
@@ -1418,10 +1470,13 @@ function setMe(o){
 /* 受講者名簿  people[名前] = {name, dept, emp, first}
    名前を入力した時点で登録する。動画を1本も見ていない人も一覧に出したいため。 */
 function people(){ return MEM.people; }
+/* 社内申請だけが使う項目。空のときは Creator に送らない
+   （その項目を Creator に足していない環境で、名簿の保存が止まらないように） */
+var PERSON_EXTRA = ['kana', 'manager', 'joined', 'leave', 'deputy', 'deputyFrom', 'deputyTo'];
 function registerPerson(o){
   var prev = MEM.people[normName(o.name)];
   var title = (o.title !== undefined) ? o.title : (prev && prev.title) || '';
-  MEM.people[normName(o.name)] = {
+  var row = {
     name:normName(o.name),
     email:o.email || (prev && prev.email) || '',
     dept:o.dept || (prev && prev.dept) || '',
@@ -1434,6 +1489,13 @@ function registerPerson(o){
     scope:(o.scope !== undefined) ? o.scope : ((prev && prev.scope) || ''),
     first:(prev && prev.first) || new Date().toISOString()
   };
+  PERSON_EXTRA.forEach(function(k){
+    var v = (o[k] !== undefined) ? o[k] : (prev ? prev[k] : undefined);
+    if(v !== undefined && v !== null && v !== '') row[k] = v;
+  });
+  if(o.active !== undefined) row.active = !!o.active;
+  else if(prev && prev.active !== undefined) row.active = prev.active;
+  MEM.people[normName(o.name)] = row;
   o = { name:normName(o.name) };
   cacheFlush('people');
   queueSync('person', o.name);
@@ -2354,10 +2416,19 @@ function payloadFor(kind, key){
   if(kind === 'person'){
     var p = MEM.people[key];
     if(!p) return null;
-    return { person_key:key, person_name:p.name, email:p.email || '',
-             dept:p.dept || '', grp:p.group || '', emp_no:p.emp || '',
-             title:p.title || '', role:p.role || '', scope:p.scope || '',
-             first_at:p.first || '' };
+    var pp = { person_key:key, person_name:p.name, email:p.email || '',
+               dept:p.dept || '', grp:p.group || '', emp_no:p.emp || '',
+               title:p.title || '', role:p.role || '', scope:p.scope || '',
+               first_at:p.first || '' };
+    /* 社内申請の項目は、入っているときだけ送る */
+    var xm = { kana:'kana', manager:'manager_name', joined:'join_date', leave:'leave_balance',
+               deputy:'deputy_name', deputyFrom:'deputy_from', deputyTo:'deputy_to' };
+    Object.keys(xm).forEach(function(k){
+      if(p[k] !== undefined && p[k] !== null && p[k] !== '') pp[xm[k]] = p[k];
+    });
+    if(p.active === true)  pp.is_active = 'true';
+    if(p.active === false) pp.is_active = 'false';
+    return pp;
   }
   if(kind === 'daily'){
     var sec = MEM.daily[key];
@@ -2589,12 +2660,24 @@ function rowsToPeople(rows){
        そろえないと「佐藤 花子」と「佐藤　花子」が別人として増える。 */
     var n = normName(r.person_key || r.person_name);
     if(!n) return;
-    MEM.people[n] = { name:normName(r.person_name || n),
-                      email:String(r.email || '').trim(),
-                      dept:r.dept || '',
-                      group:r.grp || '', emp:r.emp_no || '',
-                      title:r.title || '', role:r.role || '', scope:r.scope || '',
-                      first:r.first_at || '' };
+    var row = { name:normName(r.person_name || n),
+                email:String(r.email || '').trim(),
+                dept:r.dept || '',
+                group:r.grp || '', emp:r.emp_no || '',
+                title:r.title || '', role:r.role || '', scope:r.scope || '',
+                first:r.first_at || '' };
+    /* 社内申請の項目（Creator に無い環境では undefined のまま） */
+    if(r.kana) row.kana = r.kana;
+    if(r.manager_name) row.manager = r.manager_name;
+    if(r.join_date) row.joined = r.join_date;
+    if(r.leave_balance !== undefined && r.leave_balance !== '' && r.leave_balance !== null) row.leave = Number(r.leave_balance);
+    if(r.deputy_name) row.deputy = r.deputy_name;
+    if(r.deputy_from) row.deputyFrom = r.deputy_from;
+    if(r.deputy_to) row.deputyTo = r.deputy_to;
+    var ia = String(r.is_active === undefined || r.is_active === null ? '' : r.is_active).trim().toLowerCase();
+    if(ia === 'true') row.active = true;
+    if(ia === 'false') row.active = false;
+    MEM.people[n] = row;
     if(r.ID) RID.people[n] = String(r.ID);
   });
   cacheFlush('people');
@@ -3071,7 +3154,9 @@ var VIEW_RANK = {
   acourses:3, aassign:3, anews:3, asurvey:3, aimport:3,
   ajobs:4,
   acedit:3,
-  asettings:4, aroles:4
+  asettings:4, aroles:4,
+  /* 社内申請の管理側 */
+  s_search:4, s_finance:4, s_routes:4, s_admin:4
 };
 function canOpen(view){
   var need = VIEW_RANK[view];
@@ -3131,6 +3216,9 @@ var NAV_OPEN = {};
 /* 画面 → メニューのどの項目を光らせるか */
 var NAV_OF = {
   hub:'hub', feed:'feed', thanks:'thanks', afeed:'afeed',
+  s_mine:'s_mine', s_new:'s_new', s_form:'s_new', s_inbox:'s_inbox', s_dashboard:'s_dashboard',
+  s_access:'s_access', s_search:'s_search', s_finance:'s_finance', s_routes:'s_routes',
+  s_admin:'s_admin',
   home:'home', courses:'courses', learn:'courses', quiz:'courses',
   cert:'certs', survey:'courses', certs:'certs', mynews:'mynews',
   history:'history', mytime:'mytime',
@@ -3144,13 +3232,16 @@ var NAV_OF = {
 
 function drawNav(view){
   /* メニューは1つ。受講者向けの項目に続けて、その人の権限で開ける
-     管理向けの項目を並べる。切り替えボタンは置かない。 */
-  var list = NAV_USER.slice();
-  var adm = canAdmin() ? navFor(NAV_ADMIN) : [];
+     管理向けの項目を並べる。切り替えボタンは置かない。
+     社内申請の中では、社内申請の項目だけを並べる。 */
+  var inS = String(view || '').indexOf('s_') === 0;
+  var list = (inS ? NAV_SHINSEI : NAV_USER).slice();
+  var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : NAV_ADMIN) : [];
   if(adm.length){
     list.push({ head:'管理' });
     list = list.concat(adm);
   }
+  var pendS = (inS && typeof App !== 'undefined' && App.pendingCount) ? App.pendingCount() : 0;
   var cur = NAV_OF[view] || '';
   var u = me() || { name:'', dept:'' };
 
@@ -3186,6 +3277,8 @@ function drawNav(view){
            ic(n.icon) + '<span>' + esc(n.label) + '</span>' +
            (n.go === 'courses' && pend
              ? '<span class="pill req" style="margin-left:auto">' + pend + '</span>' : '') +
+           (n.badge === 'shinsei' && pendS
+             ? '<span class="pill req" style="margin-left:auto">' + pendS + '</span>' : '') +
            '</button>';
     }
   });
@@ -3251,6 +3344,16 @@ function applyTheme(){
   var r = document.documentElement;
   if(t === 'light' || t === 'dark') r.setAttribute('data-theme', t);
   else r.removeAttribute('data-theme');
+  var sh = document.getElementById('shinsei');
+  if(sh) sh.setAttribute('data-theme', themeNow());
+}
+/* いま実際に効いている配色（端末に合わせる、のときは端末の設定を見る） */
+function themeNow(){
+  var t = document.documentElement.getAttribute('data-theme');
+  if(t === 'light' || t === 'dark') return t;
+  try{
+    return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+  }catch(e){ return 'light'; }
 }
 
 function crumb(items){
@@ -3341,7 +3444,7 @@ function viewGate(){
              esc([meRow.dept || '職種未設定', meRow.group || 'グループ未設定',
                   meRow.title ? meRow.title : ''].filter(Boolean).join('　·　')) +
            '</div></div>';
-    h +=   '<button class="btn-start" id="gGo">はじめる</button>';
+    h +=   appPickHTML();
     h +=   '<p class="cardnote">お名前が違う場合は、研修担当にご連絡ください</p>';
   }else if(mode === 'none'){
     /* ② 名簿に無い。勝手に登録させない */
@@ -3378,7 +3481,7 @@ function viewGate(){
                  return '<option' + (prev.group === d ? ' selected' : '') + '>' + esc(d) + '</option>';
                }).join('') + '</select></div>';
     h +=   '</div>';
-    h +=   '<button class="btn-start" id="gGo">スタート</button>';
+    h +=   appPickHTML();
   }
 
   /* Zoho にログインできている時点で本人確認は済んでいる。
@@ -3431,8 +3534,9 @@ function viewGate(){
   }
   if(inp){ inp.onchange = showWho; showWho(); }
 
-  function go(){
+  function go(appId){
     var o;
+    var app = APPS.filter(function(a){ return a.id === appId; })[0] || APPS[1];
     if(mode === 'known'){
       o = { name:meRow.name, dept:meRow.dept || '', group:meRow.group || '',
             emp:meRow.emp || '', email:LOGIN_EMAIL };
@@ -3459,16 +3563,34 @@ function viewGate(){
     setMe(o);
     document.getElementById('gate').innerHTML = '';
     MODE = 'user';
-    afterLogin(o.name);
+    afterLogin(o.name, app.go);
   }
-  var btn = document.getElementById('gGo');
-  if(btn) btn.onclick = go;
+  /* アプリのカードを押した瞬間に入る */
+  Array.prototype.forEach.call(document.querySelectorAll('#gate [data-app]'), function(b){
+    b.onclick = function(){ go(b.getAttribute('data-app')); };
+  });
   if(inp){
-    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') go(); });
+    inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') go('lms'); });
     inp.focus();
-  }else if(btn){
-    btn.focus();
+  }else{
+    var first = document.querySelector('#gate [data-app]:not([disabled])');
+    if(first) first.focus();
   }
+}
+/* 入口に並べる3つのアプリ */
+function appPickHTML(){
+  var h = '<div class="gate-apps">';
+  APPS.forEach(function(a){
+    var ready = !!a.go;
+    h += '<button class="gate-app' + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
+         (ready ? '' : ' disabled') + '>' +
+         '<span class="hub-i">' + ic(a.icon) + '</span>' +
+         '<b>' + esc(a.name) + '</b>' +
+         '<span class="hub-s">' + esc(a.sub) + (ready ? '' : '　（準備中）') + '</span>' +
+         '</button>';
+  });
+  h += '</div>';
+  return h;
 }
 
 /* 入口の「使い方」 */
@@ -4260,59 +4382,160 @@ function bindFeed(){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   画面：アプリの入口（3つのカード）
+   社内申請システムとの橋渡し
+
+   社内申請の部品（js/shinsei/）は、社員と部署を SHINSEI_BRIDGE 経由で
+   統合側の名簿と職種から読む。名簿を2つ持たないため。
+   ログイン情報も統合側のものを渡す。
    ══════════════════════════════════════════════════════════════ */
+var SHINSEI_MOUNTED = false;
+var SHINSEI_TITLES = ['社長', '本部長', '部長', '課長', '主任', '一般'];
+function shinseiEmployee(n){
+  var p = people()[n] || {};
+  return {
+    ID:n, Emp_Key:n,
+    Employee_ID:p.emp || '', Employee_Name:p.name || n, Employee_Kana:p.kana || '',
+    Email:p.email || '', Department_name:p.dept || '', Department:p.dept || '',
+    Title:p.title || '一般',
+    Manager:p.manager || '', Manager_name:p.manager || '',
+    Roles:[roleOf(p) === 'admin' ? 'システム管理者' : '一般'],
+    Join_Date:p.joined || '', Paid_Leave_Balance:(p.leave === undefined ? '' : p.leave),
+    Deputy:p.deputy || '', Deputy_From:p.deputyFrom || '', Deputy_To:p.deputyTo || '',
+    Is_Active:(p.active !== false)
+  };
+}
+/* 社内申請の社員の形 → 名簿の形 */
+function shinseiToPerson(name, o){
+  var out = { name:name };
+  if(o.Employee_ID !== undefined) out.emp = o.Employee_ID || '';
+  if(o.Employee_Kana !== undefined) out.kana = o.Employee_Kana || '';
+  if(o.Email !== undefined) out.email = String(o.Email || '').trim();
+  if(o.Department_name !== undefined) out.dept = o.Department_name || '';
+  if(o.Title !== undefined) out.title = o.Title || '';
+  if(o.Manager !== undefined) out.manager = String(o.Manager || o.Manager_name || '');
+  if(o.Roles !== undefined){
+    var rs = Array.isArray(o.Roles) ? o.Roles : String(o.Roles || '').split(/[,、・]/);
+    out.role = rs.some(function(r){ return /管理者/.test(r); }) ? 'admin' : 'learner';
+  }
+  if(o.Join_Date !== undefined) out.joined = o.Join_Date || '';
+  if(o.Paid_Leave_Balance !== undefined) out.leave = (o.Paid_Leave_Balance === '' || o.Paid_Leave_Balance === null) ? '' : Number(o.Paid_Leave_Balance);
+  if(o.Deputy !== undefined) out.deputy = String(o.Deputy || '');
+  if(o.Deputy_From !== undefined) out.deputyFrom = o.Deputy_From || '';
+  if(o.Deputy_To !== undefined) out.deputyTo = o.Deputy_To || '';
+  if(o.Is_Active !== undefined) out.active = !!o.Is_Active;
+  return out;
+}
+var SHINSEI_BRIDGE = {
+  initParams:function(){ return { loginUser:LOGIN_EMAIL || '', appLinkName:'', environment:'' }; },
+  list:function(entity){
+    if(entity === 'Employees'){
+      return Object.keys(people() || {}).sort().map(shinseiEmployee);
+    }
+    return jobs().map(function(d, i){
+      return { ID:d, Dept_Key:d, Department_Code:'', Department_Name:d,
+               Parent_Department:'', Dept_Head:'', Sort_Order:i };
+    });
+  },
+  add:function(entity, obj){
+    if(entity === 'Employees'){
+      var n = normName(obj.Employee_Name);
+      if(!n) throw new Error('氏名を入れてください');
+      if(people()[n]) throw new Error('「' + n + '」はすでに名簿にいます');
+      registerPerson(shinseiToPerson(n, obj));
+      LOADED.all = false;
+      var e = shinseiEmployee(n);
+      Object.keys(e).forEach(function(k){ obj[k] = e[k]; });
+      return obj;
+    }
+    var d = String(obj.Department_Name || '').trim();
+    if(!d) throw new Error('部署名を入れてください');
+    if(jobs().indexOf(d) < 0) setJobs(jobs().concat([d]));
+    obj.ID = d; obj.Dept_Key = d;
+    return obj;
+  },
+  update:function(entity, id, patch){
+    if(entity === 'Employees'){
+      var cur = normName(id);
+      if(!people()[cur]) throw new Error('その方が名簿に見つかりません');
+      var body = shinseiToPerson(cur, patch);
+      delete body.name;
+      body.name = cur;
+      registerPerson(body);
+      if(patch.Employee_Name && normName(patch.Employee_Name) !== cur){
+        var r = renamePerson(cur, patch.Employee_Name);
+        if(!r.ok) throw new Error(r.why);
+      }
+      LOADED.all = false;
+      return patch;
+    }
+    if(patch.Department_Name && patch.Department_Name !== id){
+      if(!renameJob(id, patch.Department_Name)) throw new Error('その部署名はすでにあります');
+    }
+    return patch;
+  }
+};
+/* 社内申請の中で画面が変わったら、左メニューとパンくずを合わせる */
+window.SHINSEI_ON_RENDER = function(name){
+  var v = 's_' + (name === 'form' ? 'new' : name);
+  VIEW_NOW = v;
+  drawNav(v);
+  crumb(crumbFor(v));
+  window.scrollTo(0, 0);
+};
+var NAV_SHINSEI = [
+  { go:'hub',         icon:'folder', label:'アプリを選ぶ' },
+  { go:'s_mine',      icon:'home',   label:'マイページ' },
+  { go:'s_new',       icon:'plus',   label:'申請する' },
+  { go:'s_inbox',     icon:'check',  label:'承認する', badge:'shinsei' },
+  { go:'s_dashboard', icon:'chart',  label:'集計を見る' },
+  { go:'s_access',    icon:'eye',    label:'閲覧証跡' }
+];
+var NAV_SHINSEI_ADMIN = [
+  { go:'s_search',  icon:'folder', label:'すべての申請' },
+  { go:'s_finance', icon:'flag',   label:'経理処理' },
+  { go:'s_routes',  icon:'slider', label:'承認経路の設定' },
+  { go:'s_admin',   icon:'gear',   label:'設定・マスタ' }
+];
+function shinseiLabel(view){
+  var all = NAV_SHINSEI.concat(NAV_SHINSEI_ADMIN);
+  for(var i = 0; i < all.length; i++) if(all[i].go === view) return all[i].label;
+  return '社内申請';
+}
+/* 社内申請の画面を出す。中身は社内申請の部品が #view に描く */
+function viewShinsei(key){
+  var sh = document.getElementById('shinsei');
+  sh.setAttribute('data-theme', themeNow());
+  if(typeof App === 'undefined'){
+    sh.hidden = true;
+    document.getElementById('main').hidden = false;
+    document.getElementById('main').innerHTML =
+      '<div class="wrap"><div class="card"><div class="empty">' + ic('alert') +
+      '社内申請の部品（js/shinsei）が読み込まれていません。</div></div></div>';
+    return;
+  }
+  App.setActive(true);
+  var want = '#' + key;
+  /* hashchange を起こさずに行き先だけ書き換え、こちらから描かせる（二重描画を防ぐ） */
+  if(location.hash !== want){
+    try{ history.replaceState(null, '', location.pathname + location.search + want); }
+    catch(e){ location.hash = want; }
+  }
+  if(!SHINSEI_MOUNTED){
+    SHINSEI_MOUNTED = true;
+    App.mount();
+    return;
+  }
+  App.render();
+}
+
 var APPS = [
   { id:'shinsei', name:'社内申請', sub:'稟議・経費・休暇の申請と承認',
-    icon:'quiz',  go:'' },
+    icon:'quiz',  go:'s_mine' },
   { id:'lms',     name:'船井e-ラーニング', sub:'研修動画の受講と修了証',
     icon:'book',  go:'home' },
   { id:'connect', name:'船井コネクト', sub:'掲示板とサンクスカード',
     icon:'users', go:'feed' }
 ];
-function viewHub(){
-  var u = me() || {};
-  var cfg = config();
-  var h = '<div class="wrap" style="max-width:940px">';
-  h += '<div class="ph"><div><h2>ようこそ、' + esc(u.name || '') + ' さん</h2>' +
-       '<div class="sub">使うものを選んでください。いつでもここに戻ってこられます。</div>' +
-       '</div></div>';
-  h += '<div class="hub">';
-  APPS.forEach(function(a){
-    var ready = !!a.go;
-    h += '<button class="hub-c' + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
-         (ready ? '' : ' disabled') + '>' +
-         '<span class="hub-i">' + ic(a.icon) + '</span>' +
-         '<b>' + esc(a.name) + '</b>' +
-         '<span class="hub-s">' + esc(a.sub) + '</span>' +
-         (ready ? '' : '<span class="pill mid">準備中</span>') +
-         '</button>';
-  });
-  h += '</div>';
-
-  /* 名簿に管理できる人が一人もいない状態。誰かが名乗り出ないと設定が始められない */
-  if(LOGIN_EMAIL && noAdminYet()){
-    h += '<div class="note" style="margin-top:18px">' +
-         '<b>このアプリには、まだ管理者が登録されていません</b><br>' +
-         '研修担当の方は、ご自身を管理者として登録してください。' +
-         '（研修担当以外の方は、そのままで大丈夫です）' +
-         '<div class="bar" style="margin-top:9px">' +
-         '<button class="btn sm" id="hmAdm">' + ic('gear') +
-         '自分を管理者として登録する</button></div></div>';
-  }
-  h += '<div class="ver" style="margin-top:22px;text-align:center">' +
-       esc(cfg.orgName || '') + '</div>';
-  h += '</div>';
-  document.getElementById('main').innerHTML = h;
-  eachIn('[data-app]', function(b){
-    b.onclick = function(){
-      var a = APPS.filter(function(x){ return x.id === b.getAttribute('data-app'); })[0];
-      if(a && a.go) route(a.go);
-    };
-  });
-  var hmA = document.getElementById('hmAdm');
-  if(hmA) hmA.onclick = firstAdminSetup;
-}
 
 function parseVideoId(s){
   s = String(s || '').trim();
@@ -8077,11 +8300,14 @@ function crumbFor(view, arg){
     return [{ t:'管理ダッシュボード', go:'adash' }, { t:'ユーザー管理' },
             { t:'ユーザー', go:'ausers' }, { t:String(arg || '') }];
   }
+  if(String(view).indexOf('s_') === 0){
+    return [{ t:'アプリを選ぶ', go:'hub' }, { t:'社内申請' }, { t:shinseiLabel(view) }];
+  }
   return [{ t:'ホーム' }];
 }
 
 var USER_VIEWS = {
-  hub:viewHub, feed:viewFeed, thanks:viewThanks,
+  feed:viewFeed, thanks:viewThanks,
   home:viewHome, courses:viewCourses, history:viewHistory, mytime:viewMyTime,
   certs:viewCerts, mynews:viewMyNews
 };
@@ -8089,6 +8315,15 @@ var USER_VIEWS = {
 var VIEW_NOW = '';
 function route(view, a, b){
   stopPlayer();                     /* 画面を離れる前に必ず保存する */
+  /* アプリを選び直すときは、入口（ログイン画面）に戻る */
+  if(view === 'hub'){
+    feedWatch(false);
+    if(typeof App !== 'undefined' && App.setActive) App.setActive(false);
+    document.getElementById('shinsei').hidden = true;
+    document.getElementById('main').hidden = false;
+    viewGate();
+    return;
+  }
   clearTimeout(P.nextT); P.nextT = 0;
   SEL = {};                         /* 選択は画面をまたいで持ち越さない */
   if(!me()){ viewGate(); return; }
@@ -8105,6 +8340,16 @@ function route(view, a, b){
     view = canAdmin() ? 'adash' : 'home';
     MODE = canAdmin() ? 'admin' : 'user';
   }
+  var inS = String(view).indexOf('s_') === 0;
+  if(inS && !canOpen(view)){
+    toast('この画面はシステム管理者だけが開けます');
+    view = 's_mine';
+  }
+  if(inS) MODE = 'user';
+  /* 社内申請の入れ物と、それ以外の入れ物を切り替える */
+  document.getElementById('shinsei').hidden = !inS;
+  document.getElementById('main').hidden = inS;
+  if(!inS && typeof App !== 'undefined' && App.setActive) App.setActive(false);
 
   VIEW_NOW = view;
   /* 掲示板を開いているあいだだけ、新着を見に行く */
@@ -8119,6 +8364,7 @@ function route(view, a, b){
   else if(view === 'quiz')    viewQuiz(a);
   else if(view === 'cert')    viewCert(a, b);
   else if(view === 'survey')  viewSurvey(a);
+  else if(inS)                viewShinsei(view.slice(2));
   else if(USER_VIEWS[view])   USER_VIEWS[view]();
   else                        viewHome();
 
@@ -8141,13 +8387,14 @@ document.getElementById('scrim').onclick = closeSide;
 document.getElementById('topMe').onclick = function(){ stopPlayer(); viewGate(); };
 
 /* 名前を入れた直後。別の端末で受講した分があれば引き継ぐ */
-function afterLogin(name){
-  if(!ON_CREATOR){ route('hub'); return; }
+function afterLogin(name, go){
+  go = go || 'home';
+  if(!ON_CREATOR){ route(go); return; }
   LOADED.person = '';
-  showLoading('受講記録を読み込んでいます…');
+  showLoading('読み込んでいます…');
   initParams()
     .then(function(){ return loadPerson(name); })
-    .then(function(){ route('hub'); })
+    .then(function(){ route(go); })
     .catch(function(e){
       if(!isNoRows(e)){
         console.warn('受講記録の読み込みに失敗しました', e);
@@ -8155,7 +8402,7 @@ function afterLogin(name){
           ? 'いま込み合っています。少し時間をおいてから画面を開き直してください。'
           : '過去の記録を読めませんでした：' + errText(e));
       }
-      route('hub');
+      route(go);
     });
 }
 
@@ -8184,7 +8431,7 @@ function boot(){
     migrateTerms();      /* この端末の記録だけ。コース定義は手元のものを使う */
     restorePend();
     /* ファイルを直接開いた場合。ブラウザ内の保存だけで動く */
-    if(me()) route('hub'); else viewGate();
+    viewGate();
     return;
   }
   showLoading('Zoho Creator に接続しています…');
@@ -8207,7 +8454,7 @@ function boot(){
          先に送ると、他の端末で見たぶんを手元の記録で上書きしてしまう。 */
       restorePend();
       syncBadge('保存済み');
-      if(me()) route('hub'); else viewGate();
+      viewGate();
     })
     .catch(function(e){
       console.error('接続に失敗しました', e);

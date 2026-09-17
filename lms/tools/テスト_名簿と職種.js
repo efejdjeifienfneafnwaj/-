@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const serveAsset = require('./_部品を返す');
 
 const html = fs.readFileSync(
   path.join(__dirname, '..', 'lms-widget', 'app', 'widget.html'), 'utf8');
@@ -66,6 +67,7 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
 
 (async () => {
   const srv = http.createServer((q, s) => {
+    if(serveAsset(q, s)) return;
     s.writeHead(200, { 'Content-Type':'text/html; charset=utf-8' }); s.end(html);
   });
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
@@ -81,6 +83,8 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   await page.addInitScript(stub('owner@example.com', [OWNER, STAFF]),
     { email:'owner@example.com', persons:[OWNER, STAFF] });
   await page.goto(base);
+  await page.waitForSelector('#gate [data-app="lms"]');
+  await page.click('#gate [data-app="lms"]');
   await page.waitForSelector('#app.on');
   await page.waitForTimeout(400);
 
@@ -214,6 +218,8 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
       { person_key:'渡辺 三郎', person_name:'渡辺 三郎',
         email:'staff2@example.com', dept:'介護職', role:'learner' }] });
   await p2.goto(base);
+  await p2.waitForSelector('#gate [data-app="lms"]');
+  await p2.click('#gate [data-app="lms"]');
   await p2.waitForSelector('#app.on');
   await p2.waitForTimeout(400);
   const s2 = await p2.$$eval('#side .nav-i span, #side .nav-s',

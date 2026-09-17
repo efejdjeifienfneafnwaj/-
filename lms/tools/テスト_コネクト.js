@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const serveAsset = require('./_部品を返す');
 
 const html = fs.readFileSync(
   path.join(__dirname, '..', 'lms-widget', 'app', 'widget.html'), 'utf8');
@@ -87,6 +88,7 @@ const ROSTER = [
     return { code:3000 };
   }
   const srv = http.createServer((q, s) => {
+    if(serveAsset(q, s)) return;
     if(q.url === '/__api' && q.method === 'POST'){
       let b = '';
       q.on('data', c => { b += c; });
@@ -115,27 +117,33 @@ const ROSTER = [
     page.on('pageerror', e => errs.push(String(e)));
     await page.addInitScript(stub(email), { email });
     await page.goto(base);
+    await page.waitForSelector('#gate [data-app="connect"]');
+    page.__gate = true;
+    return page;
+  }
+  /* 入口でカードを押して入る */
+  async function enter(page, app){
+    await page.click('#gate [data-app="' + (app || 'connect') + '"]');
     await page.waitForSelector('#app.on');
     await page.waitForTimeout(400);
-    return page;
   }
   const side = p => p.$$eval('#side .nav-i span, #side .nav-s',
     els => els.map(e => e.textContent.trim()));
 
-  console.log('① ログインすると、3つのアプリの入口が出ること');
+  console.log('① ログイン画面に、3つのアプリが並ぶこと');
   const hana = await open('hana@example.com');
-  check('入口の画面が出る', (await hana.$$('.hub-c')).length === 3);
-  const names = await hana.$$eval('.hub-c b', els => els.map(e => e.textContent.trim()));
+  check('入口に3つのカードが出る', (await hana.$$('#gate [data-app]')).length === 3);
+  const names = await hana.$$eval('#gate [data-app] b', els => els.map(e => e.textContent.trim()));
   check('3つの名前が並ぶ',
     names.join('/') === '社内申請/船井e-ラーニング/船井コネクト', names.join('/'));
-  check('社内申請はまだ準備中', await hana.$eval('[data-app="shinsei"]', e => e.disabled));
+  await enter(hana, 'connect');
+  check('コネクトを押すと掲示板が開く', (await hana.$('#fdBody')) !== null);
   const L = await side(hana);
   check('メニューに「掲示板」がある', L.some(t => t === '掲示板'));
   check('メニューに「サンクスカード」がある', L.some(t => t === 'サンクスカード'));
   check('メニューに「アプリを選ぶ」がある', L.some(t => t === 'アプリを選ぶ'));
 
   console.log('② 掲示板に投稿すると、押した瞬間に保存されること');
-  await hana.click('[data-app="connect"]');
   await hana.waitForSelector('#fdBody');
   await hana.fill('#fdBody', 'おはようございます。今日の送迎は9時出発です。');
   await hana.click('#fdGo');
@@ -148,7 +156,7 @@ const ROSTER = [
 
   console.log('③ 別の人の画面にも、開いたときに出ること');
   const jiro = await open('jiro@example.com');
-  await jiro.evaluate(() => route('feed'));
+  await enter(jiro, 'connect');
   await jiro.waitForSelector('.fd-card');
   check('鈴木さんにも見える',
     (await jiro.$eval('.fd-card .fd-body', e => e.textContent)).indexOf('9時出発') >= 0);
@@ -195,6 +203,7 @@ const ROSTER = [
 
   console.log('⑥ サンクスは掲示板にも並ぶこと／もらった数が出ること');
   const hana2 = await open('hana@example.com');
+  await enter(hana2, 'connect');
   await hana2.evaluate(() => route('thanks'));
   await hana2.waitForSelector('.tile .big');
   check('佐藤さんの「もらった数」が1',
@@ -206,12 +215,12 @@ const ROSTER = [
 
   console.log('⑦ 削除は本人と管理者だけ');
   const jiro2 = await open('jiro@example.com');
-  await jiro2.evaluate(() => route('feed'));
+  await enter(jiro2, 'connect');
   await jiro2.waitForSelector('.fd-card');
   const dels = await jiro2.$$eval('[data-pdel]', els => els.length);
   check('鈴木さんは自分のサンクスだけ消せる', dels === 1, String(dels));
   const owner = await open('owner@example.com');
-  await owner.evaluate(() => route('feed'));
+  await enter(owner, 'connect');
   await owner.waitForSelector('.fd-card');
   const od = await owner.$$eval('[data-pdel]', els => els.length);
   const oc = await owner.$$eval('.fd-card .fd-body', els => els.map(e => e.textContent.slice(0,14)));
@@ -231,12 +240,12 @@ const ROSTER = [
   });
   await owner.waitForTimeout(200);
   const hana3 = await open('hana@example.com');
-  await hana3.evaluate(() => route('feed'));
+  await enter(hana3, 'connect');
   await hana3.waitForTimeout(400);
   const hb = await hana3.$$eval('.fd-body', els => els.map(e => e.textContent));
   check('介護職の佐藤さんには出ない', !hb.some(t => t.indexOf('看護職の方へ') >= 0));
   const jiro3 = await open('jiro@example.com');
-  await jiro3.evaluate(() => route('feed'));
+  await enter(jiro3, 'connect');
   await jiro3.waitForTimeout(400);
   const jb = await jiro3.$$eval('.fd-body', els => els.map(e => e.textContent));
   check('看護職の鈴木さんには出る', jb.some(t => t.indexOf('看護職の方へ') >= 0));

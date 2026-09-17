@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const serveAsset = require('./_部品を返す');
 
 const html = fs.readFileSync(
   path.join(__dirname, '..', 'lms-widget', 'app', 'widget.html'), 'utf8');
@@ -57,6 +58,7 @@ const ROSTER = [
 
 (async () => {
   const srv = http.createServer((q, s) => {
+    if(serveAsset(q, s)) return;
     s.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); s.end(html);
   });
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
@@ -75,6 +77,11 @@ const ROSTER = [
     await page.goto(base);
     await page.waitForSelector('#gate .gate-card, #app.on', { timeout: 15000 });
     await page.waitForTimeout(400);
+    /* 入口に本人の名前が出ていれば、e-ラーニングのカードを押して入る */
+    if(await page.$('#gate [data-app="lms"]:not([disabled])')){
+      const known = await page.$('#gate .ro-lg');
+      if(known){ await page.click('#gate [data-app="lms"]'); await page.waitForSelector('#app.on'); await page.waitForTimeout(300); }
+    }
     page.__errs = errs;
     return page;
   }
@@ -84,7 +91,7 @@ const ROSTER = [
 
   console.log('① 名簿でシステム管理者になっている人');
   let p = await open('owner@example.com', ROSTER);
-  check('入口を通らず、そのままアプリに入る', (await p.$('#app.on')) !== null);
+  check('入口で名前を確かめて、カードを押すだけで入れる', (await p.$('#app.on')) !== null);
   check('暗証番号をきかれない', (await p.$('#apA')) === null);
   check('権限はシステム管理者', await p.evaluate(() => MY_ROLE) === 'admin');
   let L = await sideLabels(p);

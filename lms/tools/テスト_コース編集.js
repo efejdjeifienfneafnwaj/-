@@ -3,6 +3,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright-core');
+const serveAsset = require('./_部品を返す');
 
 const FILE = path.join(__dirname, '..', 'lms-widget', 'app', 'widget.html');
 const html = fs.readFileSync(FILE, 'utf8');
@@ -15,6 +16,7 @@ function check(name, cond, extra){
 
 (async () => {
   const srv = http.createServer((q, s) => {
+    if(serveAsset(q, s)) return;
     s.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); s.end(html);
   });
   await new Promise(r => srv.listen(0, '127.0.0.1', r));
