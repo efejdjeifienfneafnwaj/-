@@ -1,0 +1,3498 @@
+/*
+ * Purpose : 社内申請・承認ワークフロー（閲覧証跡つき）用データ保存アプリ
+ *           ・すべての項目を text / textarea / number で持ち、意味づけは
+ *             ウィジェット側が担当する（ルックアップや選択肢に依存しない）
+ *           ・Wf_Access_Form が「誰が何を見たか」の証跡。追記専用。
+ *             取り込み後、この1フォームだけは全ロールで編集・削除を無効にすること。
+ */
+application "社内申請システム"
+{
+	date format = "yyyy-MM-dd"
+	time zone = "Asia/Tokyo"
+	time format = "24-hr"
+
+	forms
+	{
+		form Wf_Dept_Form
+		{
+			displayname = "【システム用】部署マスタ"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			dept_id
+			(
+				type = text
+				displayname = "部署ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			dept_code
+			(
+				type = text
+				displayname = "部署コード"
+				row = 1
+				column = 1
+				width = medium
+			)
+			dept_name
+			(
+				type = text
+				displayname = "部署名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			parent_id
+			(
+				type = text
+				displayname = "上位部署ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			head_id
+			(
+				type = text
+				displayname = "部門長ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			sort_order
+			(
+				type = number
+				displayname = "表示順"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Employee_Form
+		{
+			displayname = "【システム用】社員マスタ"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			emp_id
+			(
+				type = text
+				displayname = "社員ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			emp_no
+			(
+				type = text
+				displayname = "社員番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			emp_name
+			(
+				type = text
+				displayname = "氏名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			emp_kana
+			(
+				type = text
+				displayname = "フリガナ"
+				row = 1
+				column = 1
+				width = medium
+			)
+			email
+			(
+				type = text
+				displayname = "メール"
+				row = 1
+				column = 1
+				width = medium
+			)
+			dept_name
+			(
+				type = text
+				displayname = "所属"
+				row = 1
+				column = 1
+				width = medium
+			)
+			title
+			(
+				type = text
+				displayname = "役職"
+				row = 1
+				column = 1
+				width = medium
+			)
+			manager_id
+			(
+				type = text
+				displayname = "上長ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			manager_name
+			(
+				type = text
+				displayname = "上長名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			roles
+			(
+				type = text
+				displayname = "権限（カンマ区切り）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			join_date
+			(
+				type = text
+				displayname = "入社日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			leave_balance
+			(
+				type = number
+				displayname = "有給残日数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deputy_id
+			(
+				type = text
+				displayname = "代理人ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deputy_from
+			(
+				type = text
+				displayname = "代理開始日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deputy_to
+			(
+				type = text
+				displayname = "代理終了日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "在籍（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			admin_pass
+			(
+				type = text
+				displayname = "管理者パスワード（ハッシュ）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			admin_salt
+			(
+				type = text
+				displayname = "管理者パスワード（ソルト）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Vendor_Form
+		{
+			displayname = "【システム用】取引先マスタ"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			vendor_id
+			(
+				type = text
+				displayname = "取引先ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			vendor_code
+			(
+				type = text
+				displayname = "取引先コード"
+				row = 1
+				column = 1
+				width = medium
+			)
+			vendor_name
+			(
+				type = text
+				displayname = "取引先名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			invoice_reg_no
+			(
+				type = text
+				displayname = "登録番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_qualified
+			(
+				type = text
+				displayname = "適格事業者（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			payment_terms
+			(
+				type = text
+				displayname = "支払条件"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_new
+			(
+				type = text
+				displayname = "新規取引先（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			first_traded_on
+			(
+				type = text
+				displayname = "初回取引日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			note
+			(
+				type = text
+				displayname = "備考"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Account_Form
+		{
+			displayname = "【システム用】勘定科目マスタ"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			account_id
+			(
+				type = text
+				displayname = "科目ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			account_code
+			(
+				type = text
+				displayname = "科目コード"
+				row = 1
+				column = 1
+				width = medium
+			)
+			account_name
+			(
+				type = text
+				displayname = "勘定科目"
+				row = 1
+				column = 1
+				width = medium
+			)
+			tax_category
+			(
+				type = text
+				displayname = "既定税区分"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "有効（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Type_Form
+		{
+			displayname = "【システム用】申請テンプレート"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			type_code
+			(
+				type = text
+				displayname = "区分コード"
+				row = 1
+				column = 1
+				width = medium
+			)
+			type_name
+			(
+				type = text
+				displayname = "申請名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			category
+			(
+				type = text
+				displayname = "カテゴリ"
+				row = 1
+				column = 1
+				width = medium
+			)
+			icon
+			(
+				type = text
+				displayname = "アイコン"
+				row = 1
+				column = 1
+				width = medium
+			)
+			description
+			(
+				type = text
+				displayname = "説明"
+				row = 1
+				column = 1
+				width = medium
+			)
+			field_schema
+			(
+				type = textarea
+				displayname = "項目定義（JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			route_rule
+			(
+				type = textarea
+				displayname = "経路定義（JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			sensitivity
+			(
+				type = text
+				displayname = "機微度"
+				row = 1
+				column = 1
+				width = medium
+			)
+			sort_order
+			(
+				type = number
+				displayname = "表示順"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "有効（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Request_Form
+		{
+			displayname = "【システム用】申請"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			type_code
+			(
+				type = text
+				displayname = "区分コード"
+				row = 1
+				column = 1
+				width = medium
+			)
+			type_name
+			(
+				type = text
+				displayname = "申請区分"
+				row = 1
+				column = 1
+				width = medium
+			)
+			subject
+			(
+				type = text
+				displayname = "件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			applicant_id
+			(
+				type = text
+				displayname = "申請者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			applicant_name
+			(
+				type = text
+				displayname = "申請者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			applicant_dept
+			(
+				type = text
+				displayname = "申請者所属"
+				row = 1
+				column = 1
+				width = medium
+			)
+			amount
+			(
+				type = number
+				displayname = "金額"
+				row = 1
+				column = 1
+				width = medium
+			)
+			status
+			(
+				type = text
+				displayname = "ステータス"
+				row = 1
+				column = 1
+				width = medium
+			)
+			applied_on
+			(
+				type = text
+				displayname = "申請日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			completed_on
+			(
+				type = text
+				displayname = "完了日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			current_step
+			(
+				type = number
+				displayname = "現在ステップ"
+				row = 1
+				column = 1
+				width = medium
+			)
+			route_json
+			(
+				type = textarea
+				displayname = "承認経路（JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			form_data_json
+			(
+				type = textarea
+				displayname = "入力値（JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			payment_due
+			(
+				type = text
+				displayname = "支払期日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			paid
+			(
+				type = text
+				displayname = "支払済（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			journal_exported
+			(
+				type = text
+				displayname = "仕訳出力済（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Line_Form
+		{
+			displayname = "【システム用】申請明細"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			request_id
+			(
+				type = text
+				displayname = "申請ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			line_no
+			(
+				type = number
+				displayname = "行番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			line_date
+			(
+				type = text
+				displayname = "取引年月日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			account_name
+			(
+				type = text
+				displayname = "勘定科目"
+				row = 1
+				column = 1
+				width = medium
+			)
+			vendor_name
+			(
+				type = text
+				displayname = "取引先"
+				row = 1
+				column = 1
+				width = medium
+			)
+			description
+			(
+				type = text
+				displayname = "摘要"
+				row = 1
+				column = 1
+				width = medium
+			)
+			qty
+			(
+				type = number
+				displayname = "数量"
+				row = 1
+				column = 1
+				width = medium
+			)
+			unit_price
+			(
+				type = number
+				displayname = "単価"
+				row = 1
+				column = 1
+				width = medium
+			)
+			amount
+			(
+				type = number
+				displayname = "取引金額"
+				row = 1
+				column = 1
+				width = medium
+			)
+			tax_rate
+			(
+				type = text
+				displayname = "税区分"
+				row = 1
+				column = 1
+				width = medium
+			)
+			tax_amount
+			(
+				type = number
+				displayname = "消費税額"
+				row = 1
+				column = 1
+				width = medium
+			)
+			invoice_no
+			(
+				type = text
+				displayname = "登録番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Approval_Form
+		{
+			displayname = "【システム用】承認履歴"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			request_id
+			(
+				type = text
+				displayname = "申請ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			step_no
+			(
+				type = number
+				displayname = "ステップ番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			step_name
+			(
+				type = text
+				displayname = "ステップ名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			step_type
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			approver_id
+			(
+				type = text
+				displayname = "承認者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			approver_name
+			(
+				type = text
+				displayname = "承認者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			acted_by_id
+			(
+				type = text
+				displayname = "処理者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			acted_by_name
+			(
+				type = text
+				displayname = "処理者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			action
+			(
+				type = text
+				displayname = "処理"
+				row = 1
+				column = 1
+				width = medium
+			)
+			comment
+			(
+				type = textarea
+				displayname = "コメント"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			due_date
+			(
+				type = text
+				displayname = "期限"
+				row = 1
+				column = 1
+				width = medium
+			)
+			acted_on
+			(
+				type = text
+				displayname = "処理日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_delegate
+			(
+				type = text
+				displayname = "代理承認（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			started_on
+			(
+				type = text
+				displayname = "この段に回ってきた日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			required_count
+			(
+				type = number
+				displayname = "可決に必要な人数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			escalate_mode
+			(
+				type = text
+				displayname = "期限超過時の扱い"
+				row = 1
+				column = 1
+				width = medium
+			)
+			escalate_days
+			(
+				type = number
+				displayname = "超過とみなす日数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			escalated_at
+			(
+				type = text
+				displayname = "エスカレーション日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Access_Form
+		{
+			displayname = "【システム用】閲覧証跡（追記専用）"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			log_time
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			session_id
+			(
+				type = text
+				displayname = "セッションID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_id
+			(
+				type = text
+				displayname = "操作者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_name
+			(
+				type = text
+				displayname = "操作者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_dept
+			(
+				type = text
+				displayname = "操作者所属"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_role
+			(
+				type = text
+				displayname = "操作者権限"
+				row = 1
+				column = 1
+				width = medium
+			)
+			login_user
+			(
+				type = text
+				displayname = "ログインID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			action
+			(
+				type = text
+				displayname = "操作"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_type
+			(
+				type = text
+				displayname = "対象種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_id
+			(
+				type = text
+				displayname = "対象ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_no
+			(
+				type = text
+				displayname = "対象申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_subject
+			(
+				type = text
+				displayname = "対象件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			type_code
+			(
+				type = text
+				displayname = "申請区分"
+				row = 1
+				column = 1
+				width = medium
+			)
+			sensitivity
+			(
+				type = text
+				displayname = "機微度"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_dept
+			(
+				type = text
+				displayname = "申請の所有部署"
+				row = 1
+				column = 1
+				width = medium
+			)
+			cross_dept
+			(
+				type = text
+				displayname = "他部署からの閲覧（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			result_count
+			(
+				type = number
+				displayname = "結果件数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			duration_sec
+			(
+				type = number
+				displayname = "滞在秒数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			detail
+			(
+				type = textarea
+				displayname = "備考"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			user_agent
+			(
+				type = text
+				displayname = "端末情報"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Audit_Form
+		{
+			displayname = "【システム用】操作証跡"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			log_time
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			user_id
+			(
+				type = text
+				displayname = "操作者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			user_name
+			(
+				type = text
+				displayname = "操作者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			action_type
+			(
+				type = text
+				displayname = "操作種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_type
+			(
+				type = text
+				displayname = "対象種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_id
+			(
+				type = text
+				displayname = "対象ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			detail
+			(
+				type = textarea
+				displayname = "内容"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			session_id
+			(
+				type = text
+				displayname = "セッションID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_File_Form
+		{
+			displayname = "【システム用】添付ファイル"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			file_key
+			(
+				type = text
+				displayname = "ファイルキー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_id
+			(
+				type = text
+				displayname = "申請ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			file_name
+			(
+				type = text
+				displayname = "ファイル名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			mime_type
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			file_size
+			(
+				type = number
+				displayname = "サイズ（バイト）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_date
+			(
+				type = text
+				displayname = "取引年月日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_amount
+			(
+				type = number
+				displayname = "取引金額"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_partner
+			(
+				type = text
+				displayname = "取引先"
+				row = 1
+				column = 1
+				width = medium
+			)
+			chunk_index
+			(
+				type = number
+				displayname = "分割番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			chunk_total
+			(
+				type = number
+				displayname = "分割総数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			data_base64
+			(
+				type = textarea
+				displayname = "本体（base64／分割）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_by
+			(
+				type = text
+				displayname = "登録者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_by_name
+			(
+				type = text
+				displayname = "登録者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_at
+			(
+				type = text
+				displayname = "登録日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deleted
+			(
+				type = text
+				displayname = "削除（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Wf_Notify_Form
+		{
+			displayname = "【システム用】通知"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			to_user_id
+			(
+				type = text
+				displayname = "宛先ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_id
+			(
+				type = text
+				displayname = "申請ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			kind
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			message
+			(
+				type = text
+				displayname = "本文"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_read
+			(
+				type = text
+				displayname = "既読（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			created_time
+			(
+				type = text
+				displayname = "作成日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+	}
+
+	reports
+	{
+		list Wf_Dept_Report
+		{
+			displayName = "部署マスタ"
+			show all rows from Wf_Dept_Form
+			(
+				dept_id as "部署ID"
+				dept_code as "部署コード"
+				dept_name as "部署名"
+				parent_id as "上位部署ID"
+				head_id as "部門長ID"
+				sort_order as "表示順"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Employee_Report
+		{
+			displayName = "社員マスタ"
+			show all rows from Wf_Employee_Form
+			(
+				emp_id as "社員ID"
+				emp_no as "社員番号"
+				emp_name as "氏名"
+				emp_kana as "フリガナ"
+				email as "メール"
+				dept_name as "所属"
+				title as "役職"
+				manager_id as "上長ID"
+				manager_name as "上長名"
+				roles as "権限（カンマ区切り）"
+				join_date as "入社日"
+				leave_balance as "有給残日数"
+				deputy_id as "代理人ID"
+				deputy_from as "代理開始日"
+				deputy_to as "代理終了日"
+				is_active as "在籍（true/false）"
+				admin_pass as "管理者パスワード（ハッシュ）"
+				admin_salt as "管理者パスワード（ソルト）"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Vendor_Report
+		{
+			displayName = "取引先マスタ"
+			show all rows from Wf_Vendor_Form
+			(
+				vendor_id as "取引先ID"
+				vendor_code as "取引先コード"
+				vendor_name as "取引先名"
+				invoice_reg_no as "登録番号"
+				is_qualified as "適格事業者（true/false）"
+				payment_terms as "支払条件"
+				is_new as "新規取引先（true/false）"
+				first_traded_on as "初回取引日"
+				note as "備考"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Account_Report
+		{
+			displayName = "勘定科目マスタ"
+			show all rows from Wf_Account_Form
+			(
+				account_id as "科目ID"
+				account_code as "科目コード"
+				account_name as "勘定科目"
+				tax_category as "既定税区分"
+				is_active as "有効（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Type_Report
+		{
+			displayName = "申請テンプレート"
+			show all rows from Wf_Type_Form
+			(
+				type_code as "区分コード"
+				type_name as "申請名"
+				category as "カテゴリ"
+				icon as "アイコン"
+				description as "説明"
+				field_schema as "項目定義（JSON）"
+				route_rule as "経路定義（JSON）"
+				sensitivity as "機微度"
+				sort_order as "表示順"
+				is_active as "有効（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Request_Report
+		{
+			displayName = "申請 一覧"
+			show all rows from Wf_Request_Form
+			(
+				request_no as "申請番号"
+				type_code as "区分コード"
+				type_name as "申請区分"
+				subject as "件名"
+				applicant_id as "申請者ID"
+				applicant_name as "申請者"
+				applicant_dept as "申請者所属"
+				amount as "金額"
+				status as "ステータス"
+				applied_on as "申請日時"
+				completed_on as "完了日時"
+				current_step as "現在ステップ"
+				route_json as "承認経路（JSON）"
+				form_data_json as "入力値（JSON）"
+				payment_due as "支払期日"
+				paid as "支払済（true/false）"
+				journal_exported as "仕訳出力済（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Line_Report
+		{
+			displayName = "申請明細 一覧"
+			show all rows from Wf_Line_Form
+			(
+				request_id as "申請ID"
+				request_no as "申請番号"
+				line_no as "行番号"
+				line_date as "取引年月日"
+				account_name as "勘定科目"
+				vendor_name as "取引先"
+				description as "摘要"
+				qty as "数量"
+				unit_price as "単価"
+				amount as "取引金額"
+				tax_rate as "税区分"
+				tax_amount as "消費税額"
+				invoice_no as "登録番号"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Approval_Report
+		{
+			displayName = "承認履歴 一覧"
+			show all rows from Wf_Approval_Form
+			(
+				request_id as "申請ID"
+				request_no as "申請番号"
+				step_no as "ステップ番号"
+				step_name as "ステップ名"
+				step_type as "種別"
+				approver_id as "承認者ID"
+				approver_name as "承認者"
+				acted_by_id as "処理者ID"
+				acted_by_name as "処理者"
+				action as "処理"
+				comment as "コメント"
+				due_date as "期限"
+				acted_on as "処理日時"
+				is_delegate as "代理承認（true/false）"
+				started_on as "この段に回ってきた日時"
+				required_count as "可決に必要な人数"
+				escalate_mode as "期限超過時の扱い"
+				escalate_days as "超過とみなす日数"
+				escalated_at as "エスカレーション日時"
+				updated_at as "更新日時"
+			)
+		}
+		list Wf_Access_Report
+		{
+			displayName = "閲覧証跡 一覧"
+			show all rows from Wf_Access_Form
+			(
+				log_time as "日時"
+				session_id as "セッションID"
+				actor_id as "操作者ID"
+				actor_name as "操作者"
+				actor_dept as "操作者所属"
+				actor_role as "操作者権限"
+				login_user as "ログインID"
+				action as "操作"
+				target_type as "対象種別"
+				target_id as "対象ID"
+				target_no as "対象申請番号"
+				target_subject as "対象件名"
+				type_code as "申請区分"
+				sensitivity as "機微度"
+				owner_dept as "申請の所有部署"
+				cross_dept as "他部署からの閲覧（true/false）"
+				result_count as "結果件数"
+				duration_sec as "滞在秒数"
+				detail as "備考"
+				user_agent as "端末情報"
+			)
+		}
+		list Wf_Audit_Report
+		{
+			displayName = "操作証跡 一覧"
+			show all rows from Wf_Audit_Form
+			(
+				log_time as "日時"
+				user_id as "操作者ID"
+				user_name as "操作者"
+				action_type as "操作種別"
+				target_type as "対象種別"
+				target_id as "対象ID"
+				detail as "内容"
+				session_id as "セッションID"
+			)
+		}
+		list Wf_File_Report
+		{
+			displayName = "添付ファイル 一覧"
+			show all rows from Wf_File_Form
+			(
+				file_key as "ファイルキー"
+				request_id as "申請ID"
+				request_no as "申請番号"
+				file_name as "ファイル名"
+				mime_type as "種別"
+				file_size as "サイズ（バイト）"
+				trade_date as "取引年月日"
+				trade_amount as "取引金額"
+				trade_partner as "取引先"
+				chunk_index as "分割番号"
+				chunk_total as "分割総数"
+				data_base64 as "本体（base64／分割）"
+				uploaded_by as "登録者ID"
+				uploaded_by_name as "登録者"
+				uploaded_at as "登録日時"
+				deleted as "削除（true/false）"
+			)
+		}
+		list Wf_Notify_Report
+		{
+			displayName = "通知 一覧"
+			show all rows from Wf_Notify_Form
+			(
+				to_user_id as "宛先ID"
+				request_id as "申請ID"
+				request_no as "申請番号"
+				kind as "種別"
+				message as "本文"
+				is_read as "既読（true/false）"
+				created_time as "作成日時"
+			)
+		}
+	}
+
+	pages
+	{
+		page Wf_Console
+		{
+			displayname="社内申請コンソール"
+			Content=""
+		}
+	}
+
+	share_settings
+	{
+		"Developer"
+		{
+			name = "Developer"
+			type = Developer
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Developer Profile\n"
+		}
+		"Administrator"
+		{
+			name = "Administrator"
+			type = Users_Permissions
+			permissions = {Chat:true, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Full access profile\n"
+		}
+		"Customer"
+		{
+			name = "Customer"
+			type = Customer_Portal
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Default portal profile\n"
+		}
+		roles
+		{
+			"CEO"
+			{
+				description = "All access"
+			}
+		}
+	}
+
+	web
+	{
+		forms
+		{
+			form Wf_Dept_Form
+			{
+				label placement = left
+			}
+			form Wf_Employee_Form
+			{
+				label placement = left
+			}
+			form Wf_Vendor_Form
+			{
+				label placement = left
+			}
+			form Wf_Account_Form
+			{
+				label placement = left
+			}
+			form Wf_Type_Form
+			{
+				label placement = left
+			}
+			form Wf_Request_Form
+			{
+				label placement = left
+			}
+			form Wf_Line_Form
+			{
+				label placement = left
+			}
+			form Wf_Approval_Form
+			{
+				label placement = left
+			}
+			form Wf_Access_Form
+			{
+				label placement = left
+			}
+			form Wf_Audit_Form
+			{
+				label placement = left
+			}
+			form Wf_File_Form
+			{
+				label placement = left
+			}
+			form Wf_Notify_Form
+			{
+				label placement = left
+			}
+		}
+		reports
+		{
+			report Wf_Dept_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									dept_id as "部署ID"
+									dept_code as "部署コード"
+									dept_name as "部署名"
+									parent_id as "上位部署ID"
+									head_id as "部門長ID"
+									sort_order as "表示順"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									dept_id as "部署ID"
+									dept_code as "部署コード"
+									dept_name as "部署名"
+									parent_id as "上位部署ID"
+									head_id as "部門長ID"
+									sort_order as "表示順"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Employee_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									emp_id as "社員ID"
+									emp_no as "社員番号"
+									emp_name as "氏名"
+									emp_kana as "フリガナ"
+									email as "メール"
+									dept_name as "所属"
+									title as "役職"
+									manager_id as "上長ID"
+									manager_name as "上長名"
+									roles as "権限（カンマ区切り）"
+									join_date as "入社日"
+									leave_balance as "有給残日数"
+									deputy_id as "代理人ID"
+									deputy_from as "代理開始日"
+									deputy_to as "代理終了日"
+									is_active as "在籍（true/false）"
+									admin_pass as "管理者パスワード（ハッシュ）"
+									admin_salt as "管理者パスワード（ソルト）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									emp_id as "社員ID"
+									emp_no as "社員番号"
+									emp_name as "氏名"
+									emp_kana as "フリガナ"
+									email as "メール"
+									dept_name as "所属"
+									title as "役職"
+									manager_id as "上長ID"
+									manager_name as "上長名"
+									roles as "権限（カンマ区切り）"
+									join_date as "入社日"
+									leave_balance as "有給残日数"
+									deputy_id as "代理人ID"
+									deputy_from as "代理開始日"
+									deputy_to as "代理終了日"
+									is_active as "在籍（true/false）"
+									admin_pass as "管理者パスワード（ハッシュ）"
+									admin_salt as "管理者パスワード（ソルト）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Vendor_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									vendor_id as "取引先ID"
+									vendor_code as "取引先コード"
+									vendor_name as "取引先名"
+									invoice_reg_no as "登録番号"
+									is_qualified as "適格事業者（true/false）"
+									payment_terms as "支払条件"
+									is_new as "新規取引先（true/false）"
+									first_traded_on as "初回取引日"
+									note as "備考"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									vendor_id as "取引先ID"
+									vendor_code as "取引先コード"
+									vendor_name as "取引先名"
+									invoice_reg_no as "登録番号"
+									is_qualified as "適格事業者（true/false）"
+									payment_terms as "支払条件"
+									is_new as "新規取引先（true/false）"
+									first_traded_on as "初回取引日"
+									note as "備考"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Account_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									account_id as "科目ID"
+									account_code as "科目コード"
+									account_name as "勘定科目"
+									tax_category as "既定税区分"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									account_id as "科目ID"
+									account_code as "科目コード"
+									account_name as "勘定科目"
+									tax_category as "既定税区分"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Type_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									type_code as "区分コード"
+									type_name as "申請名"
+									category as "カテゴリ"
+									icon as "アイコン"
+									description as "説明"
+									field_schema as "項目定義（JSON）"
+									route_rule as "経路定義（JSON）"
+									sensitivity as "機微度"
+									sort_order as "表示順"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									type_code as "区分コード"
+									type_name as "申請名"
+									category as "カテゴリ"
+									icon as "アイコン"
+									description as "説明"
+									field_schema as "項目定義（JSON）"
+									route_rule as "経路定義（JSON）"
+									sensitivity as "機微度"
+									sort_order as "表示順"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Request_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									request_no as "申請番号"
+									type_code as "区分コード"
+									type_name as "申請区分"
+									subject as "件名"
+									applicant_id as "申請者ID"
+									applicant_name as "申請者"
+									applicant_dept as "申請者所属"
+									amount as "金額"
+									status as "ステータス"
+									applied_on as "申請日時"
+									completed_on as "完了日時"
+									current_step as "現在ステップ"
+									route_json as "承認経路（JSON）"
+									form_data_json as "入力値（JSON）"
+									payment_due as "支払期日"
+									paid as "支払済（true/false）"
+									journal_exported as "仕訳出力済（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									request_no as "申請番号"
+									type_code as "区分コード"
+									type_name as "申請区分"
+									subject as "件名"
+									applicant_id as "申請者ID"
+									applicant_name as "申請者"
+									applicant_dept as "申請者所属"
+									amount as "金額"
+									status as "ステータス"
+									applied_on as "申請日時"
+									completed_on as "完了日時"
+									current_step as "現在ステップ"
+									route_json as "承認経路（JSON）"
+									form_data_json as "入力値（JSON）"
+									payment_due as "支払期日"
+									paid as "支払済（true/false）"
+									journal_exported as "仕訳出力済（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Line_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									request_id as "申請ID"
+									request_no as "申請番号"
+									line_no as "行番号"
+									line_date as "取引年月日"
+									account_name as "勘定科目"
+									vendor_name as "取引先"
+									description as "摘要"
+									qty as "数量"
+									unit_price as "単価"
+									amount as "取引金額"
+									tax_rate as "税区分"
+									tax_amount as "消費税額"
+									invoice_no as "登録番号"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									request_id as "申請ID"
+									request_no as "申請番号"
+									line_no as "行番号"
+									line_date as "取引年月日"
+									account_name as "勘定科目"
+									vendor_name as "取引先"
+									description as "摘要"
+									qty as "数量"
+									unit_price as "単価"
+									amount as "取引金額"
+									tax_rate as "税区分"
+									tax_amount as "消費税額"
+									invoice_no as "登録番号"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Approval_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									request_id as "申請ID"
+									request_no as "申請番号"
+									step_no as "ステップ番号"
+									step_name as "ステップ名"
+									step_type as "種別"
+									approver_id as "承認者ID"
+									approver_name as "承認者"
+									acted_by_id as "処理者ID"
+									acted_by_name as "処理者"
+									action as "処理"
+									comment as "コメント"
+									due_date as "期限"
+									acted_on as "処理日時"
+									is_delegate as "代理承認（true/false）"
+									started_on as "この段に回ってきた日時"
+									required_count as "可決に必要な人数"
+									escalate_mode as "期限超過時の扱い"
+									escalate_days as "超過とみなす日数"
+									escalated_at as "エスカレーション日時"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									request_id as "申請ID"
+									request_no as "申請番号"
+									step_no as "ステップ番号"
+									step_name as "ステップ名"
+									step_type as "種別"
+									approver_id as "承認者ID"
+									approver_name as "承認者"
+									acted_by_id as "処理者ID"
+									acted_by_name as "処理者"
+									action as "処理"
+									comment as "コメント"
+									due_date as "期限"
+									acted_on as "処理日時"
+									is_delegate as "代理承認（true/false）"
+									started_on as "この段に回ってきた日時"
+									required_count as "可決に必要な人数"
+									escalate_mode as "期限超過時の扱い"
+									escalate_days as "超過とみなす日数"
+									escalated_at as "エスカレーション日時"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Access_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									log_time as "日時"
+									session_id as "セッションID"
+									actor_id as "操作者ID"
+									actor_name as "操作者"
+									actor_dept as "操作者所属"
+									actor_role as "操作者権限"
+									login_user as "ログインID"
+									action as "操作"
+									target_type as "対象種別"
+									target_id as "対象ID"
+									target_no as "対象申請番号"
+									target_subject as "対象件名"
+									type_code as "申請区分"
+									sensitivity as "機微度"
+									owner_dept as "申請の所有部署"
+									cross_dept as "他部署からの閲覧（true/false）"
+									result_count as "結果件数"
+									duration_sec as "滞在秒数"
+									detail as "備考"
+									user_agent as "端末情報"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									log_time as "日時"
+									session_id as "セッションID"
+									actor_id as "操作者ID"
+									actor_name as "操作者"
+									actor_dept as "操作者所属"
+									actor_role as "操作者権限"
+									login_user as "ログインID"
+									action as "操作"
+									target_type as "対象種別"
+									target_id as "対象ID"
+									target_no as "対象申請番号"
+									target_subject as "対象件名"
+									type_code as "申請区分"
+									sensitivity as "機微度"
+									owner_dept as "申請の所有部署"
+									cross_dept as "他部署からの閲覧（true/false）"
+									result_count as "結果件数"
+									duration_sec as "滞在秒数"
+									detail as "備考"
+									user_agent as "端末情報"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Audit_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									log_time as "日時"
+									user_id as "操作者ID"
+									user_name as "操作者"
+									action_type as "操作種別"
+									target_type as "対象種別"
+									target_id as "対象ID"
+									detail as "内容"
+									session_id as "セッションID"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									log_time as "日時"
+									user_id as "操作者ID"
+									user_name as "操作者"
+									action_type as "操作種別"
+									target_type as "対象種別"
+									target_id as "対象ID"
+									detail as "内容"
+									session_id as "セッションID"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_File_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									file_key as "ファイルキー"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									file_name as "ファイル名"
+									mime_type as "種別"
+									file_size as "サイズ（バイト）"
+									trade_date as "取引年月日"
+									trade_amount as "取引金額"
+									trade_partner as "取引先"
+									chunk_index as "分割番号"
+									chunk_total as "分割総数"
+									data_base64 as "本体（base64／分割）"
+									uploaded_by as "登録者ID"
+									uploaded_by_name as "登録者"
+									uploaded_at as "登録日時"
+									deleted as "削除（true/false）"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									file_key as "ファイルキー"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									file_name as "ファイル名"
+									mime_type as "種別"
+									file_size as "サイズ（バイト）"
+									trade_date as "取引年月日"
+									trade_amount as "取引金額"
+									trade_partner as "取引先"
+									chunk_index as "分割番号"
+									chunk_total as "分割総数"
+									data_base64 as "本体（base64／分割）"
+									uploaded_by as "登録者ID"
+									uploaded_by_name as "登録者"
+									uploaded_at as "登録日時"
+									deleted as "削除（true/false）"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Wf_Notify_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									to_user_id as "宛先ID"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									kind as "種別"
+									message as "本文"
+									is_read as "既読（true/false）"
+									created_time as "作成日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									to_user_id as "宛先ID"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									kind as "種別"
+									message as "本文"
+									is_read as "既読（true/false）"
+									created_time as "作成日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+		}
+		menu
+		{
+			space Space
+			{
+				displayname = "Space"
+				icon = "objects-spaceship"
+				section Section_Wf
+				{
+					displayname = "社内申請システム"
+					icon = "files-paper"
+					page Wf_Console
+					{
+						icon = "tech-desktop"
+					}
+					report Wf_Dept_Report
+					{
+						icon = "business-bank"
+					}
+					report Wf_Employee_Report
+					{
+						icon = "users-multiple-11"
+					}
+					report Wf_Vendor_Report
+					{
+						icon = "business-briefcase-24"
+					}
+					report Wf_Account_Report
+					{
+						icon = "business-money-coins"
+					}
+					report Wf_Type_Report
+					{
+						icon = "design-todo"
+					}
+					report Wf_Request_Report
+					{
+						icon = "files-paper"
+					}
+					report Wf_Line_Report
+					{
+						icon = "design-todo"
+					}
+					report Wf_Approval_Report
+					{
+						icon = "ui-1-check"
+					}
+					report Wf_Access_Report
+					{
+						icon = "ui-1-eye"
+					}
+					report Wf_Audit_Report
+					{
+						icon = "files-archive"
+					}
+					report Wf_File_Report
+					{
+						icon = "files-paper"
+					}
+					report Wf_Notify_Report
+					{
+						icon = "ui-1-email-85"
+					}
+					form Wf_Dept_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Employee_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Vendor_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Account_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Type_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Request_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Line_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Approval_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Access_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Audit_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_File_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_Notify_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+				}
+				section ZC_App_Preferences
+				{
+					displayname = "App Preferences"
+					icon = "design-app"
+					systemcomponent
+					{
+						type = localization
+						displayname = "Language Selection"
+						icon = "education-language"
+					}
+				}
+			}
+			preference
+			{
+				icon
+				{
+					style = solid
+					show = {space,section,component}
+				}
+			}
+		}
+		customize
+		{
+			new theme = 4
+			font = "lato"
+			color options
+			{
+				color = "2"
+			}
+			logo
+			{
+				preference = "none"
+				placement = "left"
+			}
+		}
+	}
+	phone
+	{
+		forms
+		{
+			form Wf_Dept_Form
+			{
+				label placement = auto
+			}
+			form Wf_Employee_Form
+			{
+				label placement = auto
+			}
+			form Wf_Vendor_Form
+			{
+				label placement = auto
+			}
+			form Wf_Account_Form
+			{
+				label placement = auto
+			}
+			form Wf_Type_Form
+			{
+				label placement = auto
+			}
+			form Wf_Request_Form
+			{
+				label placement = auto
+			}
+			form Wf_Line_Form
+			{
+				label placement = auto
+			}
+			form Wf_Approval_Form
+			{
+				label placement = auto
+			}
+			form Wf_Access_Form
+			{
+				label placement = auto
+			}
+			form Wf_Audit_Form
+			{
+				label placement = auto
+			}
+			form Wf_File_Form
+			{
+				label placement = auto
+			}
+			form Wf_Notify_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	tablet
+	{
+		forms
+		{
+			form Wf_Dept_Form
+			{
+				label placement = auto
+			}
+			form Wf_Employee_Form
+			{
+				label placement = auto
+			}
+			form Wf_Vendor_Form
+			{
+				label placement = auto
+			}
+			form Wf_Account_Form
+			{
+				label placement = auto
+			}
+			form Wf_Type_Form
+			{
+				label placement = auto
+			}
+			form Wf_Request_Form
+			{
+				label placement = auto
+			}
+			form Wf_Line_Form
+			{
+				label placement = auto
+			}
+			form Wf_Approval_Form
+			{
+				label placement = auto
+			}
+			form Wf_Access_Form
+			{
+				label placement = auto
+			}
+			form Wf_Audit_Form
+			{
+				label placement = auto
+			}
+			form Wf_File_Form
+			{
+				label placement = auto
+			}
+			form Wf_Notify_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	translation
+	{
+		{"Language_Settings":{"LANGAGUE_WITH_LOGIN":"browser"}}
+	}
+}
