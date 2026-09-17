@@ -706,10 +706,13 @@ kbd{
 }
 .opt-s:hover{background:var(--surface-2);}
 .opt-s.on{border-color:var(--acc);background:var(--acc-soft);font-weight:700;}
-.opt-s input{
+.opt-s input[type="radio"],.opt-s input[type="checkbox"]{
   /* .field input{width:100%} に巻き込まれて丸が横に伸びていたので、ここで戻す */
   accent-color:var(--acc);width:18px;height:18px;flex:none;
 }
+/* 選択肢の文字を直す欄。上の18pxに巻き込まれて1文字ぶんの幅しか無く、
+   編集できないように見えていた */
+.opt-s .opt-t{flex:1;min-width:0;width:auto;font-size:13px;font-weight:inherit;}
 .two-c{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;}
 /* 配信設定 */
 .asg-box{margin-bottom:16px;}
@@ -5470,7 +5473,8 @@ function viewACEdit(courseId){
         h += '<label class="opt-s' + (q.a === j ? ' on' : '') + '" style="margin-bottom:7px">' +
              '<input type="radio" name="qa' + i + '" data-qa="' + i + '|' + j + '"' +
              (q.a === j ? ' checked' : '') + '>' +
-             '<input class="inp" data-qc="' + i + '|' + j + '" value="' + esc(c || '') +
+             '<input class="inp opt-t" type="text" data-qc="' + i + '|' + j +
+             '" value="' + esc(c || '') +
              '" placeholder="選択肢' + (j+1) + '" style="border:none;background:none;padding:4px 0">' +
              '</label>';
       });
