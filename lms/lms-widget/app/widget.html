@@ -444,8 +444,7 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
    ══════════════════════════════════════════════════════════════ */
 .gate{
   min-height:100vh;position:relative;overflow:hidden;
-  display:grid;grid-template-columns:minmax(340px,620px) minmax(0,1fr);
-  align-items:start;column-gap:clamp(24px,4vw,64px);
+  display:grid;place-content:center;justify-items:center;
   padding:18px clamp(18px,4vw,56px) 20px;
   /* 明るいオフィスの写真が無いときの、淡い背景 */
   background:
@@ -455,7 +454,7 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   color:#1c2b38;
 }
 /* 左の列：ロゴ・タイトル・板・使い方 */
-.gate-l{position:relative;display:grid;justify-items:center;gap:0;width:100%;}
+.gate-l{position:relative;display:grid;justify-items:center;gap:0;width:min(560px,100%);}
 .gate-logo{
   display:inline-flex;align-items:center;justify-content:center;
   background:#fff;border-radius:14px;padding:9px 22px;
@@ -478,7 +477,10 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   text-shadow:0 1px 8px rgba(10,40,90,.55);}
 .gate-catch-sub{margin-top:6px;font-size:13px;letter-spacing:.06em;color:#fff;line-height:1.8;text-align:center;text-shadow:0 1px 8px rgba(10,40,90,.55);}
 /* 右の列：大きな言葉と、右下の一言 */
-.gate-r{position:relative;min-height:calc(100vh - 48px);display:grid;align-content:center;justify-items:start;padding:40px 0 60px 24px;}
+.gate-r{
+  position:absolute;top:50%;left:50%;margin-left:320px;right:clamp(18px,4vw,56px);
+  transform:translateY(-50%);display:grid;justify-items:start;
+}
 .gate-copy h2{
   font-family:"Noto Serif JP","Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;
   font-size:clamp(28px,3.3vw,48px);line-height:1.55;letter-spacing:.08em;font-weight:500;color:#1b3a6b;margin:0;
@@ -490,13 +492,11 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   font-size:clamp(15px,1.4vw,20px);letter-spacing:.12em;color:#1b3a6b;margin:0;line-height:2;
 }
 .gate-script{margin-top:22px;font-size:11.5px;letter-spacing:.32em;color:#4a6a90;line-height:2;text-transform:uppercase;}
-.gate-tag{position:absolute;right:0;bottom:24px;text-align:right;color:#1b3a6b;font-size:15px;letter-spacing:.16em;font-weight:500;
+.gate-tag{margin-top:34px;justify-self:end;text-align:right;color:#1b3a6b;font-size:15px;letter-spacing:.16em;font-weight:500;
   display:flex;align-items:center;gap:12px;}
 .gate-tag::after{content:"";display:block;width:36px;height:1.5px;background:#1b3a6b;}
 .gate-tag small{display:block;font-size:11px;letter-spacing:.14em;color:#4a6a90;margin-top:3px;}
-@media (max-width:980px){
-  .gate{grid-template-columns:1fr;justify-items:center;}
-  .gate-l{max-width:620px;}
+@media (max-width:1400px){
   .gate-r{display:none;}
 }
 .hero{position:absolute;inset:0;}
@@ -508,8 +508,8 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .hero-veil{
   position:absolute;inset:0;
   background:
-    linear-gradient(90deg,rgba(18,64,150,.62) 0%,rgba(24,80,170,.42) 34%,rgba(40,110,200,.10) 55%,rgba(255,255,255,0) 70%),
-    linear-gradient(180deg,rgba(255,255,255,.10) 0%,rgba(255,255,255,0) 50%,rgba(255,255,255,.22) 100%);
+    radial-gradient(ellipse 46% 78% at 50% 48%,rgba(14,52,130,.55) 0%,rgba(14,52,130,.34) 58%,rgba(14,52,130,0) 100%),
+    linear-gradient(180deg,rgba(255,255,255,.10) 0%,rgba(255,255,255,0) 50%,rgba(255,255,255,.18) 100%);
 }
 .brand{display:inline-block;margin-bottom:6px;}
 .logo-set{display:inline-flex;align-items:center;gap:11px;}
@@ -652,6 +652,27 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .hbox p b{display:inline;font-size:inherit;color:var(--kaki);}
 .hbox .btn{margin-top:12px;}
 
+/* Creator の枠は縦が短いことがある（800px 前後）。切れないように詰める */
+@media (max-height:900px){
+  .gate{padding:10px clamp(16px,3vw,40px) 12px;}
+  .gate-logo{padding:6px 18px;}
+  .wordmark{margin-top:5px;font-size:clamp(34px,3.6vw,46px);}
+  .wordsub{margin-top:4px;font-size:13px;}
+  .wordsub-rule{margin-top:4px;}
+  .gate-catch{margin-top:4px;font-size:15px;}
+  .gate-catch-sub{margin-top:4px;}
+  .gate-card{margin-top:8px;padding:12px 22px 10px;}
+  .glab{margin:7px 0 4px;}
+  .gpill{min-height:42px;padding:8px 13px;}
+  .gate-apps{gap:7px;margin-top:9px;}
+  .gate-app{padding:7px 10px;}
+  .gate-app .hub-i{width:48px;height:48px;border-radius:14px;}
+  .gate-app .hub-i .ic{font-size:26px;}
+  .gate-app b{font-size:18px;}
+  .cardnote{margin-top:8px;}
+  .gate-adm{margin-top:7px;padding-top:6px;}
+  .gate-help{margin-top:8px;}
+}
 @media (max-width:640px){
   .gate{padding:20px 16px 24px;}
   .gate-logo{padding:9px 18px;}
@@ -665,7 +686,7 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   .gate-app{gap:12px;padding:10px 10px 10px 12px;border-radius:16px;}
   .gate-app .hub-i{width:50px;height:50px;border-radius:14px;}
   .gate-app .hub-i .ic{font-size:26px;}
-  .gate-app b{font-size:17px;}
+  .gate-app b{font-size:18px;}
   .gate-app .hub-s{font-size:12px;}
   .gate-app .arrow{width:32px;height:32px;}
   .gate-card .two{grid-template-columns:1fr;}
