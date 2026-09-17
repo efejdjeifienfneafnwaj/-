@@ -4169,8 +4169,8 @@ function viewThanks(){
     h += '<div class="cat">' + ic('chart') + 'よく贈られている方</div>';
     h += '<div class="card pad" style="margin-bottom:18px"><div class="rolelist">';
     rank.slice(0, 5).forEach(function(r, i){
-      h += '<div class="rolerow"><span class="ce-no">' + (i+1) + '</span>' +
-           '<span>' + esc(r.name) + '</span>' +
+      h += '<div class="rolerow"><span class="ce-no" style="flex:none">' + (i+1) + '</span>' +
+           '<span style="flex:1">' + esc(r.name) + '</span>' +
            '<b class="mono">' + r.n + '枚</b></div>';
     });
     h += '</div></div>';
