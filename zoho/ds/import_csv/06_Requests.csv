@@ -1,0 +1,3 @@
+﻿Request_No,Request_Type,Type_Code,Subject,Applicant,Applicant_Dept,Amount,Status,Applied_On,Completed_On,Current_Step,Route_JSON,Form_Data_JSON,Payment_Due_Date,Paid,Journal_Exported
+サンプル1,参照先1,サンプル1,サンプル1,参照先1,サンプル1,100000,下書き,2026-09-01 09:00:00,2026-09-01 09:00:00,1,{},{},2026-09-01,true,true
+サンプル2,参照先2,サンプル2,サンプル2,参照先2,サンプル2,250000,申請中,2026-09-15 14:30:00,2026-09-15 14:30:00,2,{},{},2026-09-15,false,false

@@ -1,0 +1,25 @@
+application Probe_Two
+{
+	displayname = "Probe Two"
+	form Master_Form
+	{
+		displayname = "Master Form"
+		Code_Field = textfield
+		Name_Field = textfield
+	}
+	form Detail_Form
+	{
+		displayname = "Detail Form"
+		Title_Field = textfield
+		Note_Field = textarea
+		Start_Date = date
+		Start_Time = datetime
+		Qty_Field = number
+		Rate_Field = decimal
+		Amount_Field = currency
+		Mail_Field = emailfield
+		Flag_Field = checkbox
+		Status_Field = picklist("Draft","Active","Closed")
+		Master_Link = lookup(Master_Form)
+	}
+}

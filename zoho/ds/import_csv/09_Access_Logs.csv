@@ -1,0 +1,3 @@
+﻿Log_Time,Session_ID,Actor,Actor_Name,Actor_Dept,Actor_Role,Login_User,Action,Target_Type,Target_ID,Target_No,Target_Subject,Request_Type_Code,Sensitivity,Owner_Dept,Cross_Dept,Result_Count,Duration_Sec,Detail,User_Agent
+2026-09-01 09:00:00,サンプル1,参照先1,サンプル1,サンプル1,サンプル1,サンプル1,詳細閲覧,サンプル1,サンプル1,サンプル1,サンプル1,サンプル1,S,サンプル1,true,1,1,サンプルテキスト,サンプル1
+2026-09-15 14:30:00,サンプル2,参照先2,サンプル2,サンプル2,サンプル2,サンプル2,一覧閲覧,サンプル2,サンプル2,サンプル2,サンプル2,サンプル2,A,サンプル2,false,2,2,サンプルテキスト2,サンプル2

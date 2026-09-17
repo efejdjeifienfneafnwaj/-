@@ -1,0 +1,3 @@
+﻿Employee_ID,Employee_Name,Employee_Kana,Email,Department,Title,Manager,Roles,Join_Date,Paid_Leave_Balance,Deputy,Deputy_From,Deputy_To,Is_Active
+サンプル1,サンプル1,サンプル1,sample1@example.co.jp,参照先1,社長,参照先1,申請者,2026-09-01,1.5,参照先1,2026-09-01,2026-09-01,true
+サンプル2,サンプル2,サンプル2,sample2@example.co.jp,参照先2,本部長,参照先2,承認者,2026-09-15,2.0,参照先2,2026-09-15,2026-09-15,false
