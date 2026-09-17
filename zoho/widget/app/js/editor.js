@@ -424,7 +424,8 @@ var RouteEditor = (function () {
           return '<tr><td class="nowrap">' + E(x.emp.Employee_Name) + '</td>' +
             '<td class="nowrap">' + E(x.emp.Department_name || '（未設定）') + '／' + E(x.emp.Title || '（未設定）') + '</td>' +
             '<td><span class="badge ' + cls + '">' + E(x.p.kind) + '</span> ' + E(x.p.detail) + '</td>' +
-            '<td class="nowrap">' + E(remedy(x)) + '</td></tr>';
+            '<td class="nowrap">' + E(remedy(x)) +
+            '<button class="btn btn-sm" data-fix="' + E(x.emp.ID) + '" style="margin-left:6px">この人を直す</button></td></tr>';
         }).join('') + '</tbody></table></div>';
     }
 
@@ -758,7 +759,13 @@ var RouteEditor = (function () {
           st.loadedFor = null; App.refresh();
         }
         else if (a === 'runtest') { runTest(el); }
-        else if (a === 'diagnose') { diagnose(el); }
+        else if (a === 'diagnose') {
+          diagnose(el);
+          /* 診断結果からその場で社員マスタを開けるようにする */
+          el.querySelectorAll('[data-fix]').forEach(function (f) {
+            f.addEventListener('click', function () { Masters.openForm('Employees', f.dataset.fix); });
+          });
+        }
         else if (a === 'save') { save(); }
       });
     });

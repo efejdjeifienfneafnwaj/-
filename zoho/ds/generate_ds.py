@@ -34,7 +34,8 @@ FORMS = [
     ('Wf_Vendor_Form', '【システム用】取引先マスタ', [
         ('vendor_id', '取引先ID', T), ('vendor_code', '取引先コード', T), ('vendor_name', '取引先名', T),
         ('invoice_reg_no', '登録番号', T), ('is_qualified', '適格事業者（true/false）', T),
-        ('payment_terms', '支払条件', T), ('updated_at', '更新日時', T),
+        ('payment_terms', '支払条件', T), ('is_new', '新規取引先（true/false）', T),
+        ('first_traded_on', '初回取引日', T), ('note', '備考', T), ('updated_at', '更新日時', T),
     ]),
     ('Wf_Account_Form', '【システム用】勘定科目マスタ', [
         ('account_id', '科目ID', T), ('account_code', '科目コード', T), ('account_name', '勘定科目', T),

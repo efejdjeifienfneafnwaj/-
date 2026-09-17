@@ -55,7 +55,8 @@ var CFG = {
                    Is_Active: 'is_active' },
     Vendors:     { Vendor_Key: 'vendor_id', Vendor_Code: 'vendor_code', Vendor_Name: 'vendor_name',
                    Invoice_Reg_No: 'invoice_reg_no', Is_Qualified: 'is_qualified',
-                   Payment_Terms: 'payment_terms' },
+                   Payment_Terms: 'payment_terms', Is_New: 'is_new',
+                   First_Traded_On: 'first_traded_on', Note: 'note' },
     Accounts:    { Account_Key: 'account_id', Account_Code: 'account_code',
                    Account_Name: 'account_name', Tax_Category: 'tax_category', Is_Active: 'is_active' },
     RequestTypes:{ Type_Code: 'type_code', Type_Name: 'type_name', Category: 'category', Icon: 'icon',
@@ -119,7 +120,7 @@ var CFG = {
   },
 
   /* 文字列 "true"/"false" で保存される真偽項目（読み込み時に真偽値へ戻す） */
-  BOOL_FIELDS: ['Is_Active', 'Is_Qualified', 'Is_Read', 'Is_Delegate', 'Cross_Dept', 'Paid', 'Journal_Exported', 'Deleted'],
+  BOOL_FIELDS: ['Is_Active', 'Is_Qualified', 'Is_Read', 'Is_Delegate', 'Cross_Dept', 'Paid', 'Journal_Exported', 'Deleted', 'Is_New'],
 
   /* 公開済み Deluge 関数を使う場合の API 名（未公開なら widget 側の workflow.js が計算） */
   CUSTOM_API: { calcRoute: 'calc_route', actOnStep: 'act_on_step', writeAccessLog: 'write_access_log' },

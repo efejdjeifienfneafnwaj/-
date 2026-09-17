@@ -194,7 +194,7 @@ var App = (function () {
     { group: '管理' },
     { key: 'finance', label: '経理処理', ico: '💴', roles: ['経理', '管理者'] },
     { key: 'routes', label: '承認経路の設定', ico: '🧭', roles: ['管理者'] },
-    { key: 'admin', label: '設定・マスタ', ico: '⚙️', roles: ['管理者'] }
+    { key: 'admin', label: '設定・マスタ', ico: '⚙️', roles: ['管理者', '人事', '経理'] }
   ];
   function renderNav() {
     var pending = 0;

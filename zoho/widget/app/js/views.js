@@ -1268,35 +1268,31 @@ var Views = (function () {
    * 設定・マスタ
    * ===================================================================== */
   function admin(el) {
+    var tab = App.param('tab') || 'Employees';
+    /* 社員・部署・取引先・勘定科目は編集できる画面（masters.js）に委譲する。
+       運用設定とテンプレート一覧だけここで描く。 */
+    if (Masters.DEFS[tab]) { Masters.render(el, tab, App.param('focus')); return; }
     if (!Perm.isAdmin(me())) {
       Access.denied('管理設定', '権限なし');
       el.innerHTML = pageHead('設定') + UI.empty('🔒', 'この画面を開く権限がありません', 'アクセス拒否として証跡に記録しました');
       return;
     }
-    var tab = App.param('tab') || 'emp';
-    el.innerHTML = pageHead('設定・マスタ管理', 'ユーザー・部署・取引先・勘定科目・テンプレート・運用設定') +
+    el.innerHTML = pageHead('設定・マスタ', '承認経路の前提になる情報です。変更はすべて操作証跡に残ります。') +
       '<div class="tabs">' +
-      [['emp', '社員'], ['dept', '部署'], ['vendor', '取引先'], ['acc', '勘定科目'], ['tpl', 'テンプレート'], ['sys', '運用設定']]
-        .map(function (t) { return '<button class="tab' + (tab === t[0] ? ' active' : '') + '" data-tab="' + t[0] + '">' + t[1] + '</button>'; }).join('') +
+      Object.keys(Masters.DEFS).map(function (k) {
+        return '<button class="tab" data-mtab="' + k + '">' + Masters.DEFS[k].icon + ' ' + E(Masters.DEFS[k].label) +
+          '<span class="n">' + Masters.DEFS[k].list().length + '</span></button>';
+      }).join('') +
+      '<button class="tab' + (tab === 'tpl' ? ' active' : '') + '" data-mtab="tpl">📄 申請テンプレート</button>' +
+      '<button class="tab' + (tab === '__other' ? ' active' : '') + '" data-mtab="__other">⚙️ 運用設定</button>' +
       '</div><div class="card" id="abody"></div>';
     var b = el.querySelector('#abody');
-    if (tab === 'emp') b.innerHTML = simpleTable(['社員番号', '氏名', '役職', '所属', '上長', '権限', '代理人'], S().employees.map(function (e) {
-      return [e.Employee_ID, e.Employee_Name, e.Title, e.Department_name, empName(e.Manager), (e.Roles || []).join('・'), e.Deputy ? empName(e.Deputy) + '（' + String(e.Deputy_From).slice(0, 10) + '〜' + String(e.Deputy_To).slice(0, 10) + '）' : ''];
-    }));
-    else if (tab === 'dept') b.innerHTML = simpleTable(['コード', '部署名', '上位部署'], S().departments.map(function (d) {
-      var p = S().departments.filter(function (x) { return x.ID === d.Parent_Department; })[0];
-      return [d.Department_Code, d.Department_Name, p ? p.Department_Name : '—'];
-    }));
-    else if (tab === 'vendor') b.innerHTML = simpleTable(['コード', '取引先', '登録番号', '適格請求書'], S().vendors.map(function (v) {
-      return [v.Vendor_Code, v.Vendor_Name, v.Invoice_Reg_No || '—', v.Is_Qualified ? '○' : '×（控除対象外）'];
-    }));
-    else if (tab === 'acc') b.innerHTML = simpleTable(['コード', '勘定科目', '既定税区分'], S().accounts.map(function (a) { return [a.Account_Code, a.Account_Name, a.Tax_Category]; }));
-    else if (tab === 'tpl') b.innerHTML = tplAdmin();
-    else b.innerHTML = sysAdmin();
-    el.querySelectorAll('[data-tab]').forEach(function (x) { x.addEventListener('click', function () { App.go('admin?tab=' + x.dataset.tab); }); });
+    if (tab === 'tpl') b.innerHTML = tplAdmin(); else b.innerHTML = sysAdmin();
+    el.querySelectorAll('[data-mtab]').forEach(function (x) { x.addEventListener('click', function () { App.go('admin?tab=' + x.dataset.mtab); }); });
     bindSys(b);
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '管理設定', detail: 'タブ：' + tab });
   }
+
   function simpleTable(headers, rows) {
     return '<div class="table-wrap"><table class="tbl"><thead><tr>' + headers.map(function (h) { return '<th>' + E(h) + '</th>'; }).join('') +
       '</tr></thead><tbody>' + rows.map(function (r) {

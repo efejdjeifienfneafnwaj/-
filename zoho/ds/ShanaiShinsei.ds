@@ -346,6 +346,30 @@ application "社内申請システム"
 				column = 1
 				width = medium
 			)
+			is_new
+			(
+				type = text
+				displayname = "新規取引先（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			first_traded_on
+			(
+				type = text
+				displayname = "初回取引日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			note
+			(
+				type = text
+				displayname = "備考"
+				row = 1
+				column = 1
+				width = medium
+			)
 			updated_at
 			(
 				type = text
@@ -1774,6 +1798,9 @@ application "社内申請システム"
 				invoice_reg_no as "登録番号"
 				is_qualified as "適格事業者（true/false）"
 				payment_terms as "支払条件"
+				is_new as "新規取引先（true/false）"
+				first_traded_on as "初回取引日"
+				note as "備考"
 				updated_at as "更新日時"
 			)
 		}
@@ -2256,6 +2283,9 @@ application "社内申請システム"
 									invoice_reg_no as "登録番号"
 									is_qualified as "適格事業者（true/false）"
 									payment_terms as "支払条件"
+									is_new as "新規取引先（true/false）"
+									first_traded_on as "初回取引日"
+									note as "備考"
 									updated_at as "更新日時"
 							)
 						)
@@ -2303,6 +2333,9 @@ application "社内申請システム"
 									invoice_reg_no as "登録番号"
 									is_qualified as "適格事業者（true/false）"
 									payment_terms as "支払条件"
+									is_new as "新規取引先（true/false）"
+									first_traded_on as "初回取引日"
+									note as "備考"
 									updated_at as "更新日時"
 							)
 						)
