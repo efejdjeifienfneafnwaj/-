@@ -1,0 +1,13 @@
+{
+  "service": "CREATOR",
+  "cspDomains": {
+    "connect-src": ["https://www.youtube.com", "https://i.ytimg.com", "https://img.youtube.com"],
+    "script-src": ["https://www.youtube.com", "https://s.ytimg.com"],
+    "frame-src": ["https://www.youtube.com", "https://www.youtube-nocookie.com"],
+    "img-src": ["https://i.ytimg.com", "https://img.youtube.com"],
+    "media-src": ["https://www.youtube.com"],
+    "style-src": ["https://fonts.googleapis.com"],
+    "font-src": ["https://fonts.gstatic.com"]
+  },
+  "config": []
+}
