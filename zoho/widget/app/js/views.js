@@ -73,7 +73,6 @@ var Views = (function () {
     }).sort(function (a, b) { return new Date(b.Log_Time) - new Date(a.Log_Time); }).slice(0, 6);
 
     var html = pageHead('ダッシュボード', me().Employee_Name + ' さん（' + (me().Department_name || '') + '／' + me().Title + '）の状況', '');
-    if (Perm.isAdmin(me())) html += Setup.progressCard();
     html += '<div class="grid kpi-grid" style="margin-bottom:14px">' +
       kpi('承認待ち（あなたの処理）', pending.length + ' 件', pending.length ? '今すぐ処理が必要です' : '未処理はありません', pending.length > 0) +
       kpi('差戻し', sentback.length + ' 件', '修正して再申請してください') +
@@ -100,6 +99,8 @@ var Views = (function () {
       '<span class="tag" style="margin-left:auto">閲覧証跡</span></div>' +
       '<div class="card-body" style="padding:0">' + viewerList(viewsOnMine) + '</div></div>' +
       '</div>';
+    /* セットアップの案内は毎日見るものではないので、いちばん下に置く */
+    if (Perm.isAdmin(me())) html += Setup.progressCard();
 
     el.innerHTML = html;
     el.querySelectorAll('[data-go]').forEach(function (b) { b.addEventListener('click', function () { App.go(b.dataset.go); }); });
@@ -625,17 +626,20 @@ var Views = (function () {
         '<div class="card-body" style="padding-top:0">' +
         requestTable(pending.map(function (x) { return x.req; }), false) + '</div></div>';
     }
+    /* セットアップの案内は、申請と承認より下に置く。
+       毎日開く画面の一番上に手順が居座ると、本来の用事が押し下がる。 */
     var setupCard = (typeof Setup !== 'undefined' && Perm.isAdmin(me())) ? Setup.progressCard() : '';
 
     el.innerHTML = pageHead('マイページ', me().Employee_Name + ' さん（' + (me().Department_name || '所属未設定') + '／' +
       (me().Title || '役職未設定') + '）｜' + Perm.normalizeRoles(me().Roles || [])[0],
       '<button class="btn btn-primary" data-go="new">＋ 新規申請</button>') +
-      setupCard + todo +
+      todo +
       '<div class="card-title" style="margin:4px 0 8px">自分の申請</div>' +
       '<div class="tabs">' + Object.keys(counts).map(function (k) {
         return '<button class="tab' + (k === tab ? ' active' : '') + '" data-tab="' + E(k) + '">' + E(k) + '<span class="n">' + counts[k] + '</span></button>';
       }).join('') + '</div>' +
-      '<div class="card">' + requestTable(shown, true) + '</div>';
+      '<div class="card">' + requestTable(shown, true) + '</div>' +
+      setupCard;
     bindTable(el);
     if (setupCard) Setup.bindProgress(el);
     el.querySelectorAll('[data-tab]').forEach(function (b) { b.addEventListener('click', function () { App.go('mine?tab=' + encodeURIComponent(b.dataset.tab)); }); });

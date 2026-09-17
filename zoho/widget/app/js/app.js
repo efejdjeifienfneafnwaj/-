@@ -95,8 +95,16 @@ var App = (function () {
   /* ---------- データ取得 ---------- */
   function loadAll() {
     var keys = ['Employees', 'Departments', 'Vendors', 'Accounts', 'RequestTypes', 'Requests', 'Approvals', 'AccessLogs', 'Notifications', 'Files'];
+    /* 取得に失敗したものを覚えておく。
+       失敗を「0件」と同じに扱うと、社員マスタが読めなかっただけで
+       「まだ誰も登録されていない」と判断し、初回セットアップをやり直させてしまう。 */
+    state.loadFailed = {};
     return Promise.all(keys.map(function (k) {
-      return DB.list(k).catch(function (e) { console.warn(k + ' の取得に失敗', e); return []; });
+      return DB.list(k).catch(function (e) {
+        console.warn(k + ' の取得に失敗', e);
+        state.loadFailed[k] = (e && e.message) ? e.message : String(e);
+        return [];
+      });
     })).then(function (res) {
       state.employees = res[0]; state.departments = res[1]; state.vendors = res[2]; state.accounts = res[3];
       state.requestTypes = res[4]; state.requests = res[5]; state.approvals = res[6];
@@ -384,6 +392,18 @@ var App = (function () {
       chip.style.color = res.connected ? 'var(--success)' : 'var(--warning)';
       return loadAll();
     }).then(function () {
+      /* 社員マスタそのものが読めなかった場合は、初回セットアップに落とさない。
+         ここで登録させると、すでに登録済みの人がもう一度作られてしまう。 */
+      if (state.loadFailed && state.loadFailed.Employees) {
+        var why = '社員マスタを読み取れませんでした（' + state.loadFailed.Employees + '）。';
+        Access.log(CFG.ACCESS.ACTIONS.DENIED, { targetType: 'アプリ起動', detail: why });
+        document.getElementById('view').innerHTML = UI.empty('🔌', 'データを読み取れませんでした',
+          why + 'このポータルに社員マスタのレポートが共有されているか、システム管理者にご確認ください。' +
+          'この画面では登録を行いません（重複して登録されるのを防ぐため）。');
+        document.getElementById('userSwitch').hidden = true;
+        document.getElementById('nav').innerHTML = '';
+        return;
+      }
       /* 社員が1人もいない＝誰も照合できない。最初の管理者を登録してもらう */
       if (Setup.isFirstRun()) {
         renderUserSwitch();

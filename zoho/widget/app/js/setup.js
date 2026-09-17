@@ -11,15 +11,19 @@ var Setup = (function () {
   var E = UI.esc;
   var S = function () { return App.state; };
 
-  /** 社員が1人もいない＝まだ誰も入れない状態 */
+  /**
+   * 社員が1人もいない＝まだ誰も入れない状態。
+   * 「読み取りに失敗して0件に見えている」ときは初回扱いにしない。
+   * 失敗を初回と取り違えると、登録済みの人がもう一度作られてしまう。
+   */
   function isFirstRun() {
+    if (S().loadFailed && S().loadFailed.Employees) return false;
     return !S().employees || S().employees.length === 0;
   }
 
   /** セットアップの進み具合。保存せず、その時点のデータから毎回判定する */
   function steps() {
     var emps = (S().employees || []).filter(function (e) { return e.Is_Active !== false; });
-    var admins = emps.filter(function (e) { return Perm.normalizeRoles(e.Roles || [])[0] === CFG.ROLE_ADMIN; });
     var me = App.me();
     var selfRegistered = !!(me && me.ID);
     var diag = selfRegistered ? diagnoseAll() : { fatal: 1 };
@@ -37,11 +41,6 @@ var Setup = (function () {
         done: emps.length >= 2,
         detail: emps.length + ' 名',
         hint: '「記入用の様式を書き出す」で出したファイルに記入して、取り込むのが早いです。',
-        go: 'admin?tab=Employees' },
-      { key: 'admin', label: '管理者を2人以上にする',
-        done: admins.length >= 2,
-        detail: admins.length + ' 名（' + admins.slice(0, 3).map(function (e) { return e.Employee_Name; }).join('・') + '）',
-        hint: '1人だけだと、その人が異動・退職した時に誰も設定を変えられなくなります。',
         go: 'admin?tab=Employees' },
       { key: 'acc',   label: '勘定科目を登録する',
         done: (S().accounts || []).length > 0,
@@ -98,6 +97,17 @@ var Setup = (function () {
       '<p>まだ社員が1人も登録されていません。' +
       'いま開いているあなたを、最初の管理者として登録します。</p>' +
       '</div>' +
+      /* 未接続のまま登録しても、その内容は開いている端末の中にしか残らない。
+         ポータルから開いてこの画面が出た場合は、ほぼ接続の問題なので先に知らせる。 */
+      (DB.isConnected() ? '' :
+        '<div class="card" style="border-color:var(--warning);margin-bottom:14px"><div class="card-body">' +
+        '<b>Zoho Creator に接続されていません。</b>' +
+        '<div class="page-sub" style="margin-top:6px">' +
+        'このまま登録しても、内容はこの端末の中にしか残りません（お試し用の動作です）。' +
+        'ポータルから開いていてこの表示が出る場合は、ウィジェットがまだアップロードされていないか、' +
+        'ポータルにレポートが共有されていない可能性があります。' +
+        'すでに管理者を登録済みであれば、この画面で登録し直さず、システム管理者にご確認ください。' +
+        '</div></div></div>') +
       '<div class="card"><div class="card-body">' +
       '<div class="form-grid">' +
       '<div class="field full"><label>メールアドレス</label>' +
@@ -125,7 +135,6 @@ var Setup = (function () {
       '<div class="card-body"><ol class="setup-list">' +
       '<li>部署を登録する</li>' +
       '<li>社員を登録する（記入用の様式を書き出して、記入して、取り込む）</li>' +
-      '<li>管理者を2人以上にする</li>' +
       '<li>勘定科目を登録する（標準の科目をそのまま入れられます）</li>' +
       '<li>承認経路を確かめる（全社員で診断）</li>' +
       '<li>社員をポータルに招待する</li>' +
@@ -152,8 +161,29 @@ var Setup = (function () {
     var btn = el.querySelector('#su_go');
     btn.disabled = true; btn.textContent = '登録しています…';
 
+    /* 書き込む直前に、もう一度社員マスタを読み直す。
+       別の画面やポータルから先に登録されていた場合、ここで気づかないと
+       同じ人が二重に登録され、以後どちらのレコードで照合されるか分からなくなる。 */
+    DB.list('Employees').catch(function () { return null; }).then(function (rows) {
+      if (rows === null) {
+        btn.disabled = false; btn.textContent = 'この内容で始める';
+        UI.toast('社員マスタを確認できませんでした。通信状況を確かめて、もう一度お試しください。', 'error');
+        return null;
+      }
+      if (rows.length) {
+        /* すでに誰かが登録済み。ここでは作らず、通常の本人確認に進む。 */
+        UI.toast('すでに ' + rows.length + ' 名が登録されています。登録はせずに開きます。', 'warn');
+        App.boot();
+        return null;
+      }
+      return createRecords(el, btn, { email: email, name: name, dept: dept, title: title, kana: kana, no: no });
+    });
+  }
+
+  function createRecords(el, btn, v) {
+    var email = v.email, name = v.name, dept = v.dept, title = v.title, kana = v.kana, no = v.no;
     /* 部署 → 社員 の順に作る。社員は部署名で紐づくため */
-    DB.add('Departments', {
+    return DB.add('Departments', {
       Department_Code: 'D001', Department_Name: dept, Parent_Department: '', Sort_Order: 1
     }).then(function (d) {
       S().departments.push(d);
@@ -180,14 +210,14 @@ var Setup = (function () {
   }
 
   /* =======================================================================
-   * ダッシュボードに出す「セットアップの続き」
+   * 画面の下に出す「セットアップの続き」（管理者のみ）
    * ===================================================================== */
   function progressCard() {
     var rest = remaining();
     if (!rest.length) return '';
     var all = steps();
     var doneCount = all.length - rest.length;
-    return '<div class="card" style="margin-bottom:14px;border-color:var(--warning)">' +
+    return '<div class="card" style="margin-top:18px;border-color:var(--border-strong)">' +
       '<div class="card-head"><div class="card-title">セットアップの続き（' + doneCount + '/' + all.length + '）</div>' +
       '<span class="tag" style="margin-left:auto">管理者にのみ表示されます</span></div>' +
       '<div class="table-wrap"><table class="tbl"><tbody>' +
