@@ -1084,6 +1084,30 @@ application "社内申請システム"
 				column = 1
 				width = medium
 			)
+			escalate_mode
+			(
+				type = text
+				displayname = "期限超過時の扱い"
+				row = 1
+				column = 1
+				width = medium
+			)
+			escalate_days
+			(
+				type = number
+				displayname = "超過とみなす日数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			escalated_at
+			(
+				type = text
+				displayname = "エスカレーション日時"
+				row = 1
+				column = 1
+				width = medium
+			)
 			updated_at
 			(
 				type = text
@@ -1851,6 +1875,9 @@ application "社内申請システム"
 				is_delegate as "代理承認（true/false）"
 				started_on as "この段に回ってきた日時"
 				required_count as "可決に必要な人数"
+				escalate_mode as "期限超過時の扱い"
+				escalate_days as "超過とみなす日数"
+				escalated_at as "エスカレーション日時"
 				updated_at as "更新日時"
 			)
 		}
@@ -2681,6 +2708,9 @@ application "社内申請システム"
 									is_delegate as "代理承認（true/false）"
 									started_on as "この段に回ってきた日時"
 									required_count as "可決に必要な人数"
+									escalate_mode as "期限超過時の扱い"
+									escalate_days as "超過とみなす日数"
+									escalated_at as "エスカレーション日時"
 									updated_at as "更新日時"
 							)
 						)
@@ -2738,6 +2768,9 @@ application "社内申請システム"
 									is_delegate as "代理承認（true/false）"
 									started_on as "この段に回ってきた日時"
 									required_count as "可決に必要な人数"
+									escalate_mode as "期限超過時の扱い"
+									escalate_days as "超過とみなす日数"
+									escalated_at as "エスカレーション日時"
 									updated_at as "更新日時"
 							)
 						)

@@ -15,6 +15,7 @@ var RouteEditor = (function () {
     code: null,        // 編集中の申請区分
     steps: [],         // 編集中の経路（RouteSpec.normalize 済み）
     dirty: false,
+    open: {},          // ステップカードの開閉状態
     test: {}           // 経路テストの入力値
   };
 
@@ -22,7 +23,9 @@ var RouteEditor = (function () {
   function masters() {
     return {
       departments: S().departments.map(function (d) { return d.Department_Name; }),
-      titles: CFG.TITLES
+      titles: CFG.TITLES,
+      vendors: S().vendors.map(function (v) { return v.Vendor_Name; }),
+      accounts: S().accounts.map(function (a) { return a.Account_Name; })
     };
   }
   function fieldsOf(code) {
@@ -70,6 +73,9 @@ var RouteEditor = (function () {
     var plain = S().employees.filter(function (e) { return e.Title === '一般' && e.Manager; })[0] ||
                 S().employees.filter(function (e) { return e.Manager; })[0] || S().employees[0];
     st.test = { __applicant: plain ? plain.ID : '' };
+    /* 3段を超えるときは畳んだ状態で始める（俯瞰してから編集に入れるように） */
+    st.open = {};
+    if (st.steps.length > 3) st.steps.forEach(function (_s, i) { st.open[i] = false; });
   }
 
   /* ---------- 左：申請区分の一覧 ---------- */
@@ -105,9 +111,30 @@ var RouteEditor = (function () {
   function stepCard(s, i, flds) {
     var a = s.assignee || {};
     var def = RouteSpec.assigneeDef(a.mode);
+    var open = (st.open[i] !== false);
+    /* 折りたたみ：5段あると編集画面が3画面分になり、目的の段に辿り着けない。
+       閉じているときも「誰が・どんなときに」が1行で分かるようにする。 */
+    var pk = def.params.length ? def.params[0].key : null;
+    var who = def.label + (pk && a[pk] ? '（' + a[pk] + '）' : '');
+    var cond = s.conditions ? RouteSpec.describe(s.conditions, flds) : '条件なし';
+    var summary =
+      '<button type="button" class="re-summary" data-act="toggle">' +
+      '<span class="re-caret">' + (open ? '▾' : '▸') + '</span>' +
+      '<strong>' + E(s.name || '（名称なし）') + '</strong>' +
+      '<span class="tag">' + E(s.type) + '</span>' +
+      (s.mustNotSkip ? '<span class="badge b-info">省略不可</span>' : '') +
+      ((s.escalate || {}).mode && s.escalate.mode !== 'none' ? '<span class="badge b-progress">' + E(s.escalate.afterDays) + '日で' + E(RouteSpec.escalationDef(s.escalate.mode).label.replace(/（.*/, '')) + '</span>' : '') +
+      '<span class="re-summary-who">' + E(who) + '</span>' +
+      '<span class="re-summary-cond">' + E(cond) + '</span>' +
+      '</button>';
+    if (!open) {
+      return '<div class="re-step re-step-closed" data-idx="' + i + '">' +
+        '<div class="re-step-no">' + (i + 1) + '</div>' +
+        '<div class="re-step-body">' + summary + '</div></div>';
+    }
     return '<div class="re-step" data-idx="' + i + '">' +
       '<div class="re-step-no">' + (i + 1) + '</div>' +
-      '<div class="re-step-body">' +
+      '<div class="re-step-body">' + summary +
       '<div class="form-grid" style="gap:10px">' +
       '<div class="field"><label>ステップ名</label>' +
       '<input data-f="name" value="' + E(s.name) + '" placeholder="部長決裁"></div>' +
@@ -146,6 +173,15 @@ var RouteEditor = (function () {
       '<div class="field"><label>標準処理日数</label>' +
       '<input data-f="days" type="number" min="1" max="30" value="' + E(s.days) + '">' +
       '<div class="help">この段に回ってきてからの日数です。超えると遅延として表示されます。</div></div>' +
+      '<div class="field"><label>期限を過ぎたときの扱い</label>' +
+      '<div class="inline-row"><select data-f="escmode" style="flex:1">' +
+      RouteSpec.ESCALATIONS.map(function (x) {
+        return '<option value="' + E(x.key) + '"' + (((s.escalate || {}).mode || 'none') === x.key ? ' selected' : '') + '>' + E(x.label) + '</option>';
+      }).join('') + '</select>' +
+      (((s.escalate || {}).mode && s.escalate.mode !== 'none') ?
+        '<input data-f="escdays" type="number" min="1" max="60" value="' + E((s.escalate || {}).afterDays || s.days) + '" style="width:80px">' +
+        '<span class="page-sub">日超過で</span>' : '') +
+      '</div><div class="help">' + E(RouteSpec.escalationDef((s.escalate || {}).mode).hint) + '</div></div>' +
       '<div class="field"><label>並び順</label><div class="inline-row">' +
       '<button class="btn btn-sm" data-act="up"' + (i === 0 ? ' disabled' : '') + '>↑ 上へ</button>' +
       '<button class="btn btn-sm" data-act="down"' + (i === st.steps.length - 1 ? ' disabled' : '') + '>↓ 下へ</button>' +
@@ -274,7 +310,9 @@ var RouteEditor = (function () {
             E(s.approverName) + (s.approverTitle ? '（' + E(s.approverTitle) + '）' : '') +
             (s.delegateName ? ' <span class="tag">代理：' + E(s.delegateName) + '</span>' : '') +
             (s.type === '合議' ? ' <span class="tag">' + E(RouteSpec.quorumLabel(s, (s.members || []).length)) + '</span>' : '') +
-            ' ／ 標準 ' + s.days + '日') + '</div>' +
+            ' ／ 標準 ' + s.days + '日' +
+            ((s.escalate || {}).mode && s.escalate.mode !== 'none' ?
+              '／' + s.escalate.afterDays + '日超過で' + RouteSpec.escalationDef(s.escalate.mode).label.replace(/（.*/, '') : '')) + '</div>' +
           (s.warning ? '<div class="route-meta"><span class="badge b-sentback">⚠ ' + E(s.warning) + '</span></div>' : '') +
           (s.blocking ? '<div class="route-meta"><span class="badge b-rejected">省略不可の段が成立していないため、この条件では申請できません</span></div>' : '') +
           '</div></div>';
@@ -660,6 +698,11 @@ var RouteEditor = (function () {
             s.assignee[n.dataset.optkey || 'includeSub'] = n.checked;
           } else if (k === 'mustnotskip') {
             s.mustNotSkip = n.checked;
+          } else if (k === 'escmode') {
+            s.escalate = { mode: n.value, afterDays: (s.escalate || {}).afterDays || s.days || 3 };
+          } else if (k === 'escdays') {
+            s.escalate = s.escalate || { mode: 'remind' };
+            s.escalate.afterDays = Math.max(1, Number(n.value) || 1);
           } else if (k === 'qmode') {
             s.quorum = { mode: n.value, value: (s.quorum || {}).value || (n.value === 'percent' ? 100 : 1) };
             if (n.value === 'all') s.quorum = null;
@@ -683,11 +726,17 @@ var RouteEditor = (function () {
           else if (a === 'down' && i < st.steps.length - 1) { var y = st.steps[i + 1]; st.steps[i + 1] = st.steps[i]; st.steps[i] = y; }
           else if (a === 'dup') {
             var c = JSON.parse(JSON.stringify(st.steps[i]));
-            c.id = 's' + Date.now().toString(36); c.name = c.name + '（複製）';
+            c.id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); c.name = c.name + '（複製）';
             st.steps.splice(i + 1, 0, c);
+            st.open = {};
           } else if (a === 'del') {
             if (!confirm('このステップを削除しますか？')) return;
             st.steps.splice(i, 1);
+            st.open = {};   // 位置がずれるので開閉状態は作り直す
+          } else if (a === 'toggle') {
+            /* 折りたたみの開閉。編集状態は変えないので dirty にしない。 */
+            st.open[i] = (st.open[i] === false);
+            App.refresh(); return;
           } else if (a === 'cond') { openCondition(i); return; }
           else return;
           st.dirty = true; App.refresh();
@@ -712,6 +761,128 @@ var RouteEditor = (function () {
         else if (a === 'diagnose') { diagnose(el); }
         else if (a === 'save') { save(); }
       });
+    });
+  }
+
+  /* =======================================================================
+   * 保存前の差分
+   *   決裁基準の変更は稟議規程の改定そのものなので、
+   *   「何がどう変わるか」を見せずに確定させない。
+   *   特に、決裁が緩くなる方向（段が減る・決裁者が下位になる）は赤で示す。
+   * ===================================================================== */
+  function stepSignature(s2, t) {
+    var def = RouteSpec.assigneeDef(s2.assignee.mode);
+    var pk = def.params.length ? def.params[0].key : null;
+    return [s2.name, s2.type, s2.assignee.mode, pk ? s2.assignee[pk] : '', s2.days,
+            s2.conditions ? RouteSpec.describe(s2.conditions, fieldsOf(st.code)) : ''].join('|');
+  }
+
+  function stepDiff(before, after, t) {
+    var out = [];
+    var maxLen = Math.max(before.length, after.length);
+    for (var i = 0; i < maxLen; i++) {
+      var b = before[i], a = after[i];
+      if (!b && a) { out.push({ kind: 'added', no: i + 1, text: a.name + ' を追加' }); continue; }
+      if (b && !a) { out.push({ kind: 'removed', no: i + 1, text: b.name + ' を削除' }); continue; }
+      if (stepSignature(b, t) === stepSignature(a, t)) continue;
+      var changes = [];
+      if (b.name !== a.name) changes.push('名称：' + b.name + ' → ' + a.name);
+      if (b.type !== a.type) changes.push('種類：' + b.type + ' → ' + a.type);
+      var bd = RouteSpec.assigneeDef(b.assignee.mode), ad = RouteSpec.assigneeDef(a.assignee.mode);
+      var bp = bd.params.length ? b.assignee[bd.params[0].key] : '', ap2 = ad.params.length ? a.assignee[ad.params[0].key] : '';
+      if (b.assignee.mode !== a.assignee.mode || String(bp) !== String(ap2)) {
+        changes.push('承認者：' + bd.label + (bp ? '（' + bp + '）' : '') + ' → ' + ad.label + (ap2 ? '（' + ap2 + '）' : ''));
+      }
+      if (Number(b.days) !== Number(a.days)) changes.push('日数：' + b.days + '日 → ' + a.days + '日');
+      var bc = b.conditions ? RouteSpec.describe(b.conditions, fieldsOf(st.code)) : '条件なし';
+      var ac = a.conditions ? RouteSpec.describe(a.conditions, fieldsOf(st.code)) : '条件なし';
+      if (bc !== ac) changes.push('条件：' + bc + ' → ' + ac);
+      if (changes.length) out.push({ kind: 'changed', no: i + 1, text: a.name + '：' + changes.join('／') });
+    }
+    return out;
+  }
+
+  /** 金額帯ごとに、変更前後で誰が決裁するかを並べる */
+  function bandDiff(before, after, t) {
+    var applicant = App.employeeById(st.test.__applicant) ||
+      S().employees.filter(function (e) { return e.Title === '一般' && e.Manager; })[0] || S().employees[0];
+    /* 変更前後の両方のしきい値を集めて境界を作る */
+    var vals = {};
+    function walk(g) {
+      if (!g) return;
+      if (g.field) {
+        if (g.field === '__amount' && ['gte', 'gt', 'lte', 'lt', 'between'].indexOf(g.operator) >= 0) {
+          vals[RouteSpec.num(g.value)] = true;
+          if (g.value2 != null) vals[RouteSpec.num(g.value2)] = true;
+        }
+        return;
+      }
+      (g.rules || []).forEach(walk);
+    }
+    before.concat(after).forEach(function (s2) { walk(s2.conditions); });
+    var list = Object.keys(vals).map(Number).filter(function (n) { return n > 0; }).sort(function (a, b) { return a - b; });
+    var samples = [0];
+    list.forEach(function (v) { samples.push(Math.max(0, v - 1)); samples.push(v); });
+    samples.push((list.length ? list[list.length - 1] : 100000) * 2 + 1);
+    samples = samples.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort(function (a, b) { return a - b; });
+
+    function chainOf(steps, amt) {
+      var r = WF.buildRoute({ fields: t.fields, route: { steps: steps } }, {}, applicant, S().employees,
+        { data: {}, applicant: applicant, amount: amt, template: t, attachmentCount: 0 });
+      return r.filter(function (x) { return !x.skipped; })
+        .map(function (x) { return x.name + '（' + x.approverName + '）'; });
+    }
+    return {
+      applicant: applicant,
+      rows: samples.map(function (amt) {
+        var b = chainOf(before, amt), a = chainOf(after, amt);
+        var same = b.join('→') === a.join('→');
+        return { amt: amt, before: b, after: a, same: same, looser: a.length < b.length };
+      })
+    };
+  }
+
+  function showDiff(onConfirm) {
+    var t = App.templateByCode(st.code) || { fields: [] };
+    var before = RouteSpec.normalize(t.route, t).steps;
+    var sd = stepDiff(before, st.steps, t);
+    var bd = bandDiff(before, st.steps, t);
+    var changed = bd.rows.filter(function (r) { return !r.same; });
+    var looser = bd.rows.filter(function (r) { return r.looser; });
+
+    var kindLabel = { added: '追加', removed: '削除', changed: '変更' };
+    var kindCls = { added: 'b-approved', removed: 'b-rejected', changed: 'b-progress' };
+    var html =
+      (sd.length ?
+        '<div class="page-sub" style="margin-bottom:6px">ステップの変更</div>' +
+        '<ul style="padding-left:18px;line-height:1.9;margin-bottom:14px">' +
+        sd.map(function (d) {
+          return '<li><span class="badge ' + kindCls[d.kind] + '">' + kindLabel[d.kind] + '</span> ' + E(d.text) + '</li>';
+        }).join('') + '</ul>'
+        : '<div class="page-sub" style="margin-bottom:14px">ステップの構成に変更はありません。</div>') +
+      (changed.length ?
+        '<div class="page-sub" style="margin-bottom:6px">金額帯ごとの決裁者（' + E(bd.applicant.Employee_Name) +
+        ' さんが申請した場合）</div>' +
+        '<div class="table-wrap"><table class="tbl"><thead><tr><th class="num">申請金額</th><th>変更前</th><th>変更後</th></tr></thead><tbody>' +
+        changed.map(function (r) {
+          return '<tr' + (r.looser ? ' style="background:var(--danger-weak)"' : '') + '>' +
+            '<td class="num nowrap">' + UI.yen(r.amt) + '</td>' +
+            '<td>' + (r.before.length ? E(r.before.join(' → ')) : '<span class="delay">申請できません</span>') + '</td>' +
+            '<td>' + (r.after.length ? E(r.after.join(' → ')) : '<span class="delay">申請できません</span>') +
+            (r.looser ? ' <span class="badge b-rejected">決裁が減ります</span>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>'
+        : '<div class="page-sub">この変更で、決裁者の顔ぶれが変わる金額帯はありませんでした。</div>') +
+      (looser.length ?
+        '<div class="badge b-rejected" style="display:block;margin-top:12px;padding:8px 12px;font-size:12px">' +
+        '⚠ ' + looser.length + 'つの金額帯で決裁の段数が減ります。決裁権限規程と整合しているか確認してください。</div>' : '') +
+      '<div class="page-sub" style="margin-top:12px">※ 進行中の申請は、申請時の経路で最後まで流れます。この変更は新しい申請から適用されます。</div>';
+
+    UI.modal({
+      title: 'この変更を保存しますか',
+      bodyHtml: html,
+      okText: '保存する',
+      okClass: looser.length ? 'btn-warning' : 'btn-primary',
+      onOk: onConfirm
     });
   }
 
@@ -741,14 +912,14 @@ var RouteEditor = (function () {
     var warnings = validate();
     if (warnings.length) {
       UI.modal({
-        title: '保存前の確認', okText: 'それでも保存する', okClass: 'btn-warning',
+        title: '保存前の確認', okText: '確認して次へ', okClass: 'btn-warning',
         bodyHtml: '<div class="page-sub" style="margin-bottom:10px">次の点が気になります。</div>' +
           '<ul style="padding-left:18px;line-height:1.9">' + warnings.map(function (p) { return '<li>' + E(p) + '</li>'; }).join('') + '</ul>',
-        onOk: doSave
+        onOk: function () { setTimeout(function () { showDiff(doSave); }, 80); }
       });
       return;
     }
-    doSave();
+    showDiff(doSave);
   }
   function validate() {
     var out = [];

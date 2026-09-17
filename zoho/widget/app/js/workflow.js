@@ -162,6 +162,8 @@ var WF = (function () {
         approverTitle: approver ? approver.Title : '',
         members: members.map(function (m) { return { id: m.ID, name: m.Employee_Name }; }),
         quorum: st.quorum || null,
+        mustNotSkip: !!st.mustNotSkip,
+        escalate: st.escalate || { mode: 'none', afterDays: st.days || 3 },
         required: (st.type === '合議') ? RouteSpec.requiredApprovals(st, members.length) : 1,
         skipped: false, skipReason: '',
         needsPick: needsPick, pickKey: pickKey
@@ -255,13 +257,41 @@ var WF = (function () {
     return 0;
   }
 
-  /** ある社員がそのステップを処理できるか（本人 or 代理人 or 合議メンバー） */
-  function canAct(step, meId) {
+  /**
+   * ある社員がそのステップを処理できるか（本人 or 代理人 or 合議メンバー）
+   * @param {object} [opt] {req, route, employees} を渡すと、期限超過による権限の拡張も判定する
+   */
+  function canAct(step, meId, opt) {
     if (!step) return false;
     if (String(step.approverId) === String(meId)) return true;
     if (step.delegateId && String(step.delegateId) === String(meId)) return true;
     if ((step.type === '合議' || step.type === '或議') && (step.members || []).some(function (m) { return String(m.id) === String(meId); })) return true;
+    /* 期限を過ぎた段は、設定があれば承認者の上長にも権限が広がる */
+    if (opt && opt.req && escalatedTo(step, opt.req, opt.route, opt.employees).some(function (e) { return String(e.ID) === String(meId); })) return true;
     return false;
+  }
+
+  /** 期限超過で権限が広がる相手を返す（拡張の設定が無ければ空） */
+  function escalatedTo(step, req, route, employees) {
+    if (!step || step.action) return [];
+    var esc = step.escalate || {};
+    if (esc.mode !== 'expand') return [];
+    if (!isEscalated(step, req, route)) return [];
+    var byId = {}; (employees || []).forEach(function (e) { byId[String(e.ID)] = e; });
+    var approver = byId[String(step.approverId)];
+    var boss = approver && approver.Manager ? byId[String(approver.Manager)] : null;
+    return (boss && boss.Is_Active !== false) ? [boss] : [];
+  }
+
+  /** エスカレーションの起算日を過ぎているか */
+  function isEscalated(step, req, route) {
+    if (!step || step.action) return false;
+    var esc = step.escalate || {};
+    if (!esc.mode || esc.mode === 'none') return false;
+    var base = stepStartedAt(req, route || [], step);
+    if (!base) return false;
+    var days = Math.max(1, Number(esc.afterDays) || Number(step.days) || 3);
+    return new Date() > new Date(new Date(base).getTime() + days * 86400000);
   }
 
   /**
@@ -364,6 +394,7 @@ var WF = (function () {
     buildRoute: buildRoute, currentStep: currentStep, canAct: canAct, applyAction: applyAction,
     isDelayed: isDelayed, overdueDays: overdueDays, sumLines: sumLines, amountOf: amountOf,
     isRoutable: isRoutable, blockingSteps: blockingSteps, dueDateOf: dueDateOf, stepStartedAt: stepStartedAt,
+    escalatedTo: escalatedTo, isEscalated: isEscalated,
     delegateOf: delegateOf, match: match, num: num, departmentMembers: departmentMembers
   };
 })();

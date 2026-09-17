@@ -75,7 +75,8 @@ var CFG = {
                    Step_Name: 'step_name', Step_Type: 'step_type', Approver: 'approver_id',
                    Approver_name: 'approver_name', Acted_By: 'acted_by_id', Acted_By_name: 'acted_by_name',
                    Action: 'action', Comment: 'comment', Due_Date: 'due_date', Acted_On: 'acted_on',
-                   Is_Delegate: 'is_delegate', Started_On: 'started_on', Required_Count: 'required_count' },
+                   Is_Delegate: 'is_delegate', Started_On: 'started_on', Required_Count: 'required_count',
+                   Escalate_Mode: 'escalate_mode', Escalate_Days: 'escalate_days', Escalated_At: 'escalated_at' },
     AccessLogs:  { Log_Time: 'log_time', Session_ID: 'session_id', Actor: 'actor_id',
                    Actor_Name: 'actor_name', Actor_Dept: 'actor_dept', Actor_Role: 'actor_role',
                    Login_User: 'login_user', Action: 'action', Target_Type: 'target_type',
@@ -142,7 +143,8 @@ var CFG = {
       VIEW_LOG:     '閲覧証跡の閲覧',
       DENIED:       'アクセス拒否',
       LOGIN:        '利用開始',
-      SWITCH_USER:  'ユーザー切替'
+      SWITCH_USER:  'ユーザー切替',
+      ESCALATED:    'エスカレーション'
     },
     /* 機微度：申請区分ごとに閲覧証跡の重みを変える */
     SENSITIVITY: {

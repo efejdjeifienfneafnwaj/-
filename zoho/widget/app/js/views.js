@@ -19,7 +19,15 @@ var Views = (function () {
       if (r.Status !== CFG.STATUS.ACTIVE) return;
       var route = routeOf(r), cur = WF.currentStep(route);
       var step = route.filter(function (s) { return s.step_no === cur; })[0];
-      if (step && WF.canAct(step, me().ID) && !step.action) out.push({ req: r, step: step });
+      if (!step || step.action) return;
+      var opt = { req: r, route: route, employees: S().employees };
+      if (WF.canAct(step, me().ID, opt)) {
+        /* 本来の承認者ではなく、期限超過で権限が広がって回ってきたものは印を付ける */
+        var own = String(step.approverId) === String(me().ID) ||
+          (step.delegateId && String(step.delegateId) === String(me().ID)) ||
+          (step.members || []).some(function (m) { return String(m.id) === String(me().ID); });
+        out.push({ req: r, step: step, viaEscalation: !own });
+      }
     });
     return out;
   }
@@ -392,7 +400,9 @@ var Views = (function () {
           '<div class="route-meta">' + (s.skipped ? '<span class="delay">' + E(s.skipReason) + '</span>' :
             E(s.approverName) + (s.approverTitle ? '（' + E(s.approverTitle) + '）' : '') +
             (s.delegateName ? ' <span class="tag">代理：' + E(s.delegateName) + '</span>' : '') +
-            ' ／ 標準 ' + s.days + '日') + '</div>' +
+            ' ／ 標準 ' + s.days + '日' +
+            ((s.escalate || {}).mode && s.escalate.mode !== 'none' ?
+              '／' + s.escalate.afterDays + '日超過で' + RouteSpec.escalationDef(s.escalate.mode).label.replace(/（.*/, '') : '')) + '</div>' +
           (s.warning ? '<div class="route-meta"><span class="badge b-sentback">' + E(s.warning) + '</span></div>' : '') +
           (s.needsPick ?
             '<div style="margin-top:6px"><select data-pick="' + E(s.pickKey) + '" style="width:100%;min-height:32px;border:1px solid var(--border-strong);border-radius:6px;padding:4px 8px">' +
@@ -629,7 +639,8 @@ var Views = (function () {
           '<td class="nowrap"><span class="tag">' + E((tplOf(p.req.Type_Code) || {}).name || '') + '</span> ' + UI.sensBadge(p.req.Type_Code) + '</td>' +
           '<td>' + E(p.req.Subject) + '</td><td class="nowrap">' + E(p.req.Applicant_name) + '<div class="page-sub">' + E(p.req.Applicant_Dept_name) + '</div></td>' +
           '<td class="num nowrap">' + UI.yen(p.req.Amount) + '</td>' +
-          '<td class="nowrap">' + E(p.step.name) + ' <span class="tag">' + E(p.step.type) + '</span>' + (isDel ? '<span class="tag">代理</span>' : '') + '</td>' +
+          '<td class="nowrap">' + E(p.step.name) + ' <span class="tag">' + E(p.step.type) + '</span>' + (isDel ? '<span class="tag">代理</span>' : '') +
+          (p.viaEscalation ? ' <span class="badge b-sentback">期限超過で回付</span>' : '') + '</td>' +
           '<td class="nowrap">' + (delayed ? '<span class="delay">遅延' + WF.overdueDays(p.req, p.step, routeOf(p.req)) + '日</span>' : UI.relTime(p.req.Applied_On)) + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }
@@ -664,7 +675,11 @@ var Views = (function () {
 
     var route = routeOf(req), data = dataOf(req), cur = WF.currentStep(route);
     var step = route.filter(function (s) { return s.step_no === cur; })[0];
-    var canActNow = req.Status === CFG.STATUS.ACTIVE && step && WF.canAct(step, me().ID) && !step.action;
+    var actOpt = { req: req, route: route, employees: S().employees };
+    var canActNow = req.Status === CFG.STATUS.ACTIVE && step && WF.canAct(step, me().ID, actOpt) && !step.action;
+    var viaEsc = canActNow && String(step.approverId) !== String(me().ID) &&
+      !(step.delegateId && String(step.delegateId) === String(me().ID)) &&
+      !(step.members || []).some(function (m) { return String(m.id) === String(me().ID); });
     var isMine = String(req.Applicant) === String(me().ID);
 
     var body =
@@ -686,6 +701,12 @@ var Views = (function () {
       '</div><div id="dbody"></div>';
 
     var foot = '';
+    if (canActNow && viaEsc) {
+      body = body.replace('<div class="tabs" id="dtabs">',
+        '<div class="badge b-sentback" style="display:block;padding:8px 12px;margin-bottom:12px;font-size:12px">' +
+        'この申請は、本来の承認者（' + E(step.approverName) + '）の期限超過により、あなたにも承認できるようになっています。' +
+        'あなたが承認した場合、その記録が残ります。</div><div class="tabs" id="dtabs">');
+    }
     if (canActNow) {
       foot = '<button class="btn btn-success" data-a="approve">承認</button>' +
         '<button class="btn" data-a="cond">条件付承認</button>' +
@@ -922,7 +943,7 @@ var Views = (function () {
       UI.toast('この申請はすでに処理されています。画面を更新します。', 'warn');
       return Promise.resolve().then(function () { App.refresh(); });
     }
-    if (!WF.canAct(step, me().ID)) {
+    if (!WF.canAct(step, me().ID, { req: req, route: route, employees: S().employees })) {
       Access.denied('承認操作', req.Request_No + ' ' + cur + '段目：担当ではない利用者による ' + action);
       UI.toast('この段の承認者はあなたではありません（記録しました）', 'error');
       return Promise.resolve().then(function () { App.refresh(); });
@@ -1286,7 +1307,11 @@ var Views = (function () {
     return '<div class="card-body">' +
       '<div class="page-sub" style="margin-bottom:10px">テンプレート定義（JSON）。Creator の Request_Types フォームに保存されている内容です。</div>' +
       simpleTable(['コード', '名称', 'カテゴリ', '機微度', '段数', '経路の条件'], App.templates().map(function (t) {
-        var flds = RouteSpec.fieldsFor(t, { departments: S().departments.map(function (d) { return d.Department_Name; }), titles: CFG.TITLES });
+        var flds = RouteSpec.fieldsFor(t, {
+          departments: S().departments.map(function (d) { return d.Department_Name; }), titles: CFG.TITLES,
+          vendors: S().vendors.map(function (v) { return v.Vendor_Name; }),
+          accounts: S().accounts.map(function (a) { return a.Account_Name; })
+        });
         var norm = RouteSpec.normalize(t.route, t).steps;
         return [t.code, t.name, t.category, CFG.ACCESS.SENSITIVITY[t.code] || 'C', norm.length,
         norm.map(function (s) { return s.name + (s.conditions ? '〔' + RouteSpec.describe(s.conditions, flds) + '〕' : ''); }).join(' → ')];

@@ -1,45 +1,83 @@
 /* =============================================================================
  * スケジュール関数：escalate_overdue（毎日 9:00 実行を推奨）
  *
- * 目的：標準処理日数を超えた承認に督促を出し、5日以上の遅延は上長へ上げる。
+ * 目的：期限を過ぎた承認に対して、設定された扱いを実行する。
+ *   remind … 承認者本人に督促
+ *   notify … 承認者と、その上長の両方に督促
+ *   expand … 承認者の上長にも承認権限が広がったことを通知
+ *             （権限の判定自体はウィジェット側が行う。自動承認はしない）
+ *
+ * ★ 自動承認は実装しない。
+ *   承認の事実が無いまま承認済にすると、証跡としての意味が失われるため。
+ *   滞留の解消は「権限を広げる」ことで行い、誰が押したかは必ず残す。
+ *
  * ※ 本番の Creator では未検証です。まず手動実行で動作を確認してください。
  * ========================================================================== */
 void escalate_overdue()
 {
 	today = zoho.currentdate;
-	pending = Wf_Approval_Form[action == "未処理" && due_date != ""];
+	pending = Wf_Approval_Form[action == "未処理"];
 	for each ap in pending
 	{
-		due = ap.due_date.toDate();
-		if(due < today)
+		/* 起算日は「この段に回ってきた日」。無ければ期限を使う。 */
+		baseText = if(ap.started_on != null && ap.started_on != "", ap.started_on.subString(0, 10), ap.due_date);
+		if(baseText != null && baseText != "")
 		{
-			days = due.daysBetween(today);
-			req = Wf_Request_Form[ID == ap.request_id.toLong()];
-
-			n = Wf_Notify_Form[ID == 0];
-			n.to_user_id = ap.approver_id;
-			n.request_id = ap.request_id;
-			n.request_no = ap.request_no;
-			n.kind = "督促";
-			n.message = ap.request_no + " の承認が " + days + "日 遅延しています";
-			n.is_read = "false";
-			n.created_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
-			insert into Wf_Notify_Form(n);
-
-			if(days >= 5)
+			base = baseText.toDate();
+			mode = ifnull(ap.escalate_mode, "none");
+			limitDays = ifnull(ap.escalate_days, 0).toLong();
+			if(limitDays == 0)
 			{
+				limitDays = 3;
+			}
+			limit = base.addDay(limitDays);
+
+			if(today > limit && mode != "none")
+			{
+				days = limit.daysBetween(today);
 				approver = Wf_Employee_Form[ID == ap.approver_id.toLong()];
-				if(approver.count() > 0 && approver.manager_id != "")
+
+				/* 本人への督促 */
+				n = Wf_Notify_Form[ID == 0];
+				n.to_user_id = ap.approver_id;
+				n.request_id = ap.request_id;
+				n.request_no = ap.request_no;
+				n.kind = "督促";
+				n.message = ap.request_no + " の承認が " + days + "日 遅延しています（" + ap.step_name + "）";
+				n.is_read = "false";
+				n.created_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+				insert into Wf_Notify_Form(n);
+
+				/* 上長への連絡（notify / expand） */
+				if((mode == "notify" || mode == "expand") && approver.count() > 0 && approver.manager_id != "")
 				{
 					e = Wf_Notify_Form[ID == 0];
 					e.to_user_id = approver.manager_id;
 					e.request_id = ap.request_id;
 					e.request_no = ap.request_no;
-					e.kind = "エスカレーション";
-					e.message = "[エスカレーション] " + approver.emp_name + " の承認が " + days + "日 遅延：" + ap.request_no;
+					e.kind = if(mode == "expand", "承認権限の拡張", "エスカレーション");
+					e.message = if(mode == "expand",
+						"[承認可能になりました] " + approver.emp_name + " の承認が " + days + "日 遅延したため、あなたも承認できます：" + ap.request_no,
+						"[エスカレーション] " + approver.emp_name + " の承認が " + days + "日 遅延：" + ap.request_no);
 					e.is_read = "false";
 					e.created_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
 					insert into Wf_Notify_Form(e);
+				}
+
+				/* エスカレーションしたこと自体を証跡に残す */
+				if(ap.escalated_at == null || ap.escalated_at == "")
+				{
+					ap.escalated_at = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+					log = Wf_Access_Form[ID == 0];
+					log.log_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+					log.actor_name = "システム";
+					log.login_user = "system";
+					log.action = "エスカレーション";
+					log.target_type = "承認";
+					log.target_id = ap.request_id;
+					log.target_no = ap.request_no;
+					log.detail = ap.step_name + " が " + days + "日 遅延（扱い：" + mode + "）";
+					insert into Wf_Access_Form(log);
 				}
 			}
 		}

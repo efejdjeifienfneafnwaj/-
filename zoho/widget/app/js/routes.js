@@ -54,13 +54,40 @@ var RouteSpec = (function () {
     { key: '__applicant_dept',  label: '申請者の所属部署',  type: 'choice', builtin: true },
     { key: '__applicant_title', label: '申請者の役職',      type: 'choice', builtin: true },
     { key: '__line_count',      label: '明細の行数',        type: 'number', builtin: true },
-    { key: '__attachment_count',label: '添付ファイルの数',  type: 'number', builtin: true }
+    { key: '__attachment_count',label: '添付ファイルの数',  type: 'number', builtin: true },
+    { key: '__unqualified_vendor', label: '適格請求書発行事業者でない取引先を含む', type: 'bool', builtin: true },
+    { key: '__new_vendor',         label: '新規の取引先を含む',                   type: 'bool', builtin: true }
   ];
+
+  /* 明細行の集約：
+     「いずれかの行が〜」「すべての行が〜」「合計が〜」「最大が〜」を条件に使えるようにする。
+     経費精算で「取引先が○○なら」「勘定科目が接待交際費なら」は最も多い要件だが、
+     明細は行の集まりなので、行に対する問い方を決めないと条件にできない。 */
+  var LINE_AGGS = [
+    { key: 'any', label: 'いずれかの行の', types: ['text', 'choice'] },
+    { key: 'all', label: 'すべての行の',   types: ['text', 'choice'] },
+    { key: 'sum', label: '合計',           types: ['number'], forces: 'number' },
+    { key: 'max', label: '最大',           types: ['number'], forces: 'number' },
+    { key: 'cnt', label: '該当する行数',   types: ['text', 'choice', 'number'], forces: 'number' }
+  ];
+  function lineColType(c) {
+    if (c.type === 'currency' || c.type === 'number' || c.type === 'calc') return 'number';
+    if (c.type === 'vendor' || c.type === 'account' || c.type === 'tax' || c.type === 'select') return 'choice';
+    if (c.type === 'date') return 'date';
+    return 'text';
+  }
+  function lineOptions(c, masters) {
+    if (c.type === 'vendor') return (masters && masters.vendors) || [];
+    if (c.type === 'account') return (masters && masters.accounts) || [];
+    if (c.type === 'tax') return CFG.TAX.map(function (t) { return t.key; });
+    if (c.type === 'select') return c.options || [];
+    return null;
+  }
 
   /**
    * ある申請区分で条件に使える項目の一覧を返す
    * @param {object} template TEMPLATES の1件
-   * @param {object} masters  {departments:[], titles:[]}
+   * @param {object} masters  {departments:[], titles:[], vendors:[], accounts:[]}
    */
   function fieldsFor(template, masters) {
     var out = BUILTIN.map(function (b) {
@@ -69,8 +96,25 @@ var RouteSpec = (function () {
       if (b.key === '__applicant_title') o.options = (masters && masters.titles) || [];
       return o;
     });
+    /* 明細行の各列を、集約の形で条件に使えるようにする */
     (template.fields || []).forEach(function (f) {
-      if (f.type === 'lines' || f.type === 'files') return;   // 行データ・添付は組み込み項目で扱う
+      if (f.type !== 'lines') return;
+      (f.columns || []).forEach(function (c) {
+        var ct = lineColType(c);
+        LINE_AGGS.forEach(function (ag) {
+          if (ag.types.indexOf(ct) < 0) return;
+          out.push({
+            key: '__line_' + ag.key + '__' + f.key + '__' + c.key,
+            label: f.label + '：' + ag.label + (ag.key === 'cnt' ? '（' + c.label + ')' : c.label),
+            type: ag.forces || ct,
+            options: (ag.forces === 'number') ? null : lineOptions(c, masters),
+            line: true
+          });
+        });
+      });
+    });
+    (template.fields || []).forEach(function (f) {
+      if (f.type === 'lines' || f.type === 'files') return;   // 行データ・添付は上で扱う
       /* 申請金額そのものの項目は「申請金額」（組み込み）で代表させる。
          同じものが2つ並ぶと、管理者がどちらを選ぶべきか分からなくなるため。 */
       if (f.routeKey) return;
@@ -114,6 +158,25 @@ var RouteSpec = (function () {
     { key: '或議', label: 'いずれか1人の承認（或議）', hint: '対象者のうち誰か1人が承認すれば次へ進みます。' },
     { key: '回覧', label: '回覧（確認のみ）',    hint: 'この段では止まりません。既読を記録して次へ進みます。差戻しはできません。' }
   ];
+
+  /* 期限を超えたときの扱い。
+     調査した限り、国内のワークフロー製品はどれも「督促メール」止まりで、
+     滞留を解消する仕組みを持っていない。ただし自動承認は承認の事実性を壊すため採らない。
+     ここでは「上長にも承認できるようにする（権限の拡張）」を用意する。
+     誰かが実際に押した記録は残るので、証跡としての意味は失われない。 */
+  var ESCALATIONS = [
+    { key: 'none',    label: '何もしない（遅延表示のみ）',
+      hint: '画面に遅延として表示されるだけです。' },
+    { key: 'remind',  label: '本人に督促を送る',
+      hint: '承認者本人に督促の通知を出します。' },
+    { key: 'notify',  label: '本人と上長に督促を送る',
+      hint: '承認者とその上長の両方に通知します。承認できるのは本人のままです。' },
+    { key: 'expand',  label: '上長も承認できるようにする',
+      hint: '期限を過ぎると、承認者の上長にも承認の権限が広がります。自動承認ではないので、誰が押したかは残ります。' }
+  ];
+  function escalationDef(key) {
+    return ESCALATIONS.filter(function (e) { return e.key === (key || 'none'); })[0] || ESCALATIONS[0];
+  }
 
   /* 可決条件：「全員」「何人」「何%」を同じ仕組みで表す。
      取締役会の過半数決議のような規程を、そのまま設定できるようにするため。 */
@@ -179,6 +242,12 @@ var RouteSpec = (function () {
   function evalRule(rule, ctx) {
     if (!rule || !rule.field) return true;
     var v = valueOf(rule.field, ctx);
+    /* 明細行の any / all は、各行に同じ比較をかけてまとめる */
+    if (v && typeof v === 'object' && v.__agg) {
+      var one = function (x) { return evalRule({ field: '__x', operator: rule.operator, value: rule.value, value2: rule.value2 }, { data: { __x: x } }); };
+      if (!v.values.length) return false;
+      return v.__agg === 'all' ? v.values.every(one) : v.values.some(one);
+    }
     switch (rule.operator) {
       case 'gte':        return num(v) >= num(rule.value);
       case 'gt':         return num(v) >  num(rule.value);
@@ -221,7 +290,10 @@ var RouteSpec = (function () {
         var lf = ((ctx && ctx.template && ctx.template.fields) || []).filter(function (f) { return f.type === 'lines'; })[0];
         return lf && Array.isArray(data[lf.key]) ? data[lf.key].length : 0;
       case '__attachment_count': return (ctx && ctx.attachmentCount) || 0;
+      case '__unqualified_vendor': return hasVendorFlag(ctx, 'unqualified');
+      case '__new_vendor':         return hasVendorFlag(ctx, 'new');
       default:
+        if (key.indexOf('__line_') === 0) return lineValue(key, ctx);
         if (data[key] !== undefined && data[key] !== '') return data[key];
         /* v1 の定義は金額項目を直接指していることがある（例 when:{field:'amount'}）。
            その項目が申請金額そのものなら、組み込みの申請金額で補う。 */
@@ -229,6 +301,59 @@ var RouteSpec = (function () {
         if (tf && tf.routeKey) return (ctx && ctx.amount != null) ? ctx.amount : 0;
         return data[key];
     }
+  }
+
+  /** 明細行の集約値を取り出す（__line_<agg>__<fieldKey>__<colKey>） */
+  function lineValue(key, ctx) {
+    var parts = key.split('__');           // ['', 'line_any', 'lines', 'account']
+    var agg = (parts[1] || '').replace('line_', '');
+    var fieldKey = parts[2], colKey = parts[3];
+    var rows = ((ctx && ctx.data) || {})[fieldKey];
+    if (!Array.isArray(rows) || !rows.length) return (agg === 'sum' || agg === 'max' || agg === 'cnt') ? 0 : '';
+    /* 明細は取引先・勘定科目を ID で保持するが、条件は名称で選ばせる。
+       比較の前に名称へ直しておかないと、設定と実データが噛み合わない。 */
+    var colDef = null;
+    ((ctx && ctx.template && ctx.template.fields) || []).forEach(function (f) {
+      if (f.key !== fieldKey) return;
+      (f.columns || []).forEach(function (c) { if (c.key === colKey) colDef = c; });
+    });
+    var resolve = function (v) { return v; };
+    if (colDef && colDef.type === 'vendor') {
+      resolve = function (v) {
+        var x = (typeof App !== 'undefined' && App.vendorById) ? App.vendorById(v) : null;
+        return x ? x.Vendor_Name : v;
+      };
+    } else if (colDef && colDef.type === 'account') {
+      resolve = function (v) {
+        var x = (typeof App !== 'undefined' && App.accountById) ? App.accountById(v) : null;
+        return x ? x.Account_Name : v;
+      };
+    }
+    var vals = rows.map(function (r) { return resolve(r[colKey]); });
+    if (agg === 'sum') return vals.reduce(function (a, b) { return a + num(b); }, 0);
+    if (agg === 'max') return vals.reduce(function (a, b) { return Math.max(a, num(b)); }, 0);
+    if (agg === 'cnt') return vals.filter(function (v) { return v != null && v !== ''; }).length;
+    /* any / all は配列のまま返し、比較側で扱う */
+    return { __agg: agg, values: vals };
+  }
+
+  /** 取引先の状態を明細行から判定する */
+  function hasVendorFlag(ctx, kind) {
+    var data = (ctx && ctx.data) || {};
+    var ids = [];
+    Object.keys(data).forEach(function (k) {
+      if (Array.isArray(data[k])) data[k].forEach(function (r) { if (r && r.vendor) ids.push(r.vendor); });
+    });
+    if (data.vendor) ids.push(data.vendor);
+    if (!ids.length) return false;
+    var lookup = (ctx && ctx.vendorById) ||
+      ((typeof App !== 'undefined' && App.vendorById) ? App.vendorById : function () { return null; });
+    return ids.some(function (id) {
+      var v = lookup(id);
+      if (!v) return kind === 'new';                       // マスタに無い＝新規扱い
+      if (kind === 'unqualified') return v.Is_Qualified === false;
+      return v.Is_New === true || v.Is_New === 'true';
+    });
   }
 
   /** 条件グループ（AND / OR、入れ子可）を評価する */
@@ -272,6 +397,7 @@ var RouteSpec = (function () {
       s.type = s.type || '承認';
       s.days = Number(s.days) || 3;
       s.assignee = s.assignee || { mode: 'manager', level: 1 };
+      s.escalate = s.escalate || { mode: 'none', afterDays: Math.max(1, Number(s.days) || 3) };
       if (!s.conditions && s.when) s.conditions = whenToGroup(s.when);
       if (!s.conditions) s.conditions = null;                 // 条件なし＝常に通る
       if (s.conditions) retarget(s.conditions, amountKey, knownKeys(template));
@@ -391,12 +517,13 @@ var RouteSpec = (function () {
     return { id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
              name: '承認' + (n || 1), type: '承認',
              assignee: { mode: 'manager', level: 1 }, days: 3, conditions: null,
-             mustNotSkip: false };
+             mustNotSkip: false, escalate: { mode: 'none', afterDays: 3 } };
   }
 
   return {
     OPERATORS: OPERATORS, ASSIGNEES: ASSIGNEES, STEP_TYPES: STEP_TYPES, BUILTIN: BUILTIN,
     QUORUM_MODES: QUORUM_MODES, requiredApprovals: requiredApprovals, quorumLabel: quorumLabel,
+    ESCALATIONS: ESCALATIONS, escalationDef: escalationDef,
     operatorsFor: operatorsFor, operatorLabel: operatorLabel, fieldsFor: fieldsFor, fieldType: fieldType,
     assigneeDef: assigneeDef, evalGroup: evalGroup, evalRule: evalRule, valueOf: valueOf,
     normalize: normalize, whenToGroup: whenToGroup, describe: describe, parseNum: parseNum,

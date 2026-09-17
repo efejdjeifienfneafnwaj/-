@@ -258,3 +258,12 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
   .re-step{flex-direction:column}
   .re-step::after{display:none}
 }
+
+/* ===== ステップカードの折りたたみ ===== */
+.re-summary{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;cursor:pointer;text-align:left;padding:2px 0 8px;flex-wrap:wrap}
+.re-summary strong{font-size:13px}
+.re-caret{color:var(--text-faint);width:12px}
+.re-summary-who{font-size:11.5px;color:var(--text-muted);white-space:nowrap}
+.re-summary-cond{font-size:11.5px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.re-step-closed{padding:10px 14px}
+.re-step-closed .re-summary{padding-bottom:0}
