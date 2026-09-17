@@ -15,9 +15,26 @@ var Masters = (function () {
   var me = function () { return App.me(); };
 
   /* ---------- 定義：エンティティごとの項目 ---------- */
+  /* 空のまま渡すと、経費精算の明細で科目が1つも選べず申請できない。
+     日本の一般的な販管費の科目を、そのまま使える形で用意しておく。 */
+  var STARTER_ACCOUNTS = [
+    ['5101', '旅費交通費', '課税10%'], ['5102', '会議費', '課税10%'],
+    ['5103', '接待交際費', '課税10%'], ['5104', '消耗品費', '課税10%'],
+    ['5105', '通信費', '課税10%'], ['5106', '水道光熱費', '課税10%'],
+    ['5107', '広告宣伝費', '課税10%'], ['5108', '支払手数料', '課税10%'],
+    ['5109', '外注費', '課税10%'], ['5110', '地代家賃', '課税10%'],
+    ['5111', '修繕費', '課税10%'], ['5112', '保険料', '非課税'],
+    ['5113', '租税公課', '不課税'], ['5114', '新聞図書費', '軽減8%'],
+    ['5115', '諸会費', '不課税'], ['5116', '教育研修費', '課税10%'],
+    ['5117', '採用費', '課税10%'], ['5118', '荷造運賃', '課税10%'],
+    ['5119', 'リース料', '課税10%'], ['5120', '雑費', '課税10%']
+  ].map(function (a) {
+    return { Account_Code: a[0], Account_Name: a[1], Tax_Category: a[2], Is_Active: true };
+  });
+
   var DEFS = {
     Employees: {
-      label: '社員', icon: '👤', entity: 'Employees',
+      label: '社員', icon: '👤', entity: 'Employees', codeKey: 'Employee_ID',
       /* 人事も編集できる。組織の維持は人事の仕事なので、管理者だけに絞ると回らない。 */
       canEdit: function (u) { return Perm.isAdmin(u) || Perm.isHR(u); },
       list: function () { return S().employees; },
@@ -80,7 +97,7 @@ var Masters = (function () {
       }
     },
     Departments: {
-      label: '部署', icon: '🏢', entity: 'Departments',
+      label: '部署', icon: '🏢', entity: 'Departments', codeKey: 'Department_Code',
       canEdit: function (u) { return Perm.isAdmin(u); },
       list: function () { return S().departments; },
       columns: [
@@ -116,7 +133,7 @@ var Masters = (function () {
       }
     },
     Vendors: {
-      label: '取引先', icon: '🏪', entity: 'Vendors',
+      label: '取引先', icon: '🏪', entity: 'Vendors', codeKey: 'Vendor_Code',
       canEdit: function (u) { return Perm.isAdmin(u) || Perm.isFinance(u); },
       list: function () { return S().vendors; },
       columns: [
@@ -155,8 +172,9 @@ var Masters = (function () {
         ]
       }
     },
+
     Accounts: {
-      label: '勘定科目', icon: '📒', entity: 'Accounts',
+      label: '勘定科目', icon: '📒', entity: 'Accounts', codeKey: 'Account_Code',
       canEdit: function (u) { return Perm.isAdmin(u) || Perm.isFinance(u); },
       list: function () { return S().accounts; },
       columns: [
@@ -575,7 +593,18 @@ var Masters = (function () {
   }
 
   function tableHtml(def, rows, editable, focusId) {
-    if (!rows.length) return UI.empty('📭', '該当する' + def.label + 'がありません', '絞り込みを変えるか、新しく追加してください');
+    if (!rows.length) {
+      /* 勘定科目が1件も無いと経費精算の明細が入力できないため、
+         その場で標準セットを入れられるようにする。 */
+      if (def.entity === 'Accounts' && !def.list().length && editable) {
+        return UI.empty('📒', '勘定科目がまだ登録されていません',
+          '経費精算・購買申請の明細で科目が選べません。まずは標準の科目を入れるか、会計システムの科目表を取り込んでください。') +
+          '<div style="text-align:center;padding:0 16px 20px"><button class="btn btn-primary" data-act="seedacc">' +
+          '標準の勘定科目 ' + STARTER_ACCOUNTS.length + ' 件を登録する</button>' +
+          '<div class="page-sub" style="margin-top:8px">登録後に名称・コード・税区分は自由に変更できます。</div></div>';
+      }
+      return UI.empty('📭', '該当する' + def.label + 'がありません', '絞り込みを変えるか、新しく追加してください');
+    }
     return '<div class="table-wrap"><table class="tbl"><thead><tr>' +
       def.columns.map(function (c) { return '<th' + (c.w ? ' style="width:' + c.w + '"' : '') + '>' + E(c.label) + '</th>'; }).join('') +
       (editable ? '<th style="width:70px"></th>' : '') + '</tr></thead><tbody>' +
@@ -625,7 +654,34 @@ var Masters = (function () {
   }
 
   /* ---------- 編集フォーム ---------- */
-  function openForm(key, id) {
+  /**
+   * マスタの追加・編集ダイアログ
+   * @param {object} [opts] 申請画面から呼ぶとき用。
+   *   onSaved(saved) を渡すと、画面全体の再描画をせずに呼び出し元へ返す
+   *   （入力途中の申請フォームが消えないようにするため）
+   */
+  /**
+   * 既存のコードから次の連番を作る（S0007 → S0008、101 → 102）。
+   * 手で1件ずつ足すとき、番号を調べ直さずに済むようにする。
+   * 桁数と接頭辞は既存のものに合わせる。推定できなければ空を返す。
+   */
+  function nextCode(def) {
+    var key = def.codeKey;
+    if (!key) return '';
+    var best = null;
+    def.list().forEach(function (r) {
+      var m = /^([A-Za-z\-_]*)(\d+)$/.exec(String(r[key] == null ? '' : r[key]).trim());
+      if (!m) return;
+      var cand = { prefix: m[1], width: m[2].length, num: Number(m[2]) };
+      if (!best || cand.num > best.num) best = cand;
+    });
+    if (!best) return '';
+    var n = String(best.num + 1);
+    while (n.length < best.width) n = '0' + n;
+    return best.prefix + n;
+  }
+
+  function openForm(key, id, opts) {
     var def = DEFS[key];
     if (App.blockIfImpersonating('マスタの編集')) return;
     if (!def.canEdit(me())) { Access.denied('マスタの編集', def.label); UI.toast('編集の権限がありません（記録しました）', 'error'); return; }
@@ -634,6 +690,8 @@ var Masters = (function () {
     def.fields.forEach(function (f) {
       draft[f.key] = rec ? rec[f.key] : (f.def !== undefined ? f.def : (f.type === 'roles' ? ['申請者'] : ''));
     });
+    /* 新規追加のときはコードの連番を入れておく（必須なのに空で止まるのを防ぐ） */
+    if (!rec && def.codeKey && !draft[def.codeKey]) draft[def.codeKey] = nextCode(def);
 
     UI.modal({
       title: (rec ? def.label + 'を編集' : def.label + 'を追加') + (rec ? '：' + def.label_of(rec) : ''),
@@ -654,7 +712,7 @@ var Masters = (function () {
         });
         var err = validate(key, def, draft, rec);
         if (err) { UI.toast(err, 'error'); return false; }
-        save(key, def, draft, rec);
+        save(key, def, draft, rec, opts);
       }
     });
     UI.bindMoneyInputs(document.querySelector('.modal'));
@@ -753,7 +811,7 @@ var Masters = (function () {
   }
 
   /* ---------- 保存 ---------- */
-  function save(key, def, d, rec) {
+  function save(key, def, d, rec, opts) {
     var before = rec ? def.fields.map(function (f) {
       var v = rec[f.key];
       return f.label + '=' + (Array.isArray(v) ? v.join('・') : (v === true ? 'はい' : v === false ? 'いいえ' : (v == null ? '' : v)));
@@ -773,7 +831,8 @@ var Masters = (function () {
       App.audit(rec ? 'マスタ変更' : 'マスタ追加', def.label, saved.ID,
         def.label_of(saved) + '／変更前：' + before.slice(0, 600) + '／変更後：' + after.slice(0, 600));
       UI.toast(def.label_of(saved) + ' を保存しました', 'success');
-      App.refresh();
+      /* 申請フォームから呼ばれた場合は、入力途中の内容を消さないよう全体再描画をしない */
+      if (opts && opts.onSaved) opts.onSaved(saved); else App.refresh();
     }
 
     if (rec) {
@@ -797,6 +856,32 @@ var Masters = (function () {
   /* ---------- 状態と結線 ---------- */
   var st = { query: {} };
 
+  /** 標準の勘定科目をまとめて登録する（空のままだと経費精算が出せないため） */
+  function seedAccounts() {
+    if (App.blockIfImpersonating('勘定科目の登録')) return;
+    if (!DEFS.Accounts.canEdit(me())) { UI.toast('勘定科目を登録する権限がありません', 'error'); return; }
+    var have = {};
+    S().accounts.forEach(function (a) { have[String(a.Account_Code)] = true; });
+    var add = STARTER_ACCOUNTS.filter(function (a) { return !have[a.Account_Code]; });
+    if (!add.length) { UI.toast('標準の勘定科目はすべて登録済みです'); return; }
+    UI.toast('勘定科目を登録しています…');
+    /* Creator 側の書き込みは直列にする（一括で投げると取りこぼす） */
+    var i = 0;
+    function next() {
+      if (i >= add.length) return Promise.resolve();
+      var o = add[i++];
+      return DB.add('Accounts', o).then(function (saved) { S().accounts.push(saved); return next(); });
+    }
+    next().then(function () {
+      App.audit('マスタ追加', '勘定科目', '', '標準の勘定科目 ' + add.length + ' 件を一括登録');
+      UI.toast(add.length + ' 件の勘定科目を登録しました', 'success');
+      App.refresh();
+    }).catch(function (e) {
+      UI.toast('登録に失敗しました：' + (e && e.message ? e.message : e), 'error');
+      App.refresh();
+    });
+  }
+
   function bind(el, key, def, editable) {
     el.querySelectorAll('[data-mtab]').forEach(function (b) {
       b.addEventListener('click', function () { App.go('admin?tab=' + b.dataset.mtab); });
@@ -817,6 +902,8 @@ var Masters = (function () {
     if (exp) exp.addEventListener('click', function () { exportCsv(key, true); });
     var imp = el.querySelector('[data-act="imp"]');
     if (imp) imp.addEventListener('click', function () { openImport(key); });
+    var seedAcc = el.querySelector('[data-act="seedacc"]');
+    if (seedAcc) seedAcc.addEventListener('click', function () { seedAccounts(); });
     el.querySelectorAll('[data-edit]').forEach(function (b) {
       b.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -831,6 +918,6 @@ var Masters = (function () {
     }
   }
 
-  return { render: render, openForm: openForm, DEFS: DEFS,
+  return { render: render, openForm: openForm, DEFS: DEFS, seedAccounts: seedAccounts, STARTER_ACCOUNTS: STARTER_ACCOUNTS,
            exportCsv: exportCsv, openImport: openImport, analyze: analyze, parseCsv: parseCsv, suggestRoles: suggestRoles };
 })();

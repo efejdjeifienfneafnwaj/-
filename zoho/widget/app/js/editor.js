@@ -372,7 +372,14 @@ var RouteEditor = (function () {
 
         /* 致命的：誰も承認しないまま承認済みになる */
         var blocked = route.filter(function (s) { return s.blocking; });
-        var crossed = route.filter(function (s) { return !s.skipped && s.warning; });
+        /* 警告つきで生きている段を、理由ごとに分ける。
+           「他部署の役職者に回る」と「本来の承認者が未登録で管理者が肩代わり」は
+           直し方がまったく違うため、ひとまとめにしない。 */
+        var crossed = route.filter(function (s) { return !s.skipped && s.crossDeptFallback; });
+        /* 最上位者の自己決裁は構造上あたりまえなので報告しない（前からの扱いと揃える） */
+        var fellBack = route.filter(function (s) {
+          return !s.skipped && (s.fallbackAdmin || (s.selfApproval && !s.selfApprovalOrgTop));
+        });
         if (!route.length) {
           bad = bad || { kind: '経路が空', detail: UI.yen(amt) + ' のとき、条件に合うステップが1つもありません', amt: amt };
         } else if (!live.length) {
@@ -388,6 +395,15 @@ var RouteEditor = (function () {
           }
         } else if (blocked.length) {
           bad = bad || { kind: '省略不可の段が成立しない', detail: blocked.map(function (b) { return '「' + b.name + '」'; }).join('、') + ' の該当者がいません', amt: amt };
+        } else if (fellBack.length) {
+          /* 経路は流れるが、決めるべき人が決まっていない。マスタの不備なので必ず報告する。 */
+          soft = soft || {
+            kind: '本来の承認者が未登録（暫定で管理者が承認）',
+            detail: fellBack.map(function (u) { return u.step_no + '段目「' + u.name + '」'; }).join('、') +
+              ' に該当する社員がいないため、' + fellBack[0].approverName + ' が肩代わりします。' +
+              (ap.Manager ? '' : 'この社員には上長が設定されていません。'),
+            amt: amt
+          };
         } else if (crossed.length) {
           /* 他部署フォールバックは段ごとにまとめて出す（人数分並べるとノイズになる） */
           crossed.forEach(function (c) {
@@ -466,6 +482,10 @@ var RouteEditor = (function () {
     if (x.p.kind === '省略不可の段が成立しない') return '該当部署に在籍者を登録';
     if (x.p.kind === 'この経路では申請できない') return '申請者以外が承認者になる段を入れる';
     if (x.p.kind === '最上位者は経路が組めない') return '上長以外の段を足す';
+    if (x.p.kind === '本来の承認者が未登録（暫定で管理者が承認）') {
+      if (!x.emp.Manager) return '社員マスタで上長を設定';
+      return '該当役職の在籍を確認';
+    }
     if (x.p.kind === '一部の段が決まらない') {
       if (!x.emp.Manager) return '社員マスタで上長を設定';
       return '該当役職の在籍を確認';
@@ -949,14 +969,19 @@ var RouteEditor = (function () {
     /* 保存前に総当たりを走らせ、成立しない社員がいれば知らせる */
     var t = App.templateByCode(st.code) || { fields: [] };
     var emps = S().employees.filter(function (e) { return e.Is_Active !== false; });
+    /* 承認者が1人も決まらない経路は、暫定でシステム管理者に回る。
+       申請は止まらないが、決裁者が設計どおりでないことに変わりはないので、保存前に知らせる。 */
     var ng = emps.filter(function (ap) {
       var route = WF.buildRoute({ fields: t.fields, route: { steps: st.steps } }, {}, ap, S().employees,
         { data: {}, applicant: ap, amount: 999999999, template: t, attachmentCount: 0 });
-      return !route.filter(function (s) { return !s.skipped; }).length;
+      var live = route.filter(function (s) { return !s.skipped; });
+      if (!live.length) return true;
+      return live.some(function (s) { return s.fallbackAdmin || (s.selfApproval && !s.selfApprovalOrgTop); });
     });
     if (ng.length) {
       out.push(emps.length + '名中 ' + ng.length + '名（' + ng.slice(0, 3).map(function (e) { return e.Employee_Name; }).join('、') +
-        (ng.length > 3 ? ' ほか' : '') + '）は、この経路で承認者が1人も決まらず、申請できません。「全社員で診断する」で詳細を確認してください。');
+        (ng.length > 3 ? ' ほか' : '') + '）は、この経路で本来の承認者が1人も決まりません' +
+        '（暫定でシステム管理者に回ります）。「全社員で診断する」で詳細を確認してください。');
     }
     return out;
   }

@@ -47,9 +47,19 @@ var DB = (function () {
     connected = false; sdkKind = 'demo';
     console.info('[社内申請システム] デモモードで起動します（' + reason + '）');
     store = lsGet('demo_db', null);
-    if (!store) { store = Seed.build(); lsGet && lsSet('demo_db', store); }
+    /* 動作確認用のサンプルは同梱しない版もあるため、無ければ空で始める */
+    if (!store) {
+      store = (typeof Seed !== 'undefined' && Seed.build) ? Seed.build() : emptyStore();
+      lsSet('demo_db', store);
+    }
   }
   function persist() { if (sdkKind === 'demo') lsSet('demo_db', store); }
+  /** サンプルを同梱しない場合の、空の入れ物 */
+  function emptyStore() {
+    var o = {};
+    Object.keys(CFG.FORMS).forEach(function (k) { o[k] = []; });
+    return o;
+  }
 
   /* ---------- Creator API ラッパ ----------
    * パラメータ名は実際に Creator 上で動作している呼び出しに合わせてある：
@@ -121,8 +131,8 @@ var DB = (function () {
     }
     return sdkUpdate(CFG.REPORTS[entity], id, Mapper.toCreator(entity, patch)).then(function () { return patch; });
   }
-  function resetDemo() { store = Seed.build(); persist(); }
-  function wipeDemo() { store = Seed.empty(); persist(); }
+  function resetDemo() { store = (typeof Seed !== 'undefined' && Seed.build) ? Seed.build() : emptyStore(); persist(); }
+  function wipeDemo() { store = (typeof Seed !== 'undefined' && Seed.empty) ? Seed.empty() : emptyStore(); persist(); }
 
   return {
     init: init, list: list, add: add, update: update,

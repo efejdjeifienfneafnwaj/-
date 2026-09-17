@@ -25,6 +25,30 @@ var WF = (function () {
   }
 
   /* ---------- 承認者の解決 ---------- */
+  /** 承認者の指定を人が読める言葉にする（不在時の案内に使う） */
+  function assigneeLabel(step) {
+    var a = step.assignee || {};
+    if (a.mode === 'manager') return (a.level > 1 ? a.level + '段上の上長' : '直属の上長');
+    if (a.mode === 'title') return (a.department ? a.department + 'の' : '') + (a.title || '指定役職');
+    if (a.mode === 'department') return (a.department || '指定部署') + 'の責任者';
+    if (a.mode === 'fixed') return '指定された承認者';
+    return '指定された承認者';
+  }
+  /**
+   * 承認者が1人も決まらない段の受け皿。
+   * そのまま段を消すと、誰も決裁しないまま承認済になってしまう。
+   * 代わりにシステム管理者へ回し、暫定であることを経路に明示する。
+   * ここで自動承認は絶対にしない（必ず人が押す）。
+   */
+  function fallbackApprover(applicant, employees) {
+    var cand = (employees || []).filter(function (e) {
+      return e.Is_Active !== false &&
+        ((e.Roles || []).indexOf('管理者') >= 0) &&
+        (!applicant || String(e.ID) !== String(applicant.ID));
+    });
+    cand.sort(function (x, y) { return CFG.TITLES.indexOf(x.Title) - CFG.TITLES.indexOf(y.Title); });
+    return cand[0] || null;
+  }
   function resolveAssignee(step, applicant, employees, deptName) {
     var a = step.assignee || {};
     var byId = {}; employees.forEach(function (e) { byId[String(e.ID)] = e; });
@@ -170,7 +194,7 @@ var WF = (function () {
       };
       /* 自動スキップ判定（重複は後段を残すため、ここでは判定しない） */
       if (needsPick) { row.approverName = '（申請時に選択）'; }
-      else if (!approver) { row.skipped = true; row.skipReason = '該当する承認者が存在しないため自動スキップ'; }
+      else if (!approver) { row.skipped = true; row.skipReason = '該当する承認者が存在しないため自動スキップ'; row.assigneeLabel = assigneeLabel(st); }
       else if (applicant && String(approver.ID) === String(applicant.ID)) { row.skipped = true; row.skipReason = '申請者本人のため自動スキップ'; }
       if (approver && approver._crossDeptFallback) {
         row.crossDeptFallback = true;
@@ -221,6 +245,46 @@ var WF = (function () {
         seenDelegate[k] = r.step_no + '段目「' + r.name + '」';
       }
     });
+    /* 生きた段が1つも残らなかったときだけ、最後の受け皿を立てる。
+       ここで何もしないと、経路が空の申請は出すことすらできない（導入直後がこれにあたる）。
+       段が1つでも生きている経路には手を触れない（既存の決裁順序を勝手に変えないため）。
+       自動承認は絶対にしない。必ず誰かが承認ボタンを押し、その記録が残る。 */
+    if (applicant && out.length && !out.some(function (r) { return !r.skipped && r.type !== '回覧'; })) {
+      /* 回覧は「読んだ」だけで決裁ではないため、承認の段を生かす。最後尾＝最上位を選ぶ。 */
+      var approvalRows = out.filter(function (r) { return r.type !== '回覧'; });
+      var target = approvalRows[approvalRows.length - 1];
+      if (target) {
+        /* 組織の最上位（社長）は、上長がいないのが当たり前。
+           部下を承認者に立てるのは決裁として逆立ちするので、本人の決裁として通す。 */
+        var isOrgTop = applicant.Title === CFG.TITLES[0];
+        var fb = isOrgTop ? null : fallbackApprover(applicant, employees);
+        if (fb) {
+          target.skipped = false; target.skipReason = '';
+          target.approverId = fb.ID; target.approverName = fb.Employee_Name; target.approverTitle = fb.Title;
+          target.fallbackAdmin = true;
+          target.warning = '「' + (target.assigneeLabel || target.name) + '」にあたる社員が登録されていないため、' +
+            '暫定でシステム管理者（' + fb.Employee_Name + '）が承認します。' +
+            '社員マスタに役職と上長を登録すると、次の申請から本来の承認者に切り替わります。';
+          var dep2 = delegateOf(fb, employees);
+          if (dep2) { target.delegateId = dep2.ID; target.delegateName = dep2.Employee_Name; }
+        } else if (isOrgTop || !(employees || []).some(function (e) {
+          return e.Is_Active !== false && String(e.ID) !== String(applicant.ID);
+        })) {
+          /* 承認できる人が他にいない。自己承認として明示して通す（自動承認はしない）。 */
+          target.skipped = false; target.skipReason = '';
+          target.approverId = applicant.ID; target.approverName = applicant.Employee_Name;
+          target.approverTitle = applicant.Title;
+          target.selfApproval = true;
+          target.selfApprovalOrgTop = isOrgTop;
+          target.warning = isOrgTop
+            ? applicant.Title + 'には上長がいないため、この申請はご本人の決裁になります（自己承認として証跡に残ります）。' +
+              '別の人の承認を通したい場合は、承認経路に役職や部署を指定した段を足してください。'
+            : '承認できる社員が他に登録されていないため、あなた自身が承認する形になります。' +
+              '自己承認として証跡に残ります。社員を登録すると、次の申請から本来の承認者に切り替わります。';
+        }
+      }
+    }
+
     /* 実際に流れる段に通し番号を振り直す（画面の「N段で流れます」と一致させる） */
     var liveNo = 0;
     out.forEach(function (r) { if (!r.skipped) { liveNo++; r.live_no = liveNo; } });
@@ -395,6 +459,7 @@ var WF = (function () {
     isDelayed: isDelayed, overdueDays: overdueDays, sumLines: sumLines, amountOf: amountOf,
     isRoutable: isRoutable, blockingSteps: blockingSteps, dueDateOf: dueDateOf, stepStartedAt: stepStartedAt,
     escalatedTo: escalatedTo, isEscalated: isEscalated,
-    delegateOf: delegateOf, match: match, num: num, departmentMembers: departmentMembers
+    delegateOf: delegateOf, match: match, num: num, departmentMembers: departmentMembers,
+    assigneeLabel: assigneeLabel, fallbackApprover: fallbackApprover
   };
 })();

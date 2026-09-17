@@ -235,7 +235,18 @@ var App = (function () {
       return;
     }
     sel.hidden = false;
-    if (label) label.hidden = true;
+    if (label) {
+      /* 他人として表示している間は、それが分かるようにしておく。
+         書き込みは止まるが、自分の画面だと思い込むと混乱するため。 */
+      if (isImpersonating()) {
+        label.hidden = false;
+        label.className = 'user-label impersonating';
+        label.textContent = '👁 ' + me().Employee_Name + ' として表示中（閲覧のみ）';
+      } else {
+        label.hidden = true;
+        label.className = 'user-label';
+      }
+    }
     sel.innerHTML = state.employees.map(function (e) {
       return '<option value="' + UI.esc(e.ID) + '"' + (String(e.ID) === String(currentUserId) ? ' selected' : '') + '>' +
         UI.esc(e.Employee_Name + '（' + e.Title + '／' + (e.Roles || []).join('・') + '）') + '</option>';
@@ -278,6 +289,8 @@ var App = (function () {
       el.innerHTML = UI.empty('⚠️', '画面の表示中にエラーが発生しました', String(e && e.message ? e.message : e));
     }
     renderNav();
+    /* 社員マスタを編集したあとも一覧が古いままにならないよう、描画のたびに作り直す */
+    renderUserSwitch();
     el.focus();
   }
   function refresh() { render(); }
@@ -350,6 +363,14 @@ var App = (function () {
       chip.style.color = res.connected ? 'var(--success)' : 'var(--warning)';
       return loadAll();
     }).then(function () {
+      /* 社員が1人もいない＝誰も照合できない。最初の管理者を登録してもらう */
+      if (Setup.isFirstRun()) {
+        renderUserSwitch();
+        document.getElementById('nav').innerHTML = '';
+        document.getElementById('userSwitch').hidden = true;
+        Setup.renderFirstRun(document.getElementById('view'));
+        return;
+      }
       var fromSSO = resolveLoginUser();
       if (identityError) {
         Access.log(CFG.ACCESS.ACTIONS.DENIED, { targetType: 'アプリ起動', detail: identityError });

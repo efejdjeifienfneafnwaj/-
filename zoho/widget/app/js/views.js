@@ -73,6 +73,7 @@ var Views = (function () {
     }).sort(function (a, b) { return new Date(b.Log_Time) - new Date(a.Log_Time); }).slice(0, 6);
 
     var html = pageHead('ダッシュボード', me().Employee_Name + ' さん（' + (me().Department_name || '') + '／' + me().Title + '）の状況', '');
+    if (Perm.isAdmin(me())) html += Setup.progressCard();
     html += '<div class="grid kpi-grid" style="margin-bottom:14px">' +
       kpi('承認待ち（あなたの処理）', pending.length + ' 件', pending.length ? '今すぐ処理が必要です' : '未処理はありません', pending.length > 0) +
       kpi('差戻し', sentback.length + ' 件', '修正して再申請してください') +
@@ -103,6 +104,7 @@ var Views = (function () {
     el.innerHTML = html;
     el.querySelectorAll('[data-go]').forEach(function (b) { b.addEventListener('click', function () { App.go(b.dataset.go); }); });
     el.querySelectorAll('[data-req]').forEach(function (b) { b.addEventListener('click', function () { openDetail(b.dataset.req); }); });
+    Setup.bindProgress(el);
     Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: 'ダッシュボード', resultCount: reqs.length });
   }
   function kpi(label, value, foot, attention) {
@@ -208,8 +210,8 @@ var Views = (function () {
       case 'select': input = sel(f.key, (f.options || []).map(function (o) { return { v: o, t: o }; }), v); break;
       case 'employee': input = sel(f.key, S().employees.map(function (e) { return { v: e.ID, t: e.Employee_Name + '（' + e.Department_name + '）' }; }), v); break;
       case 'department': input = sel(f.key, S().departments.map(function (d) { return { v: d.Department_Name, t: d.Department_Name }; }), v); break;
-      case 'vendor': input = sel(f.key, S().vendors.map(function (x) { return { v: x.ID, t: x.Vendor_Name + (x.Is_Qualified ? '' : '（未登録事業者）') }; }), v); break;
-      case 'account': input = sel(f.key, S().accounts.map(function (a) { return { v: a.ID, t: a.Account_Code + ' ' + a.Account_Name }; }), v); break;
+      case 'vendor': input = sel(f.key, S().vendors.map(function (x) { return { v: x.ID, t: x.Vendor_Name + (x.Is_Qualified ? '' : '（未登録事業者）') }; }).concat([NEW_OPT('Vendors')]), v); break;
+      case 'account': input = sel(f.key, S().accounts.map(function (a) { return { v: a.ID, t: a.Account_Code + ' ' + a.Account_Name }; }).concat([NEW_OPT('Accounts')]), v); break;
       case 'lines': return '<div class="' + cls + '">' + label + linesHtml(f) + '</div>';
       case 'files': return '<div class="' + cls + '" data-wrap="' + E(f.key) + '">' + label +
         filesHtml(f) + (f.help ? '<div class="help">' + E(f.help) + '</div>' : '') +
@@ -236,6 +238,27 @@ var Views = (function () {
       '<td class="num">' + UI.yen(sum.total) + '</td><td></td></tr></tfoot></table></div>' +
       '<div style="margin-top:8px"><button type="button" class="btn btn-sm" data-addline="' + E(f.key) + '">＋ 行を追加</button></div>';
   }
+  /* マスタが空だと明細が入力できず申請そのものが出せなくなる。
+     申請画面を離れずにその場で足せるよう、選択肢の末尾に登録口を置く。 */
+  var NEW_VALUE = '__newmaster__';
+  function NEW_OPT(masterKey) { return { v: NEW_VALUE + ':' + masterKey, t: '＋ 新しく登録する…' }; }
+  function addNewOpt(masterKey) {
+    if (!Masters.DEFS[masterKey].canEdit(me())) return '';
+    return '<option value="' + NEW_VALUE + ':' + masterKey + '">＋ 新しく登録する…</option>';
+  }
+  /** 選択された値が「＋ 新しく登録する…」かどうか。true なら登録ダイアログを開いて処理を引き取る */
+  function handleNewMaster(value, t, apply) {
+    if (String(value || '').indexOf(NEW_VALUE + ':') !== 0) return false;
+    var mk = String(value).split(':')[1];
+    if (!Masters.DEFS[mk].canEdit(me())) { UI.toast('登録の権限がありません', 'error'); redrawForm(t); return true; }
+    Masters.openForm(mk, null, {
+      onSaved: function (saved) { apply(saved.ID); redrawForm(t); }
+    });
+    /* ダイアログを閉じただけの場合に選択が残らないよう、いったん元に戻す */
+    redrawForm(t);
+    return true;
+  }
+
   function lineCell(fk, i, c, v) {
     var a = 'data-line-field="' + E(fk) + '|' + i + '|' + E(c.key) + '"';
     if (c.type === 'date') return '<input type="date" ' + a + ' value="' + E(v || '') + '">';
@@ -243,8 +266,8 @@ var Views = (function () {
     if (c.type === 'number') return '<input type="number" ' + a + ' value="' + E(v || '') + '">';
     if (c.type === 'calc') return '<input ' + a + ' readonly style="text-align:right;background:var(--surface-2)" value="' + E(v || '') + '">';
     if (c.type === 'tax') return '<select ' + a + '>' + CFG.TAX.map(function (t) { return '<option' + (v === t.key ? ' selected' : '') + '>' + E(t.key) + '</option>'; }).join('') + '</select>';
-    if (c.type === 'account') return '<select ' + a + '><option value="">—</option>' + S().accounts.map(function (x) { return '<option value="' + E(x.ID) + '"' + (String(v) === String(x.ID) ? ' selected' : '') + '>' + E(x.Account_Name) + '</option>'; }).join('') + '</select>';
-    if (c.type === 'vendor') return '<select ' + a + '><option value="">—</option>' + S().vendors.map(function (x) { return '<option value="' + E(x.ID) + '"' + (String(v) === String(x.ID) ? ' selected' : '') + '>' + E(x.Vendor_Name) + '</option>'; }).join('') + '</select>';
+    if (c.type === 'account') return '<select ' + a + '><option value="">—</option>' + S().accounts.map(function (x) { return '<option value="' + E(x.ID) + '"' + (String(v) === String(x.ID) ? ' selected' : '') + '>' + E(x.Account_Name) + '</option>'; }).join('') + addNewOpt('Accounts') + '</select>';
+    if (c.type === 'vendor') return '<select ' + a + '><option value="">—</option>' + S().vendors.map(function (x) { return '<option value="' + E(x.ID) + '"' + (String(v) === String(x.ID) ? ' selected' : '') + '>' + E(x.Vendor_Name) + '</option>'; }).join('') + addNewOpt('Vendors') + '</select>';
     if (c.type === 'select') return '<select ' + a + '>' + (c.options || []).map(function (o) { return '<option' + (v === o ? ' selected' : '') + '>' + E(o) + '</option>'; }).join('') + '</select>';
     return '<input ' + a + ' value="' + E(v || '') + '">';
   }
@@ -348,6 +371,8 @@ var Views = (function () {
       inp.addEventListener('change', function () {
         var p = inp.dataset.lineField.split('|');
         var k = p[0], i = Number(p[1]), c = p[2];
+        /* 「＋ 新しく登録する…」を選んだときは、登録して戻ってきた ID をこのセルに入れる */
+        if (handleNewMaster(inp.value, t, function (id) { formState.data[k][i][c] = id; })) return;
         var col = (t.fields.filter(function (f) { return f.key === k; })[0].columns || []).filter(function (x) { return x.key === c; })[0];
         formState.data[k][i][c] = (col && (col.type === 'currency' || col.type === 'number')) ? UI.rawNum(inp.value) : inp.value;
         /* 計算列の更新 */
@@ -371,6 +396,7 @@ var Views = (function () {
     var k = e.target.dataset.field;
     var f = (tplOf(formState.code).fields || []).filter(function (x) { return x.key === k; })[0] || {};
     var v = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    if (handleNewMaster(v, tplOf(formState.code), function (id) { formState.data[k] = id; })) return;
     formState.data[k] = (f.type === 'currency') ? UI.rawNum(v) : v;
     renderRoutePreview(document.querySelector('#routePrev'), tplOf(formState.code));
     renderPolicy(document.querySelector('#policyBox'), tplOf(formState.code));
@@ -473,7 +499,24 @@ var Views = (function () {
     if (App.blockIfImpersonating('申請')) return;
     if (!asDraft) {
       var errs = validate(t);
-      if (errs.length) { UI.toast('未入力の必須項目があります：' + errs.slice(0, 3).join('、'), 'error'); return; }
+      if (errs.length) {
+        /* 以前は3件までしか出さず、画面外の項目だと何を直せばよいか分からなかった。
+           全部を並べたうえで、最初の未入力欄まで画面を送る。 */
+        UI.modal({
+          title: '入力がそろっていません', okText: '入力に戻る', hideCancel: true,
+          bodyHtml: '<div class="page-sub" style="margin-bottom:10px">次の項目を入れてから申請してください。</div>' +
+            '<ul style="margin:0;padding-left:20px;font-size:13px;line-height:2">' +
+            errs.map(function (x) { return '<li>' + E(x) + '</li>'; }).join('') + '</ul>' +
+            '<div class="page-sub" style="margin-top:10px">ここまでの入力は「下書き保存」で残せます。</div>'
+        });
+        var first = document.querySelector('.field.err');
+        if (first) {
+          first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          var fi = first.querySelector('input,select,textarea');
+          if (fi) setTimeout(function () { fi.focus(); }, 300);
+        }
+        return;
+      }
     }
     var data = formState.data;
     var amount = WF.amountOf(t, data);
@@ -488,11 +531,22 @@ var Views = (function () {
       var why = route.length
         ? route.map(function (s) { return '・' + s.step_no + '段目「' + s.name + '」：' + (s.skipReason || '条件に合いません'); }).join('<br>')
         : '・この申請区分に、条件を満たす承認ステップが1つもありません';
+      var canFix = Perm.isAdmin(me());
       UI.modal({
         title: '承認者が決まらないため申請できません',
-        bodyHtml: '<div class="page-sub" style="margin-bottom:10px">次の理由で承認経路を組めませんでした。管理者にご連絡ください。</div>' +
+        okText: canFix ? '社員マスタを開く' : '下書きとして保存する',
+        cancelText: '入力に戻る',
+        bodyHtml: '<div class="page-sub" style="margin-bottom:10px">次の理由で承認経路を組めませんでした。</div>' +
           '<div style="font-size:12.5px;line-height:1.9">' + why + '</div>' +
-          '<div class="page-sub" style="margin-top:10px">下書きとしては保存できます。</div>'
+          '<div class="page-sub" style="margin-top:12px">' +
+          (canFix
+            ? '社員マスタで役職と上長を登録すると、経路が自動で組まれます。'
+            : '社員マスタの役職・上長が未登録の可能性があります。システム管理者にご連絡ください。') +
+          '　入力内容は「下書きとして保存」で残せます。</div>',
+        onOk: function () {
+          if (canFix) { App.go('admin?tab=Employees'); return; }
+          submit(t, true);
+        }
       });
       return;
     }

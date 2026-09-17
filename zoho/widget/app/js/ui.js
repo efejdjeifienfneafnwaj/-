@@ -84,7 +84,8 @@ var UI = (function () {
       '<div class="modal-head">' + esc(opts.title) + '</div>' +
       '<div class="modal-body">' + (opts.bodyHtml || '') + '</div>' +
       '<div class="modal-foot">' +
-      '<button class="btn" data-act="cancel">' + esc(opts.cancelText || 'キャンセル') + '</button>' +
+      /* 知らせるだけのダイアログは、選びようのない「キャンセル」を出さない */
+      (opts.hideCancel ? '' : '<button class="btn" data-act="cancel">' + esc(opts.cancelText || 'キャンセル') + '</button>') +
       (opts.okText ? '<button class="btn ' + (opts.okClass || 'btn-primary') + '" data-act="ok">' + esc(opts.okText) + '</button>' : '') +
       '</div>';
     root.appendChild(scrim); root.appendChild(box);
@@ -92,7 +93,8 @@ var UI = (function () {
     document.addEventListener('keydown', onKey);
     box._onKey = onKey;
     scrim.addEventListener('click', close);
-    box.querySelector('[data-act="cancel"]').addEventListener('click', function () { if (opts.onCancel) opts.onCancel(); close(); });
+    var cancelBtn = box.querySelector('[data-act="cancel"]');
+    if (cancelBtn) cancelBtn.addEventListener('click', function () { if (opts.onCancel) opts.onCancel(); close(); });
     var ok = box.querySelector('[data-act="ok"]');
     if (ok) ok.addEventListener('click', function () { if (opts.onOk) { if (opts.onOk(box) === false) return; } close(); });
     var f = box.querySelector('input,textarea,select,button[data-act="ok"]'); if (f) f.focus();

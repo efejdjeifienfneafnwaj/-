@@ -267,3 +267,12 @@ table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
 .re-summary-cond{font-size:11.5px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
 .re-step-closed{padding:10px 14px}
 .re-step-closed .re-summary{padding-bottom:0}
+
+/* ===== 初回セットアップ ===== */
+.setup-wrap{max-width:760px;margin:0 auto}
+.setup-head{text-align:center;margin-bottom:22px}
+.setup-badge{display:inline-block;background:var(--primary-weak);color:var(--primary-strong);font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:999px;margin-bottom:12px}
+.setup-head h1{font-size:22px;letter-spacing:.01em;margin-bottom:8px}
+.setup-head p{font-size:13px;color:var(--text-muted)}
+.setup-list{padding-left:20px;line-height:2;font-size:12.5px;margin-bottom:10px}
+.user-label.impersonating{color:var(--warning);background:var(--warning-weak);border-radius:6px;font-weight:700}
