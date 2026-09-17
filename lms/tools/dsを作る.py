@@ -57,6 +57,11 @@ FORMS = [
     ('post_key', '投稿キー', T), ('kind', '種別', T), ('author_name', '投稿者', T),
     ('author_email', '投稿者メール', T), ('to_name', '宛先（サンクス）', T), ('title', '件名', T),
     ('body', '本文', A), ('target', '宛先の職種', T), ('posted_at', '投稿日時', T), ('deleted', '削除', T)]),
+  ('Lms_Remind_Form', 'Lms_Remind_Report', '【システム用】自動リマインド', '自動リマインド', [
+    ('remind_key', 'リマインドキー', T), ('person_name', '氏名', T), ('email', 'メールアドレス', T),
+    ('pending_count', '未修了の数', N), ('pending_list', '未修了の一覧', A),
+    ('mail_subject', 'メール件名', T), ('mail_body', 'メール本文', A),
+    ('active', '送る（true/false）', T), ('refreshed_at', '更新日時', T), ('last_sent_on', '最終送信日', T)]),
   ('Lms_React_Form', 'Lms_React_Report', '【システム用】いいね・コメント', 'いいね・コメント', [
     ('react_key', '反応キー', T), ('post_key', '投稿キー', T), ('kind', '種別', T),
     ('person_name', '名前', T), ('body', 'コメント本文', A), ('at', '日時', T), ('deleted', '削除', T)]),

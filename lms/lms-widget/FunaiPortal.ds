@@ -2747,6 +2747,129 @@ application "船井ポータル"
 				}
 			}
 		}
+		form Lms_Remind_Form
+		{
+			displayname = "【システム用】自動リマインド"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			remind_key
+			(
+				type = text
+				displayname = "リマインドキー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			person_name
+			(
+				type = text
+				displayname = "氏名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			email
+			(
+				type = text
+				displayname = "メールアドレス"
+				row = 1
+				column = 1
+				width = medium
+			)
+			pending_count
+			(
+				type = number
+				displayname = "未修了の数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			pending_list
+			(
+				type = textarea
+				displayname = "未修了の一覧"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			mail_subject
+			(
+				type = text
+				displayname = "メール件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			mail_body
+			(
+				type = textarea
+				displayname = "メール本文"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			active
+			(
+				type = text
+				displayname = "送る（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			refreshed_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			last_sent_on
+			(
+				type = text
+				displayname = "最終送信日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
 		form Lms_React_Form
 		{
 			displayname = "【システム用】いいね・コメント"
@@ -3226,6 +3349,23 @@ application "船井ポータル"
 				deleted as "削除"
 			)
 		}
+		list Lms_Remind_Report
+		{
+			displayName = "自動リマインド"
+			show all rows from Lms_Remind_Form
+			(
+				remind_key as "リマインドキー"
+				person_name as "氏名"
+				email as "メールアドレス"
+				pending_count as "未修了の数"
+				pending_list as "未修了の一覧"
+				mail_subject as "メール件名"
+				mail_body as "メール本文"
+				active as "送る（true/false）"
+				refreshed_at as "更新日時"
+				last_sent_on as "最終送信日"
+			)
+		}
 		list Lms_React_Report
 		{
 			displayName = "いいね・コメント"
@@ -3364,6 +3504,10 @@ application "船井ポータル"
 				label placement = left
 			}
 			form Lms_Post_Form
+			{
+				label placement = left
+			}
+			form Lms_Remind_Form
 			{
 				label placement = left
 			}
@@ -5168,6 +5312,92 @@ application "船井ポータル"
 					)
 				)
 			}
+			report Lms_Remind_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+										remind_key as "リマインドキー"
+										person_name as "氏名"
+										email as "メールアドレス"
+										pending_count as "未修了の数"
+										pending_list as "未修了の一覧"
+										mail_subject as "メール件名"
+										mail_body as "メール本文"
+										active as "送る（true/false）"
+										refreshed_at as "更新日時"
+										last_sent_on as "最終送信日"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+										remind_key as "リマインドキー"
+										person_name as "氏名"
+										email as "メールアドレス"
+										pending_count as "未修了の数"
+										pending_list as "未修了の一覧"
+										mail_subject as "メール件名"
+										mail_body as "メール本文"
+										active as "送る（true/false）"
+										refreshed_at as "更新日時"
+										last_sent_on as "最終送信日"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
 			report Lms_React_Report
 			{
 				quickview
@@ -5343,6 +5573,10 @@ application "船井ポータル"
 					{
 						icon = "files-paper"
 					}
+					report Lms_Remind_Report
+					{
+						icon = "files-paper"
+					}
 					report Lms_React_Report
 					{
 						icon = "files-paper"
@@ -5424,6 +5658,10 @@ application "船井ポータル"
 						icon = "ui-2-settings-90"
 					}
 					form Lms_Post_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Remind_Form
 					{
 						icon = "ui-2-settings-90"
 					}
@@ -5552,6 +5790,10 @@ application "船井ポータル"
 			{
 				label placement = auto
 			}
+			form Lms_Remind_Form
+			{
+				label placement = auto
+			}
 			form Lms_React_Form
 			{
 				label placement = auto
@@ -5653,6 +5895,10 @@ application "船井ポータル"
 				label placement = auto
 			}
 			form Lms_Post_Form
+			{
+				label placement = auto
+			}
+			form Lms_Remind_Form
 			{
 				label placement = auto
 			}

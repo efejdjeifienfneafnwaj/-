@@ -1054,6 +1054,23 @@ kbd{
 </head>
 <body>
 
+<!-- 部品の読み込みに失敗したときに、真っ白のままにしない（古いスマホなど） -->
+<script>
+(function(){
+  var shown = false;
+  window.addEventListener('error', function(ev){
+    var m = String((ev && ev.message) || '');
+    if(!/SyntaxError|is not defined|Unexpected token/.test(m) || shown) return;
+    shown = true;
+    var d = document.createElement('div');
+    d.setAttribute('style', 'position:fixed;left:12px;right:12px;bottom:12px;z-index:99999;background:#fff3cd;color:#5c4400;' +
+      'border:1px solid #f0d58c;border-radius:10px;padding:12px 14px;font:13px/1.6 sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.18)');
+    d.textContent = '画面の部品を読み込めませんでした。お使いのブラウザが古い可能性があります。' +
+      '（' + m.slice(0, 160) + '）この表示を研修担当にお伝えください。';
+    (document.body || document.documentElement).appendChild(d);
+  });
+})();
+</script>
 <!-- 入口（名前の入力） -->
 <div id="gate"></div>
 
@@ -1427,7 +1444,9 @@ var FORM = {
   news:  'Lms_News_Form',   newsR:  'Lms_News_Report',
   /* 船井コネクト（掲示板・サンクスカード） */
   post:  'Lms_Post_Form',   postR:  'Lms_Post_Report',
-  react: 'Lms_React_Form',  reactR: 'Lms_React_Report'
+  react: 'Lms_React_Form',  reactR: 'Lms_React_Report',
+  /* 自動リマインド（Creator のスケジュールが、この表を見てメールを送る） */
+  remind:'Lms_Remind_Form', remindR:'Lms_Remind_Report'
 };
 var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 /* ポータルにログインしている人のメールアドレス。
@@ -1435,14 +1454,14 @@ var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 var LOGIN_EMAIL = '';
 
 var MEM = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{},
+            posts:{}, reacts:{}, reminds:{},
             courses:null, config:null };                     /* 画面が読む写し */
 var RID = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{},
+            posts:{}, reacts:{}, reminds:{},
             courses:null };                                  /* Creatorのレコード番号 */
 /* kind → RID の中のどの入れ物を使うか（'quiz' は 'quizzes' なので機械的に s を付けられない） */
 var RID_BOX = { person:'people', record:'records', quiz:'quizzes', daily:'daily',
-                survey:'surveys', news:'news', post:'posts', react:'reacts' };
+                survey:'surveys', news:'news', post:'posts', react:'reacts', remind:'reminds' };
 var LOADED = { person:'', all:false, truncated:false, daily:'',
                partial:false,   /* 読めなかったものがあった */
                lastErr:'' };
@@ -1472,6 +1491,7 @@ MEM.surveys = LS.get('surveys', {});
 MEM.news    = LS.get('news', {});
 MEM.posts   = LS.get('posts', {});
 MEM.reacts  = LS.get('reacts', {});
+MEM.reminds = LS.get('reminds', {});
 MEM.courses = LS.get('courses', null);
 MEM.config  = LS.get('config', null);
 /* この仕組みを入れる前に保存された記録を、年度つきのキーに直す（起動時に1回だけ） */
@@ -1769,6 +1789,87 @@ function secOfRanges(rg){
   return n;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   自動リマインド
+
+   メールを実際に送るのは Creator 側のスケジュール（週1回）。
+   ウィジェットは「誰に・どんな文面を送るか」を Lms_Remind の表に
+   1人1行で用意しておく。未修了が無くなれば active を false にする。
+   ・受講者本人：自分の記録を保存するたびに、自分の行を更新する
+   ・管理者：受講者一覧を開いたとき（1日1回）と、設定の「今すぐ更新」で全員ぶん
+   ══════════════════════════════════════════════════════════════ */
+/* その人の未修了の必須研修 */
+function pendingFor(name){
+  var pr = people()[normName(name)];
+  if(!pr) return [];
+  var person = { name:pr.name, dept:pr.dept || '', group:pr.group || '' };
+  var out = [];
+  courses().forEach(function(co){
+    if(!isLive(co) || !co.required) return;
+    if(!isAssigned(person, co)) return;
+    var p = courseProgress(pr.name, co);
+    if(p.done) return;
+    out.push({ co:co, p:p });
+  });
+  return out;
+}
+function remindTextFor(name, pend){
+  var cfg = config();
+  var list = pend.map(function(x){
+    return '　・' + x.co.title + '（視聴 ' + Math.round((x.p.rate || 0) * 100) + '%' +
+           (x.co.deadline ? '／期限 ' + x.co.deadline : '') + '）';
+  }).join('\n');
+  var fill = function(t){
+    return String(t || '').replace(/\{name\}/g, name).replace(/\{list\}/g, list)
+             .replace(/\{count\}/g, String(pend.length))
+             .replace(/\{portal\}/g, cfg.portalName || cfg.appName || '研修ポータル');
+  };
+  return { subject:fill(cfg.remindSubject), body:fill(cfg.remindBody), list:list };
+}
+/* 1人ぶんの行を作り、前と変わっていれば Creator に送る。送ったら true */
+function pushRemind(name){
+  var n = normName(name);
+  var pr = people()[n];
+  if(!pr || !String(pr.email || '').trim()) return false;   /* メールが無い人には送れない */
+  var pend = pendingFor(n);
+  var txt = remindTextFor(pr.name, pend);
+  var active = !!config().remindOn && pend.length > 0 && pr.active !== false;
+  var row = { name:pr.name, email:String(pr.email).trim(), count:pend.length, list:txt.list,
+              subject:txt.subject, body:txt.body, active:active };
+  var prev = MEM.reminds[n];
+  var same = prev && prev.email === row.email && prev.count === row.count &&
+             prev.active === row.active && prev.body === row.body && prev.subject === row.subject;
+  if(same) return false;
+  row.at = new Date().toISOString();
+  MEM.reminds[n] = row;
+  cacheFlush('reminds');
+  queueSync('remind', n);
+  return true;
+}
+/* 自分の行だけ（受講者が記録を保存したあと）。続けて呼ばれても1回にまとめる */
+var _remindSelfT = 0;
+function pushRemindSelf(){
+  clearTimeout(_remindSelfT);
+  _remindSelfT = setTimeout(function(){
+    var u = me();
+    if(u && u.name) pushRemind(u.name);
+  }, 2000);
+}
+/* 全員ぶん（管理者）。変わった人の行だけ送る */
+function refreshAllReminds(){
+  var n = 0;
+  Object.keys(people() || {}).forEach(function(k){ if(pushRemind(k)) n++; });
+  LS.set('remindAllAt', new Date().toISOString().slice(0, 10));
+  return n;
+}
+/* 管理者が受講者一覧を開いたとき、1日1回だけ全員ぶんを見直す */
+function refreshAllRemindsDaily(){
+  if(!canAdmin() || !ON_CREATOR) return;
+  if(LS.get('remindAllAt', '') === new Date().toISOString().slice(0, 10)) return;
+  var n = refreshAllReminds();
+  if(n) toast('リマインドの対象を更新しました（' + n + '名）');
+}
+
 /* ── 日次の学習時間  daily[名前 + '|' + YYYY-MM-DD] = 秒 ──
    「今日は何分見たか」を出すために、増えた分だけを日付ごとに足していく。
    視聴記録から日別に割り出すことはできないので、別に持つ必要がある。 */
@@ -1978,7 +2079,15 @@ var DEFAULT_CONFIG = {
      Creator 側で「自分の記録だけ」に絞ると、受講者からは名簿が自分の1行しか
      見えなくなり、名簿を数えるやり方では「まだ管理者がいない」と誤判定して
      しまうため（設定はコース定義と同じ行にあり、全員が読める）。 */
-  adminClaimed:false
+  adminClaimed:false,
+  /* 自動リマインド。未修了の人あてに、Creator のスケジュールが週1回メールを送る。
+     ウィジェットは「誰に・何を送るか」の表（Lms_Remind）を最新にしておく係 */
+  remindOn:true,
+  remindSubject:'【研修】未修了の研修のご案内',
+  remindBody:'{name} さん\n\nお疲れさまです。研修の受講状況をご連絡します。\n' +
+             '下記の研修が未修了となっています。期限までにご受講ください。\n\n{list}\n\n' +
+             '{portal} からログインして受講できます。\n' +
+             '※ このメールは、未修了の方に週1回自動でお送りしています。'
 };
 function config(){
   var c = MEM.config || {};
@@ -2499,6 +2608,14 @@ function payloadFor(kind, key){
              target:po.target || '', posted_at:po.at || '',
              deleted:po.deleted ? 'あり' : '' };
   }
+  if(kind === 'remind'){
+    var rm = MEM.reminds[key];
+    if(!rm) return null;
+    return { remind_key:key, person_name:rm.name || key, email:rm.email || '',
+             pending_count:Number(rm.count) || 0, pending_list:rm.list || '',
+             mail_subject:rm.subject || '', mail_body:rm.body || '',
+             active:rm.active ? 'true' : 'false', refreshed_at:rm.at || '' };
+  }
   if(kind === 'react'){
     var rc = MEM.reacts[key];
     if(!rc) return null;
@@ -2578,7 +2695,7 @@ function payloadFor(kind, key){
 var KEY_FIELD = { course:null, person:'person_key', record:'rec_key',
                   quiz:'quiz_key', daily:'day_key',
                   survey:'survey_key', news:'news_key',
-                  post:'post_key', react:'react_key' };
+                  post:'post_key', react:'react_key', remind:'remind_key' };
 
 function flushSync(){
   if(!ON_CREATOR || SYNC.busy) return;
@@ -5122,6 +5239,7 @@ function saveNow(){
   /* 年度は「開いたとき」のものを使う。保存のたびに引き直すと、
      年度の変わり目に開いたままの画面が、去年の視聴を丸ごと新年度に複製してしまう。 */
   putRec(P.owner, P.chap.id, pk, P.term);   /* 「今の受講者」ではなく「この記録の持ち主」に書く */
+  pushRemindSelf();
   P.saveT = Date.now();
 }
 function updateCourseBar(){
@@ -5861,6 +5979,7 @@ function activityLog(limit){
    画面：ユーザー（受講状況の一覧）★管理側の主画面
    ══════════════════════════════════════════════════════════════ */
 function viewAUsers(){
+  refreshAllRemindsDaily();
   var cs = courses(), all = adminMatrix();
   var rows = admFilter(all);
   var per = ADM.per, total = rows.length;
@@ -7981,6 +8100,30 @@ function viewASettings(){
        '<span class="cap">ここで足したグループは、全員の端末に配られます</span></div>';
   h += '</div>';
 
+  h += '<div class="cat">' + ic('mail') + '自動リマインド（未修了の人へ週1回メール）</div>';
+  h += '<div class="note calm" style="margin-bottom:12px">' +
+       '<b>しくみ</b>　ウィジェットは「誰に・どんな文面を送るか」を Creator の表 <span class="mono">Lms_Remind</span> に' +
+       '1人1行で用意します（未修了が無くなれば送らない印にします）。' +
+       '<b>実際にメールを送るのは Creator のスケジュール</b>です。' +
+       '週1回の予定と「メール送信」の動作を Creator の画面で設定してください（手順は docs/自動リマインド.md）。' +
+       '</div>';
+  h += '<div class="card pad" style="display:grid;gap:13px;margin-bottom:16px">';
+  h += '<label class="chk"><input type="checkbox" id="rmOn"' + (cfg.remindOn ? ' checked' : '') + '>' +
+       '<span>自動リマインドを使う<span class="note-s">外すと、全員の行を「送らない」にします</span></span></label>';
+  h += '<div class="field"><label for="rmSub">件名</label>' +
+       '<input class="inp" id="rmSub" value="' + esc(cfg.remindSubject) + '"></div>';
+  h += '<div class="field"><label for="rmBody">本文' +
+       '<span class="note-s">{name}＝お名前、{list}＝未修了の一覧、{count}＝件数、{portal}＝ポータル名</span></label>' +
+       '<textarea class="inp" id="rmBody" rows="8" style="resize:vertical">' + esc(cfg.remindBody) + '</textarea></div>';
+  var rmRows = Object.keys(MEM.reminds || {});
+  var rmActive = rmRows.filter(function(k){ return MEM.reminds[k].active; }).length;
+  h += '<div class="bar"><button class="btn" id="rmSave">' + ic('check') + '保存する</button>' +
+       '<button class="btn sub" id="rmNow">' + ic('mail') + '対象を今すぐ更新する</button>' +
+       '<span class="cap">いま送る印が付いている人：' + rmActive + '名' +
+       (LS.get('remindAllAt', '') ? '　（最終更新 ' + esc(LS.get('remindAllAt', '')) + '）' : '') +
+       '</span></div>';
+  h += '</div>';
+
   h += '<div class="cat">' + ic('gear') + 'コースの設定</div>';
   h += '<div class="tbl-wrap" style="margin-bottom:16px"><table><thead><tr>' +
        '<th class="stick">コース</th><th class="c">必須</th><th class="c">受講サイクル</th>' +
@@ -8161,6 +8304,21 @@ function viewASettings(){
     drawNav('asettings');
   };
 
+  document.getElementById('rmSave').onclick = function(){
+    var c = config();
+    c.remindOn = !!document.getElementById('rmOn').checked;
+    c.remindSubject = document.getElementById('rmSub').value.trim() || DEFAULT_CONFIG.remindSubject;
+    c.remindBody = document.getElementById('rmBody').value || DEFAULT_CONFIG.remindBody;
+    setConfig(c);
+    var n = refreshAllReminds();
+    toast('保存しました（' + n + '名の行を更新）');
+    viewASettings();
+  };
+  document.getElementById('rmNow').onclick = function(){
+    var n = refreshAllReminds();
+    toast(n ? n + '名の行を更新しました' : '変わった人はいませんでした');
+    viewASettings();
+  };
   document.getElementById('stSave').onclick = function(){
     var g = document.getElementById('stGroups').value.split('\n')
               .map(function(x){ return x.trim(); }).filter(Boolean);

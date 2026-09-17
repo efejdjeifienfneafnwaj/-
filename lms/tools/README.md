@@ -41,3 +41,7 @@ shinsei/（先方からもらった社内申請）を lms-widget/app/js/shinsei 
 
 ## dsを作る.py
 3つのアプリ分のフォームを1つにまとめた lms-widget/FunaiPortal.ds を作ります。
+
+## テスト_リマインド.js
+未修了の人の行が Creator の表（Lms_Remind）に用意され、修了すると「送らない」になり、
+設定で止めると全員「送らない」になることを確かめます。
