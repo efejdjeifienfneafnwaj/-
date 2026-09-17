@@ -83,7 +83,15 @@ var DB = (function () {
   /* ---------- 公開メソッド ---------- */
   function list(entity, criteria) {
     if (sdkKind === 'demo') {
-      return Promise.resolve(JSON.parse(JSON.stringify(store[entity] || [])));
+      var rows = JSON.parse(JSON.stringify(store[entity] || []));
+      /* デモモードでは criteria を解釈できないので、単純な等値条件だけ手元で絞る */
+      var m = criteria && String(criteria).match(/^(\w+)\s*==\s*"(.*)"$/);
+      if (m) {
+        var map = CFG.FIELD_MAP[entity] || {}, mine = null;
+        Object.keys(map).forEach(function (k) { if (map[k] === m[1]) mine = k; });
+        if (mine) rows = rows.filter(function (r) { return String(r[mine]) === m[2]; });
+      }
+      return Promise.resolve(rows);
     }
     return sdkGetAll(CFG.REPORTS[entity], criteria).then(function (rows) {
       return rows.map(function (r) { return Mapper.fromCreator(entity, r); });
@@ -309,6 +317,164 @@ var Access = (function () {
   }
 
   return { log: log, openDetail: openDetail, closeDetail: closeDetail, denied: denied, flush: flush, anomalies: anomalies, sessionId: function () { return sessionId; } };
+})();
+
+/* =========================================================================
+ * Files — 添付ファイル
+ *   Creator 側は text / textarea / number しか使わない方針のため、
+ *   ファイルを base64 にして CFG.ATTACH.CHUNK_CHARS 文字ずつに分割し、
+ *   Wf_File_Form へ複数レコードとして保存する。
+ *   同じ file_key のレコードを chunk_index 順に連結すれば元に戻る。
+ *
+ *   取得・ダウンロードは必ず Access.log() を通し、証跡に残す。
+ * ========================================================================= */
+var Files = (function () {
+
+  function readAsBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var r = new FileReader();
+      r.onload = function () {
+        var s = String(r.result || '');
+        var i = s.indexOf(',');
+        resolve(i >= 0 ? s.slice(i + 1) : s);
+      };
+      r.onerror = function () { reject(new Error('ファイルを読み込めませんでした')); };
+      r.readAsDataURL(file);
+    });
+  }
+
+  /** アップロード前の検証。問題があればメッセージを返す（無ければ null） */
+  function validate(file, existingCount) {
+    if (!file) return 'ファイルが選択されていません';
+    if (file.size > CFG.ATTACH.MAX_BYTES) {
+      return 'ファイルが大きすぎます（上限 ' + Math.round(CFG.ATTACH.MAX_BYTES / 1024 / 1024) + 'MB、選択されたファイルは ' +
+        (file.size / 1024 / 1024).toFixed(1) + 'MB）';
+    }
+    if (CFG.ATTACH.ACCEPT.indexOf(file.type) < 0) {
+      return '対応していない形式です（' + CFG.ATTACH.ACCEPT_LABEL + ' のみ）';
+    }
+    if (existingCount >= CFG.ATTACH.MAX_FILES) {
+      return '添付は1申請あたり ' + CFG.ATTACH.MAX_FILES + ' 点までです';
+    }
+    return null;
+  }
+
+  /**
+   * ファイルを分割して保存する
+   * @param {File} file
+   * @param {object} meta {tradeDate, tradeAmount, tradePartner}
+   * @param {object} req  {ID, Request_No}
+   * @returns {Promise<object>} 保存したファイルの見出し情報
+   */
+  function upload(file, meta, req) {
+    var me = App.me() || {};
+    var key = 'f_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return readAsBase64(file).then(function (b64) {
+      var size = CFG.ATTACH.CHUNK_CHARS;
+      var total = Math.max(1, Math.ceil(b64.length / size));
+      var head = {
+        File_Key: key, Request: (req && req.ID) || '', Request_No: (req && req.Request_No) || '',
+        File_Name: file.name, Mime_Type: file.type, File_Size: file.size,
+        Trade_Date: (meta && meta.tradeDate) || '', Trade_Amount: (meta && meta.tradeAmount) || '',
+        Trade_Partner: (meta && meta.tradePartner) || '',
+        Chunk_Total: total, Uploaded_By: me.ID || '', Uploaded_By_Name: me.Employee_Name || '',
+        Uploaded_At: DB.nowISO(), Deleted: false
+      };
+      /* 分割レコードを順番に書き込む（並列にすると順序が乱れる環境があるため直列） */
+      var i = 0;
+      function step() {
+        if (i >= total) return Promise.resolve();
+        var rec = {};
+        Object.keys(head).forEach(function (k) { rec[k] = head[k]; });
+        rec.Chunk_Index = i;
+        rec.Data_Base64 = b64.slice(i * size, (i + 1) * size);
+        i++;
+        return DB.add('Files', rec).then(function (saved) {
+          if (App.state.files) App.state.files.push(headerOf(saved));
+          return step();
+        });
+      }
+      return step().then(function () { return head; });
+    });
+  }
+
+  /** レコードから本体を除いた見出しを作る（メモリを食わせない） */
+  function headerOf(r) {
+    var o = {};
+    Object.keys(r).forEach(function (k) { if (k !== 'Data_Base64') o[k] = r[k]; });
+    return o;
+  }
+
+  /** 申請に紐づく添付の一覧（ファイル単位にまとめる） */
+  function listFor(requestId) {
+    var rows = (App.state.files || []).filter(function (f) {
+      return String(f.Request) === String(requestId) && !f.Deleted;
+    });
+    var by = {};
+    rows.forEach(function (f) {
+      if (!by[f.File_Key]) by[f.File_Key] = f;
+    });
+    return Object.keys(by).map(function (k) { return by[k]; })
+      .sort(function (a, b) { return new Date(a.Uploaded_At) - new Date(b.Uploaded_At); });
+  }
+
+  /** 本体を取り寄せて連結する */
+  function fetchBody(fileKey) {
+    var criteria = 'file_key == "' + String(fileKey).replace(/"/g, '') + '"';
+    return DB.list('Files', criteria).then(function (rows) {
+      var mine = rows.filter(function (r) { return String(r.File_Key) === String(fileKey); });
+      if (!mine.length) throw new Error('ファイルの本体が見つかりません');
+      mine.sort(function (a, b) { return Number(a.Chunk_Index) - Number(b.Chunk_Index); });
+      var expected = Number(mine[0].Chunk_Total) || mine.length;
+      if (mine.length !== expected) {
+        throw new Error('ファイルが不完全です（' + mine.length + '/' + expected + ' 分割）');
+      }
+      return { head: headerOf(mine[0]), b64: mine.map(function (r) { return r.Data_Base64 || ''; }).join('') };
+    });
+  }
+
+  /** ダウンロード（証跡に残す） */
+  function download(fileKey, req) {
+    return fetchBody(fileKey).then(function (res) {
+      var bin = atob(res.b64);
+      var buf = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      var blob = new Blob([buf], { type: res.head.Mime_Type || 'application/octet-stream' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = res.head.File_Name || 'attachment';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      Access.log(CFG.ACCESS.ACTIONS.DOWNLOAD, {
+        targetType: '添付ファイル', targetId: (req && req.ID) || res.head.Request,
+        targetNo: res.head.Request_No, targetSubject: (req && req.Subject) || '',
+        typeCode: (req && req.Type_Code) || '',
+        ownerDept: (req && req.Applicant_Dept_name) || '',
+        detail: res.head.File_Name + '（' + Math.round((res.head.File_Size || 0) / 1024) + 'KB）を取得'
+      });
+      return res.head;
+    });
+  }
+
+  /** 削除（実体は消さず deleted を立てる＝証跡を残す） */
+  function remove(fileKey) {
+    var rows = (App.state.files || []).filter(function (f) { return String(f.File_Key) === String(fileKey); });
+    var jobs = rows.map(function (f) {
+      f.Deleted = true;
+      return DB.update('Files', f.ID, { Deleted: true });
+    });
+    return Promise.all(jobs);
+  }
+
+  /** 電子帳簿保存法の対象区分か */
+  function needsTradeInfo(typeCode) {
+    return CFG.ATTACH.DENSHICHO_TYPES.indexOf(typeCode) >= 0;
+  }
+
+  return {
+    validate: validate, upload: upload, listFor: listFor, fetchBody: fetchBody,
+    download: download, remove: remove, headerOf: headerOf, needsTradeInfo: needsTradeInfo
+  };
 })();
 
 /* =========================================================================

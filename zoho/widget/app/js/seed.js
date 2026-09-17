@@ -4,7 +4,7 @@
  * ========================================================================= */
 var Seed = (function () {
   function empty() {
-    return { Employees: [], Departments: [], Vendors: [], Accounts: [], RequestTypes: [], Requests: [], RequestLines: [], Approvals: [], RouteRules: [], AuditLogs: [], AccessLogs: [], Notifications: [] };
+    return { Employees: [], Departments: [], Vendors: [], Accounts: [], RequestTypes: [], Requests: [], RequestLines: [], Approvals: [], RouteRules: [], AuditLogs: [], AccessLogs: [], Notifications: [], Files: [] };
   }
   function d(offsetDays, h) {
     var x = new Date(); x.setDate(x.getDate() + offsetDays);
@@ -237,6 +237,23 @@ var Seed = (function () {
         Result_Count: '', Duration_Sec: 4, Detail: '', User_Agent: 'seed-data'
       });
     }
+
+    /* 添付のデモ（本体は極小のダミー。分割・再結合の動作確認用） */
+    var dummy = 'JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PC9UeXBlL0NhdGFsb2c+PgplbmRvYmoKdHJhaWxlcgo8PC9Sb290IDEgMCBSPj4K';
+    db.Requests.filter(function (r) { return ['EXPENSE', 'PAYMENT', 'PURCHASE'].indexOf(r.Type_Code) >= 0; })
+      .slice(0, 8).forEach(function (r, i) {
+        var key = 'fseed' + i;
+        var ven = db.Vendors[i % db.Vendors.length];
+        db.Files.push({
+          ID: 'fl' + i, File_Key: key, Request: r.ID, Request_No: r.Request_No,
+          File_Name: (r.Type_Code === 'PAYMENT' ? '請求書_' : '領収書_') + r.Request_No + '.pdf',
+          Mime_Type: 'application/pdf', File_Size: 120000 + i * 9000,
+          Trade_Date: ymd(-(10 + i)), Trade_Amount: Math.round((r.Amount || 100000) / 2),
+          Trade_Partner: ven.Vendor_Name, Chunk_Index: 0, Chunk_Total: 1,
+          Data_Base64: dummy, Uploaded_By: r.Applicant, Uploaded_By_Name: r.Applicant_name,
+          Uploaded_At: r.Applied_On || d(-12, 10), Deleted: false
+        });
+      });
 
     db.Notifications = db.Requests.slice(0, 12).map(function (r, i) {
       return { ID: 'n' + i, To_User: r.Applicant, Request: r.ID, Kind: r.Status === CFG.STATUS.SENTBACK ? '差戻し' : '承認結果', Message: r.Request_No + ' ' + r.Subject + ' が' + r.Status + 'になりました', Is_Read: i > 4, Created_Time: d(-i, 12) };

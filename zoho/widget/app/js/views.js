@@ -145,12 +145,14 @@ var Views = (function () {
   /* =======================================================================
    * 申請フォーム
    * ===================================================================== */
-  var formState = { code: null, data: {}, editingId: null, saveTimer: null };
+  var formState = { code: null, data: {}, editingId: null, saveTimer: null, pendingFiles: [] };
+/* 添付は申請レコードが出来てから紐づける必要があるため、送信までは画面上で預かる。
+   （先に保存すると、送信をやめた場合に行き場のないファイルが残るため） */
   function form(el, code, editId) {
     var t = tplOf(code);
     if (!t) { el.innerHTML = UI.empty('❓', 'テンプレートが見つかりません', code); return; }
     formState.code = code; formState.editingId = editId || null;
-    formState.data = {};
+    formState.data = {}; formState.pendingFiles = [];
     if (editId) {
       var r = App.requestById(editId);
       if (r) formState.data = dataOf(r);
@@ -182,6 +184,7 @@ var Views = (function () {
       inp.addEventListener('input', onFieldChange); inp.addEventListener('change', onFieldChange);
     });
     bindLines(grid, t);
+    bindFiles(grid, t);
   }
   function fieldHtml(f) {
     var v = formState.data[f.key];
@@ -200,6 +203,9 @@ var Views = (function () {
       case 'vendor': input = sel(f.key, S().vendors.map(function (x) { return { v: x.ID, t: x.Vendor_Name + (x.Is_Qualified ? '' : '（未登録事業者）') }; }), v); break;
       case 'account': input = sel(f.key, S().accounts.map(function (a) { return { v: a.ID, t: a.Account_Code + ' ' + a.Account_Name }; }), v); break;
       case 'lines': return '<div class="' + cls + '">' + label + linesHtml(f) + '</div>';
+      case 'files': return '<div class="' + cls + '" data-wrap="' + E(f.key) + '">' + label +
+        filesHtml(f) + (f.help ? '<div class="help">' + E(f.help) + '</div>' : '') +
+        '<div class="err-msg" hidden></div></div>';
       default: input = '<input id="f_' + E(f.key) + '" data-field="' + E(f.key) + '" value="' + E(v || '') + '" placeholder="' + E(f.placeholder || '') + '">';
     }
     return '<div class="' + cls + '" data-wrap="' + E(f.key) + '">' + label + input +
@@ -234,6 +240,86 @@ var Views = (function () {
     if (c.type === 'select') return '<select ' + a + '>' + (c.options || []).map(function (o) { return '<option' + (v === o ? ' selected' : '') + '>' + E(o) + '</option>'; }).join('') + '</select>';
     return '<input ' + a + ' value="' + E(v || '') + '">';
   }
+  /* ---------- 添付ファイル ---------- */
+  function filesHtml(f) {
+    var staged = formState.pendingFiles.filter(function (x) { return x.fieldKey === f.key; });
+    var rows = staged.length ? '<div class="table-wrap"><table class="tbl"><thead><tr>' +
+      '<th>ファイル名</th><th class="num">サイズ</th>' +
+      (f.denshicho ? '<th>取引年月日</th><th class="num">取引金額</th><th>取引先</th>' : '') +
+      '<th style="width:36px"></th></tr></thead><tbody>' +
+      staged.map(function (x, i) {
+        return '<tr><td>' + E(x.file.name) + '</td>' +
+          '<td class="num nowrap">' + Math.round(x.file.size / 1024) + ' KB</td>' +
+          (f.denshicho ? '<td class="nowrap">' + E(UI.fmtDate(x.meta.tradeDate)) + '</td>' +
+            '<td class="num nowrap">' + UI.yen(x.meta.tradeAmount) + '</td>' +
+            '<td>' + E(x.meta.tradePartner) + '</td>' : '') +
+          '<td><button type="button" class="line-del" data-delfile="' + E(f.key) + '|' + i + '" aria-label="削除">×</button></td></tr>';
+      }).join('') + '</tbody></table></div>' :
+      '<div class="page-sub">まだ添付されていません</div>';
+    return rows +
+      '<div class="inline-row" style="margin-top:8px">' +
+      '<input type="file" id="fi_' + E(f.key) + '" accept="' + E(CFG.ATTACH.ACCEPT.join(',')) + '" style="display:none">' +
+      '<button type="button" class="btn btn-sm" data-addfile="' + E(f.key) + '">📎 ファイルを添付</button>' +
+      '<span class="page-sub">' + E(CFG.ATTACH.ACCEPT_LABEL) + '／1ファイル ' +
+      Math.round(CFG.ATTACH.MAX_BYTES / 1024 / 1024) + 'MB まで／最大 ' + CFG.ATTACH.MAX_FILES + '点</span></div>';
+  }
+
+  function bindFiles(grid, t) {
+    grid.querySelectorAll('[data-addfile]').forEach(function (b) {
+      var key = b.dataset.addfile;
+      var inp = grid.querySelector('#fi_' + key);
+      b.addEventListener('click', function () { inp.value = ''; inp.click(); });
+      inp.addEventListener('change', function () {
+        var file = inp.files && inp.files[0]; if (!file) return;
+        var f = (t.fields || []).filter(function (x) { return x.key === key; })[0] || {};
+        var count = formState.pendingFiles.filter(function (x) { return x.fieldKey === key; }).length;
+        var err = Files.validate(file, count);
+        if (err) { UI.toast(err, 'error'); return; }
+        if (f.denshicho) { askTradeInfo(file, function (meta) { stage(key, file, meta, t); }); }
+        else { stage(key, file, {}, t); }
+      });
+    });
+    grid.querySelectorAll('[data-delfile]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var p = b.dataset.delfile.split('|'), key = p[0], idx = Number(p[1]);
+        var list = formState.pendingFiles.filter(function (x) { return x.fieldKey === key; });
+        var target = list[idx];
+        formState.pendingFiles = formState.pendingFiles.filter(function (x) { return x !== target; });
+        redrawForm(t);
+      });
+    });
+  }
+  function stage(key, file, meta, t) {
+    formState.pendingFiles.push({ fieldKey: key, file: file, meta: meta });
+    redrawForm(t);
+    UI.toast(file.name + ' を添付しました（申請時に保存されます）', 'success');
+  }
+
+  /** 電子帳簿保存法の検索要件（取引年月日・取引金額・取引先）を聞く */
+  function askTradeInfo(file, done) {
+    UI.modal({
+      title: '取引情報の入力', okText: '添付する',
+      bodyHtml:
+        '<div class="page-sub" style="margin-bottom:10px">' + E(file.name) + '</div>' +
+        '<div class="form-grid">' +
+        '<div class="field"><label>取引年月日<span class="req">*</span></label><input id="td_date" type="date"></div>' +
+        '<div class="field money"><label>取引金額<span class="req">*</span></label><input id="td_amt" data-money="1" inputmode="numeric"></div>' +
+        '<div class="field full"><label>取引先<span class="req">*</span></label>' +
+        '<input id="td_partner" list="td_vendors" placeholder="取引先名を入力または選択">' +
+        '<datalist id="td_vendors">' + S().vendors.map(function (v) { return '<option value="' + E(v.Vendor_Name) + '">'; }).join('') + '</datalist>' +
+        '</div></div>' +
+        '<div class="page-sub" style="margin-top:10px">電子帳簿保存法の検索要件を満たすため、この3点を記録します。</div>',
+      onOk: function (box) {
+        var d = box.querySelector('#td_date').value;
+        var a = UI.rawNum(box.querySelector('#td_amt').value);
+        var v = box.querySelector('#td_partner').value.trim();
+        if (!d || !a || !v) { UI.toast('取引年月日・取引金額・取引先はすべて必須です', 'error'); return false; }
+        done({ tradeDate: d, tradeAmount: a, tradePartner: v });
+      }
+    });
+    UI.bindMoneyInputs(document.querySelector('.modal'));
+  }
+
   function bindLines(grid, t) {
     grid.querySelectorAll('[data-addline]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -328,8 +414,14 @@ var Views = (function () {
     (t.fields || []).forEach(function (f) {
       if (!f.required) return;
       var v = formState.data[f.key];
-      var bad = (f.type === 'lines') ? !(v && v.length && v.some(function (ln) { return Object.keys(ln).some(function (k) { return ln[k]; }); }))
-        : (v == null || v === '' || v === false);
+      var bad;
+      if (f.type === 'lines') {
+        bad = !(v && v.length && v.some(function (ln) { return Object.keys(ln).some(function (k) { return ln[k]; }); }));
+      } else if (f.type === 'files') {
+        bad = !formState.pendingFiles.some(function (x) { return x.fieldKey === f.key; });
+      } else {
+        bad = (v == null || v === '' || v === false);
+      }
       if (bad) {
         errs.push(f.label);
         var w = document.querySelector('[data-wrap="' + f.key + '"]');
@@ -371,6 +463,18 @@ var Views = (function () {
         }).then(function (a) { S().approvals.push(a); });
       });
       return Promise.all(jobs).then(function () { return saved; });
+    }).then(function (saved) {
+      /* 申請レコードが出来てから添付を保存する（分割保存のため直列に実行） */
+      var pend = formState.pendingFiles.slice();
+      if (!pend.length) return saved;
+      UI.toast('添付を保存しています…');
+      var i = 0;
+      function next() {
+        if (i >= pend.length) return Promise.resolve(saved);
+        var x = pend[i++];
+        return Files.upload(x.file, x.meta, saved).then(next);
+      }
+      return next().then(function () { formState.pendingFiles = []; return saved; });
     }).then(function (saved) {
       App.audit(asDraft ? '下書き保存' : '申請', '申請', saved.ID, saved.Request_No + ' ' + subject + '（' + UI.yen(amount) + '）');
       UI.toast(asDraft ? '下書きを保存しました' : '申請しました。承認者に通知されます。', 'success');
@@ -551,6 +655,16 @@ var Views = (function () {
       else if (which === 'route') dbody.innerHTML = routeHtml(req, route);
       else dbody.innerHTML = viewsHtml(req);
       if (which === 'views') Access.log(CFG.ACCESS.ACTIONS.VIEW_LOG, { targetType: '申請の閲覧者一覧', targetId: req.ID, targetNo: req.Request_No });
+      dbody.querySelectorAll('[data-dlfile]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          b.disabled = true; b.textContent = '取得中…';
+          Files.download(b.dataset.dlfile, req).then(function (h) {
+            UI.toast(h.File_Name + ' を取得しました', 'success');
+          }).catch(function (e) {
+            UI.toast('取得に失敗しました：' + (e && e.message ? e.message : e), 'error');
+          }).then(function () { b.disabled = false; b.textContent = '取得'; });
+        });
+      });
     }
     paint('content');
     el.querySelector('#vcount').textContent = S().accessLogs.filter(function (l) { return String(l.Target_ID) === String(req.ID) && l.Action === CFG.ACCESS.ACTIONS.VIEW_DETAIL; }).length;
@@ -595,7 +709,31 @@ var Views = (function () {
         '<tr class="sum-row"><td colspan="' + (f.columns.length - 1) + '">合計（うち消費税 ' + UI.yen(sum.tax) + '）</td><td class="num">' + UI.yen(sum.total) + '</td></tr>' +
         '</tbody></table></div></div>';
     }).join('');
-    return '<div class="card"><div class="card-body"><dl class="dl">' + rows + '</dl></div></div>' + lines;
+    return '<div class="card"><div class="card-body"><dl class="dl">' + rows + '</dl></div></div>' + lines + attachHtml(req);
+  }
+
+  /** 添付ファイルの一覧（ダウンロードは証跡に残る） */
+  function attachHtml(req) {
+    var files = Files.listFor(req.ID);
+    var denshicho = Files.needsTradeInfo(req.Type_Code);
+    if (!files.length) {
+      return '<div class="card" style="margin-top:14px"><div class="card-head"><div class="card-title">添付ファイル</div></div>' +
+        '<div class="card-body"><div class="page-sub">添付はありません</div></div></div>';
+    }
+    return '<div class="card" style="margin-top:14px"><div class="card-head"><div class="card-title">添付ファイル（' + files.length + '件）</div>' +
+      '<span class="tag" style="margin-left:auto">取得は証跡に記録されます</span></div>' +
+      '<div class="table-wrap"><table class="tbl"><thead><tr><th>ファイル名</th><th class="num">サイズ</th>' +
+      (denshicho ? '<th>取引年月日</th><th class="num">取引金額</th><th>取引先</th>' : '') +
+      '<th>登録者</th><th style="width:96px"></th></tr></thead><tbody>' +
+      files.map(function (f) {
+        return '<tr><td>' + E(f.File_Name) + '</td>' +
+          '<td class="num nowrap">' + Math.round((f.File_Size || 0) / 1024) + ' KB</td>' +
+          (denshicho ? '<td class="nowrap">' + E(UI.fmtDate(f.Trade_Date)) + '</td>' +
+            '<td class="num nowrap">' + UI.yen(f.Trade_Amount) + '</td>' +
+            '<td>' + E(f.Trade_Partner || '—') + '</td>' : '') +
+          '<td class="nowrap">' + E(f.Uploaded_By_Name || '') + '<div class="page-sub">' + E(UI.fmtDate(f.Uploaded_At)) + '</div></td>' +
+          '<td class="nowrap"><button class="btn btn-sm" data-dlfile="' + E(f.File_Key) + '">取得</button></td></tr>';
+      }).join('') + '</tbody></table></div></div>';
   }
 
   function routeHtml(req, route) {

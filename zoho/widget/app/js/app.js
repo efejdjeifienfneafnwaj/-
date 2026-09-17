@@ -4,8 +4,9 @@
 var App = (function () {
   var state = {
     employees: [], departments: [], vendors: [], accounts: [], requestTypes: [],
-    requests: [], approvals: [], accessLogs: [], notifications: []
+    requests: [], approvals: [], accessLogs: [], notifications: [], files: []
   };
+  var identityError = null;   // ログイン者が社員マスタに無い等、身元が確定できない場合の理由
   var currentUserId = null;
   var templates = [];
   var route = { name: 'dashboard', arg: '', params: {} };
@@ -52,13 +53,16 @@ var App = (function () {
 
   /* ---------- データ取得 ---------- */
   function loadAll() {
-    var keys = ['Employees', 'Departments', 'Vendors', 'Accounts', 'RequestTypes', 'Requests', 'Approvals', 'AccessLogs', 'Notifications'];
+    var keys = ['Employees', 'Departments', 'Vendors', 'Accounts', 'RequestTypes', 'Requests', 'Approvals', 'AccessLogs', 'Notifications', 'Files'];
     return Promise.all(keys.map(function (k) {
       return DB.list(k).catch(function (e) { console.warn(k + ' の取得に失敗', e); return []; });
     })).then(function (res) {
       state.employees = res[0]; state.departments = res[1]; state.vendors = res[2]; state.accounts = res[3];
       state.requestTypes = res[4]; state.requests = res[5]; state.approvals = res[6];
       state.accessLogs = res[7]; state.notifications = res[8];
+      /* 添付は本体（base64）を持たせずに見出しだけを保持する。
+         本体はダウンロード時に file_key で取り寄せる。 */
+      state.files = (res[9] || []).map(function (f) { return Files.headerOf(f); });
       /* Creator 側の Roles は複数選択（カンマ区切り文字列）で返ることがある */
       state.employees.forEach(function (e) {
         if (typeof e.Roles === 'string') e.Roles = e.Roles.split(/[,、・]/).map(function (s) { return s.trim(); }).filter(Boolean);
@@ -80,17 +84,41 @@ var App = (function () {
   }
 
   /* ---------- ログインユーザーの決定 ---------- */
+  /**
+   * ログインしている本人を確定する。
+   *  Creator 接続時は zoho のログインIDと社員マスタの email の一致だけを信用する。
+   *  一致しない場合は身元が確定できないため、データを見せずに停止する（フェイルセーフ）。
+   *  デモモード（未接続）のときだけ、切替による試用を許す。
+   */
   function resolveLoginUser() {
     var p = DB.initParams() || {};
-    var login = (p.loginUser || p.loginuser || '').toLowerCase();
-    if (login) {
+    var login = String(p.loginUser || p.loginuser || '').toLowerCase();
+    if (DB.isConnected()) {
+      if (!login) { identityError = 'ログイン情報を取得できませんでした。'; return false; }
       var hit = state.employees.filter(function (e) { return String(e.Email || '').toLowerCase() === login; })[0];
-      if (hit) { currentUserId = hit.ID; return true; }
+      if (!hit) {
+        identityError = 'ログインID「' + login + '」が社員マスタに登録されていません。管理者にご連絡ください。';
+        return false;
+      }
+      if (hit.Is_Active === false) {
+        identityError = 'このアカウントは在籍者として登録されていません。';
+        return false;
+      }
+      currentUserId = hit.ID;
+      identityError = null;
+      return true;
     }
+    /* 以下はデモモードのみ */
     var saved = DB.lsGet('current_user', null);
-    if (saved && employeeById(saved)) { currentUserId = saved; return false; }
-    currentUserId = (state.employees[0] || {}).ID;
+    currentUserId = (saved && employeeById(saved)) ? saved : (state.employees[0] || {}).ID;
+    identityError = null;
     return false;
+  }
+
+  /** ユーザー切替を出してよいか（本番で他人になりすませないようにする） */
+  function canSwitchUser() {
+    if (!DB.isConnected()) return true;                 // デモモードは自由
+    return (me().Roles || []).indexOf('管理者') >= 0;    // 本番は管理者のみ
   }
 
   /* ---------- ナビゲーション ---------- */
@@ -135,6 +163,18 @@ var App = (function () {
   }
   function renderUserSwitch() {
     var sel = document.getElementById('userSwitch');
+    var label = document.getElementById('userLabel');
+    if (!canSwitchUser()) {
+      /* 本番の一般利用者には切替を出さない。氏名の表示だけにする。 */
+      sel.hidden = true;
+      if (label) {
+        label.hidden = false;
+        label.textContent = me().Employee_Name + '（' + (me().Department_name || '') + '）';
+      }
+      return;
+    }
+    sel.hidden = false;
+    if (label) label.hidden = true;
     sel.innerHTML = state.employees.map(function (e) {
       return '<option value="' + UI.esc(e.ID) + '"' + (String(e.ID) === String(currentUserId) ? ' selected' : '') + '>' +
         UI.esc(e.Employee_Name + '（' + e.Title + '／' + (e.Roles || []).join('・') + '）') + '</option>';
@@ -248,6 +288,13 @@ var App = (function () {
       return loadAll();
     }).then(function () {
       var fromSSO = resolveLoginUser();
+      if (identityError) {
+        Access.log(CFG.ACCESS.ACTIONS.DENIED, { targetType: 'アプリ起動', detail: identityError });
+        document.getElementById('view').innerHTML = UI.empty('🔒', 'ご利用の準備ができていません', identityError);
+        document.getElementById('userSwitch').hidden = true;
+        document.getElementById('nav').innerHTML = '';
+        return;
+      }
       renderUserSwitch();
       Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: 'アプリ', detail: (DB.isConnected() ? 'Creator接続' : 'デモ') + (fromSSO ? '／SSOユーザー自動判定' : '') });
       render();
@@ -294,6 +341,7 @@ var App = (function () {
     state: state, me: me, audit: audit,
     employeeById: employeeById, requestById: requestById, vendorById: vendorById, accountById: accountById,
     templates: function () { return templates; }, templateByCode: templateByCode, nextRequestNo: nextRequestNo,
+    canSwitchUser: canSwitchUser, identityError: function () { return identityError; },
     showHelp: showHelp
   };
 })();

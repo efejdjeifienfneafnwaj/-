@@ -19,7 +19,8 @@ var CFG = {
     Approvals:     'Wf_Approval_Form',
     AccessLogs:    'Wf_Access_Form',
     AuditLogs:     'Wf_Audit_Form',
-    Notifications: 'Wf_Notify_Form'
+    Notifications: 'Wf_Notify_Form',
+    Files:         'Wf_File_Form'
   },
 
   /* Creator のレポート リンク名（取得・更新時に使用） */
@@ -34,7 +35,8 @@ var CFG = {
     Approvals:     'Wf_Approval_Report',
     AccessLogs:    'Wf_Access_Report',
     AuditLogs:     'Wf_Audit_Report',
-    Notifications: 'Wf_Notify_Report'
+    Notifications: 'Wf_Notify_Report',
+    Files:         'Wf_File_Report'
   },
 
   /* =======================================================================
@@ -85,11 +87,38 @@ var CFG = {
                    Action_Type: 'action_type', Target_Type: 'target_type', Target_ID: 'target_id',
                    Detail: 'detail', Session_ID: 'session_id' },
     Notifications:{ To_User: 'to_user_id', Request: 'request_id', Request_No: 'request_no',
-                    Kind: 'kind', Message: 'message', Is_Read: 'is_read', Created_Time: 'created_time' }
+                    Kind: 'kind', Message: 'message', Is_Read: 'is_read', Created_Time: 'created_time' },
+    /* 添付ファイル：1ファイルを複数レコードに分割して保存する（後述 CFG.ATTACH） */
+    Files:       { File_Key: 'file_key', Request: 'request_id', Request_No: 'request_no',
+                   File_Name: 'file_name', Mime_Type: 'mime_type', File_Size: 'file_size',
+                   Trade_Date: 'trade_date', Trade_Amount: 'trade_amount', Trade_Partner: 'trade_partner',
+                   Chunk_Index: 'chunk_index', Chunk_Total: 'chunk_total', Data_Base64: 'data_base64',
+                   Uploaded_By: 'uploaded_by', Uploaded_By_Name: 'uploaded_by_name', Uploaded_At: 'uploaded_at',
+                   Deleted: 'deleted' }
+  },
+
+  /* =======================================================================
+   * 添付ファイル
+   *  Creator 側の項目は text / textarea / number しか使わない方針のため、
+   *  ファイルは base64 に変換し、CHUNK_CHARS 文字ずつに分割して
+   *  Wf_File_Form へ複数レコードとして保存する。
+   *  同じ file_key を持つレコードを chunk_index 順に連結すると元に戻る。
+   *
+   *  電子帳簿保存法の検索要件（取引年月日・取引金額・取引先）を満たすため、
+   *  denshicho 指定のある申請区分では、この3点の入力を必須にする。
+   * ===================================================================== */
+  ATTACH: {
+    MAX_BYTES: 3 * 1024 * 1024,      // 1ファイルあたりの上限（3MB）
+    MAX_FILES: 10,                   // 1申請あたりの添付点数
+    CHUNK_CHARS: 30000,              // 1レコードに入れる base64 の文字数
+    ACCEPT: ['application/pdf', 'image/jpeg', 'image/png', 'image/heic'],
+    ACCEPT_LABEL: 'PDF / JPEG / PNG',
+    /* 電子帳簿保存法の対象とする申請区分（添付時に取引3情報を必須にする） */
+    DENSHICHO_TYPES: ['EXPENSE', 'PAYMENT', 'PURCHASE', 'TRIP', 'TRANSPORT']
   },
 
   /* 文字列 "true"/"false" で保存される真偽項目（読み込み時に真偽値へ戻す） */
-  BOOL_FIELDS: ['Is_Active', 'Is_Qualified', 'Is_Read', 'Is_Delegate', 'Cross_Dept', 'Paid', 'Journal_Exported'],
+  BOOL_FIELDS: ['Is_Active', 'Is_Qualified', 'Is_Read', 'Is_Delegate', 'Cross_Dept', 'Paid', 'Journal_Exported', 'Deleted'],
 
   /* 公開済み Deluge 関数を使う場合の API 名（未公開なら widget 側の workflow.js が計算） */
   CUSTOM_API: { calcRoute: 'calc_route', actOnStep: 'act_on_step', writeAccessLog: 'write_access_log' },
@@ -187,7 +216,8 @@ var TEMPLATES = [
       { key: 'category', label: '区分', type: 'select', required: true, options: ['設備投資', '業務委託', 'システム導入', '広告宣伝', 'その他'] },
       { key: 'reason', label: '起案理由・背景', type: 'textarea', required: true, full: true },
       { key: 'effect', label: '期待効果', type: 'textarea', full: true },
-      { key: 'risk', label: 'リスク・代替案', type: 'textarea', full: true }
+      { key: 'risk', label: 'リスク・代替案', type: 'textarea', full: true },
+      { key: 'attachments', label: '参考資料の添付', type: 'files', full: true }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },
@@ -212,7 +242,9 @@ var TEMPLATES = [
         { key: 'invoice_no', label: '登録番号', type: 'text', w: '140px' },
         { key: 'tax', label: '税区分', type: 'tax', w: '110px' },
         { key: 'amount', label: '金額(税込)', type: 'currency', w: '120px' }
-      ] }
+      ] },
+      { key: 'attachments', label: '領収書・請求書の添付', type: 'files', required: true, full: true, denshicho: true,
+        help: '明細1行につき1枚を目安に添付してください。電子帳簿保存法のため取引年月日・金額・取引先の入力が必要です。' }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },
@@ -255,7 +287,9 @@ var TEMPLATES = [
         { key: 'qty', label: '数量', type: 'number', w: '80px' },
         { key: 'unit_price', label: '単価', type: 'currency', w: '110px' },
         { key: 'amount', label: '金額', type: 'calc', formula: 'qty*unit_price', w: '120px' }
-      ] }
+      ] },
+      { key: 'attachments', label: '見積書の添付', type: 'files', full: true, denshicho: true,
+        help: '相見積を取得した場合はすべて添付してください。' }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },
@@ -275,7 +309,8 @@ var TEMPLATES = [
       { key: 'tax', label: '税区分', type: 'select', required: true, options: ['課税10%', '軽減8%', '非課税', '不課税'] },
       { key: 'account', label: '勘定科目', type: 'account', required: true },
       { key: 'due_date', label: '支払期日', type: 'date', required: true },
-      { key: 'note', label: '摘要', type: 'textarea', full: true }
+      { key: 'note', label: '摘要', type: 'textarea', full: true },
+      { key: 'attachments', label: '請求書の添付', type: 'files', required: true, full: true, denshicho: true }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },
@@ -294,7 +329,8 @@ var TEMPLATES = [
       { key: 'counterparty', label: '相手先', type: 'text', required: true },
       { key: 'use_date', label: '使用日', type: 'date', required: true },
       { key: 'return_date', label: '返却予定日', type: 'date' },
-      { key: 'reason', label: '押印理由', type: 'textarea', required: true, full: true }
+      { key: 'reason', label: '押印理由', type: 'textarea', required: true, full: true },
+      { key: 'attachments', label: '押印対象書類の添付', type: 'files', required: true, full: true }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 1 },
@@ -332,7 +368,8 @@ var TEMPLATES = [
       { key: 'hotel_fee', label: '宿泊費見込', type: 'currency', required: true },
       { key: 'per_diem', label: '日当', type: 'currency' },
       { key: 'amount', label: '合計見込（税込）', type: 'currency', required: true, routeKey: true },
-      { key: 'advance', label: '仮払希望', type: 'checkbox' }
+      { key: 'advance', label: '仮払希望', type: 'checkbox' },
+      { key: 'attachments', label: '旅程・見積の添付', type: 'files', full: true, denshicho: true }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },
@@ -405,7 +442,8 @@ var TEMPLATES = [
       { key: 'start_date', label: '契約開始日', type: 'date', required: true },
       { key: 'end_date', label: '契約終了日', type: 'date' },
       { key: 'auto_renew', label: '自動更新条項あり', type: 'checkbox' },
-      { key: 'note', label: '留意事項', type: 'textarea', full: true }
+      { key: 'note', label: '留意事項', type: 'textarea', full: true },
+      { key: 'attachments', label: '契約書ドラフトの添付', type: 'files', required: true, full: true }
     ],
     route: { steps: [
       { name: '直属上長', type: '承認', assignee: { mode: 'manager', level: 1 }, days: 2 },

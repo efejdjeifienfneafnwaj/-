@@ -89,6 +89,15 @@ FORMS = [
         ('action_type', '操作種別', T), ('target_type', '対象種別', T), ('target_id', '対象ID', T),
         ('detail', '内容', TA), ('session_id', 'セッションID', T),
     ]),
+    ('Wf_File_Form', '【システム用】添付ファイル', [
+        ('file_key', 'ファイルキー', T), ('request_id', '申請ID', T), ('request_no', '申請番号', T),
+        ('file_name', 'ファイル名', T), ('mime_type', '種別', T), ('file_size', 'サイズ（バイト）', N),
+        ('trade_date', '取引年月日', T), ('trade_amount', '取引金額', N), ('trade_partner', '取引先', T),
+        ('chunk_index', '分割番号', N), ('chunk_total', '分割総数', N),
+        ('data_base64', '本体（base64／分割）', TA),
+        ('uploaded_by', '登録者ID', T), ('uploaded_by_name', '登録者', T), ('uploaded_at', '登録日時', T),
+        ('deleted', '削除（true/false）', T),
+    ]),
     ('Wf_Notify_Form', '【システム用】通知', [
         ('to_user_id', '宛先ID', T), ('request_id', '申請ID', T), ('request_no', '申請番号', T),
         ('kind', '種別', T), ('message', '本文', T), ('is_read', '既読（true/false）', T),
@@ -100,14 +109,14 @@ REPORT_LABEL = {
     'Wf_Dept_Form': '部署マスタ', 'Wf_Employee_Form': '社員マスタ', 'Wf_Vendor_Form': '取引先マスタ',
     'Wf_Account_Form': '勘定科目マスタ', 'Wf_Type_Form': '申請テンプレート', 'Wf_Request_Form': '申請 一覧',
     'Wf_Line_Form': '申請明細 一覧', 'Wf_Approval_Form': '承認履歴 一覧', 'Wf_Access_Form': '閲覧証跡 一覧',
-    'Wf_Audit_Form': '操作証跡 一覧', 'Wf_Notify_Form': '通知 一覧',
+    'Wf_Audit_Form': '操作証跡 一覧', 'Wf_Notify_Form': '通知 一覧', 'Wf_File_Form': '添付ファイル 一覧',
 }
 ICON = {
     'Wf_Dept_Form': 'business-bank', 'Wf_Employee_Form': 'users-multiple-11',
     'Wf_Vendor_Form': 'business-briefcase-24', 'Wf_Account_Form': 'business-money-coins',
     'Wf_Type_Form': 'design-todo', 'Wf_Request_Form': 'files-paper', 'Wf_Line_Form': 'design-todo',
     'Wf_Approval_Form': 'ui-1-check', 'Wf_Access_Form': 'ui-1-eye', 'Wf_Audit_Form': 'files-archive',
-    'Wf_Notify_Form': 'ui-1-email-85',
+    'Wf_Notify_Form': 'ui-1-email-85', 'Wf_File_Form': 'files-paper',
 }
 def rep(f): return f.replace('_Form', '_Report')
 

@@ -1414,6 +1414,176 @@ application "社内申請システム"
 				}
 			}
 		}
+		form Wf_File_Form
+		{
+			displayname = "【システム用】添付ファイル"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			file_key
+			(
+				type = text
+				displayname = "ファイルキー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_id
+			(
+				type = text
+				displayname = "申請ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			request_no
+			(
+				type = text
+				displayname = "申請番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			file_name
+			(
+				type = text
+				displayname = "ファイル名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			mime_type
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			file_size
+			(
+				type = number
+				displayname = "サイズ（バイト）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_date
+			(
+				type = text
+				displayname = "取引年月日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_amount
+			(
+				type = number
+				displayname = "取引金額"
+				row = 1
+				column = 1
+				width = medium
+			)
+			trade_partner
+			(
+				type = text
+				displayname = "取引先"
+				row = 1
+				column = 1
+				width = medium
+			)
+			chunk_index
+			(
+				type = number
+				displayname = "分割番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			chunk_total
+			(
+				type = number
+				displayname = "分割総数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			data_base64
+			(
+				type = textarea
+				displayname = "本体（base64／分割）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_by
+			(
+				type = text
+				displayname = "登録者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_by_name
+			(
+				type = text
+				displayname = "登録者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			uploaded_at
+			(
+				type = text
+				displayname = "登録日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deleted
+			(
+				type = text
+				displayname = "削除（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
 		form Wf_Notify_Form
 		{
 			displayname = "【システム用】通知"
@@ -1708,6 +1878,29 @@ application "社内申請システム"
 				session_id as "セッションID"
 			)
 		}
+		list Wf_File_Report
+		{
+			displayName = "添付ファイル 一覧"
+			show all rows from Wf_File_Form
+			(
+				file_key as "ファイルキー"
+				request_id as "申請ID"
+				request_no as "申請番号"
+				file_name as "ファイル名"
+				mime_type as "種別"
+				file_size as "サイズ（バイト）"
+				trade_date as "取引年月日"
+				trade_amount as "取引金額"
+				trade_partner as "取引先"
+				chunk_index as "分割番号"
+				chunk_total as "分割総数"
+				data_base64 as "本体（base64／分割）"
+				uploaded_by as "登録者ID"
+				uploaded_by_name as "登録者"
+				uploaded_at as "登録日時"
+				deleted as "削除（true/false）"
+			)
+		}
 		list Wf_Notify_Report
 		{
 			displayName = "通知 一覧"
@@ -1806,6 +1999,10 @@ application "社内申請システム"
 				label placement = left
 			}
 			form Wf_Audit_Form
+			{
+				label placement = left
+			}
+			form Wf_File_Form
 			{
 				label placement = left
 			}
@@ -2722,6 +2919,104 @@ application "社内申請システム"
 					)
 				)
 			}
+			report Wf_File_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									file_key as "ファイルキー"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									file_name as "ファイル名"
+									mime_type as "種別"
+									file_size as "サイズ（バイト）"
+									trade_date as "取引年月日"
+									trade_amount as "取引金額"
+									trade_partner as "取引先"
+									chunk_index as "分割番号"
+									chunk_total as "分割総数"
+									data_base64 as "本体（base64／分割）"
+									uploaded_by as "登録者ID"
+									uploaded_by_name as "登録者"
+									uploaded_at as "登録日時"
+									deleted as "削除（true/false）"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									file_key as "ファイルキー"
+									request_id as "申請ID"
+									request_no as "申請番号"
+									file_name as "ファイル名"
+									mime_type as "種別"
+									file_size as "サイズ（バイト）"
+									trade_date as "取引年月日"
+									trade_amount as "取引金額"
+									trade_partner as "取引先"
+									chunk_index as "分割番号"
+									chunk_total as "分割総数"
+									data_base64 as "本体（base64／分割）"
+									uploaded_by as "登録者ID"
+									uploaded_by_name as "登録者"
+									uploaded_at as "登録日時"
+									deleted as "削除（true/false）"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
 			report Wf_Notify_Report
 			{
 				quickview
@@ -2857,6 +3152,10 @@ application "社内申請システム"
 					{
 						icon = "files-archive"
 					}
+					report Wf_File_Report
+					{
+						icon = "files-paper"
+					}
 					report Wf_Notify_Report
 					{
 						icon = "ui-1-email-85"
@@ -2898,6 +3197,10 @@ application "社内申請システム"
 						icon = "ui-2-settings-90"
 					}
 					form Wf_Audit_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Wf_File_Form
 					{
 						icon = "ui-2-settings-90"
 					}
@@ -2986,6 +3289,10 @@ application "社内申請システム"
 			{
 				label placement = auto
 			}
+			form Wf_File_Form
+			{
+				label placement = auto
+			}
 			form Wf_Notify_Form
 			{
 				label placement = auto
@@ -3047,6 +3354,10 @@ application "社内申請システム"
 				label placement = auto
 			}
 			form Wf_Audit_Form
+			{
+				label placement = auto
+			}
+			form Wf_File_Form
 			{
 				label placement = auto
 			}
