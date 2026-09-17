@@ -5395,6 +5395,42 @@ application "船井ポータル"
 					{
 						icon = "ui-2-settings-90"
 					}
+					form Lms_Course_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Person_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Record_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Quiz_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Daily_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Survey_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_News_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Post_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_React_Form
+					{
+						icon = "ui-2-settings-90"
+					}
 				}
 				section ZC_App_Preferences
 				{

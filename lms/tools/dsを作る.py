@@ -133,6 +133,9 @@ def main():
     webform = ''.join('\t\t\tform %s\n\t\t\t{\n\t\t\t\tlabel placement = left\n\t\t\t}\n' % f[0] for f in FORMS)
     phform = ''.join('\t\t\tform %s\n\t\t\t{\n\t\t\t\tlabel placement = auto\n\t\t\t}\n' % f[0] for f in FORMS)
     menu = ''.join('\t\t\t\t\treport %s\n\t\t\t\t\t{\n\t\t\t\t\t\ticon = "files-paper"\n\t\t\t\t\t}\n' % f[1] for f in FORMS)
+    # フォームもメニューの section に載せる。載っていないと Creator が
+    # 「does not have section mapping for Web version」で取り込みを止める
+    menuf = ''.join('\t\t\t\t\tform %s\n\t\t\t\t\t{\n\t\t\t\t\t\ticon = "ui-2-settings-90"\n\t\t\t\t\t}\n' % f[0] for f in FORMS)
 
     s = insert_before(s, '\t}\n\n\treports\n', forms, where='forms')
     s = insert_before(s, '\t}\n\n\tpages\n', lists, where='reports')
@@ -140,7 +143,21 @@ def main():
     s = insert_before(s, '\t\t}\n\t\tmenu\n', webrep, where='web reports')
     s = insert_before(s, '\t\t}\n\t\tcustomize\n\t\t{\n\t\t\tlayout = slidingpane', phform, nth=1, where='phone forms')
     s = insert_before(s, '\t\t}\n\t\tcustomize\n\t\t{\n\t\t\tlayout = slidingpane', phform, nth=2, where='tablet forms')
-    s = insert_before(s, '\t\t\t\t\tform Wf_Dept_Form\n\t\t\t\t\t{\n\t\t\t\t\t\ticon = "ui-2-settings-90"', menu, where='menu')
+    s = insert_before(s, '\t\t\t\t\tform Wf_Dept_Form\n\t\t\t\t\t{\n\t\t\t\t\t\ticon = "ui-2-settings-90"', menu, where='menu reports')
+    s = insert_before(s, '\t\t\t\t}\n\t\t\t\tsection ZC_App_Preferences', menuf, where='menu forms')
+
+    # 自己点検：すべてのフォームが web/phone/tablet の forms と menu に載っているか
+    import re as _re
+    all_forms = _re.findall(r'^\t\tform (\w+)\n', s, _re.M)
+    for fn in all_forms:
+        for label, pat in [('web/phone/tablet', r'^\t\t\tform %s\n' % fn), ('menu', r'^\t\t\t\t\tform %s\n' % fn)]:
+            n = len(_re.findall(pat, s, _re.M))
+            need = 3 if label != 'menu' else 1
+            if n < need: raise SystemExit('%s が %s に載っていません（%d/%d）' % (fn, label, n, need))
+    all_lists = _re.findall(r'^\t\tlist (\w+)\n', s, _re.M)
+    for ln in all_lists:
+        if not _re.search(r'^\t\t\treport %s\n' % ln, s, _re.M): raise SystemExit(ln + ' が web.reports に無い')
+        if not _re.search(r'^\t\t\t\t\treport %s\n' % ln, s, _re.M): raise SystemExit(ln + ' が menu に無い')
 
     # 括弧の対応を確かめる
     if s.count('{') != s.count('}'): raise SystemExit('波括弧の数が合いません')
