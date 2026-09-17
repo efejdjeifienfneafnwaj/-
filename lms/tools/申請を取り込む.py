@@ -235,6 +235,31 @@ def scope_css(css):
         i = end + 1
     return '\n'.join(out)
 
+# ────────────────────────────────────────────────────────────
+# views.js / masters.js : 社員・部署のタブは統合の「職員登録」に一本化する
+# ────────────────────────────────────────────────────────────
+def patch_views(s):
+    s = sub(s, """    var tab = App.param('tab') || 'Employees';""",
+"""    /* ★統合：社員・部署は統合側の「職員登録」で扱う（登録する場所を1つにする） */
+    var bridged = (typeof window !== 'undefined') && window.SHINSEI_BRIDGE;
+    var tab = App.param('tab') || (bridged ? 'Vendors' : 'Employees');
+    if (bridged && (tab === 'Employees' || tab === 'Departments')) { window.SHINSEI_BRIDGE.openStaff(); return; }""", where='views.js admin tab')
+    s = sub(s, """      Object.keys(Masters.DEFS).map(function (k) {""",
+"""      Object.keys(Masters.DEFS).filter(function (k) { return !(bridged && (k === 'Employees' || k === 'Departments')); }).map(function (k) {""", where='views.js admin tabs')
+    return s
+
+def patch_masters(s):
+    s = sub(s, """    var key = which || 'Employees';
+    var def = DEFS[key];""",
+"""    /* ★統合：社員・部署は統合側の「職員登録」で扱う */
+    var bridged = (typeof window !== 'undefined') && window.SHINSEI_BRIDGE;
+    var key = which || (bridged ? 'Vendors' : 'Employees');
+    if (bridged && (key === 'Employees' || key === 'Departments')) { window.SHINSEI_BRIDGE.openStaff(); return; }
+    var def = DEFS[key];""", where='masters.js render')
+    s = sub(s, """      Object.keys(DEFS).map(function (k) {""",
+"""      Object.keys(DEFS).filter(function (k) { return !(bridged && (k === 'Employees' || k === 'Departments')); }).map(function (k) {""", where='masters.js tabs')
+    return s
+
 def main():
     # JS
     files = ['config', 'data', 'routes', 'workflow', 'ui', 'views', 'editor', 'masters', 'setup', 'app']
@@ -242,6 +267,8 @@ def main():
         s = read(os.path.join(SRC, 'js', f + '.js'))
         if f == 'app': s = patch_app(s)
         if f == 'data': s = patch_data(s)
+        if f == 'views': s = patch_views(s)
+        if f == 'masters': s = patch_masters(s)
         write(os.path.join(DST, 'js', 'shinsei', f + '.js'), s)
     # CSS
     css = read(os.path.join(SRC, 'css', 'style.css'))

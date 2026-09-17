@@ -544,7 +544,10 @@ var Masters = (function () {
 
   /* ---------- 一覧の描画 ---------- */
   function render(el, which, focusId) {
-    var key = which || 'Employees';
+    /* ★統合：社員・部署は統合側の「職員登録」で扱う */
+    var bridged = (typeof window !== 'undefined') && window.SHINSEI_BRIDGE;
+    var key = which || (bridged ? 'Vendors' : 'Employees');
+    if (bridged && (key === 'Employees' || key === 'Departments')) { window.SHINSEI_BRIDGE.openStaff(); return; }
     var def = DEFS[key];
     if (!def) { el.innerHTML = UI.empty('❓', '不明なマスタです', key); return; }
     if (!Perm.isAdmin(me()) && !Perm.isHR(me()) && !Perm.isFinance(me())) {
@@ -577,7 +580,7 @@ var Masters = (function () {
         : '<span class="tag">このマスタの編集権限がありません</span>') +
       '</div></div>' +
       '<div class="tabs">' +
-      Object.keys(DEFS).map(function (k) {
+      Object.keys(DEFS).filter(function (k) { return !(bridged && (k === 'Employees' || k === 'Departments')); }).map(function (k) {
         return '<button class="tab' + (k === key ? ' active' : '') + '" data-mtab="' + k + '">' +
           DEFS[k].icon + ' ' + E(DEFS[k].label) + '<span class="n">' + DEFS[k].list().length + '</span></button>';
       }).join('') +

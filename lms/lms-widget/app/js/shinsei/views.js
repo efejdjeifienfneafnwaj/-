@@ -1344,7 +1344,10 @@ var Views = (function () {
    * 設定・マスタ
    * ===================================================================== */
   function admin(el) {
-    var tab = App.param('tab') || 'Employees';
+    /* ★統合：社員・部署は統合側の「職員登録」で扱う（登録する場所を1つにする） */
+    var bridged = (typeof window !== 'undefined') && window.SHINSEI_BRIDGE;
+    var tab = App.param('tab') || (bridged ? 'Vendors' : 'Employees');
+    if (bridged && (tab === 'Employees' || tab === 'Departments')) { window.SHINSEI_BRIDGE.openStaff(); return; }
     /* 社員・部署・取引先・勘定科目は編集できる画面（masters.js）に委譲する。
        運用設定とテンプレート一覧だけここで描く。 */
     if (Masters.DEFS[tab]) { Masters.render(el, tab, App.param('focus')); return; }
@@ -1355,7 +1358,7 @@ var Views = (function () {
     }
     el.innerHTML = pageHead('設定・マスタ', '承認経路の前提になる情報です。変更はすべて操作証跡に残ります。') +
       '<div class="tabs">' +
-      Object.keys(Masters.DEFS).map(function (k) {
+      Object.keys(Masters.DEFS).filter(function (k) { return !(bridged && (k === 'Employees' || k === 'Departments')); }).map(function (k) {
         return '<button class="tab" data-mtab="' + k + '">' + Masters.DEFS[k].icon + ' ' + E(Masters.DEFS[k].label) +
           '<span class="n">' + Masters.DEFS[k].list().length + '</span></button>';
       }).join('') +

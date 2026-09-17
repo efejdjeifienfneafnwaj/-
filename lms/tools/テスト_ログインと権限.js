@@ -99,7 +99,7 @@ const ROSTER = [
   check('同じメニューに管理の項目もある', L.some(t => t === 'コース管理'));
   check('「管理」の見出しが出る', L.some(t => t === '管理'));
   check('設定も出る', L.some(t => t === '設定'));
-  check('権限の割り当ても出る', L.some(t => t === '権限の割り当て'));
+  check('職員登録も出る', L.some(t => t === '職員登録'));
   check('上の帯は e-ラーニングの名前', (await p.$eval('#topLogo .nm', e => e.textContent)) === '船井e-ラーニング');
   check('コネクトの項目は出ない', !L.some(t => /掲示板|サンクス|メンバー/.test(t)));
   await p.evaluate(() => route('feed'));
@@ -129,7 +129,7 @@ const ROSTER = [
   L = await sideLabels(p);
   check('管理の項目が全部出る',
     L.some(t => t === 'コース管理') && L.some(t => t === '設定') &&
-    L.some(t => t === '権限の割り当て'));
+    L.some(t => t === '職員登録'));
 
   console.log('④ 名簿がまだ空のとき（最初の1人）');
   p = await open('owner@example.com', []);

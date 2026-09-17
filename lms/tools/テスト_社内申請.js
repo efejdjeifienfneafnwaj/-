@@ -215,10 +215,17 @@ const ROSTER = [
   L = await side(owner);
   check('設定・マスタが出る', L.some(t => t === '設定・マスタ'));
   check('承認経路の設定が出る', L.some(t => t === '承認経路の設定'));
+  check('管理メニューに「職員登録」がある', L.some(t => t === '職員登録'));
   await owner.evaluate(() => route('s_admin'));
   await owner.waitForTimeout(500);
-  check('社員の一覧が統合側の名簿',
-    (await owner.$eval('#view', e => e.textContent)).indexOf('佐藤 花子') >= 0);
+  const tabs = await owner.$$eval('#view .tabs .tab', els => els.map(e => e.textContent.trim()));
+  check('設定・マスタに「社員」「部署」のタブは無い（職員登録に一本化）',
+    !tabs.some(t => /社員|部署/.test(t)) && tabs.some(t => /取引先/.test(t)), tabs.join('/'));
+  await owner.evaluate(() => App.go('admin?tab=Employees'));
+  await owner.waitForTimeout(600);
+  check('「社員」を直に開こうとすると統合の職員登録が出る', (await owner.$('#main:not([hidden]) #p1n')) !== null);
+  check('その一覧に名簿の人が並ぶ', (await owner.$eval('#main', e => e.textContent)).indexOf('佐藤 花子') >= 0);
+  check('左メニューは社内申請のまま', (await side(owner)).some(t => t === '申請する'));
 
   check('画面のエラーが出ていない（' + errs.slice(0, 3).join(' / ') + '）', errs.length === 0);
   await browser.close(); srv.close();

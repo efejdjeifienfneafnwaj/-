@@ -3257,7 +3257,8 @@ function viewApps(view){
   if(v === 'hub') return ['lms', 'connect', 'shinsei'];
   if(v.indexOf('s_') === 0) return ['shinsei'];
   if(v === 'feed' || v === 'thanks' || v === 'members' || v === 'profile') return ['connect'];
-  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['lms', 'connect'];
+  /* 職員登録（職員・職種・権限）は1か所。どのアプリの管理メニューからも同じ画面 */
+  if(v === 'aimport' || v === 'ajobs' || v === 'aroles') return ['lms', 'connect', 'shinsei'];
   return ['lms'];
 }
 var NAV_USER = [
@@ -3280,20 +3281,14 @@ var NAV_CONNECT = [
   { go:'profile', icon:'user',   label:'プロフィール' }
 ];
 var NAV_CONNECT_ADMIN = [
-  { icon:'users', label:'ユーザー管理', sub:[
-      { go:'aimport', label:'職員の登録・編集' },
-      { go:'ajobs',   label:'職種' },
-      { go:'aroles',  label:'権限の割り当て' }
-  ]}
+  { go:'aimport', icon:'users', label:'職員登録' }
 ];
 var NAV_ADMIN = [
   { go:'adash',   icon:'home',  label:'管理ダッシュボード' },
-  { icon:'users', label:'ユーザー管理', sub:[
+  { go:'aimport', icon:'users', label:'職員登録' },
+  { icon:'chart', label:'受講者の状況', sub:[
       { go:'ausers',  label:'ユーザー' },
-      { go:'agroups', label:'グループ' },
-      { go:'aimport', label:'職員の登録・編集' },
-      { go:'ajobs',   label:'職種' },
-      { go:'aroles',  label:'権限の割り当て' }
+      { go:'agroups', label:'グループ' }
   ]},
   { go:'acourses', icon:'book', label:'コース管理' },
   { icon:'chart', label:'学習進捗管理', sub:[
@@ -3337,6 +3332,7 @@ var NAV_OF = {
   asurvey:'asurvey', anews:'anews', aimport:'aimport', aroles:'aroles',
   ajobs:'ajobs',
   aassign:'acourses', acedit:'acourses',
+  ajobs:'aimport', aroles:'aimport',
   asettings:'asettings', audetail:'ausers'
 };
 
@@ -4694,6 +4690,8 @@ function shinseiToPerson(name, o){
 }
 var SHINSEI_BRIDGE = {
   initParams:function(){ return { loginUser:LOGIN_EMAIL || '', appLinkName:'', environment:'' }; },
+  /* 社内申請の「設定・マスタ → 社員／部署」は、統合の職員登録に一本化する */
+  openStaff:function(){ route('aimport'); },
   list:function(entity){
     if(entity === 'Employees'){
       return Object.keys(people() || {}).sort().map(shinseiEmployee);
@@ -4758,6 +4756,7 @@ var NAV_SHINSEI = [
   { go:'s_access',    icon:'eye',    label:'閲覧証跡' }
 ];
 var NAV_SHINSEI_ADMIN = [
+  { go:'aimport',   icon:'users',  label:'職員登録' },
   { go:'s_search',  icon:'folder', label:'すべての申請' },
   { go:'s_finance', icon:'flag',   label:'経理処理' },
   { go:'s_routes',  icon:'slider', label:'承認経路の設定' },
@@ -7137,6 +7136,23 @@ function viewANews(){
    ══════════════════════════════════════════════════════════════ */
 /* 名簿の画面でおぼえておくもの */
 var ROS = { q:'', edit:'' };
+/* 職員登録は1つのページ。職員・職種・権限をタブで切り替える */
+function staffHead(cur){
+  var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['aroles', '権限']];
+  var h = '<div class="ph"><div><h2>職員登録</h2>' +
+          '<div class="sub">ここで登録した内容が、社内申請・e-ラーニング・コネクトの3つ全部に効きます。' +
+          '登録する場所はここだけです。</div></div></div>';
+  h += '<div class="seg" style="margin-bottom:18px">' +
+       tabs.map(function(t){
+         return '<button data-stab="' + t[0] + '" aria-pressed="' + (cur === t[0]) + '">' + t[1] + '</button>';
+       }).join('') + '</div>';
+  return h;
+}
+function bindStaffHead(){
+  eachIn('[data-stab]', function(b){
+    b.onclick = function(){ route(b.getAttribute('data-stab')); };
+  });
+}
 
 /* 名簿の1行を、入力欄のかたまりとして出す。新規も編集も同じ形にする */
 function personForm(pre, p){
@@ -7212,10 +7228,9 @@ function viewAImport(){
   }) : names;
 
   var h = '<div class="wrap" style="max-width:900px">';
-  h += '<div class="ph"><div><h2>職員の登録・編集</h2>' +
-       '<div class="sub">1人ずつ足すことも、Excelから貼り付けてまとめて入れることもできます。' +
-       '登録済みの方は、下の一覧から直せます。</div></div><div class="sp"></div>' +
-       '<button class="btn sub" data-go2="ajobs">' + ic('slider') + '職種を編集</button></div>';
+  h += staffHead('aimport');
+  h += '<div class="cap" style="margin:-8px 0 14px">1人ずつ足すことも、Excelから貼り付けてまとめて入れることもできます。' +
+       '登録済みの方は、下の一覧から直せます。</div>';
 
   /* ── 1人ずつ ── */
   h += '<div class="cat">' + ic('user') + '1人ずつ登録する</div>';
@@ -7294,6 +7309,10 @@ function viewAImport(){
 
   /* 1人ずつの登録 */
   document.getElementById('p1Go').onclick = function(){
+    try{ p1Save(); }
+    catch(e){ console.error(e); toast('登録に失敗しました：' + (e && e.message ? e.message : e)); }
+  };
+  function p1Save(){
     var v = personRead('p1');
     if(v.why){ var f = document.getElementById(v.focus); if(f) f.focus();
                toast(v.why); return; }
@@ -7305,7 +7324,7 @@ function viewAImport(){
           (v.email ? '' : '（メールアドレスが無いのでログインできません）'));
     ROS.edit = '';
     viewAImport();
-  };
+  }
 
   /* 絞り込み */
   var q = document.getElementById('rosQ');
@@ -7437,6 +7456,7 @@ function viewAImport(){
     box.innerHTML = hh;
     document.getElementById('imGo').disabled = false;
   };
+  bindStaffHead();
   document.getElementById('imGo').onclick = function(){
     if(!parsed.length){ toast('先に内容を確認してください'); return; }
     var ng = parsed.filter(function(r){ return badName(r.name); });
@@ -7466,11 +7486,10 @@ var JOB_NEW = '';
 function viewAJobs(){
   var list = jobs().slice();
   var h = '<div class="wrap" style="max-width:720px">';
-  h += '<div class="ph"><div><h2>職種</h2>' +
-       '<div class="sub">職員を登録するときに選ぶ職種の一覧です。' +
-       'ここで足したり、名前を直したり、消したりできます。</div>' +
-       '</div><div class="sp"></div>' +
-       '<button class="btn sub" data-go2="aimport">' + ic('users') + '職員の登録へ</button></div>';
+  h += staffHead('ajobs');
+  h += '<div class="cap" style="margin:-8px 0 14px">職員を登録するときに選ぶ職種の一覧です。' +
+       'ここで足したり、名前を直したり、消したりできます。' +
+       '社内申請の「部署」もこれです。</div>';
 
   h += '<div class="card pad" style="margin-bottom:18px">';
   h += '<div class="bar"><input class="inp" id="jbNew" placeholder="例）介護職" value="' +
@@ -7505,6 +7524,7 @@ function viewAJobs(){
   h += '</div>';
   document.getElementById('main').innerHTML = h;
 
+  bindStaffHead();
   var ni = document.getElementById('jbNew');
   function add(){
     var v = String(ni.value || '').trim();
@@ -7584,9 +7604,9 @@ function viewARoles(){
   }) : ppl;
 
   var h = '<div class="wrap">';
-  h += '<div class="ph"><div><h2>権限の割り当て</h2>' +
-       '<div class="sub">誰がどこまで見られるかを決めます。' +
-       '職員の登録・編集からも変えられます。</div></div></div>';
+  h += staffHead('aroles');
+  h += '<div class="cap" style="margin:-8px 0 14px">誰がどこまで見られるかを決めます。' +
+       '「職員」のタブで一人ずつ直すこともできます。</div>';
 
   /* 権限の説明 */
   h += '<div class="card pad" style="margin-bottom:16px"><div class="rolelist">';
@@ -7639,6 +7659,7 @@ function viewARoles(){
   h += '</div>';
   document.getElementById('main').innerHTML = h;
 
+  bindStaffHead();
   var q = document.getElementById('roQ');
   q.oninput = function(){
     ROLE_Q = this.value;
@@ -8508,14 +8529,29 @@ var ADMIN_VIEWS = {
   ajobs:viewAJobs,
   aroles:viewARoles, acedit:viewACEdit
 };
+/* 受講記録がなくても描ける管理画面。全員ぶんの読み込みを待たせない
+   （読み込みが詰まると「ボタンを押しても何も起きない」に見える） */
+var LIGHT_ADMIN = { aimport:1, ajobs:1, aroles:1, asettings:1, acourses:1, acedit:1, aassign:1, anews:1 };
 function openAdminView(view, arg){
   var fn = ADMIN_VIEWS[view] || viewADash;
-  if(!ON_CREATOR || LOADED.all){ fn(arg); return; }
+  if(!ON_CREATOR || LOADED.all || LIGHT_ADMIN[view]){ fn(arg); return; }
   showLoading('全員の受講記録を読み込んでいます…');
+  /* 読み込みが長引いたら、そのまま待たせずに知らせる */
+  var slow = setTimeout(function(){
+    var m = document.getElementById('main');
+    if(!m || !/読み込んでいます/.test(m.textContent)) return;
+    m.innerHTML = '<div class="wrap"><div class="card pad" style="display:grid;gap:12px">' +
+      '<b>読み込みに時間がかかっています</b>' +
+      '<span class="cap">Zoho Creator からの返事を待っています。回線が遅いか、Creator 側が込み合っている可能性があります。</span>' +
+      '<div class="bar"><button class="btn sub" id="ldSkip">待たずに開く（一部の数字が空になります）</button></div></div></div>';
+    var b = document.getElementById('ldSkip');
+    if(b) b.onclick = function(){ fn(arg); };
+  }, 15000);
   initParams()
     .then(loadAll)
-    .then(function(){ fn(arg); })
+    .then(function(){ clearTimeout(slow); fn(arg); })
     .catch(function(e){
+      clearTimeout(slow);
       if(isNoRows(e)){ fn(arg); return; }   /* まだ1件も無いだけ。失敗ではない */
       console.error('受講記録の読み込みに失敗しました', e);
       toast(isBusy(e)
@@ -8551,9 +8587,9 @@ var CRUMB = {
   thanks:   ['アプリを選ぶ|hub', '船井コネクト', 'サンクスカード'],
   members:  ['アプリを選ぶ|hub', '船井コネクト', 'メンバー'],
   profile:  ['マイダッシュボード|home', 'マイページ', 'プロフィール'],
-  aimport:  ['管理ダッシュボード|adash', 'ユーザー管理', '職員の登録・編集'],
-  ajobs:    ['管理ダッシュボード|adash', 'ユーザー管理', '職種'],
-  aroles:   ['管理ダッシュボード|adash', 'ユーザー管理', '権限の割り当て'],
+  aimport:  ['職員登録'],
+  ajobs:    ['職員登録', '職種'],
+  aroles:   ['職員登録', '権限'],
   acedit:   ['管理ダッシュボード|adash', 'コース管理|acourses', 'コースの編集'],
   aassign:  ['管理ダッシュボード|adash', 'コース管理|acourses', '配信設定'],
   asettings:['管理ダッシュボード|adash', '設定']
@@ -8642,17 +8678,54 @@ function route(view, a, b){
   drawNav(view);
   crumb(crumbFor(view, a));
 
-  if(ADMIN_VIEWS[view])       openAdminView(view, a);
-  else if(view === 'learn')   viewLearn(a, b);
-  else if(view === 'quiz')    viewQuiz(a);
-  else if(view === 'cert')    viewCert(a, b);
-  else if(view === 'survey')  viewSurvey(a);
-  else if(inS)                viewShinsei(view.slice(2));
-  else if(USER_VIEWS[view])   USER_VIEWS[view]();
-  else                        viewHome();
+  try{
+    if(ADMIN_VIEWS[view])       openAdminView(view, a);
+    else if(view === 'learn')   viewLearn(a, b);
+    else if(view === 'quiz')    viewQuiz(a);
+    else if(view === 'cert')    viewCert(a, b);
+    else if(view === 'survey')  viewSurvey(a);
+    else if(inS)                viewShinsei(view.slice(2));
+    else if(USER_VIEWS[view])   USER_VIEWS[view]();
+    else                        viewHome();
+  }catch(e){
+    /* 途中で落ちると、画面は出ているのにボタンが効かない「無反応」になる。
+       それより、何が起きたかを見せるほうがよい */
+    console.error('画面の描画に失敗しました', view, e);
+    showCrash(view, e);
+  }
 
   window.scrollTo(0, 0);
 }
+
+/* 画面のエラーを見せる。研修担当がそのまま開発に伝えられる形にする */
+function showCrash(view, e){
+  var msg = (e && e.message) ? e.message : String(e);
+  var st  = (e && e.stack) ? String(e.stack).split('\n').slice(0, 4).join('\n') : '';
+  var m = document.getElementById('main');
+  if(!m) return;
+  m.hidden = false;
+  m.innerHTML = '<div class="wrap"><div class="card pad" style="display:grid;gap:12px">' +
+    '<b>' + ic('alert') + '画面を表示できませんでした</b>' +
+    '<span class="cap">画面：' + esc(view) + '</span>' +
+    '<pre class="mono" style="white-space:pre-wrap;font-size:11.5px;background:var(--surface-2);padding:10px;border-radius:8px">' +
+    esc(msg + (st ? '\n' + st : '')) + '</pre>' +
+    '<div class="bar"><button class="btn sub" id="crBack">' + ic('back') + '最初の画面へ</button>' +
+    '<button class="btn sub" id="crCopy">この内容をコピー</button></div></div></div>';
+  var b1 = document.getElementById('crBack'); if(b1) b1.onclick = function(){ route(appHome()); };
+  var b2 = document.getElementById('crCopy'); if(b2) b2.onclick = function(){ copyText(view + '\n' + msg + '\n' + st); };
+}
+/* 拾えなかったエラーも、黙らずに知らせる（何も起きないより、失敗が分かるほうがよい） */
+window.addEventListener('error', function(ev){
+  var m = (ev && ev.message) ? ev.message : '不明なエラー';
+  if(/ResizeObserver|Script error\.?$/.test(m)) return;   /* 害のないもの */
+  try{ toast('画面でエラーが起きました：' + m.slice(0, 120)); }catch(e){}
+});
+window.addEventListener('unhandledrejection', function(ev){
+  var r = ev && ev.reason;
+  var m = (r && (r.message || (typeof errText === 'function' && errText(r)))) || String(r || '不明なエラー');
+  console.error('処理が失敗しました', r);
+  try{ toast('処理が失敗しました：' + String(m).slice(0, 120)); }catch(e){}
+});
 
 /* ══════════════════════════════════════════════════════════════
    起動

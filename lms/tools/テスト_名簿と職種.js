@@ -91,10 +91,11 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   console.log('① 職員の登録・編集がメニューから開けること');
   const side = await page.$$eval('#side .nav-i span, #side .nav-s',
     els => els.map(e => e.textContent.trim()));
-  check('「職員の登録・編集」がある', side.some(t => t === '職員の登録・編集'));
-  check('「職種」がある', side.some(t => t === '職種'));
+  check('管理メニューに「職員登録」が1つだけある', side.filter(t => t === '職員登録').length === 1);
+  check('「職員の登録・編集」「職種」は別項目として出ない', !side.some(t => t === '職員の登録・編集' || t === '職種'));
   await page.evaluate(() => route('aimport'));
   await page.waitForSelector('#p1n');
+  check('職員・職種・権限のタブが1つのページにある', (await page.$$('[data-stab]')).length === 3);
 
   console.log('② 1人ずつ登録できること（氏名と職種だけ）');
   check('入力欄は氏名・職種・メール・権限の4つ',
@@ -224,8 +225,7 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   await p2.waitForTimeout(400);
   const s2 = await p2.$$eval('#side .nav-i span, #side .nav-s',
     els => els.map(e => e.textContent.trim()));
-  check('「職種」が出ない', !s2.some(t => t === '職種'));
-  check('「職員の登録・編集」が出ない', !s2.some(t => t === '職員の登録・編集'));
+  check('「職員登録」が出ない', !s2.some(t => t === '職員登録'));
   await p2.evaluate(() => route('ajobs'));
   await p2.waitForTimeout(300);
   check('直に呼んでも開かない', (await p2.$('#jbNew')) === null);
