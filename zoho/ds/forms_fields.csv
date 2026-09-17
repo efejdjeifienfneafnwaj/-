@@ -22,8 +22,6 @@ Wf_Employee_Form,【システム用】社員マスタ,deputy_id,代理人ID,text
 Wf_Employee_Form,【システム用】社員マスタ,deputy_from,代理開始日,text
 Wf_Employee_Form,【システム用】社員マスタ,deputy_to,代理終了日,text
 Wf_Employee_Form,【システム用】社員マスタ,is_active,在籍（true/false）,text
-Wf_Employee_Form,【システム用】社員マスタ,admin_pass,管理者パスワード（ハッシュ）,text
-Wf_Employee_Form,【システム用】社員マスタ,admin_salt,管理者パスワード（ソルト）,text
 Wf_Employee_Form,【システム用】社員マスタ,updated_at,更新日時,text
 Wf_Vendor_Form,【システム用】取引先マスタ,vendor_id,取引先ID,text
 Wf_Vendor_Form,【システム用】取引先マスタ,vendor_code,取引先コード,text

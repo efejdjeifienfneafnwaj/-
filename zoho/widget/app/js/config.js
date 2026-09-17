@@ -52,7 +52,7 @@ var CFG = {
                    Title: 'title', Manager: 'manager_id', Manager_name: 'manager_name',
                    Roles: 'roles', Join_Date: 'join_date', Paid_Leave_Balance: 'leave_balance',
                    Deputy: 'deputy_id', Deputy_From: 'deputy_from', Deputy_To: 'deputy_to',
-                   Is_Active: 'is_active', Admin_Pass: 'admin_pass', Admin_Salt: 'admin_salt' },
+                   Is_Active: 'is_active' },
     Vendors:     { Vendor_Key: 'vendor_id', Vendor_Code: 'vendor_code', Vendor_Name: 'vendor_name',
                    Invoice_Reg_No: 'invoice_reg_no', Is_Qualified: 'is_qualified',
                    Payment_Terms: 'payment_terms', Is_New: 'is_new',
@@ -173,7 +173,7 @@ var CFG = {
      ・一般利用者：申請と承認だけ。元データ（社員・部署・取引先・勘定科目）、
        承認経路、申請区分は一切さわれない。見えるのは自分の申請と、
        自分が承認に関わる申請、同じ部署の下位者の申請（機微度Sを除く）。
-     ・システム管理者：すべて閲覧・編集できる。ログイン時にパスワードを求める。 */
+     ・システム管理者：すべて閲覧・編集できる。Zoho の本アカウントを持つ人を想定。 */
   PERMISSIONS: {
     一般:           { scope: 'assigned', canExport: false, canViewLog: 'own', canViewAmountOfOthers: true },
     システム管理者: { scope: 'all',      canExport: true,  canViewLog: 'all', canViewAmountOfOthers: true }

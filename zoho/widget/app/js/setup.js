@@ -84,170 +84,6 @@ var Setup = (function () {
   function remaining() { return steps().filter(function (s) { return !s.done; }); }
 
   /* =======================================================================
-   * システム管理者のパスワード
-   *
-   *  本人確認そのものは Zoho のポータルログインが行う。ここで足すのは
-   *  「管理者の画面に入るときだけ、もう一度本人に確認する」ための鍵。
-   *  共有端末で開きっぱなしのまま、他の人がマスタや経路をさわるのを防ぐ。
-   *  一般利用者にはパスワードは無い（ポータルにログインできた時点で申請・承認はできる）。
-   * ===================================================================== */
-  var AUTH_KEY = 'admin_ok_';
-
-  /** 端末ごとの乱数。同じパスワードでも保存される値が人ごとに変わる。 */
-  function newSalt() {
-    var a = new Uint8Array(16);
-    if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(a);
-    else for (var i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 256);
-    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
-  }
-
-  /**
-   * パスワードを保存できる形にする。
-   * https で開かれた Creator 上では SHA-256 を使う。
-   * file:// での動作確認時は crypto.subtle が使えないため簡易計算に落ちる。
-   * （その場合は保存先も端末内のみで、実運用の経路には乗らない）
-   */
-  function hashPass(salt, pw) {
-    var text = salt + '\u0000' + pw;
-    if (window.crypto && window.crypto.subtle && window.TextEncoder) {
-      return window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-        .then(function (buf) {
-          return 'sha256:' + Array.prototype.map.call(new Uint8Array(buf), function (b) {
-            return ('0' + b.toString(16)).slice(-2);
-          }).join('');
-        })
-        .catch(function () { return weak(text); });
-    }
-    return Promise.resolve(weak(text));
-  }
-  function weak(text) {
-    var h1 = 0x811c9dc5, h2 = 0x01000193;
-    for (var i = 0; i < text.length; i++) {
-      h1 = ((h1 ^ text.charCodeAt(i)) * 16777619) >>> 0;
-      h2 = ((h2 + text.charCodeAt(i) * (i + 7)) * 2246822519) >>> 0;
-    }
-    return 'weak:' + h1.toString(16) + h2.toString(16);
-  }
-
-  function hasPassword(emp) { return !!(emp && emp.Admin_Pass); }
-  /** この画面を開いている間、すでにパスワードを通したか */
-  function unlocked(emp) {
-    if (!emp) return false;
-    try { return sessionStorage.getItem(AUTH_KEY + emp.ID) === '1'; } catch (e) { return false; }
-  }
-  function markUnlocked(emp, on) {
-    try {
-      if (on) sessionStorage.setItem(AUTH_KEY + emp.ID, '1');
-      else sessionStorage.removeItem(AUTH_KEY + emp.ID);
-    } catch (e) { /* プライベートモードなどで使えなくても、その回だけ通せばよい */ }
-  }
-
-  function savePassword(emp, pw) {
-    var salt = newSalt();
-    return hashPass(salt, pw).then(function (hash) {
-      return DB.update('Employees', emp.ID, { Admin_Pass: hash, Admin_Salt: salt })
-        .then(function () { emp.Admin_Pass = hash; emp.Admin_Salt = salt; });
-    });
-  }
-  function verifyPassword(emp, pw) {
-    return hashPass(emp.Admin_Salt || '', pw).then(function (hash) { return hash === emp.Admin_Pass; });
-  }
-
-  /* 管理者パスワードの画面。解錠できたら onDone(true)、一般利用者として続けるなら onDone(false) */
-  function renderAdminGate(el, emp, onDone) {
-    var first = !hasPassword(emp);
-    var tries = 0;
-    function paint(msg) {
-      el.innerHTML =
-        '<div class="setup-wrap">' +
-        '<div class="setup-head">' +
-        '<div class="setup-badge">' + (first ? '管理者パスワードの設定' : '管理者パスワードの確認') + '</div>' +
-        '<h1>' + E(emp.Employee_Name) + ' さん</h1>' +
-        '<p>' + (first
-          ? 'あなたはシステム管理者です。設定と元データを開くためのパスワードを決めてください。' +
-            '以後、この画面を開くたびに入力します。'
-          : '設定と元データを開くには、管理者パスワードを入力してください。') + '</p>' +
-        '</div>' +
-        '<div class="card"><div class="card-body">' +
-        (msg ? '<div class="badge b-rejected" style="display:block;padding:8px 12px;margin-bottom:12px">' + E(msg) + '</div>' : '') +
-        '<div class="form-grid">' +
-        '<div class="field full"><label>パスワード<span class="req">*</span></label>' +
-        '<input id="ag_pw" type="password" autocomplete="' + (first ? 'new-password' : 'current-password') + '">' +
-        (first ? '<div class="help">8文字以上。英字と数字を混ぜてください。</div>' : '') + '</div>' +
-        (first ? '<div class="field full"><label>パスワード（確認）<span class="req">*</span></label>' +
-          '<input id="ag_pw2" type="password" autocomplete="new-password"></div>' : '') +
-        '</div>' +
-        '<div class="inline-row" style="margin-top:16px">' +
-        '<button class="btn btn-primary" id="ag_go">' + (first ? 'このパスワードにする' : '管理者として入る') + '</button>' +
-        '<button class="btn" id="ag_skip">一般利用者として使う（申請・承認のみ）</button>' +
-        '</div>' +
-        '<div class="page-sub" style="margin-top:12px">' +
-        'このパスワードは、管理画面を開くための鍵です。ポータルへのログインそのものは Zoho が確認しています。' +
-        '忘れた場合は、ほかのシステム管理者に解除してもらってください。' +
-        '</div>' +
-        '</div></div></div>';
-
-      el.querySelector('#ag_skip').addEventListener('click', function () {
-        Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: '管理者パスワード', detail: '一般利用者として利用を継続' });
-        onDone(false);
-      });
-      el.querySelector('#ag_go').addEventListener('click', submit);
-      el.querySelector('#ag_pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-      var pw2 = el.querySelector('#ag_pw2');
-      if (pw2) pw2.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
-      el.querySelector('#ag_pw').focus();
-    }
-
-    function submit() {
-      var pw = el.querySelector('#ag_pw').value;
-      if (first) {
-        var pw2v = el.querySelector('#ag_pw2').value;
-        if (pw.length < 8 || !/[A-Za-z]/.test(pw) || !/\d/.test(pw)) { paint('8文字以上で、英字と数字を混ぜてください。'); return; }
-        if (pw !== pw2v) { paint('確認用のパスワードが一致しません。'); return; }
-        savePassword(emp, pw).then(function () {
-          App.audit('管理者パスワード設定', '社員', emp.ID, emp.Employee_Name + ' が管理者パスワードを設定');
-          markUnlocked(emp, true);
-          UI.toast('管理者パスワードを設定しました', 'success');
-          onDone(true);
-        }).catch(function (e) { paint('保存に失敗しました：' + (e && e.message ? e.message : e)); });
-        return;
-      }
-      verifyPassword(emp, pw).then(function (ok) {
-        if (ok) {
-          markUnlocked(emp, true);
-          Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: '管理者パスワード', detail: '管理者として解錠' });
-          onDone(true);
-          return;
-        }
-        tries++;
-        Access.denied('管理者パスワード', 'パスワード誤り（' + tries + '回目）');
-        paint(tries >= 3
-          ? 'パスワードが違います（' + tries + '回目）。誤りは記録されています。'
-          : 'パスワードが違います。もう一度入力してください。');
-      });
-    }
-    paint('');
-  }
-
-  /** 管理者パスワードを解除する（別のシステム管理者だけができる） */
-  function resetPassword(emp) {
-    if (!Perm.isAdmin(App.me())) { UI.toast('システム管理者だけが解除できます', 'error'); return; }
-    UI.confirmBox('管理者パスワードの解除',
-      emp.Employee_Name + ' さんの管理者パスワードを解除します。次回ログイン時に本人が設定し直します。',
-      '解除する', 'btn-warning').then(function (ok) {
-      if (!ok) return;
-      DB.update('Employees', emp.ID, { Admin_Pass: '', Admin_Salt: '' }).then(function () {
-        emp.Admin_Pass = ''; emp.Admin_Salt = '';
-        markUnlocked(emp, false);
-        App.audit('管理者パスワード解除', '社員', emp.ID,
-          App.me().Employee_Name + ' が ' + emp.Employee_Name + ' の管理者パスワードを解除');
-        UI.toast('解除しました', 'success');
-        App.refresh();
-      }).catch(function (e) { UI.toast('解除に失敗しました：' + (e && e.message ? e.message : e), 'error'); });
-    });
-  }
-
-  /* =======================================================================
    * 初回の画面（社員が0件のときだけ出る）
    * ===================================================================== */
   function renderFirstRun(el) {
@@ -278,8 +114,8 @@ var Setup = (function () {
       '<div class="field"><label>社員番号</label><input id="su_no" placeholder="S0001"></div>' +
       '</div>' +
       '<div class="page-sub" style="margin-top:12px">' +
-      '権限は「システム管理者」で登録されます。次の画面で管理者パスワードを決めてもらいます。' +
-      '入力した部署名は、部署マスタにも同時に登録されます。' +
+      '権限は「システム管理者」で登録されます。以後、このメールアドレスでポータルにログインすると、' +
+      'すべての設定と元データを編集できます。入力した部署名は、部署マスタにも同時に登録されます。' +
       '</div>' +
       '<div class="inline-row" style="margin-top:16px">' +
       '<button class="btn btn-primary" id="su_go">この内容で始める</button>' +
@@ -373,8 +209,6 @@ var Setup = (function () {
   }
 
   return {
-    renderAdminGate: renderAdminGate, hasPassword: hasPassword, unlocked: unlocked,
-    markUnlocked: markUnlocked, resetPassword: resetPassword,
     isFirstRun: isFirstRun, renderFirstRun: renderFirstRun,
     steps: steps, remaining: remaining, progressCard: progressCard, bindProgress: bindProgress
   };

@@ -11,20 +11,10 @@ var App = (function () {
   var currentUserId = null;
   var templates = [];
   var route = { name: 'mine', arg: '', params: {} };
-  /* 管理者だがパスワードを入れずに「一般利用者として使う」を選んだ状態。
-     この間は管理者の権限を一切与えない（見せない・さわらせない）。 */
-  var adminDeclined = false;
 
   /* ---------- 参照ヘルパ ---------- */
   function me() {
     var e = employeeById(currentUserId);
-    /* パスワードを入れずに一般利用者として使っている間は、管理者の権限を外して返す。
-       画面の出し分けも書き込みの可否も、すべてここを通る Roles で決まる。 */
-    if (e && adminDeclined && (e.Roles || []).indexOf(CFG.ROLE_ADMIN) >= 0) {
-      var copy = {}; Object.keys(e).forEach(function (k) { copy[k] = e[k]; });
-      copy.Roles = [CFG.ROLE_USER];
-      return copy;
-    }
     if (e) return e;
     /* 本人が確定していないときに社員一覧の先頭を返すと、証跡に無関係な人の名前が載る。
        空の利用者として扱い、ログイン情報だけを残す。 */
@@ -231,14 +221,8 @@ var App = (function () {
           '<span class="ico">' + n.ico + '</span><span>' + UI.esc(n.label) + '</span>' +
           (n.badge === 'pending' && pending ? '<span class="count">' + pending + '</span>' : '') + '</button>';
       }).join('');
-    if (adminDeclined) {
-      html += '<div class="nav-group">管理</div>' +
-        '<button class="nav-item" data-act="unlock"><span class="ico">🔐</span><span>管理者として入る</span></button>';
-    }
     var nav = document.getElementById('nav');
     nav.innerHTML = html;
-    var unlock = nav.querySelector('[data-act="unlock"]');
-    if (unlock) unlock.addEventListener('click', function () { promptAdmin(); });
     nav.querySelectorAll('[data-nav]').forEach(function (b) {
       b.addEventListener('click', function () { go(b.dataset.nav); document.getElementById('sidebar').classList.remove('open'); });
     });
@@ -291,18 +275,6 @@ var App = (function () {
     return { name: parts[0] || 'mine', arg: parts[1] || '', params: params };
   }
   function go(path) { location.hash = '#' + path; }
-  /** 一般利用者として使っている管理者が、あとから管理者に切り替えるとき */
-  function promptAdmin() {
-    var real = employeeById(currentUserId);
-    if (!real || (real.Roles || []).indexOf(CFG.ROLE_ADMIN) < 0) return;
-    document.getElementById('nav').innerHTML = '';
-    Setup.renderAdminGate(document.getElementById('view'), real, function (asAdmin) {
-      adminDeclined = !asAdmin;
-      renderUserSwitch();
-      location.hash = asAdmin ? '#admin' : '#mine';
-      render();
-    });
-  }
   function navLabel(key) {
     var hit = NAV.filter(function (n) { return n.key === key; })[0];
     return hit ? hit.label : key;
@@ -430,19 +402,6 @@ var App = (function () {
       }
       Access.log(CFG.ACCESS.ACTIONS.LOGIN, { targetType: 'アプリ', detail: (DB.isConnected() ? 'Creator接続' : 'デモ') + (fromSSO ? '／SSOユーザー自動判定' : '') });
       Access.updateBadge();
-      /* システム管理者だけ、管理画面を開く前にもう一度パスワードで確認する。
-         一般利用者はそのままマイページへ入る。 */
-      if (Perm.isAdmin(me()) && !Setup.unlocked(me())) {
-        document.getElementById('nav').innerHTML = '';
-        document.getElementById('userSwitch').hidden = true;
-        Setup.renderAdminGate(document.getElementById('view'), me(), function (asAdmin) {
-          if (!asAdmin) adminDeclined = true;
-          document.getElementById('userSwitch').hidden = false;
-          renderUserSwitch();
-          render();
-        });
-        return;
-      }
       renderUserSwitch();
       render();
     }).catch(function (e) {

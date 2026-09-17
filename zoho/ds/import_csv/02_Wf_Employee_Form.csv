@@ -1,2 +1,2 @@
-﻿emp_id,emp_no,emp_name,emp_kana,email,dept_name,title,manager_id,manager_name,roles,join_date,leave_balance,deputy_id,deputy_from,deputy_to,is_active,admin_pass,admin_salt,updated_at
-サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,0,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル
+﻿emp_id,emp_no,emp_name,emp_kana,email,dept_name,title,manager_id,manager_name,roles,join_date,leave_balance,deputy_id,deputy_from,deputy_to,is_active,updated_at
+サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,0,サンプル,サンプル,サンプル,サンプル,サンプル

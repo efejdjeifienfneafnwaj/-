@@ -92,7 +92,7 @@ var Masters = (function () {
           '役職と権限は、下の選択肢から選んで入力してください（それ以外を書くと取り込めません）。',
           '権限は「一般」か「システム管理者」の2つだけです。',
           '一般は、申請と承認だけができます。社員・部署・取引先・勘定科目・承認経路・申請区分は一切さわれません。',
-          'システム管理者は、すべてを閲覧・編集できます。最初のログイン時にパスワードを決めてもらいます。',
+          'システム管理者は、すべてを閲覧・編集できます。Zoho の本アカウントを持つ人に付けてください。',
           '権限を空にすると「一般」として取り込みます。',
           '上長は氏名で書けます。社員番号やIDは不要です。',
           '在籍は ○ か 空欄。退職した人は「×」と書いてください。',
@@ -698,15 +698,7 @@ var Masters = (function () {
       okText: '保存する',
       bodyHtml: '<div class="form-grid">' + def.fields.map(function (f) { return fieldHtml(f, draft[f.key]); }).join('') + '</div>' +
         (rec && key === 'Employees' ? '<div class="page-sub" style="margin-top:10px">※ 役職・上長・権限を変えると、次に出される申請から経路と閲覧範囲が変わります。' +
-          '進行中の申請は従前のまま流れます。</div>' +
-          (Setup.hasPassword(rec)
-            ? '<div class="inline-row" style="margin-top:10px">' +
-              '<span class="tag">管理者パスワード設定済み</span>' +
-              '<button type="button" class="btn btn-sm" data-act="pwreset">パスワードを解除する</button>' +
-              '</div>'
-            : ((rec.Roles || []).indexOf(CFG.ROLE_ADMIN) >= 0
-              ? '<div class="page-sub" style="margin-top:10px">管理者パスワードは未設定です。次回ログイン時にご本人が決めます。</div>'
-              : '')) : ''),
+          '進行中の申請は従前のまま流れます。</div>' : ''),
       onOk: function (box) {
         /* 入力を集める */
         def.fields.forEach(function (f) {
@@ -725,8 +717,6 @@ var Masters = (function () {
       }
     });
     UI.bindMoneyInputs(document.querySelector('.modal'));
-    var pwr = document.querySelector('[data-act="pwreset"]');
-    if (pwr) pwr.addEventListener('click', function () { UI.closeModal(); Setup.resetPassword(rec); });
     /* 登録番号を入れたら自動で「適格」にする */
     var reg = document.querySelector('[data-m="Invoice_Reg_No"]');
     if (reg) {
@@ -771,7 +761,7 @@ var Masters = (function () {
             (on ? ' checked' : '') + '>' +
             '<span><b>' + E(r) + '</b><br><span class="page-sub">' +
             (r === CFG.ROLE_ADMIN
-              ? 'すべての申請を閲覧でき、社員・部署・取引先・勘定科目・承認経路・申請区分を編集できます。ログイン時にパスワードを求められます。'
+              ? 'すべての申請を閲覧でき、社員・部署・取引先・勘定科目・承認経路・申請区分を編集できます。'
               : '申請と承認だけができます。元データや承認経路は開けません。') +
             '</span></span></label>';
         }).join('') + '</div><input type="hidden" data-m="' + E(f.key) + '">'; break;
