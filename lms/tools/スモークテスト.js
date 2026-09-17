@@ -73,21 +73,13 @@ function check(name, cond){
   await page.waitForTimeout(150);
   await openSide();
   const A1 = await sideLabels();
-  check('管理画面の左メニューに「受講者の画面を見る」がある',
-    A1.some(t => t === '受講者の画面を見る'));
+  check('管理画面の左メニューが出る', A1.some(t => /コース/.test(t)));
 
-  console.log('④ 管理⇄受講者の行き来');
-  await page.click('#side [data-act="asuser"]');
-  await page.waitForTimeout(150);
-  await openSide();
-  const A2 = await sideLabels();
-  check('受講者側に切り替わる', A2.some(t => /研修コース/.test(t)));
-  check('「管理画面にもどる」がある', A2.some(t => t === '管理画面にもどる'));
-  await page.click('#side [data-act="aadmin"]');
-  await page.waitForTimeout(150);
-  await openSide();
-  const A3 = await sideLabels();
-  check('管理画面にもどれる', A3.some(t => t === '受講者の画面を見る'));
+  console.log('④ 管理画面と受講者画面を行き来するボタンは無いこと');
+  check('「受講者の画面を見る」が無い', !A1.some(t => t === '受講者の画面を見る'));
+  check('「管理画面にもどる」が無い',   !A1.some(t => t === '管理画面にもどる'));
+  check('切り替え用のボタンが一つも無い',
+    (await page.$$('#side [data-act="asuser"], #side [data-act="aadmin"]')).length === 0);
 
   console.log('⑤ 開きなおすと、また入口の暗証番号からしか入れないこと');
   /* 端末には admin=true が残ったまま、受講者として入りなおす */
@@ -96,8 +88,16 @@ function check(name, cond){
   await loginAsLearner();
   await openSide();
   const R1 = await sideLabels();
-  check('「管理画面にもどる」が出ない', !R1.some(t => t === '管理画面にもどる'));
-  check('「受講者の画面を見る」も出ない', !R1.some(t => t === '受講者の画面を見る'));
+  check('管理系の項目が出ない',
+    !R1.some(t => /管理画面|受講者の画面|権限|配信/.test(t)));
+  /* 直に管理画面を呼んでも開かないこと（前に管理者が使った端末でも） */
+  await page.evaluate(() => route('acedit'));
+  await page.waitForTimeout(200);
+  check('コース編集を直に呼んでも開かない', (await page.$('#ceTab')) === null);
+  await page.evaluate(() => route('ausers'));
+  await page.waitForTimeout(200);
+  const h2 = await page.$eval('#main h2', e => e.textContent.trim()).catch(() => '');
+  check('受講者一覧を直に呼んでも開かない（いまは「' + h2 + '」）', h2 !== 'ユーザー', h2);
 
   console.log('⑥ 暗証番号を間違えると入れないこと');
   await page.evaluate(() => { try{ localStorage.removeItem('lms_me'); }catch(e){} });
@@ -114,7 +114,7 @@ function check(name, cond){
   await page.waitForTimeout(200);
   await openSide();
   const R2 = await sideLabels();
-  check('正しい暗証番号なら入れる', R2.some(t => t === '受講者の画面を見る'));
+  check('正しい暗証番号なら入れる', R2.some(t => /コース管理|コース一覧/.test(t)));
 
   check('画面のエラーが出ていない（' + errs.join(' / ') + '）', errs.length === 0);
 

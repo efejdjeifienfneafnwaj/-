@@ -2857,10 +2857,6 @@ function canOpen(view){
 }
 
 var MODE = 'user';
-/* この読み込みのあいだに、入口の「管理者の方はこちら」から暗証番号を入れて
-   管理画面に入ったか。端末には残さない。
-   ログイン後の画面から管理画面へ入る道は作らない（入口だけが入口）。 */
-var ADMIN_SESSION = false;
 var NAV_USER = [
   { go:'home',    icon:'home',   label:'マイダッシュボード' },
   { go:'courses', icon:'book',   label:'研修コース' },
@@ -2956,18 +2952,9 @@ function drawNav(view){
     }
     if(i === list.length - 2) h += '<div class="nav-sep"></div>';
   });
-  /* 入口で暗証番号を入れた人にだけ、管理画面と受講者画面の行き来を出す。
-     暗証番号を通っていない人には、管理画面への道はどこにも出ない。 */
-  if(ADMIN_SESSION){
-    h += '<div class="nav-sep"></div>';
-    if(MODE === 'admin'){
-      h += '<button class="nav-i" data-act="asuser">' + ic('user') +
-           '<span>受講者の画面を見る</span></button>';
-    }else{
-      h += '<button class="nav-i" data-act="aadmin">' + ic('gear') +
-           '<span>管理画面にもどる</span></button>';
-    }
-  }
+  /* 管理画面と受講者画面の行き来は出さない。
+     管理者は設定する側なので、受講者の画面に入る必要がない。
+     管理画面に入るのは、入口の「管理者の方はこちら」＋暗証番号だけ。 */
   /* 共用の端末で「次の人に代わる」「使い終わる」がどこにも無かったので、ここに置く */
   /* メールアドレスで入る運用では「交代」は起きないので出さない。
      名簿がまだ無く、氏名で入っているときだけ、入口に戻る道を残す。 */
@@ -2984,8 +2971,6 @@ function drawNav(view){
       closeSide();
       var act = b.getAttribute('data-act');
       if(act === 'swap'){ stopPlayer(); viewGate(); return; }
-      if(act === 'asuser'){ stopPlayer(); MODE = 'user'; route('home'); return; }
-      if(act === 'aadmin'){ stopPlayer(); MODE = 'admin'; route('adash'); return; }
       leaveDevice();
     };
   });
@@ -3689,16 +3674,12 @@ function viewLearn(courseId, chapIdx){
   if(ch.videoId){
     h += '<div class="player-box"><div id="ytp"></div></div>';
   }else{
+    /* ここから編集画面へ飛べるようにしていたが、受講者にも出てしまうので外した。
+       動画の登録は「コース管理 → コース一覧 → 編集」からだけ行う。 */
     h += '<div class="player-empty">' + ic('play') +
-         (canOpen('acedit')
-           ? '<b>動画URLが設定されていません</b>' +
-             '<span style="font-size:11.5px;max-width:26em">' +
-             '「コース管理 → コース一覧 → 編集」の<b>章（動画）</b>タブから、' +
-             'YouTubeの限定公開URLを登録してください。</span>' +
-             '<button class="btn sub" id="goSet">この コースを編集する</button>'
-           : '<b>この研修はまだ準備中です</b>' +
-             '<span style="font-size:11.5px;max-width:26em">' +
-             '動画の準備ができましたらご案内します。お手数ですが、ほかの研修からお進みください。</span>') +
+         '<b>この研修はまだ準備中です</b>' +
+         '<span style="font-size:11.5px;max-width:26em">' +
+         '動画の準備ができましたらご案内します。お手数ですが、ほかの研修からお進みください。</span>' +
          '</div>';
   }
   h += '<div class="p-under">';
@@ -3782,8 +3763,6 @@ function viewLearn(courseId, chapIdx){
   document.getElementById('main').innerHTML = h;
 
   document.querySelector('[data-back]').onclick = function(){ route('courses'); };
-  var gs = document.getElementById('goSet');
-  if(gs) gs.onclick = function(){ ceClear(); route('acedit', co.id); };
   var gq = document.getElementById('goQuiz');
   if(gq && !gq.disabled) gq.onclick = function(){ route('quiz', co.id); };
   var bmBtn = document.getElementById('goBm');
@@ -6908,8 +6887,12 @@ function exportCsv(){
      ※これは目隠しです。本当の権限管理は Creator 側で行ってください
        （管理者用のページを別に作り、そのページの閲覧権限を絞る）
    ══════════════════════════════════════════════════════════════ */
+/* 暗証番号を通ったかどうかは、この画面を開いているあいだだけ覚える。
+   端末に残すと、次にその端末を使った受講者まで管理者あつかいになり、
+   受講者の画面から管理側へ入れてしまっていた。
+   （以前の版が残した覚え書きは、ここで消す） */
 var ADMIN = false;
-try{ ADMIN = LS.get('admin', false) === true; }catch(e){}
+try{ localStorage.removeItem('lms_admin'); }catch(e){}
 
 /* 暗証番号は、そのままではなく変換した値を保存する。
    ※これは「肩越しに覗かれない」程度のもので、暗号としては弱いです。
@@ -6934,8 +6917,7 @@ function setAdminPass(v){
 }
 /* この端末を管理者として開く */
 function enterAdmin(){
-  ADMIN = true; LS.set('admin', true);
-  ADMIN_SESSION = true;
+  ADMIN = true;
   refreshRole();
   MODE = 'admin';
   route('adash');
