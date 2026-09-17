@@ -181,6 +181,54 @@ a{color:var(--acc);}
   content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--acc);
 }
 .nav-sep{height:1px;background:var(--side-rule);margin:8px 0;}
+
+/* ───── アプリの入口（3つのカード） ───── */
+.hub{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:16px;}
+.hub-c{
+  display:grid;gap:7px;justify-items:start;text-align:left;
+  padding:24px 22px;border:1px solid var(--rule);border-radius:var(--r-md);
+  background:var(--surface);color:var(--ink-1);cursor:pointer;
+  transition:border-color .16s, transform .16s, box-shadow .16s;
+}
+.hub-c:hover{border-color:var(--acc);transform:translateY(-2px);box-shadow:var(--sh-2);}
+.hub-c.off{opacity:.55;cursor:default;}
+.hub-c.off:hover{border-color:var(--rule);transform:none;box-shadow:none;}
+.hub-c b{font-size:17px;}
+.hub-i{
+  width:46px;height:46px;border-radius:var(--r-sm);display:grid;place-items:center;
+  background:var(--acc-soft);color:var(--acc);margin-bottom:4px;
+}
+.hub-i .ic{font-size:24px;}
+.hub-s{font-size:12.5px;color:var(--ink-3);}
+
+/* ───── 船井コネクト ───── */
+.fd-card{
+  background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-md);
+  padding:15px 17px;margin-bottom:13px;
+}
+.fd-head{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+.fd-who{display:grid;line-height:1.35;min-width:0;flex:1;}
+.fd-who b{font-size:13.5px;}
+.fd-who span{font-size:11.5px;color:var(--ink-3);}
+.fd-to{
+  display:flex;align-items:center;gap:7px;margin-bottom:8px;padding:8px 11px;
+  background:var(--acc-soft);border-radius:var(--r-sm);font-size:13px;
+}
+.fd-ttl{font-weight:700;margin-bottom:5px;}
+.fd-body{font-size:13.5px;line-height:1.75;word-break:break-word;}
+.fd-ops{display:flex;align-items:center;gap:13px;margin-top:11px;
+  padding-top:10px;border-top:1px solid var(--rule);}
+.fd-like,.fd-cmt{font-size:13px;color:var(--ink-3);display:flex;align-items:center;gap:5px;
+  min-height:34px;padding:0 4px;}
+.fd-like:hover,.fd-cmt:hover{color:var(--acc);}
+.fd-like.on{color:var(--acc);font-weight:700;}
+.fd-likers{font-size:11.5px;color:var(--ink-3);margin-left:auto;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.fd-cmts{margin-top:11px;padding-top:11px;border-top:1px solid var(--rule);display:grid;gap:10px;}
+.fd-c{display:flex;gap:9px;align-items:flex-start;}
+.fd-ct{flex:1;min-width:0;font-size:13px;line-height:1.6;}
+.fd-ct b{margin-right:7px;}
+.fd-new{border-color:var(--acc);}
 .nav-h{
   padding:12px 16px 4px;font-size:11px;font-weight:700;letter-spacing:.06em;
   color:var(--ink-3);border-top:1px solid var(--side-rule);margin-top:8px;
@@ -874,6 +922,9 @@ kbd{
   .wrap{padding:16px 14px 60px;}
   .crumb-bar{padding:9px 14px;}
   .kpis{grid-template-columns:1fr 1fr;gap:9px;}
+  .hub{grid-template-columns:1fr;gap:12px;}
+  .hub-c{padding:18px 16px;}
+  .fd-card{padding:13px 14px;}
   .kpi{padding:10px 12px;} .kpi .v{font-size:24px;} .kpi .k{font-size:11px;}
   .ph h2{font-size:16.5px;}
   .brow{grid-template-columns:1fr;gap:4px;}
@@ -1250,7 +1301,10 @@ var FORM = {
   quiz:  'Lms_Quiz_Form',   quizR:  'Lms_Quiz_Report',
   daily: 'Lms_Daily_Form',  dailyR: 'Lms_Daily_Report',
   survey:'Lms_Survey_Form', surveyR:'Lms_Survey_Report',
-  news:  'Lms_News_Form',   newsR:  'Lms_News_Report'
+  news:  'Lms_News_Form',   newsR:  'Lms_News_Report',
+  /* 船井コネクト（掲示板・サンクスカード） */
+  post:  'Lms_Post_Form',   postR:  'Lms_Post_Report',
+  react: 'Lms_React_Form',  reactR: 'Lms_React_Report'
 };
 var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 /* ポータルにログインしている人のメールアドレス。
@@ -1258,12 +1312,14 @@ var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 var LOGIN_EMAIL = '';
 
 var MEM = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
+            posts:{}, reacts:{},
             courses:null, config:null };                     /* 画面が読む写し */
 var RID = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
+            posts:{}, reacts:{},
             courses:null };                                  /* Creatorのレコード番号 */
 /* kind → RID の中のどの入れ物を使うか（'quiz' は 'quizzes' なので機械的に s を付けられない） */
 var RID_BOX = { person:'people', record:'records', quiz:'quizzes', daily:'daily',
-                survey:'surveys', news:'news' };
+                survey:'surveys', news:'news', post:'posts', react:'reacts' };
 var LOADED = { person:'', all:false, truncated:false, daily:'',
                partial:false,   /* 読めなかったものがあった */
                lastErr:'' };
@@ -1291,6 +1347,8 @@ MEM.quizzes = LS.get('quizzes', {});
 MEM.daily   = LS.get('daily', {});
 MEM.surveys = LS.get('surveys', {});
 MEM.news    = LS.get('news', {});
+MEM.posts   = LS.get('posts', {});
+MEM.reacts  = LS.get('reacts', {});
 MEM.courses = LS.get('courses', null);
 MEM.config  = LS.get('config', null);
 /* この仕組みを入れる前に保存された記録を、年度つきのキーに直す（起動時に1回だけ） */
@@ -2277,6 +2335,22 @@ function payloadFor(kind, key){
              target:nw.group || '', posted_by:nw.by || '', posted_at:nw.at || '',
              deleted:nw.deleted ? 'あり' : '' };
   }
+  if(kind === 'post'){
+    var po = MEM.posts[key];
+    if(!po) return null;
+    return { post_key:key, kind:po.kind || 'post',
+             author_name:po.by || '', author_email:po.byMail || '',
+             to_name:po.to || '', title:po.title || '', body:po.body || '',
+             target:po.target || '', posted_at:po.at || '',
+             deleted:po.deleted ? 'あり' : '' };
+  }
+  if(kind === 'react'){
+    var rc = MEM.reacts[key];
+    if(!rc) return null;
+    return { react_key:key, post_key:rc.post || '', kind:rc.kind || 'like',
+             person_name:rc.by || '', body:rc.body || '',
+             at:rc.at || '', deleted:rc.deleted ? 'あり' : '' };
+  }
   if(kind === 'person'){
     var p = MEM.people[key];
     if(!p) return null;
@@ -2338,7 +2412,8 @@ function payloadFor(kind, key){
 }
 var KEY_FIELD = { course:null, person:'person_key', record:'rec_key',
                   quiz:'quiz_key', daily:'day_key',
-                  survey:'survey_key', news:'news_key' };
+                  survey:'survey_key', news:'news_key',
+                  post:'post_key', react:'react_key' };
 
 function flushSync(){
   if(!ON_CREATOR || SYNC.busy) return;
@@ -2549,6 +2624,31 @@ function rowsToNews(rows){
   });
   cacheFlush('news');
 }
+/* ── 船井コネクト ── */
+function rowsToPosts(rows){
+  rows.forEach(function(r){
+    var k = r.post_key;
+    if(!k) return;
+    MEM.posts[k] = { id:k, kind:r.kind || 'post',
+                     by:r.author_name || '', byMail:r.author_email || '',
+                     to:r.to_name || '', title:r.title || '', body:r.body || '',
+                     target:r.target || '', at:r.posted_at || '',
+                     deleted:String(r.deleted || '') !== '' };
+    if(r.ID) RID.posts[k] = String(r.ID);
+  });
+  cacheFlush('posts');
+}
+function rowsToReacts(rows){
+  rows.forEach(function(r){
+    var k = r.react_key;
+    if(!k) return;
+    MEM.reacts[k] = { id:k, post:r.post_key || '', kind:r.kind || 'like',
+                      by:r.person_name || '', body:r.body || '', at:r.at || '',
+                      deleted:String(r.deleted || '') !== '' };
+    if(r.ID) RID.reacts[k] = String(r.ID);
+  });
+  cacheFlush('reacts');
+}
 function rowsToDaily(rows){
   rows.forEach(function(r){
     var k = r.day_key || ((r.person_name || '') + '|' + (r.study_day || r.day || ''));
@@ -2564,6 +2664,13 @@ function loadNews(){
   /* 削除済みまで毎回全件読むと、何年も運用したときに件数の上限に当たる */
   return fetchRows(FORM.newsR, '(deleted == "")').then(rowsToNews)
     .catch(function(){ return fetchRows(FORM.newsR).then(rowsToNews); });
+}
+/* 船井コネクトの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
+function loadFeed(){
+  return runLimited([
+    function(){ return fetchRows(FORM.postR,  '(deleted == "")').then(rowsToPosts); },
+    function(){ return fetchRows(FORM.reactR, '(deleted == "")').then(rowsToReacts); }
+  ], 2);
 }
 function loadCourses(){
   return fetchRows(FORM.courseR).then(function(rows){
@@ -2887,46 +2994,32 @@ function stPill(co, p){
      ・エリアマネージャーで、職種は1つなのに3施設を見る
    役職＝権限にすると、この全部が例外になって破綻する。
    ══════════════════════════════════════════════════════════════ */
+/* 権限は2つだけ。3つのアプリ（社内申請・e-ラーニング・コネクト）で共通。
+   ・システム管理者 … 管理画面に入れる
+   ・一般           … 入れない
+   細かい段を作ると、誰がどこまで見られるのかを説明できなくなるので作らない。 */
 var ROLES = [
-  { id:'learner', rank:1, label:'受講者',
-    desc:'自分の受講状況と修了証だけ' },
-  { id:'dept',    rank:2, label:'部門管理者',
-    desc:'決められた職種の人の受講状況・督促・CSV（アンケートの自由記述は見えません）' },
-  { id:'trainer', rank:3, label:'研修管理者',
-    desc:'全社の受講状況・コースの作成と配信・アンケートの全文' },
+  { id:'learner', rank:1, label:'一般',
+    desc:'自分の受講状況と修了証、掲示板の閲覧と投稿' },
   { id:'admin',   rank:4, label:'システム管理者',
-    desc:'上記すべて＋名簿の一括登録・権限の割り当て・アプリの設定' }
-];
-/* 役職から権限の初期値を決める。登録のときだけ使い、あとから個別に変えられる */
-var TITLE_TO_ROLE = [
-  { re:/社長|専務|常務|取締役|本部長|部長|施設長|工場長|所長|管理者/, role:'dept' }
+    desc:'すべての管理画面（名簿・職種・コース・配信・集計・設定）' }
 ];
 function roleInfo(id){
   for(var i = 0; i < ROLES.length; i++) if(ROLES[i].id === id) return ROLES[i];
   return ROLES[0];
 }
-function roleFromTitle(title){
-  var t = String(title || '');
-  for(var i = 0; i < TITLE_TO_ROLE.length; i++){
-    if(TITLE_TO_ROLE[i].re.test(t)) return TITLE_TO_ROLE[i].role;
-  }
-  return 'learner';
-}
-/* その人の権限。名簿に無ければ役職から決める */
+function roleFromTitle(){ return 'learner'; }
+/* その人の権限。名簿に無ければ一般。
+   古い名簿に部門管理者・研修管理者が残っていたら、管理者として扱う
+   （どちらも管理画面に入れる側だったため） */
 function roleOf(p){
   if(!p) return 'learner';
+  if(p.role === 'dept' || p.role === 'trainer') return 'admin';
   if(p.role && roleInfo(p.role).id === p.role) return p.role;
-  return roleFromTitle(p.title);
+  return 'learner';
 }
-/* その人が見られる職種の一覧。空配列＝全社（研修管理者以上） */
-function scopeOf(p){
-  var r = roleOf(p);
-  if(r === 'trainer' || r === 'admin') return [];
-  var sc = String((p && p.scope) || '').split(/[;；,、]/)
-             .map(function(x){ return x.trim(); }).filter(Boolean);
-  if(sc.length) return sc;
-  return (p && p.dept) ? [p.dept] : [];
-}
+/* 見られる範囲。いまは「管理者は全部／一般は自分だけ」の2つだけ */
+function scopeOf(){ return []; }
 
 /* メールアドレスが入っていない人は、ポータルからログインできない。
    気づかないまま何日も放置されるので、管理画面の目立つところで知らせる。 */
@@ -2965,15 +3058,11 @@ function refreshRole(){
 function rank(){ return roleInfo(MY_ROLE).rank; }
 /* 管理側の画面を開けるか */
 function canAdmin(){ return rank() >= 2; }
-/* その人の受講状況を見てよいか */
+/* その人の受講状況を見てよいか。管理者は全員、一般は自分だけ */
 function inScope(name){
-  if(rank() >= 3) return true;                 /* 研修管理者以上は全社 */
+  if(canAdmin()) return true;
   var u = me();
-  if(u && normName(u.name) === normName(name)) return true;   /* 自分は見られる */
-  if(rank() < 2) return false;
-  if(!MY_SCOPE.length) return false;
-  var p = people()[normName(name)];
-  return !!(p && MY_SCOPE.indexOf(p.dept || '') >= 0);
+  return !!(u && normName(u.name) === normName(name));
 }
 /* 画面ごとに、どの権限から開けるか */
 var VIEW_RANK = {
@@ -2991,6 +3080,7 @@ function canOpen(view){
 
 var MODE = 'user';
 var NAV_USER = [
+  { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'home',    icon:'home',   label:'マイダッシュボード' },
   { go:'courses', icon:'book',   label:'研修コース' },
   { icon:'user',  label:'マイページ', sub:[
@@ -2998,7 +3088,9 @@ var NAV_USER = [
       { go:'mytime',  label:'学習時間' },
       { go:'certs',   label:'修了証' },
       { go:'mynews',  label:'お知らせ' }
-  ]}
+  ]},
+  { go:'feed',    icon:'mail',   label:'掲示板' },
+  { go:'thanks',  icon:'medal',  label:'サンクスカード' }
 ];
 var NAV_ADMIN = [
   { go:'adash',   icon:'home',  label:'管理ダッシュボード' },
@@ -3038,6 +3130,7 @@ function navFor(list){
 var NAV_OPEN = {};
 /* 画面 → メニューのどの項目を光らせるか */
 var NAV_OF = {
+  hub:'hub', feed:'feed', thanks:'thanks', afeed:'afeed',
   home:'home', courses:'courses', learn:'courses', quiz:'courses',
   cert:'certs', survey:'courses', certs:'certs', mynews:'mynews',
   history:'history', mytime:'mytime',
@@ -3781,6 +3874,444 @@ function viewMyNews(){
   h += '</div>';
   document.getElementById('main').innerHTML = h;
   drawNav('mynews');
+}
+
+/* ══════════════════════════════════════════════════════════════
+   船井コネクト（掲示板＋サンクスカード）
+
+   ・投稿は押した瞬間に Creator に入る。自動保存のような仕組みは使わない。
+   ・開いている画面は、一定の間隔で新着だけを見に行く（書きかけは消さない）。
+   ・削除は行を消さず「削除あり」の印を付ける（あとから経緯をたどれるように）。
+   ══════════════════════════════════════════════════════════════ */
+var FEED = { tab:'all', draft:'', to:'', target:'', open:'', reply:{} };
+var FEED_TIMER = 0;
+var FEED_EVERY = 25000;        /* 開いている画面が新着を見に行く間隔 */
+
+function nowISO(){ return new Date().toISOString(); }
+function newKey(pre){
+  return pre + '-' + Date.now().toString(36) + '-' +
+         Math.floor(Math.random() * 1e6).toString(36);
+}
+/* 何分前 */
+function ago(iso){
+  var t = Date.parse(iso || '');
+  if(isNaN(t)) return '';
+  var m = Math.floor((Date.now() - t) / 60000);
+  if(m < 1) return 'たった今';
+  if(m < 60) return m + '分前';
+  if(m < 24 * 60) return Math.floor(m / 60) + '時間前';
+  var d = Math.floor(m / (24 * 60));
+  if(d < 30) return d + '日前';
+  return (iso || '').slice(0, 10);
+}
+/* 生きている投稿を、新しい順に */
+function postList(kind){
+  var out = [];
+  Object.keys(MEM.posts).forEach(function(k){
+    var p = MEM.posts[k];
+    if(p.deleted) return;
+    if(kind && p.kind !== kind) return;
+    if(!feedVisible(p)) return;
+    out.push(p);
+  });
+  out.sort(function(a, b){ return String(b.at || '') < String(a.at || '') ? -1 : 1; });
+  return out;
+}
+/* 自分に宛てられた投稿か（宛先が空＝全員） */
+function feedVisible(p){
+  var t = String(p.target || '').trim();
+  if(!t) return true;
+  var u = me() || {};
+  var mine = people()[normName(u.name)] || u;
+  return t === (mine.dept || '');
+}
+function reactsOf(postId, kind){
+  var out = [];
+  Object.keys(MEM.reacts).forEach(function(k){
+    var r = MEM.reacts[k];
+    if(r.deleted || r.post !== postId) return;
+    if(kind && r.kind !== kind) return;
+    out.push(r);
+  });
+  out.sort(function(a, b){ return String(a.at || '') < String(b.at || '') ? -1 : 1; });
+  return out;
+}
+function myLike(postId){
+  var u = me() || {}, hit = null;
+  reactsOf(postId, 'like').forEach(function(r){
+    if(normName(r.by) === normName(u.name)) hit = r;
+  });
+  return hit;
+}
+/* 書き込みは、押した瞬間に1行入れて送る */
+function putPost(o){
+  var k = o.id || newKey('p');
+  MEM.posts[k] = { id:k, kind:o.kind || 'post', by:o.by || '', byMail:o.byMail || '',
+                   to:o.to || '', title:o.title || '', body:o.body || '',
+                   target:o.target || '', at:o.at || nowISO(),
+                   deleted:!!o.deleted };
+  cacheFlush('posts');
+  queueSync('post', k);
+  return k;
+}
+function putReact(o){
+  var k = o.id || newKey('r');
+  MEM.reacts[k] = { id:k, post:o.post || '', kind:o.kind || 'like', by:o.by || '',
+                    body:o.body || '', at:o.at || nowISO(), deleted:!!o.deleted };
+  cacheFlush('reacts');
+  queueSync('react', k);
+  return k;
+}
+/* 消すときは行を残したまま印を付ける */
+function dropPost(id){
+  var p = MEM.posts[id];
+  if(!p) return;
+  p.deleted = true;
+  cacheFlush('posts');
+  queueSync('post', id);
+}
+function dropReact(id){
+  var r = MEM.reacts[id];
+  if(!r) return;
+  r.deleted = true;
+  cacheFlush('reacts');
+  queueSync('react', id);
+}
+
+/* 開いている画面が新着を拾う。書きかけの欄は触らない */
+function feedWatch(on){
+  clearTimeout(FEED_TIMER);
+  FEED_TIMER = 0;
+  if(!on || !ON_CREATOR) return;
+  FEED_TIMER = setTimeout(function(){
+    var before = Object.keys(MEM.posts).length + Object.keys(MEM.reacts).length;
+    loadFeed().then(function(){
+      var after = Object.keys(MEM.posts).length + Object.keys(MEM.reacts).length;
+      /* いま見ている画面がコネクトのままで、増えていたときだけ描き直す */
+      if(after !== before && (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks')){
+        feedKeepDraft();
+        route(VIEW_NOW);
+      }
+      feedWatch(true);
+    }).catch(function(){ feedWatch(true); });
+  }, FEED_EVERY);
+}
+/* 描き直す前に、書きかけを控えておく */
+function feedKeepDraft(){
+  var t = document.getElementById('fdBody');
+  if(t) FEED.draft = t.value;
+  var to = document.getElementById('fdTo');
+  if(to) FEED.to = to.value;
+  var tg = document.getElementById('fdTarget');
+  if(tg) FEED.target = tg.value;
+  Object.keys(FEED.reply).forEach(function(k){ delete FEED.reply[k]; });
+  eachIn('[data-rc]', function(e){
+    if(e.value) FEED.reply[e.getAttribute('data-rc')] = e.value;
+  });
+}
+
+/* ── 投稿の箱（掲示板・サンクスカード共通） ── */
+function postCard(p){
+  var u = me() || {};
+  var likes = reactsOf(p.id, 'like');
+  var cmts  = reactsOf(p.id, 'comment');
+  var mine  = myLike(p.id);
+  var canDel = canAdmin() || normName(p.by) === normName(u.name);
+
+  var h = '<div class="fd-card">';
+  h += '<div class="fd-head">' + ava(p.by, 'sm') +
+       '<div class="fd-who"><b>' + esc(p.by || '（不明）') + '</b>' +
+       '<span>' + esc(ago(p.at)) +
+       (p.target ? '　·　' + esc(p.target) + ' あて' : '') + '</span></div>';
+  if(p.kind === 'thanks'){
+    h += '<span class="pill ok">' + ic('medal') + 'サンクス</span>';
+  }
+  if(canDel){
+    h += '<button class="btn sub sm" data-pdel="' + esc(p.id) + '">削除</button>';
+  }
+  h += '</div>';
+  if(p.kind === 'thanks'){
+    h += '<div class="fd-to">' + ic('medal') + '<b>' + esc(p.to || '') + '</b> さんへ</div>';
+  }
+  if(p.title) h += '<div class="fd-ttl">' + esc(p.title) + '</div>';
+  h += '<div class="fd-body">' + esc(p.body || '').replace(/\n/g, '<br>') + '</div>';
+
+  h += '<div class="fd-ops">';
+  h += '<button class="fd-like' + (mine ? ' on' : '') + '" data-plike="' + esc(p.id) + '">' +
+       '♥ <span>' + likes.length + '</span></button>';
+  h += '<button class="fd-cmt" data-popen="' + esc(p.id) + '">' +
+       '💬 <span>' + cmts.length + '</span></button>';
+  if(likes.length){
+    h += '<span class="fd-likers">' +
+         esc(likes.slice(0, 3).map(function(r){ return r.by; }).join('、')) +
+         (likes.length > 3 ? ' ほか' + (likes.length - 3) + '名' : '') + '</span>';
+  }
+  h += '</div>';
+
+  if(FEED.open === p.id){
+    h += '<div class="fd-cmts">';
+    cmts.forEach(function(c){
+      var del = canAdmin() || normName(c.by) === normName(u.name);
+      h += '<div class="fd-c">' + ava(c.by, 'sm') +
+           '<div class="fd-ct"><b>' + esc(c.by) + '</b>' +
+           '<span class="cap">' + esc(ago(c.at)) + '</span>' +
+           '<div>' + esc(c.body || '').replace(/\n/g, '<br>') + '</div></div>' +
+           (del ? '<button class="btn sub sm" data-cdel2="' + esc(c.id) + '">削除</button>' : '') +
+           '</div>';
+    });
+    h += '<div class="bar"><input class="inp" data-rc="' + esc(p.id) + '" ' +
+         'placeholder="コメントを書く" value="' + esc(FEED.reply[p.id] || '') + '">' +
+         '<button class="btn sm" data-csend="' + esc(p.id) + '">送る</button></div>';
+    h += '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+/* ── 画面：掲示板 ── */
+function viewFeed(){
+  var u = me() || {};
+  var list = postList('');
+  var h = '<div class="wrap" style="max-width:760px">';
+  h += '<div class="ph"><div><h2>掲示板</h2>' +
+       '<div class="sub">社内のお知らせや、ちょっとした共有を書けます。' +
+       '送信を押した時点で、みなさんに届きます。</div></div></div>';
+
+  /* 書く */
+  h += '<div class="card pad fd-new" style="margin-bottom:18px;display:grid;gap:11px">';
+  h += '<div class="fd-head">' + ava(u.name, 'sm') +
+       '<div class="fd-who"><b>' + esc(u.name || '') + '</b>' +
+       '<span>として投稿します</span></div></div>';
+  h += '<textarea class="inp" id="fdBody" rows="3" style="resize:vertical" ' +
+       'placeholder="いま共有したいことを書いてください">' + esc(FEED.draft) + '</textarea>';
+  h += '<div class="bar"><label class="cap" for="fdTarget">宛先</label>' +
+       '<select class="inp" id="fdTarget" style="max-width:220px">' +
+       '<option value="">全員</option>' +
+       jobs().map(function(d){
+         return '<option' + (FEED.target === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+       }).join('') + '</select>' +
+       '<span class="sp"></span>' +
+       '<button class="btn" id="fdGo">' + ic('mail') + '送信する</button></div>';
+  h += '</div>';
+
+  if(!list.length){
+    h += '<div class="card"><div class="empty">' + ic('mail') +
+         'まだ投稿がありません。はじめの1件を書いてみてください。</div></div>';
+  }else{
+    list.forEach(function(p){ h += postCard(p); });
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  bindFeed();
+
+  document.getElementById('fdGo').onclick = function(){
+    var t = document.getElementById('fdBody');
+    var v = String(t.value || '').trim();
+    if(!v){ t.focus(); toast('内容を書いてください'); return; }
+    putPost({ kind:'post', by:u.name, byMail:LOGIN_EMAIL || u.email || '',
+              body:v, target:document.getElementById('fdTarget').value || '' });
+    FEED.draft = ''; FEED.target = '';
+    toast('投稿しました');
+    viewFeed();
+  };
+}
+
+/* ── 画面：サンクスカード ── */
+function viewThanks(){
+  var u = me() || {};
+  var list = postList('thanks');
+  /* もらった数 */
+  var cnt = {};
+  list.forEach(function(p){
+    var n = normName(p.to);
+    if(!n) return;
+    cnt[n] = (cnt[n] || 0) + 1;
+  });
+  var rank = Object.keys(cnt).map(function(n){ return { name:n, n:cnt[n] }; })
+               .sort(function(a, b){ return b.n - a.n || a.name.localeCompare(b.name, 'ja'); });
+  var got = list.filter(function(p){ return normName(p.to) === normName(u.name); });
+
+  var names = Object.keys(people() || {}).sort();
+
+  var h = '<div class="wrap" style="max-width:760px">';
+  h += '<div class="ph"><div><h2>サンクスカード</h2>' +
+       '<div class="sub">日ごろの「ありがとう」を、名前を添えて贈れます。' +
+       'みんなの掲示板にも並びます。</div></div></div>';
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));' +
+       'gap:14px;margin-bottom:18px">';
+  h += '<div class="tile"><div class="th">' + ic('medal') + 'あなたがもらった数</div>' +
+       '<div class="big">' + got.length + '</div>' +
+       '<div class="cap">これまでの合計</div></div>';
+  h += '<div class="tile"><div class="th">' + ic('users') + '贈られた数（全社）</div>' +
+       '<div class="big">' + list.length + '</div>' +
+       '<div class="cap">これまでの合計</div></div>';
+  h += '</div>';
+
+  /* 贈る */
+  h += '<div class="card pad" style="margin-bottom:18px;display:grid;gap:11px">';
+  h += '<div class="field"><label for="fdTo">どなたに</label>' +
+       '<select class="inp" id="fdTo"><option value="">選んでください</option>' +
+       names.filter(function(n){ return normName(n) !== normName(u.name); })
+            .map(function(n){
+              return '<option' + (FEED.to === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+            }).join('') + '</select></div>';
+  h += '<div class="field"><label for="fdBody">ありがとうの内容</label>' +
+       '<textarea class="inp" id="fdBody" rows="3" style="resize:vertical" ' +
+       'placeholder="例）急な欠員のとき、代わりに入ってくださって助かりました。">' +
+       esc(FEED.draft) + '</textarea></div>';
+  h += '<div class="bar"><span class="cap">贈ったことは、贈られた方にも全員にも見えます</span>' +
+       '<span class="sp"></span>' +
+       '<button class="btn" id="fdGo">' + ic('medal') + 'サンクスを贈る</button></div>';
+  h += '</div>';
+
+  if(rank.length){
+    h += '<div class="cat">' + ic('chart') + 'よく贈られている方</div>';
+    h += '<div class="card pad" style="margin-bottom:18px"><div class="rolelist">';
+    rank.slice(0, 5).forEach(function(r, i){
+      h += '<div class="rolerow"><span class="ce-no">' + (i+1) + '</span>' +
+           '<span>' + esc(r.name) + '</span>' +
+           '<b class="mono">' + r.n + '枚</b></div>';
+    });
+    h += '</div></div>';
+  }
+
+  h += '<div class="cat">' + ic('medal') + '贈られたサンクス</div>';
+  if(!list.length){
+    h += '<div class="card"><div class="empty">' + ic('medal') +
+         'まだ1枚もありません。はじめの1枚を贈ってみてください。</div></div>';
+  }else{
+    list.forEach(function(p){ h += postCard(p); });
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  bindFeed();
+
+  document.getElementById('fdGo').onclick = function(){
+    var to = document.getElementById('fdTo').value;
+    var t = document.getElementById('fdBody');
+    var v = String(t.value || '').trim();
+    if(!to){ document.getElementById('fdTo').focus(); toast('贈る相手を選んでください'); return; }
+    if(!v){ t.focus(); toast('ありがとうの内容を書いてください'); return; }
+    putPost({ kind:'thanks', by:u.name, byMail:LOGIN_EMAIL || u.email || '',
+              to:to, body:v, target:'' });
+    FEED.draft = ''; FEED.to = '';
+    toast(to + ' さんにサンクスを贈りました');
+    viewThanks();
+  };
+}
+
+/* 投稿の箱にボタンを付ける（掲示板・サンクス共通） */
+function bindFeed(){
+  var u = me() || {};
+  eachIn('[data-plike]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-plike');
+      var mine = myLike(id);
+      feedKeepDraft();
+      if(mine) dropReact(mine.id);
+      else putReact({ post:id, kind:'like', by:u.name });
+      route(VIEW_NOW);
+    };
+  });
+  eachIn('[data-popen]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-popen');
+      feedKeepDraft();
+      FEED.open = (FEED.open === id) ? '' : id;
+      route(VIEW_NOW);
+    };
+  });
+  eachIn('[data-csend]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-csend');
+      var e = byAttr('data-rc', id);
+      var v = e ? String(e.value || '').trim() : '';
+      if(!v){ if(e) e.focus(); return; }
+      putReact({ post:id, kind:'comment', by:u.name, body:v });
+      feedKeepDraft();
+      delete FEED.reply[id];
+      route(VIEW_NOW);
+    };
+  });
+  eachIn('[data-rc]', function(e){
+    e.addEventListener('keydown', function(ev){
+      if(ev.key !== 'Enter') return;
+      var b = byAttr('data-csend', e.getAttribute('data-rc'));
+      if(b) b.click();
+    });
+  });
+  eachIn('[data-pdel]', function(b){
+    b.onclick = function(){
+      if(!window.confirm('この投稿を削除しますか？\n（書いたご本人と、システム管理者だけが消せます）')) return;
+      feedKeepDraft();
+      dropPost(b.getAttribute('data-pdel'));
+      toast('削除しました');
+      route(VIEW_NOW);
+    };
+  });
+  eachIn('[data-cdel2]', function(b){
+    b.onclick = function(){
+      feedKeepDraft();
+      dropReact(b.getAttribute('data-cdel2'));
+      route(VIEW_NOW);
+    };
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   画面：アプリの入口（3つのカード）
+   ══════════════════════════════════════════════════════════════ */
+var APPS = [
+  { id:'shinsei', name:'社内申請', sub:'稟議・経費・休暇の申請と承認',
+    icon:'quiz',  go:'' },
+  { id:'lms',     name:'船井e-ラーニング', sub:'研修動画の受講と修了証',
+    icon:'book',  go:'home' },
+  { id:'connect', name:'船井コネクト', sub:'掲示板とサンクスカード',
+    icon:'users', go:'feed' }
+];
+function viewHub(){
+  var u = me() || {};
+  var cfg = config();
+  var h = '<div class="wrap" style="max-width:940px">';
+  h += '<div class="ph"><div><h2>ようこそ、' + esc(u.name || '') + ' さん</h2>' +
+       '<div class="sub">使うものを選んでください。いつでもここに戻ってこられます。</div>' +
+       '</div></div>';
+  h += '<div class="hub">';
+  APPS.forEach(function(a){
+    var ready = !!a.go;
+    h += '<button class="hub-c' + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
+         (ready ? '' : ' disabled') + '>' +
+         '<span class="hub-i">' + ic(a.icon) + '</span>' +
+         '<b>' + esc(a.name) + '</b>' +
+         '<span class="hub-s">' + esc(a.sub) + '</span>' +
+         (ready ? '' : '<span class="pill mid">準備中</span>') +
+         '</button>';
+  });
+  h += '</div>';
+
+  /* 名簿に管理できる人が一人もいない状態。誰かが名乗り出ないと設定が始められない */
+  if(LOGIN_EMAIL && noAdminYet()){
+    h += '<div class="note" style="margin-top:18px">' +
+         '<b>このアプリには、まだ管理者が登録されていません</b><br>' +
+         '研修担当の方は、ご自身を管理者として登録してください。' +
+         '（研修担当以外の方は、そのままで大丈夫です）' +
+         '<div class="bar" style="margin-top:9px">' +
+         '<button class="btn sm" id="hmAdm">' + ic('gear') +
+         '自分を管理者として登録する</button></div></div>';
+  }
+  h += '<div class="ver" style="margin-top:22px;text-align:center">' +
+       esc(cfg.orgName || '') + '</div>';
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  eachIn('[data-app]', function(b){
+    b.onclick = function(){
+      var a = APPS.filter(function(x){ return x.id === b.getAttribute('data-app'); })[0];
+      if(a && a.go) route(a.go);
+    };
+  });
+  var hmA = document.getElementById('hmAdm');
+  if(hmA) hmA.onclick = firstAdminSetup;
 }
 
 function parseVideoId(s){
@@ -6596,7 +7127,7 @@ function viewARoles(){
     h += '<div class="tbl-wrap"><table><thead><tr>' +
          '<th class="stick">氏名</th><th>職種</th>' +
          '<th style="min-width:170px">権限</th>' +
-         '<th style="min-width:260px">見られる範囲<small>部門管理者のときだけ</small></th>' +
+         '<th>見られる範囲</th>' +
          '</tr></thead><tbody>';
     shown.forEach(function(p){
       var r = roleOf(p);
@@ -6609,20 +7140,8 @@ function viewARoles(){
                return '<option value="' + x.id + '"' + (r === x.id ? ' selected' : '') +
                       '>' + esc(x.label) + '</option>';
              }).join('') + '</select></td>';
-      /* 見られる範囲。部門管理者のときだけ意味がある */
-      var sc = scopeOf(p);
-      h += '<td><div class="scope" data-scope-for="' + esc(p.name) + '"' +
-           (r === 'dept' ? '' : ' hidden') + '>' +
-             ds.map(function(d){
-               return '<label class="chip"><input type="checkbox" data-sc="' +
-                      esc(p.name) + '|' + esc(d) + '"' +
-                      (sc.indexOf(d) >= 0 ? ' checked' : '') + '><span>' + esc(d) +
-                      '</span></label>';
-             }).join('') +
-           '</div>' +
-           '<span class="cap" data-scope-all="' + esc(p.name) + '"' +
-           (r === 'dept' ? ' hidden' : '') + '>' +
-             (r === 'learner' ? '自分の分だけ' : '全社') + '</span></td>';
+      h += '<td><span class="cap" data-scope-all="' + esc(p.name) + '">' +
+             (r === 'admin' ? '全員ぶん' : '自分の分だけ') + '</span></td>';
       h += '</tr>';
     });
     h += '</tbody></table></div>';
@@ -6640,29 +7159,20 @@ function viewARoles(){
       if(nx){ nx.focus(); nx.setSelectionRange(nx.value.length, nx.value.length); }
     }, 250);
   };
-  /* 権限を変えたら、範囲の欄の出し入れをその場で切り替える */
+  /* 権限を変えたら、範囲の表示もその場で合わせる */
   eachIn('[data-role]', function(sel){
     sel.onchange = function(){
-      var nm = sel.getAttribute('data-role');
-      var box = byAttr('data-scope-for', nm), lab = byAttr('data-scope-all', nm);
-      if(box) box.hidden = (sel.value !== 'dept');
-      if(lab){
-        lab.hidden = (sel.value === 'dept');
-        lab.textContent = (sel.value === 'learner') ? '自分の分だけ' : '全社';
-      }
+      var lab = byAttr('data-scope-all', sel.getAttribute('data-role'));
+      if(lab) lab.textContent = (sel.value === 'admin') ? '全員ぶん' : '自分の分だけ';
     };
   });
   document.getElementById('roSave').onclick = function(){
     var n = 0;
     eachIn('[data-role]', function(sel){
       var nm = sel.getAttribute('data-role');
-      var sc = [];
-      Array.prototype.forEach.call(
-        document.querySelectorAll('[data-sc^="' + nm.replace(/["\\]/g, '\\$&') + '|"]'),
-        function(cb){ if(cb.checked) sc.push(cb.getAttribute('data-sc').slice(nm.length + 1)); });
       var p = people()[nm] || {};
-      if(p.role === sel.value && String(p.scope || '') === sc.join(';')) return;
-      registerPerson({ name:nm, role:sel.value, scope:sc.join(';') });
+      if(roleOf(p) === sel.value) return;
+      registerPerson({ name:nm, role:sel.value, scope:'' });
       n++;
     });
     refreshRole();
@@ -7534,6 +8044,9 @@ var CRUMB = {
   aquiz:    ['管理ダッシュボード|adash', '学習進捗管理', 'テスト'],
   asurvey:  ['管理ダッシュボード|adash', '学習進捗管理', 'アンケート'],
   anews:    ['管理ダッシュボード|adash', 'お知らせ配信'],
+  hub:      ['アプリを選ぶ'],
+  feed:     ['アプリを選ぶ|hub', '船井コネクト', '掲示板'],
+  thanks:   ['アプリを選ぶ|hub', '船井コネクト', 'サンクスカード'],
   aimport:  ['管理ダッシュボード|adash', 'ユーザー管理', '職員の登録・編集'],
   ajobs:    ['管理ダッシュボード|adash', 'ユーザー管理', '職種'],
   aroles:   ['管理ダッシュボード|adash', 'ユーザー管理', '権限の割り当て'],
@@ -7568,10 +8081,12 @@ function crumbFor(view, arg){
 }
 
 var USER_VIEWS = {
+  hub:viewHub, feed:viewFeed, thanks:viewThanks,
   home:viewHome, courses:viewCourses, history:viewHistory, mytime:viewMyTime,
   certs:viewCerts, mynews:viewMyNews
 };
 
+var VIEW_NOW = '';
 function route(view, a, b){
   stopPlayer();                     /* 画面を離れる前に必ず保存する */
   clearTimeout(P.nextT); P.nextT = 0;
@@ -7590,6 +8105,10 @@ function route(view, a, b){
     view = canAdmin() ? 'adash' : 'home';
     MODE = canAdmin() ? 'admin' : 'user';
   }
+
+  VIEW_NOW = view;
+  /* 掲示板を開いているあいだだけ、新着を見に行く */
+  feedWatch(view === 'feed' || view === 'thanks');
 
   document.getElementById('app').classList.add('on');
   drawNav(view);
@@ -7623,12 +8142,12 @@ document.getElementById('topMe').onclick = function(){ stopPlayer(); viewGate();
 
 /* 名前を入れた直後。別の端末で受講した分があれば引き継ぐ */
 function afterLogin(name){
-  if(!ON_CREATOR){ route('home'); return; }
+  if(!ON_CREATOR){ route('hub'); return; }
   LOADED.person = '';
   showLoading('受講記録を読み込んでいます…');
   initParams()
     .then(function(){ return loadPerson(name); })
-    .then(function(){ route('home'); })
+    .then(function(){ route('hub'); })
     .catch(function(e){
       if(!isNoRows(e)){
         console.warn('受講記録の読み込みに失敗しました', e);
@@ -7636,7 +8155,7 @@ function afterLogin(name){
           ? 'いま込み合っています。少し時間をおいてから画面を開き直してください。'
           : '過去の記録を読めませんでした：' + errText(e));
       }
-      route('home');
+      route('hub');
     });
 }
 
@@ -7665,7 +8184,7 @@ function boot(){
     migrateTerms();      /* この端末の記録だけ。コース定義は手元のものを使う */
     restorePend();
     /* ファイルを直接開いた場合。ブラウザ内の保存だけで動く */
-    if(me()) route('home'); else viewGate();
+    if(me()) route('hub'); else viewGate();
     return;
   }
   showLoading('Zoho Creator に接続しています…');
@@ -7678,6 +8197,7 @@ function boot(){
     })
     .then(migrateTerms)   /* コース定義を読んでから移行する（once を年度つきにしない） */
     .then(loadNews)
+    .then(loadFeed)
     .then(loadRoster)
     .then(bindLogin)      /* メールアドレスから名簿を引いて、本人を確定する */
     .then(function(){ return me() ? loadPerson(me().name) : null; })
@@ -7687,7 +8207,7 @@ function boot(){
          先に送ると、他の端末で見たぶんを手元の記録で上書きしてしまう。 */
       restorePend();
       syncBadge('保存済み');
-      if(me()) route('home'); else viewGate();
+      if(me()) route('hub'); else viewGate();
     })
     .catch(function(e){
       console.error('接続に失敗しました', e);

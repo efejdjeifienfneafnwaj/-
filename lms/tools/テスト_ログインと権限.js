@@ -106,18 +106,18 @@ const ROSTER = [
   await p.waitForTimeout(300);
   check('直に呼んでもコース編集は開かない', (await p.$('#ceTab')) === null);
 
-  console.log('③ 部門管理者');
+  console.log('③ 権限は2つだけ（システム管理者 と 一般）');
+  check('選べる権限は2つ', (await p.evaluate(() => ROLES.map(r => r.label))).length === 2);
+  check('その2つは「一般」と「システム管理者」',
+    (await p.evaluate(() => ROLES.map(r => r.label))).join('/') === '一般/システム管理者');
+  /* 古い名簿に残っている部門管理者・研修管理者は、管理者として扱う */
   p = await open('bucho@example.com', ROSTER);
-  check('権限は部門管理者のまま', await p.evaluate(() => MY_ROLE) === 'dept');
+  check('古い「部門管理者」はシステム管理者として扱う',
+    await p.evaluate(() => MY_ROLE) === 'admin');
   L = await sideLabels(p);
-  check('自分の研修も受けられる', L.some(t => t === '研修コース'));
-  check('ユーザー管理は出る', L.some(t => t === 'ユーザー管理'));
-  check('コース管理は出ない', !L.some(t => t === 'コース管理'));
-  check('設定は出ない', !L.some(t => t === '設定'));
-  check('権限の割り当ては出ない', !L.some(t => t === '権限の割り当て'));
-  check('受講状況は見られる', await p.evaluate(() => canOpen('ausers')));
-  check('コースの作成はできない', !(await p.evaluate(() => canOpen('acedit'))));
-  check('権限の割り当てはできない', !(await p.evaluate(() => canOpen('aroles'))));
+  check('管理の項目が全部出る',
+    L.some(t => t === 'コース管理') && L.some(t => t === '設定') &&
+    L.some(t => t === '権限の割り当て'));
 
   console.log('④ 名簿がまだ空のとき（最初の1人）');
   p = await open('owner@example.com', []);

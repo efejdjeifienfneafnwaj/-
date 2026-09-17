@@ -1,0 +1,270 @@
+/*
+ * 船井コネクト（掲示板・サンクスカード）用のフォーム2つ。
+ * e-ラーニングのアプリに足すときは、この項目名どおりに手で作る。
+ * 新しいアプリとして作るときは、このまま取り込める。
+ */
+application "船井コネクト"
+{
+	date format = "yyyy-MM-dd"
+	time zone = "Asia/Tokyo"
+	time format = "24-hr"
+
+	forms
+	{
+		form Lms_Post_Form
+		{
+			displayname = "【システム用】投稿"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			post_key
+			(
+				type = text
+				displayname = "投稿キー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			kind
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			author_name
+			(
+				type = text
+				displayname = "投稿者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			author_email
+			(
+				type = text
+				displayname = "投稿者メール"
+				row = 1
+				column = 1
+				width = medium
+			)
+			to_name
+			(
+				type = text
+				displayname = "宛先（サンクス）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			title
+			(
+				type = text
+				displayname = "件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			body
+			(
+				type = textarea
+				displayname = "本文"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			target
+			(
+				type = text
+				displayname = "宛先の職種"
+				row = 1
+				column = 1
+				width = medium
+			)
+			posted_at
+			(
+				type = text
+				displayname = "投稿日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deleted
+			(
+				type = text
+				displayname = "削除"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Lms_React_Form
+		{
+			displayname = "【システム用】いいね・コメント"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			react_key
+			(
+				type = text
+				displayname = "反応キー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			post_key
+			(
+				type = text
+				displayname = "投稿キー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			kind
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			person_name
+			(
+				type = text
+				displayname = "名前"
+				row = 1
+				column = 1
+				width = medium
+			)
+			body
+			(
+				type = textarea
+				displayname = "コメント本文"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			at
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deleted
+			(
+				type = text
+				displayname = "削除"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+	}
+
+	reports
+	{
+		list Lms_Post_Report
+		{
+			displayName = "投稿 一覧"
+			show all rows from Lms_Post_Form
+			(
+				post_key as "投稿キー"
+				kind as "種別"
+				author_name as "投稿者"
+				author_email as "投稿者メール"
+				to_name as "宛先（サンクス）"
+				title as "件名"
+				body as "本文"
+				target as "宛先の職種"
+				posted_at as "投稿日時"
+				deleted as "削除"
+			)
+		}
+		list Lms_React_Report
+		{
+			displayName = "いいね・コメント 一覧"
+			show all rows from Lms_React_Form
+			(
+				react_key as "反応キー"
+				post_key as "投稿キー"
+				kind as "種別"
+				person_name as "名前"
+				body as "コメント本文"
+				at as "日時"
+				deleted as "削除"
+			)
+		}
+	}
+}

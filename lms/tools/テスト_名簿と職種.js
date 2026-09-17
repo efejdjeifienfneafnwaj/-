@@ -23,7 +23,16 @@ function stub(email, persons){
     window.ZOHO = { CREATOR: {
       UTIL: { getInitParams: () => Promise.resolve({ loginUser: email }) },
       DATA: {
-        getRecords: q => Promise.resolve({ code:3000, data:(db[key(q.report_name)] || []).slice() }),
+        getRecords: q => {
+          let rows = (db[key(q.report_name)] || []).slice();
+          const conds = [];
+          String(q.criteria || '').replace(
+            /([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"/g,
+            (m, f, v) => { conds.push([f, v]); return m; });
+          if(conds.length) rows = rows.filter(r => conds.every(c => String(r[c[0]] || '') === c[1]));
+          if(!rows.length) return Promise.resolve({ code:3100, message:'No records found' });
+          return Promise.resolve({ code:3000, data:rows });
+        },
         addRecords: q => {
           const k = key(q.form_name); db[k] = db[k] || [];
           const r = Object.assign({}, q.payload.data, { ID: String(++seq) });
@@ -92,13 +101,13 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   await page.fill('#p1n', '鈴木 次郎');
   await page.selectOption('#p1d', '看護職');
   await page.fill('#p1m', 'suzuki@example.com');
-  await page.selectOption('#p1r', 'dept');
+  await page.selectOption('#p1r', 'admin');
   await page.click('#p1Go');
   await page.waitForTimeout(400);
   check('名簿に入った', await page.evaluate(() => !!people()['鈴木 次郎']));
   check('職種が入っている', await page.evaluate(() => people()['鈴木 次郎'].dept) === '看護職');
-  check('権限が部門管理者になった',
-    await page.evaluate(() => roleOf(people()['鈴木 次郎'])) === 'dept');
+  check('権限がシステム管理者になった',
+    await page.evaluate(() => roleOf(people()['鈴木 次郎'])) === 'admin');
 
   console.log('③ 職種を選ばないと登録できないこと');
   await page.fill('#p1n', '欠け 太郎');
