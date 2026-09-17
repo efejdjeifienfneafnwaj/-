@@ -1,3 +1,0 @@
-﻿Request,Step_No,Step_Name,Step_Type,Approver,Acted_By,Action,Comment,Due_Date,Acted_On,Is_Delegate
-参照先1,1,サンプル1,承認,参照先1,参照先1,未処理,サンプルテキスト,2026-09-01,2026-09-01 09:00:00,true
-参照先2,2,サンプル2,合議,参照先2,参照先2,承認,サンプルテキスト2,2026-09-15,2026-09-15 14:30:00,false

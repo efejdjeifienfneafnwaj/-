@@ -1,8 +1,0 @@
-application Probe_One
-{
-	form Probe_Form
-	{
-		Name_Field = textfield
-		Memo_Field = textfield
-	}
-}

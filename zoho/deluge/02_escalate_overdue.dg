@@ -1,0 +1,47 @@
+/* =============================================================================
+ * スケジュール関数：escalate_overdue（毎日 9:00 実行を推奨）
+ *
+ * 目的：標準処理日数を超えた承認に督促を出し、5日以上の遅延は上長へ上げる。
+ * ※ 本番の Creator では未検証です。まず手動実行で動作を確認してください。
+ * ========================================================================== */
+void escalate_overdue()
+{
+	today = zoho.currentdate;
+	pending = Wf_Approval_Form[action == "未処理" && due_date != ""];
+	for each ap in pending
+	{
+		due = ap.due_date.toDate();
+		if(due < today)
+		{
+			days = due.daysBetween(today);
+			req = Wf_Request_Form[ID == ap.request_id.toLong()];
+
+			n = Wf_Notify_Form[ID == 0];
+			n.to_user_id = ap.approver_id;
+			n.request_id = ap.request_id;
+			n.request_no = ap.request_no;
+			n.kind = "督促";
+			n.message = ap.request_no + " の承認が " + days + "日 遅延しています";
+			n.is_read = "false";
+			n.created_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+			insert into Wf_Notify_Form(n);
+
+			if(days >= 5)
+			{
+				approver = Wf_Employee_Form[ID == ap.approver_id.toLong()];
+				if(approver.count() > 0 && approver.manager_id != "")
+				{
+					e = Wf_Notify_Form[ID == 0];
+					e.to_user_id = approver.manager_id;
+					e.request_id = ap.request_id;
+					e.request_no = ap.request_no;
+					e.kind = "エスカレーション";
+					e.message = "[エスカレーション] " + approver.emp_name + " の承認が " + days + "日 遅延：" + ap.request_no;
+					e.is_read = "false";
+					e.created_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+					insert into Wf_Notify_Form(e);
+				}
+			}
+		}
+	}
+}

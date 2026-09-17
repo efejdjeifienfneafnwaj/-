@@ -30,7 +30,7 @@ var DB = (function () {
         ZOHO.CREATOR.init().then(function () {
           if (done) return; done = true; clearTimeout(timer);
           connected = true;
-          sdkKind = (ZOHO.CREATOR.DATA && ZOHO.CREATOR.DATA.getRecords) ? 'data' : 'api';
+          sdkKind = 'data';
           try { initParams = (ZOHO.CREATOR.UTIL && ZOHO.CREATOR.UTIL.getInitParams) ? (ZOHO.CREATOR.UTIL.getInitParams() || {}) : {}; } catch (e) { initParams = {}; }
           resolve({ connected: true, kind: sdkKind });
         }).catch(function (e) {
@@ -51,37 +51,33 @@ var DB = (function () {
   }
   function persist() { if (sdkKind === 'demo') lsSet('demo_db', store); }
 
-  /* ---------- Creator API ラッパ ---------- */
+  /* ---------- Creator API ラッパ ----------
+   * パラメータ名は実際に Creator 上で動作している呼び出しに合わせてある：
+   *   getRecords  : { report_name, max_records, criteria }
+   *   addRecords  : { form_name,   payload: { data: {...} } }
+   *   updateRecord: { report_name, id, payload: { data: {...} } }
+   * 0件のときも SDK がエラーを返すこと（コード 9220 / 3100）があるため、
+   * 取得側は握って空配列で進める。
+   * ------------------------------------------------------------------- */
+  var MAX_RECORDS = 1000;
+
   function sdkGetAll(reportName, criteria) {
-    var all = [], page = 1;
-    function next() {
-      var opt = { reportName: reportName, page: page, pageSize: CFG.PAGE_SIZE };
-      if (criteria) opt.criteria = criteria;
-      var call = (sdkKind === 'data')
-        ? ZOHO.CREATOR.DATA.getRecords(opt)
-        : ZOHO.CREATOR.API.getAllRecords(opt);
-      return call.then(function (res) {
-        var rows = (res && (res.data || res.result)) || [];
-        all = all.concat(rows);
-        if (rows.length === CFG.PAGE_SIZE && page < 20) { page++; return next(); }
-        return all;
-      }).catch(function (e) {
-        if (e && (e.code === 3100 || e.code === '3100')) return all; // レコード無し
-        throw e;
-      });
-    }
-    return next();
+    var q = { report_name: reportName, max_records: MAX_RECORDS };
+    if (criteria) q.criteria = criteria;
+    return ZOHO.CREATOR.DATA.getRecords(q).then(function (res) {
+      var rows = (res && res.data) || [];
+      if (rows.length >= MAX_RECORDS) console.warn('[社内申請システム] ' + reportName + ' が上限' + MAX_RECORDS + '件に達しました');
+      return rows;
+    }).catch(function (e) {
+      console.warn('取得できませんでした（0件の可能性）: ' + reportName, e);
+      return [];
+    });
   }
   function sdkAdd(formName, data) {
-    var opt = { formName: formName, data: data };
-    return (sdkKind === 'data')
-      ? ZOHO.CREATOR.DATA.addRecords({ formName: formName, payload: { data: [data] } })
-      : ZOHO.CREATOR.API.addRecord(opt);
+    return ZOHO.CREATOR.DATA.addRecords({ form_name: formName, payload: { data: data } });
   }
   function sdkUpdate(reportName, id, data) {
-    return (sdkKind === 'data')
-      ? ZOHO.CREATOR.DATA.updateRecordById({ reportName: reportName, id: id, payload: { data: data } })
-      : ZOHO.CREATOR.API.updateRecord({ reportName: reportName, id: id, data: data });
+    return ZOHO.CREATOR.DATA.updateRecord({ report_name: reportName, id: String(id), payload: { data: data } });
   }
 
   /* ---------- 公開メソッド ---------- */
@@ -101,7 +97,8 @@ var DB = (function () {
       return Promise.resolve(obj);
     }
     return sdkAdd(CFG.FORMS[entity], Mapper.toCreator(entity, obj)).then(function (res) {
-      var id = res && (res.data && res.data.ID || res.ID || (res.result && res.result[0] && res.result[0].data && res.result[0].data.ID));
+      var d = res && res.data;
+      var id = d && (d.ID || (d[0] && d[0].ID));
       obj.ID = id || uid(entity);
       return obj;
     });
@@ -134,21 +131,52 @@ var DB = (function () {
  * Creator 側のリンク名を変えたときはここだけ直せば済むようにしています。
  * ========================================================================= */
 var Mapper = (function () {
-  /* Creator のルックアップは {ID, display_value} で返るため平坦化する */
+  /* Creator のルックアップは {ID, display_value} で返る。
+     本アプリは text 中心の設計だが、将来ルックアップ化しても壊れないようにしておく。 */
   function flat(v) { return (v && typeof v === 'object') ? (v.ID || v.id || v.display_value || '') : (v == null ? '' : v); }
-  function disp(v) { return (v && typeof v === 'object') ? (v.display_value || v.ID || '') : (v == null ? '' : v); }
+  function isBool(key) { return CFG.BOOL_FIELDS.indexOf(key) >= 0; }
+  function toBool(v) {
+    if (typeof v === 'boolean') return v;
+    var s = String(v == null ? '' : v).trim().toLowerCase();
+    return s === 'true' || s === '1' || s === 'yes' || s === '○';
+  }
+
+  /** Creator のレコード → 画面内部の形 */
   function fromCreator(entity, r) {
-    var o = {}; Object.keys(r).forEach(function (k) { o[k] = r[k]; });
-    o.ID = r.ID;
-    ['Applicant', 'Approver', 'Acted_By', 'Request', 'Department', 'Manager', 'Vendor', 'Account', 'Request_Type', 'User', 'To_User', 'Deputy', 'Applicant_Dept', 'Parent_Department', 'Dept_Head', 'Target_User']
-      .forEach(function (f) { if (r[f] !== undefined) { o[f] = flat(r[f]); o[f + '_name'] = disp(r[f]); } });
+    var map = CFG.FIELD_MAP[entity] || {};
+    var o = { ID: r.ID };
+    Object.keys(map).forEach(function (mine) {
+      var theirs = map[mine];
+      var v = flat(r[theirs]);
+      o[mine] = isBool(mine) ? toBool(v) : v;
+    });
+    /* 画面が使う別名を補う */
+    if (entity === 'Employees') { o.Department = o.Department_name; }
+    if (entity === 'Requests') { o.Applicant_Dept = o.Applicant_Dept_name; o.Amount = Number(o.Amount) || 0; }
+    if (entity === 'Approvals') { o.Step_No = Number(o.Step_No) || 0; }
+    if (entity === 'AccessLogs') {
+      o.Result_Count = o.Result_Count === '' ? '' : Number(o.Result_Count);
+      o.Duration_Sec = o.Duration_Sec === '' ? '' : Number(o.Duration_Sec);
+    }
     return o;
   }
+
+  /** 画面内部の形 → Creator へ送る形（真偽は "true"/"false" の文字列にする） */
   function toCreator(entity, o) {
-    var d = {}; Object.keys(o).forEach(function (k) { if (k.slice(-5) !== '_name' && k !== 'ID') d[k] = o[k]; });
+    var map = CFG.FIELD_MAP[entity] || {};
+    var d = {};
+    Object.keys(map).forEach(function (mine) {
+      if (!(mine in o)) return;
+      var v = o[mine];
+      if (isBool(mine)) v = (v ? 'true' : 'false');
+      else if (Array.isArray(v)) v = v.join(',');
+      else if (v == null) v = '';
+      d[map[mine]] = v;
+    });
+    d.updated_at = DB.nowISO();
     return d;
   }
-  return { fromCreator: fromCreator, toCreator: toCreator, flat: flat, disp: disp };
+  return { fromCreator: fromCreator, toCreator: toCreator, flat: flat, toBool: toBool };
 })();
 
 /* =========================================================================

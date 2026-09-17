@@ -1,3 +1,0 @@
-﻿Type_Code,Type_Name,Category,Icon,Description,Field_Schema,Route_Rule,Sensitivity,Sort_Order,Is_Active
-サンプル1,サンプル1,稟議・購買,サンプル1,サンプル1,{},{},S,1,true
-サンプル2,サンプル2,経費,サンプル2,サンプル2,{},{},A,2,false

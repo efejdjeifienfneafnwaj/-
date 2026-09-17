@@ -6,37 +6,90 @@ var CFG = {
   APP_TITLE: '社内申請システム',
   STORAGE_PREFIX: 'wf_',
 
-  /* Creator のフォーム リンク名（レコード追加時に使用） */
+  /* Creator のフォーム リンク名（レコード追加時に使用）
+   * ※ 名前と項目名は ds/ShanaiShinsei.ds と一対一で対応しています。 */
   FORMS: {
-    Employees:     'Employees',
-    Departments:   'Departments',
-    Vendors:       'Vendors',
-    Accounts:      'Accounts',
-    RequestTypes:  'Request_Types',
-    Requests:      'Requests',
-    RequestLines:  'Request_Lines',
-    Approvals:     'Approvals',
-    RouteRules:    'Route_Rules',
-    AuditLogs:     'Audit_Logs',
-    AccessLogs:    'Access_Logs',
-    Notifications: 'Notifications'
+    Departments:   'Wf_Dept_Form',
+    Employees:     'Wf_Employee_Form',
+    Vendors:       'Wf_Vendor_Form',
+    Accounts:      'Wf_Account_Form',
+    RequestTypes:  'Wf_Type_Form',
+    Requests:      'Wf_Request_Form',
+    RequestLines:  'Wf_Line_Form',
+    Approvals:     'Wf_Approval_Form',
+    AccessLogs:    'Wf_Access_Form',
+    AuditLogs:     'Wf_Audit_Form',
+    Notifications: 'Wf_Notify_Form'
   },
 
-  /* Creator のレポート リンク名（取得・更新・削除時に使用） */
+  /* Creator のレポート リンク名（取得・更新時に使用） */
   REPORTS: {
-    Employees:     'Employees_Report',
-    Departments:   'Departments_Report',
-    Vendors:       'Vendors_Report',
-    Accounts:      'Accounts_Report',
-    RequestTypes:  'Request_Types_Report',
-    Requests:      'Requests_Report',
-    RequestLines:  'Request_Lines_Report',
-    Approvals:     'Approvals_Report',
-    RouteRules:    'Route_Rules_Report',
-    AuditLogs:     'Audit_Logs_Report',
-    AccessLogs:    'Access_Logs_Report',
-    Notifications: 'Notifications_Report'
+    Departments:   'Wf_Dept_Report',
+    Employees:     'Wf_Employee_Report',
+    Vendors:       'Wf_Vendor_Report',
+    Accounts:      'Wf_Account_Report',
+    RequestTypes:  'Wf_Type_Report',
+    Requests:      'Wf_Request_Report',
+    RequestLines:  'Wf_Line_Report',
+    Approvals:     'Wf_Approval_Report',
+    AccessLogs:    'Wf_Access_Report',
+    AuditLogs:     'Wf_Audit_Report',
+    Notifications: 'Wf_Notify_Report'
   },
+
+  /* =======================================================================
+   * 画面内部の項目名 ⇔ Creator のフィールド リンク名 の対応表
+   * Creator 側は text / textarea / number しか使わない方針のため、
+   * ルックアップや選択肢の型崩れが起きません。関係は ID を文字列で持ちます。
+   * ===================================================================== */
+  FIELD_MAP: {
+    Departments: { Dept_Key: 'dept_id', Department_Code: 'dept_code', Department_Name: 'dept_name',
+                   Parent_Department: 'parent_id', Dept_Head: 'head_id', Sort_Order: 'sort_order' },
+    Employees:   { Emp_Key: 'emp_id', Employee_ID: 'emp_no', Employee_Name: 'emp_name',
+                   Employee_Kana: 'emp_kana', Email: 'email', Department_name: 'dept_name',
+                   Title: 'title', Manager: 'manager_id', Manager_name: 'manager_name',
+                   Roles: 'roles', Join_Date: 'join_date', Paid_Leave_Balance: 'leave_balance',
+                   Deputy: 'deputy_id', Deputy_From: 'deputy_from', Deputy_To: 'deputy_to',
+                   Is_Active: 'is_active' },
+    Vendors:     { Vendor_Key: 'vendor_id', Vendor_Code: 'vendor_code', Vendor_Name: 'vendor_name',
+                   Invoice_Reg_No: 'invoice_reg_no', Is_Qualified: 'is_qualified',
+                   Payment_Terms: 'payment_terms' },
+    Accounts:    { Account_Key: 'account_id', Account_Code: 'account_code',
+                   Account_Name: 'account_name', Tax_Category: 'tax_category', Is_Active: 'is_active' },
+    RequestTypes:{ Type_Code: 'type_code', Type_Name: 'type_name', Category: 'category', Icon: 'icon',
+                   Description: 'description', Field_Schema: 'field_schema', Route_Rule: 'route_rule',
+                   Sensitivity: 'sensitivity', Sort_Order: 'sort_order', Is_Active: 'is_active' },
+    Requests:    { Request_No: 'request_no', Type_Code: 'type_code', Request_Type_name: 'type_name',
+                   Subject: 'subject', Applicant: 'applicant_id', Applicant_name: 'applicant_name',
+                   Applicant_Dept_name: 'applicant_dept', Amount: 'amount', Status: 'status',
+                   Applied_On: 'applied_on', Completed_On: 'completed_on', Current_Step: 'current_step',
+                   Route_JSON: 'route_json', Form_Data_JSON: 'form_data_json',
+                   Payment_Due_Date: 'payment_due', Paid: 'paid', Journal_Exported: 'journal_exported' },
+    RequestLines:{ Request: 'request_id', Request_No: 'request_no', Line_No: 'line_no',
+                   Line_Date: 'line_date', Account_Name: 'account_name', Vendor_Name: 'vendor_name',
+                   Description: 'description', Qty: 'qty', Unit_Price: 'unit_price', Amount: 'amount',
+                   Tax_Rate: 'tax_rate', Tax_Amount: 'tax_amount', Invoice_No: 'invoice_no' },
+    Approvals:   { Request: 'request_id', Request_No: 'request_no', Step_No: 'step_no',
+                   Step_Name: 'step_name', Step_Type: 'step_type', Approver: 'approver_id',
+                   Approver_name: 'approver_name', Acted_By: 'acted_by_id', Acted_By_name: 'acted_by_name',
+                   Action: 'action', Comment: 'comment', Due_Date: 'due_date', Acted_On: 'acted_on',
+                   Is_Delegate: 'is_delegate' },
+    AccessLogs:  { Log_Time: 'log_time', Session_ID: 'session_id', Actor: 'actor_id',
+                   Actor_Name: 'actor_name', Actor_Dept: 'actor_dept', Actor_Role: 'actor_role',
+                   Login_User: 'login_user', Action: 'action', Target_Type: 'target_type',
+                   Target_ID: 'target_id', Target_No: 'target_no', Target_Subject: 'target_subject',
+                   Request_Type_Code: 'type_code', Sensitivity: 'sensitivity', Owner_Dept: 'owner_dept',
+                   Cross_Dept: 'cross_dept', Result_Count: 'result_count', Duration_Sec: 'duration_sec',
+                   Detail: 'detail', User_Agent: 'user_agent' },
+    AuditLogs:   { Log_Time: 'log_time', User: 'user_id', User_name: 'user_name',
+                   Action_Type: 'action_type', Target_Type: 'target_type', Target_ID: 'target_id',
+                   Detail: 'detail', Session_ID: 'session_id' },
+    Notifications:{ To_User: 'to_user_id', Request: 'request_id', Request_No: 'request_no',
+                    Kind: 'kind', Message: 'message', Is_Read: 'is_read', Created_Time: 'created_time' }
+  },
+
+  /* 文字列 "true"/"false" で保存される真偽項目（読み込み時に真偽値へ戻す） */
+  BOOL_FIELDS: ['Is_Active', 'Is_Qualified', 'Is_Read', 'Is_Delegate', 'Cross_Dept', 'Paid', 'Journal_Exported'],
 
   /* 公開済み Deluge 関数を使う場合の API 名（未公開なら widget 側の workflow.js が計算） */
   CUSTOM_API: { calcRoute: 'calc_route', actOnStep: 'act_on_step', writeAccessLog: 'write_access_log' },

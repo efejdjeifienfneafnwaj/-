@@ -1,0 +1,2 @@
+﻿log_time,session_id,actor_id,actor_name,actor_dept,actor_role,login_user,action,target_type,target_id,target_no,target_subject,type_code,sensitivity,owner_dept,cross_dept,result_count,duration_sec,detail,user_agent
+サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,サンプル,0,0,サンプル,サンプル

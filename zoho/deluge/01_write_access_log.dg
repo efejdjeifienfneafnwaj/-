@@ -1,44 +1,50 @@
 /* =============================================================================
  * カスタム関数：write_access_log
- *  用途：widget からの閲覧証跡の書き込み口（REST API として公開）
- *  公開手順：設定 → API → カスタム関数を REST API として公開
- *  ポイント：この関数だけが Access_Logs への書き込み経路になるため、
- *            ユーザーに Access_Logs フォームの直接権限を与える必要がありません。
- *            ＝ 閲覧した本人が自分の足跡を消せない構造になります。
+ *
+ * 目的：閲覧証跡の書き込み口をこの関数1本に絞る。
+ *   ウィジェットに Wf_Access_Form への直接の追加権限を与えず、この関数だけを
+ *   REST API として公開すると、Login_User をサーバー側の値で上書きできるため、
+ *   他人になりすました証跡を作れなくなります。
+ *
+ * 公開手順：設定 → API → カスタム関数を REST API として公開
+ * 適用後は widget の CFG.CUSTOM_API.writeAccessLog を有効にしてください。
+ * ※ 本番の Creator では未検証です。取り込み後に1件テスト実行してください。
  * ========================================================================== */
 string write_access_log(string payload)
 {
 	rec = payload.toMap();
-	log = Access_Logs[ID == 0];
-	log.Log_Time = zoho.currenttime;
-	log.Session_ID = rec.get("Session_ID");
-	log.Actor_Name = rec.get("Actor_Name");
-	log.Actor_Dept = rec.get("Actor_Dept");
-	log.Actor_Role = rec.get("Actor_Role");
-	/* ★ Login_User はクライアントの申告値ではなく、必ずサーバー側の値を使う */
-	log.Login_User = zoho.loginuser;
-	log.Action = rec.get("Action");
-	log.Target_Type = rec.get("Target_Type");
-	log.Target_ID = rec.get("Target_ID");
-	log.Target_No = rec.get("Target_No");
-	log.Target_Subject = rec.get("Target_Subject");
-	log.Request_Type_Code = rec.get("Request_Type_Code");
-	log.Sensitivity = rec.get("Sensitivity");
-	log.Owner_Dept = rec.get("Owner_Dept");
-	log.Cross_Dept = if(rec.get("Cross_Dept") == true, true, false);
-	log.Result_Count = rec.get("Result_Count");
-	log.Duration_Sec = rec.get("Duration_Sec");
-	log.Detail = rec.get("Detail");
-	log.User_Agent = rec.get("User_Agent");
 
-	/* 操作者はログインユーザーから逆引きする（なりすまし防止） */
-	actor = Employees[Email == zoho.loginuser];
+	log = Wf_Access_Form[ID == 0];
+	log.log_time = zoho.currenttime.toString("yyyy-MM-dd'T'HH:mm:ss");
+	log.session_id = rec.get("session_id");
+	log.action = rec.get("action");
+	log.target_type = rec.get("target_type");
+	log.target_id = rec.get("target_id");
+	log.target_no = rec.get("target_no");
+	log.target_subject = rec.get("target_subject");
+	log.type_code = rec.get("type_code");
+	log.sensitivity = rec.get("sensitivity");
+	log.owner_dept = rec.get("owner_dept");
+	log.cross_dept = rec.get("cross_dept");
+	log.result_count = rec.get("result_count");
+	log.duration_sec = rec.get("duration_sec");
+	log.detail = rec.get("detail");
+	log.user_agent = rec.get("user_agent");
+
+	/* ★ 操作者はクライアントの申告ではなく、ログインユーザーから逆引きする */
+	log.login_user = zoho.loginuser;
+	actor = Wf_Employee_Form[email == zoho.loginuser];
 	if(actor.count() > 0)
 	{
-		log.Actor = actor.ID;
-		log.Actor_Name = actor.Employee_Name;
-		log.Actor_Dept = actor.Department.Department_Name;
+		log.actor_id = actor.ID.toString();
+		log.actor_name = actor.emp_name;
+		log.actor_dept = actor.dept_name;
+		log.actor_role = actor.roles;
 	}
-	insert into Access_Logs(log);
+	else
+	{
+		log.actor_name = zoho.loginuser;
+	}
+	insert into Wf_Access_Form(log);
 	return "ok";
 }

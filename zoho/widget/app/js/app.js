@@ -61,9 +61,19 @@ var App = (function () {
       state.accessLogs = res[7]; state.notifications = res[8];
       /* Creator 側の Roles は複数選択（カンマ区切り文字列）で返ることがある */
       state.employees.forEach(function (e) {
-        if (typeof e.Roles === 'string') e.Roles = e.Roles.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        if (typeof e.Roles === 'string') e.Roles = e.Roles.split(/[,、・]/).map(function (s) { return s.trim(); }).filter(Boolean);
         if (!e.Roles || !e.Roles.length) e.Roles = ['申請者'];
         if (!e.Department_name) e.Department_name = e.Department || '';
+      });
+      /* 上長・代理人の解決：ID で引けないときは氏名で引き直す。
+         マスタを CSV で投入した直後はレコードIDが分からないため、
+         氏名しか入っていないことがある。 */
+      var byName = {};
+      state.employees.forEach(function (e) { if (e.Employee_Name) byName[e.Employee_Name] = e.ID; });
+      state.employees.forEach(function (e) {
+        if (e.Manager && !employeeById(e.Manager)) e.Manager = byName[e.Manager] || byName[e.Manager_name] || '';
+        if (!e.Manager && e.Manager_name) e.Manager = byName[e.Manager_name] || '';
+        if (e.Deputy && !employeeById(e.Deputy)) e.Deputy = byName[e.Deputy] || '';
       });
       loadTemplates();
     });
