@@ -84,6 +84,20 @@ const cardText = (page, id, sel) =>
   check('名前ははじめの値', (await cardText(page, 'shinsei', 'b')) === '社内申請');
   check('説明ははじめの値',
     (await cardText(page, 'shinsei', '.hub-s')) === '稟議・経費・休暇の申請と承認');
+  /* 「名前がめっちゃ小さいし背景とかぶって見えづらい」への対策。
+     アプリの名前は白い札の上に大きく出し、入る人の名前も太く大きく出す */
+  const look = await page.evaluate(() => {
+    const b = document.querySelector('#gate [data-app="shinsei"] b');
+    const card = document.querySelector('#gate [data-app="shinsei"]');
+    const name = document.querySelector('#gate .gpill.name b');
+    const bg = getComputedStyle(card).backgroundColor.match(/[\d.]+/g).map(Number);
+    return { app: parseFloat(getComputedStyle(b).fontSize),
+             name: name ? parseFloat(getComputedStyle(name).fontSize) : 0,
+             opaque: bg.length < 4 || bg[3] >= .85 };
+  });
+  check('アプリの名前は 18px 以上', look.app >= 18, look.app + 'px');
+  check('アプリの札は白くて写真が透けない', look.opaque);
+  check('入る人の名前も 18px 以上', look.name >= 18, look.name + 'px');
 
   console.log('② 設定画面から名前・説明・アイコンを変える');
   await page.click('#gate [data-app="lms"]');
