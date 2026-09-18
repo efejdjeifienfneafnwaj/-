@@ -5980,13 +5980,21 @@ function mountPlayer(videoId){
     /* 読み込みが遅いあいだに画面を離れていたら、作らない
        （作ると、破棄したはずのプレーヤーが後から生まれて記録を汚す） */
     if(!document.getElementById('ytp')) return;
+    /* ホストは iframe_api を読んでいる www.youtube.com にそろえる。
+       youtube-nocookie.com にすると、Creator のウィジェット（別オリジンの iframe）の中では
+       再生 API との postMessage が「target origin が合わない」で捨てられ、動画は流れるのに
+       再生位置も状態も取れず、視聴が 0% のまま保存されることがあった。
+       origin も明示して、API からの返事を受け取れるようにする。 */
+    P.ready = false;
     P.player = new YT.Player('ytp', {
-    /* 社員の Google アカウントに視聴履歴を残さない方のホストを使う */
-    host:'https://www.youtube-nocookie.com',
+      host:'https://www.youtube.com',
       videoId: videoId,
-      playerVars:{ rel:0, modestbranding:1, playsinline:1 },
+      playerVars:{ rel:0, modestbranding:1, playsinline:1, enablejsapi:1,
+                   origin: (location.origin && location.origin !== 'null') ? location.origin : undefined },
       events:{
         onReady: function(e){
+          P.ready = true;
+          holdBarHide();
           var d = e.target.getDuration();
           if(d && Math.abs(d - P.tr.dur) > 2){
             /* 実際の長さが登録値と違う場合は、実際の長さに合わせ直す */
@@ -6013,6 +6021,14 @@ function mountPlayer(videoId){
       }
     });
   }
+  /* 再生 API から返事が来ないと、動画は見えても視聴が記録されない。黙らずに知らせる */
+  clearTimeout(P.readyT);
+  P.readyT = setTimeout(function(){
+    if(P.player && !P.ready){
+      holdBar('動画の再生 API と通信できていません。このままでは視聴が記録されません。' +
+              '設定 → 接続テストの「⑦ YouTube」を確認してください。', '閉じる', holdBarHide);
+    }
+  }, 15000);
   if(window.YT && window.YT.Player){ make(); return; }
   window.onYouTubeIframeAPIReady = make;
   if(!document.getElementById('ytapi')){
@@ -6042,10 +6058,12 @@ function stopTick(){
   if(P.nextT){ clearTimeout(P.nextT); P.nextT = 0; }   /* 画面を離れたら自動送りも止める */
 }
 function stopPlayer(){
+  clearTimeout(P.readyT);
   stopTick(); saveNow();
   if(P.player && P.player.destroy){ try{ P.player.destroy(); }catch(e){} }
   /* 状態を残すと、次に開いた人の記録に前の人の視聴が混ざる */
   P.player = null; P.tr = null; P.chap = null; P.course = null; P.owner = ''; P.term = null;
+  P.firstSaved = false; P.ready = false;
 }
 function saveNow(){
   if(!P.tr || !P.chap || !P.owner) return;
@@ -9562,6 +9580,50 @@ function viewASettings(){
           dgPut(false, 'テスト行を消せなかった', errText(e) +
             '\n      Creator の ' + FORM.personR + ' から「' + testKey + '」を手で消してください');
         });
+    }).then(function(){
+      /* ── YouTube の再生 API と通信できるか。これが切れていると視聴が 0% のまま保存される ── */
+      dgPut(null, '⑦ YouTube の再生 API と通信できるか（切れていると、動画は見えても視聴が記録されません）');
+      return new Promise(function(resolve){
+        var box = document.createElement('div');
+        box.id = 'dgYt'; box.style.cssText = 'position:fixed;left:-9999px;top:0;width:320px;height:180px;';
+        document.body.appendChild(box);
+        var done = false, timer = setTimeout(function(){
+          if(done) return; done = true;
+          dgPut(false, 'YouTube から返事が来ない（15秒）← 視聴が記録されない原因です',
+            'ウィジェットの iframe から YouTube の再生 API へ通信できていません。' +
+            'plugin-manifest.json の frame-src / script-src / connect-src に www.youtube.com が要ります。' +
+            '\n      host = https://www.youtube.com　origin = ' + location.origin);
+          try{ pl.destroy(); }catch(e){}
+          box.remove(); resolve();
+        }, 15000);
+        var pl;
+        var mk = function(){
+          try{
+            pl = new YT.Player('dgYt', {
+              host:'https://www.youtube.com', videoId:'M7lc1UVf-VE',
+              playerVars:{ enablejsapi:1, origin:(location.origin && location.origin !== 'null') ? location.origin : undefined },
+              events:{ onReady:function(e){
+                if(done) return; done = true; clearTimeout(timer);
+                var d = 0; try{ d = e.target.getDuration(); }catch(x){}
+                dgPut(d > 0, 'YouTube の再生 API と通信できた', '長さを取得 = ' + d + ' 秒（0 なら通信できていません）');
+                try{ pl.destroy(); }catch(x){}
+                box.remove(); resolve();
+              } }
+            });
+          }catch(e){
+            if(done) return; done = true; clearTimeout(timer);
+            dgPut(false, 'プレイヤーを作れない', errText(e)); box.remove(); resolve();
+          }
+        };
+        if(window.YT && window.YT.Player){ mk(); return; }
+        window.onYouTubeIframeAPIReady = mk;
+        if(!document.getElementById('ytapi')){
+          var sc = document.createElement('script');
+          sc.id = 'ytapi'; sc.src = 'https://www.youtube.com/iframe_api';
+          sc.onerror = function(){ if(done) return; done = true; clearTimeout(timer); dgPut(false, 'iframe_api を読み込めない（script-src）'); box.remove(); resolve(); };
+          document.head.appendChild(sc);
+        }
+      });
     }).then(function(){
       dgPut(null, '── 結果：保存のしくみは動いています ──');
       delete MEM.people[testKey];
