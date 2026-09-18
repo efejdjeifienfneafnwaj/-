@@ -2567,17 +2567,90 @@ function initParams(){
   return _initParams;
 }
 
-/* レポートから読む。1回の上限（1000件）に当たったかどうかも返す */
+/* レポートから読む。1回の上限（1000件）に当たったら、続き（record_cursor）があれば次も読む */
 var FETCH_MAX = 1000;   /* 1回に取りに行く件数。実際の上限は環境で確かめること */
 function rawFetch(report, criteria){
   var q = { report_name:report, max_records:FETCH_MAX, field_config:'all' };
   if(criteria) q.criteria = criteria;
-  return withRetry(function(){ return ZOHO.CREATOR.DATA.getRecords(q); }).then(function(res){
-    var rows = (res && res.data) || [];
-    /* 「1000」を決め打ちにすると、実際の上限が200だったときに
-       切り詰めに気づけないまま、間違った集計を表示してしまう */
-    if(rows.length >= q.max_records) LOADED.truncated = true;
+  var out = [];
+  function page(cursor){
+    var qq = cursor ? Object.assign({}, q, { record_cursor:cursor }) : q;
+    return withRetry(function(){ return ZOHO.CREATOR.DATA.getRecords(qq); }).then(function(res){
+      var rows = (res && res.data) || [];
+      out = out.concat(rows);
+      var next = res && (res.record_cursor ||
+                 (res.result && res.result.record_cursor) ||
+                 (res.headers && res.headers.record_cursor));
+      if(rows.length >= q.max_records){
+        if(next && next !== cursor && out.length < 20000) return page(String(next));
+        /* 続きの印が無い版の SDK では、ここで切れる。切れたことは印で残す */
+        LOADED.truncated = true;
+      }
+      return out;
+    }).catch(function(e){
+      /* 2ページ目以降の「もう無い」は終わりの合図 */
+      if(cursor && isNoRows(e)) return out;
+      throw e;
+    });
+  }
+  return page('');
+}
+
+/* ── 条件付きの検索（criteria）が通らない Creator への逃げ道 ──
+   環境によって、条件を付けた読み取りが 400 で弾かれる。
+   そのままだと「既にある行か」の検索が失敗して保存が永久に通らず、
+   管理画面の読み込みも空になって全員が未着手に見える。
+   弾かれた表は覚えておき、以後は表を丸ごと読んで、こちらで条件に合う行だけ選ぶ。 */
+var NO_CRIT = {};        /* 条件が通らないと分かった表 */
+var WHOLE = {};          /* 丸ごと読んだ結果の控え（同じ画面の読み込みの中でだけ使い回す） */
+function isBadCriteria(e){
+  if(!e) return false;
+  if(errCode(e) === 400) return true;
+  var t = '';
+  try{ t = (typeof e === 'string') ? e : (e.responseText || e.message || JSON.stringify(e) || ''); }
+  catch(x){ t = ''; }
+  return /criteria/i.test(String(t)) && /invalid|error|不正/i.test(String(t));
+}
+/* (項目 == "値") を && でつないだ条件だけ。この画面で使う条件はこの形しかない */
+function critMatch(criteria, row){
+  if(!criteria) return true;
+  var ok = true;
+  String(criteria).replace(/\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=)\s*"([^"]*)"\s*\)/g,
+    function(m, f, op, v){
+      var cur = String(row[f] == null ? '' : row[f]);
+      if(op === '==' ? cur !== v : cur === v) ok = false;
+      return m;
+    });
+  return ok;
+}
+function wholeFetch(report){
+  var w = WHOLE[report];
+  if(w && Date.now() - w.at < 3000) return w.p;
+  var p = rawFetch(report).then(function(rows){
+    /* 丸ごと読めたので、行番号（ID）も控えておく。以後の保存は検索なしで更新できる */
+    var kind = kindOfBox(report), kf = KEY_FIELD[kind];
+    var bx = kind && RID_BOX[kind] && RID[RID_BOX[kind]];
+    if(kf && bx) rows.forEach(function(r){ if(r[kf] && r.ID) bx[r[kf]] = String(r.ID); });
     return rows;
+  });
+  WHOLE[report] = { at:Date.now(), p:p };
+  p.catch(function(){ delete WHOLE[report]; });
+  return p;
+}
+function pickRows(report, criteria){
+  return wholeFetch(report).then(function(rows){
+    return rows.filter(function(r){ return critMatch(criteria, r); });
+  });
+}
+/* 条件付きで読む。弾かれたら丸ごと読んで選ぶ */
+function fetchSmart(report, criteria){
+  if(!criteria) return rawFetch(report);
+  if(NO_CRIT[report]) return pickRows(report, criteria);
+  return rawFetch(report, criteria).catch(function(e){
+    if(isNoRows(e) || isMissingBox(e) || isAuthErr(e) || isBusy(e) || !isBadCriteria(e)) throw e;
+    NO_CRIT[report] = true;
+    console.warn('条件付きの検索が弾かれたので、表を丸ごと読んで選びます: ' + report, errText(e));
+    return pickRows(report, criteria);
   });
 }
 /* ── 画面に出すための読み取り ──
@@ -2585,7 +2658,7 @@ function rawFetch(report, criteria){
    Creator は「1件も無い」を 3100・9220・9280 …と何通りもの言い方で返してくるので、
    コードを1つずつ足していく作りにしない。読めなかったことは印（LOADED.partial）で残す。 */
 function fetchRows(report, criteria){
-  return rawFetch(report, criteria).catch(function(e){
+  return fetchSmart(report, criteria).catch(function(e){
     if(isNoRows(e)) return [];
     if(isMissingBox(e)){ boxMissing(kindOfBox(report)); return []; }
     console.error('取得に失敗しました: ' + report, e);
@@ -2598,7 +2671,7 @@ function fetchRows(report, criteria){
    こちらは厳しく。読めなかったのに「まだ無い」と誤解すると、
    既にあるレコードの隣に新規を作ってしまい、記録が恒久的に2つに分かれる。 */
 function fetchRowsStrict(report, criteria){
-  return rawFetch(report, criteria).catch(function(e){
+  return fetchSmart(report, criteria).catch(function(e){
     if(isNoRows(e)) return [];
     /* 表そのものが無いときは、毎回同じ失敗を積み上げても意味がないので静かに投げる */
     if(isMissingBox(e)){ boxMissing(kindOfBox(report)); throw e; }
@@ -3265,15 +3338,8 @@ function rowsToDaily(rows){
    削除済みまで毎回全件読むと、何年も運用したときに件数の上限に当たる。
    ただし古い版の表には deleted 列が無く、条件付きの検索が 400 で弾かれる。
    一度弾かれた表は覚えておき、以後は条件なしで読む（毎回 400 を積まない）。 */
-var NO_CRIT = {};
 function fetchLive(rep){
-  if(NO_CRIT[rep]) return fetchRows(rep);
-  return rawFetch(rep, '(deleted == "")').catch(function(e){
-    if(isNoRows(e)) return [];
-    if(isMissingBox(e)){ boxMissing(kindOfBox(rep)); return []; }
-    NO_CRIT[rep] = true;
-    return fetchRows(rep);
-  });
+  return fetchRows(rep, '(deleted == "")');
 }
 function loadNews(){
   return fetchLive(FORM.newsR).then(rowsToNews);
@@ -6595,6 +6661,23 @@ function activityLog(limit){
 /* ══════════════════════════════════════════════════════════════
    画面：ユーザー（受講状況の一覧）★管理側の主画面
    ══════════════════════════════════════════════════════════════ */
+/* 読めなかった・切れた、を管理画面の上に出す。黙って「未着手」に見せない */
+function loadNoteHTML(){
+  var h = '';
+  if(LOADED.partial){
+    h += '<div class="note" style="margin-bottom:12px"><b>Creator から一部の記録を読み込めませんでした</b>　' +
+         '表示は実際より少なく、未着手に見えることがあります。' +
+         '設定の「接続テスト」で原因を確かめられます。' +
+         (LOADED.lastErr ? '<br><span class="cap">' + esc(LOADED.lastErr) + '</span>' : '') +
+         '</div>';
+  }
+  if(LOADED.truncated){
+    h += '<div class="note" style="margin-bottom:12px"><b>記録が多すぎて一部しか読めていません</b>　' +
+         '1回に読み込める上限（' + FETCH_MAX + '件）に達した表があります。' +
+         'Creatorのレポートから直接エクスポートしてください。</div>';
+  }
+  return h;
+}
 function viewAUsers(){
   refreshAllRemindsDaily();
   var cs = courses(), all = adminMatrix();
@@ -6607,6 +6690,7 @@ function viewAUsers(){
   var page = rows.slice(from, from + per);
 
   var h = '<div class="wrap">';
+  h += loadNoteHTML();
   h += '<div class="ph"><div><h2>ユーザー</h2>' +
        '<div class="sub">受講者ごとの、コース別の受講状況です。名前をクリックすると個人の明細が開きます。</div>' +
        '</div></div>';
@@ -6614,18 +6698,7 @@ function viewAUsers(){
   h += toolsHTML(all, { course:false });
   h += pagerHTML(total, pages, from, per, selCount(), true);
 
-  if(LOADED.partial){
-    h += '<div class="note"><b>一部のデータを読み込めませんでした</b>　' +
-         '表示している数字が実際より少ない可能性があります。' +
-         '少し時間をおいて画面を開き直してください。' +
-         (LOADED.lastErr ? '<br><span class="cap">' + esc(LOADED.lastErr) + '</span>' : '') +
-         '</div>';
-  }
-  if(LOADED.truncated){
-    h += '<div class="note" style="margin-bottom:12px"><b>記録が多すぎて一部しか読めていません</b>　' +
-         '1回に読み込める上限（1000件）に達したコースがあります。' +
-         'Creatorの「受講記録 一覧」レポートから直接エクスポートしてください。</div>';
-  }
+  h += loadNoteHTML();
 
   if(!total){
     h += '<div class="card"><div class="empty">' + ic('users') +
@@ -9158,6 +9231,17 @@ function viewASettings(){
         if(isNoRows(e)){ dgPut(true, '名簿は0件（読み取りは通っている）'); return; }
         dgPut(false, '名簿を読めない', errText(e));
         throw e;
+      }).then(function(){
+        /* 条件付きの検索。弾かれる環境では、丸ごと読んで選ぶ方式に自動で切り替わる */
+        return rawFetch(FORM.personR, '(person_key == "__x__")').then(function(){
+          dgPut(true, '条件付きの検索が通る');
+        }).catch(function(e){
+          if(isNoRows(e)){ dgPut(true, '条件付きの検索が通る（該当0件）'); return; }
+          var raw = '';
+          try{ raw = JSON.stringify(e).slice(0, 400); }catch(x){ raw = String(e); }
+          dgPut(null, '条件付きの検索は弾かれる → 表を丸ごと読んで選ぶ方式で動きます（保存・集計は問題なし）',
+                'Creator の返事 = ' + raw);
+        });
       });
     }).then(function(){
       dgPut(null, '④ 書き込み（追加）');

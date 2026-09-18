@@ -53,6 +53,7 @@ const ROSTER = [
   let seq = 1000;
   let failWrites = false;          /* true でログイン確認の画面を返す（ログイン切れ） */
   let noRemind = false;            /* true で Lms_Remind の表が無い状態にする（code 2894） */
+  let noCrit = false;              /* true で条件付きの検索を 400 で弾く（先方の Creator の振る舞い） */
   const tbl = n => String(n).replace(/_(Report|Form)$/, '');
   /* Creator がログイン確認の画面に飛ばしたときの返事。JSON ではなく HTML が返る */
   const AUTH_FAIL = { __reject: { status:0, responseText:
@@ -69,13 +70,21 @@ const ROSTER = [
     const box = String(q.form_name || q.report_name || '');
     if(noRemind && /^Lms_Remind/.test(box)) return NO_BOX(box);
     if(method === 'getRecords'){
+      if(noCrit && q.criteria) return { __reject: { status:400, statusText:'', responseText:
+        '{"code":3400,"message":"Invalid criteria"}' } };
       let rows = (DB[tbl(q.report_name)] || []).slice();
       const conds = [];
       String(q.criteria || '').replace(/([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"/g,
         (m, f, v) => { conds.push([f, v]); return m; });
       if(conds.length) rows = rows.filter(r => conds.every(c => String(r[c[0]] || '') === c[1]));
       if(!rows.length) return { code:3100, message:'No records found' };
-      return { code:3000, data:rows };
+      /* 1000件を超えるときは、続きの印（record_cursor）を付けて分けて返す */
+      const max = Number(q.max_records) || 200, start = Number(q.record_cursor || 0);
+      const pageRows = rows.slice(start, start + max);
+      if(!pageRows.length) return { code:3100, message:'No records found' };
+      const out = { code:3000, data:pageRows };
+      if(start + max < rows.length) out.record_cursor = String(start + max);
+      return out;
     }
     if(method === 'addRecords'){
       const k = tbl(q.form_name); DB[k] = DB[k] || [];
@@ -95,6 +104,10 @@ const ROSTER = [
   const srv = http.createServer((q, s) => {
     if(q.url === '/__fail' || q.url === '/__ok'){
       failWrites = (q.url === '/__fail');
+      s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
+    }
+    if(q.url === '/__nocrit'){
+      noCrit = true;
       s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
     }
     if(q.url === '/__noremind'){
@@ -260,6 +273,30 @@ const ROSTER = [
   check('行列の見た目は不安にさせない言い方',
     (await b.$eval('#syncBadge', e => e.textContent)) === '保存済み（未作成の表を除く）',
     await b.$eval('#syncBadge', e => e.textContent));
+
+  console.log('⑩ 条件付きの検索が 400 で弾かれる Creator でも、保存と集計が通る');
+  await fetch(base + '__nocrit').catch(() => {});
+  /* 管理者（まだ学習時間の行が無い人）が視聴 → 「既にある行か」の検索が弾かれる */
+  await a.evaluate(() => { bumpDaily('田中 一郎', 300, true); });
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  const mineRows = () => (DB.Lms_Daily || []).filter(r => r.person_name === '田中 一郎');
+  check('検索が弾かれても、行は追加される', mineRows().length === 1, JSON.stringify(mineRows()));
+  check('弾かれた表を覚えている', await a.evaluate(() => !!NO_CRIT[FORM.dailyR]));
+  await a.evaluate(() => { bumpDaily('田中 一郎', 60, true); });
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  check('2回目は同じ行の更新で、二重にならない', mineRows().length === 1 && Number(mineRows()[0].watched_sec) === 360,
+    JSON.stringify(mineRows()));
+  check('受講者に「電波」の知らせは出ていない',
+    !/電波/.test(await a.$eval('.toast', e => e.textContent)));
+  /* 管理画面の読み込み（コースごとの条件付き）も通る */
+  const loaded = await a.evaluate(() => { LOADED.all = false; return loadAll().then(() => ({ partial:LOADED.partial, quizzes:Object.keys(MEM.quizzes).length })); });
+  check('管理画面の読み込みが失敗扱いにならない', loaded.partial === false, JSON.stringify(loaded));
+  /* 1000件を超える表は、続きを読んで全部そろう */
+  DB.Lms_News = [];
+  for(let i = 0; i < 1200; i++) DB.Lms_News.push({ ID:String(50000 + i), news_key:'n' + i, title:'お知らせ' + i, body:'', target:'', posted_by:'田中 一郎', posted_at:'2026-09-01T00:00:00.000Z', deleted:'' });
+  const newsN = await a.evaluate(() => { MEM.news = {}; return loadNews().then(() => Object.keys(MEM.news).length); });
+  check('1000件を超える表も続きを読んで全部そろう（1200件）', newsN === 1200, String(newsN));
+  check('切れた印は付かない', await a.evaluate(() => LOADED.truncated === false));
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
   await a.evaluate(() => { pushRemind('田中 一郎'); });
