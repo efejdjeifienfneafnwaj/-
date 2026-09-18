@@ -270,6 +270,12 @@ a{color:var(--acc);}
   transition:background .14s,box-shadow .14s;
 }
 .btn .ic{font-size:15px;}
+/* 動画の下の「途中経過を保存する」。自動保存が無いので、目立たせる */
+.btn.big{font-size:17px;padding:14px 28px;border-radius:12px;box-shadow:0 6px 18px rgba(18,88,184,.3);}
+.btn.big .ic{font-size:19px;}
+.save-box{margin:12px 0 4px;padding:14px 16px;border:2px solid var(--acc);border-radius:12px;background:var(--acc-soft);display:grid;gap:8px;justify-items:start;}
+.save-note{font-size:13px;color:var(--ink-2);line-height:1.6;}
+.save-note b{color:var(--kaki);}
 .btn:hover{background:var(--pri-2);}
 .btn.w{width:100%;justify-content:center;padding:11px;}
 .btn.sub{background:var(--surface);color:var(--ink-2);border:1px solid var(--rule-2);}
@@ -1963,7 +1969,8 @@ function putRec(name, chapId, packed, term){
     updated:new Date().toISOString()
   };
   cacheFlush('records');
-  queueSync('record', key);
+  /* Creator へは自動では送らない。「途中経過を保存する」「確認テストを受ける」
+     「次の章へ」を押したときに sendProgress() がまとめて送る */
   if(after > before) bumpDaily(name, after - before);
 }
 /* 区間の配列から合計秒数を出す（重なりは想定しない。trackerが重ならない形で作る） */
@@ -2073,7 +2080,8 @@ function bumpDaily(name, sec, force){
   /* 画面の表示は毎回更新する。Creatorへの送信は間引くが、5分だと
      「学習時間が0分のまま」に見える時間が長すぎるので1分にする。
      1人1日1行に足し込むだけなので、行数は増えない。 */
-  if(force || Date.now() - _dailySentAt > 60000){
+  /* 学習時間も自動では送らない。保存を押したときに一緒に送る */
+  if(force){
     _dailySentAt = Date.now();
     queueSync('daily', k);
   }
@@ -2846,7 +2854,15 @@ function upsert(kind, keyField, keyValue, payload){
 
   function doUpdate(id){
     return withRetry(function(){ return callUpdateById(reportName, id, payload); })
-      .then(function(res){ delete WHOLE[reportName]; return res; });   /* 丸ごと読みの控えは古くなるので捨てる */
+      .then(function(res){ delete WHOLE[reportName]; return res; })   /* 丸ごと読みの控えは古くなるので捨てる */
+      .catch(function(e){
+        /* 「編集」だけ許されていないポータルユーザー。追加は通るなら、新しい行として残す
+           （読む側は同じ鍵の行を足し合わせるので、集計は壊れない） */
+        if(!isPermErr(e) || kind === 'course') throw e;
+        console.warn('更新が権限で拒否されたので、新しい行として追加します', reportName, e);
+        if(box) delete box[ridKey];
+        return doAdd();
+      });
   }
   function doAdd(){
     return withRetry(function(){
@@ -3255,7 +3271,11 @@ function flushOnLeave(){
   clearTimeout(SYNC.timer);
   if(!SYNC.busy) flushSync();
 }
-window.addEventListener('beforeunload', flushOnLeave);
+window.addEventListener('beforeunload', function(e){
+  flushOnLeave();
+  /* 保存していない視聴があれば、ブラウザの「このページを離れますか」を出す */
+  if(typeof svUnsaved === 'function' && svUnsaved()){ e.preventDefault(); e.returnValue = ''; }
+});
 window.addEventListener('pagehide', flushOnLeave);
 /* タブを閉じる直前に beforeunload が走らない端末があるので、こちらでも保存する */
 document.addEventListener('visibilitychange', function(){
@@ -5814,6 +5834,7 @@ function saveProgressNow(){
   if(!P.tr || !P.chap || !P.owner){ svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
   if(!ON_CREATOR){ saveNow(); svShow(hhmmss() + '　この端末に保存しました（Creator には繋がっていません）'); return Promise.resolve(); }
   saveNow();
+  bumpDaily(P.owner, 0, true);          /* 学習時間もこのタイミングで送る */
   var key = recKey(P.owner, P.chap.id, P.term);
   var pk = trackerPack(P.tr), sentPct = Math.round(watchedRate(P.tr) * 100);
   svShow(hhmmss() + '　保存中…（送る視聴 ' + sentPct + '%）');
@@ -5832,13 +5853,38 @@ function saveProgressNow(){
     var r = rows[0];
     if(!r){ svShow(hhmmss() + '　送りましたが、読み返すと行が見つかりません：' + key, true); return; }
     svShow(hhmmss() + '　保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
+    P.savedSec = watchedSeconds(P.tr);
     syncBadge('保存済み');
     if(pendKeys().length) flushSync();
   }).catch(function(e){
     SYNC.busy = false;
     var raw = ''; try{ raw = JSON.stringify(e).slice(0, 300); }catch(x){ raw = String(e); }
-    svShow(hhmmss() + '　保存できませんでした：' + errText(e) + '　' + raw, true);
+    svShow(hhmmss() + '　保存できませんでした：' + errText(e) + '　' + raw +
+      (isPermErr(e) ? '　→ ポータルユーザーにこの表を書く権限がありません。Creator の「ポータル → 権限」で ' +
+        'Lms_Record・Lms_Daily・Lms_Quiz・Lms_Survey の「追加」と「編集」を許可してください' : ''), true);
   });
+}
+/* 権限が無いときの返事（ポータルユーザーの権限が足りない） */
+function isPermErr(e){
+  if(!e) return false;
+  var c = errCode(e);
+  if(c === 403 || c === 2896 || c === 4300) return true;
+  var t = ''; try{ t = (typeof e === 'string') ? e : (e.responseText || e.message || JSON.stringify(e) || ''); }catch(x){ t = ''; }
+  return /permission|not\s+allowed|unauthori[sz]ed|権限|forbidden/i.test(String(t));
+}
+/* 保存していない視聴があるか（画面を閉じる前の確認に使う） */
+function svUnsaved(){
+  return !!(P.tr && watchedSeconds(P.tr) > (P.savedSec || 0));
+}
+function svDirty(){
+  if(!svUnsaved()) return;
+  var el = document.getElementById('svState');
+  if(el && !SV.bad && !/保存しました/.test(el.textContent)) el.textContent = '保存していない視聴があります（' + Math.round(watchedRate(P.tr) * 100) + '%）';
+}
+/* 画面を移る前に保存してから移る。保存できなくても移れる（結果は次の画面でも分かるように残す） */
+function leaveWithSave(fn){
+  if(!svUnsaved()){ fn(); return; }
+  saveProgressNow().then(function(){ fn(); }, function(){ fn(); });
 }
 var P = { player:null, tr:null, chap:null, course:null, timer:null, saveT:0,
            owner:'',    /* この記録が誰のものか。受講者を切り替えたときの取り違えを防ぐ */
@@ -5936,9 +5982,11 @@ function viewLearn(courseId, chapIdx){
            '<span class="n" id="allPct">' + pct(p.rate) + '</span></div>';
   /* 自動保存に加えて、手で押せる保存。押した結果は Creator から読み返して出す。
      「保存されたつもり」を無くし、失敗なら Creator の返事をそのまま見せる */
-  h += '<div class="bar" id="svBar" style="margin-top:6px">' +
-       '<button class="btn sub" id="svGo">' + ic('check') + '進行状況を保存する</button>' +
-       '<span class="cap" id="svState">' + esc(SV.text || '自動保存：再生開始5秒後、その後20秒ごと・一時停止時') + '</span></div>';
+  h += '<div class="save-box" id="svBar">' +
+       '<button class="btn big" id="svGo">' + ic('check') + '途中経過を保存する</button>' +
+       '<div class="save-note"><b>自動では保存されません。</b>画面を閉じる前・再読み込みの前に必ず押してください。' +
+       '「確認テストを受ける」「次の章へ」を押したときも保存します。</div>' +
+       '<div class="cap" id="svState">' + esc(SV.text || 'まだ保存していません') + '</div></div>';
   if(co.quiz && co.quiz.length){
     var qz = p.quiz;
     h += '<div class="bar">' +
@@ -5982,13 +6030,13 @@ function viewLearn(courseId, chapIdx){
   });
   h += '</div></div></div>';
   document.getElementById('main').innerHTML = h;
-  SV.text = ''; SV.bad = false;
+  SV.text = ''; SV.bad = false; P.savedSec = 0;
   var svb = document.getElementById('svGo');
   if(svb) svb.onclick = function(){ svb.disabled = true; saveProgressNow().then(function(){ svb.disabled = false; }); };
 
   document.querySelector('[data-back]').onclick = function(){ route('courses'); };
   var gq = document.getElementById('goQuiz');
-  if(gq && !gq.disabled) gq.onclick = function(){ route('quiz', co.id); };
+  if(gq && !gq.disabled) gq.onclick = function(){ leaveWithSave(function(){ route('quiz', co.id); }); };
   var bmBtn = document.getElementById('goBm');
   if(bmBtn) bmBtn.onclick = function(){ seekToBookmark(bm); };
   document.getElementById('autoNext').onchange = function(){
@@ -6000,10 +6048,10 @@ function viewLearn(courseId, chapIdx){
   var gsv = document.getElementById('goSv');
   if(gsv) gsv.onclick = function(){ route('survey', co.id); };
   var pv = document.getElementById('prevCh'), nx = document.getElementById('nextCh');
-  if(pv && !pv.disabled) pv.onclick = function(){ stopPlayer(); route('learn', co.id, chapIdx - 1); };
-  if(nx && !nx.disabled) nx.onclick = function(){ stopPlayer(); route('learn', co.id, chapIdx + 1); };
+  if(pv && !pv.disabled) pv.onclick = function(){ leaveWithSave(function(){ stopPlayer(); route('learn', co.id, chapIdx - 1); }); };
+  if(nx && !nx.disabled) nx.onclick = function(){ leaveWithSave(function(){ stopPlayer(); route('learn', co.id, chapIdx + 1); }); };
   eachIn('[data-chap]', function(b){
-    b.onclick = function(){ stopPlayer(); route('learn', co.id, +b.getAttribute('data-chap')); };
+    b.onclick = function(){ var to = +b.getAttribute('data-chap'); leaveWithSave(function(){ stopPlayer(); route('learn', co.id, to); }); };
   });
 
   var rec = getRec(u.name, ch.id);
@@ -6099,11 +6147,8 @@ function startTick(){
     trackerTick(P.tr, t, rate);
     drawSeen(t);
     updateCourseBar();
-    /* 再生を始めて5秒で最初の保存、その後は20秒おき。止めた時・章を終えた時・
-       画面を離れる時は別途すぐ保存する。端末に控えを持たないので、早めに Creator へ入れる。
-       塗った区間をまとめて1行に書くので、200名同時でも書き込みは1人1行のまま。 */
-    var gap = P.firstSaved ? 20000 : 5000;
-    if(Date.now() - P.saveT > gap){ saveNow(); P.firstSaved = true; }
+    /* 自動では Creator に送らない。見た区間はメモリに溜め、
+       「途中経過を保存する」などを押したときにまとめて送る */
   }, 500);
 }
 function stopTick(){
@@ -6130,7 +6175,7 @@ function saveNow(){
   putRec(P.owner, P.chap.id, pk, P.term);   /* 「今の受講者」ではなく「この記録の持ち主」に書く */
   pushRemindSelf();
   P.saveT = Date.now();
-  if(!SV.bad) svShow(hhmmss() + '　自動保存を送りました（視聴 ' + Math.round(watchedRate(P.tr) * 100) + '%）');
+  svDirty();
 }
 function updateCourseBar(){
   var u = me(), p = courseProgress(u.name, P.course);
@@ -6140,7 +6185,7 @@ function updateCourseBar(){
   var q = document.getElementById('goQuiz');
   if(q && q.disabled && p.videoDone){
     q.disabled = false; q.className = 'btn';
-    q.onclick = function(){ route('quiz', P.course.id); };
+    q.onclick = function(){ var cid = P.course.id; leaveWithSave(function(){ route('quiz', cid); }); };
   }
 }
 
@@ -6155,7 +6200,7 @@ function onChapterEnd(){
     toast('次の章へ進みます：' + next.title);
     clearTimeout(P.nextT);
     P.nextT = setTimeout(function(){
-      P.nextT = 0; stopPlayer(); route('learn', co.id, idx + 1);
+      P.nextT = 0; leaveWithSave(function(){ stopPlayer(); route('learn', co.id, idx + 1); });
     }, 1200);
     return;
   }
@@ -6210,9 +6255,9 @@ document.addEventListener('keydown', function(e){
     e.preventDefault(); trackerBreak(P.tr);
     try{ P.player.seekTo(Math.max(0, cur - 10), true); }catch(err){}
   }else if(e.key === 'n' || e.key === 'N'){
-    if(idx + 1 < P.course.chapters.length){ stopPlayer(); route('learn', P.course.id, idx + 1); }
+    if(idx + 1 < P.course.chapters.length){ var cid1 = P.course.id; leaveWithSave(function(){ stopPlayer(); route('learn', cid1, idx + 1); }); }
   }else if(e.key === 'p' || e.key === 'P'){
-    if(idx > 0){ stopPlayer(); route('learn', P.course.id, idx - 1); }
+    if(idx > 0){ var cid2 = P.course.id; leaveWithSave(function(){ stopPlayer(); route('learn', cid2, idx - 1); }); }
   }
 });
 

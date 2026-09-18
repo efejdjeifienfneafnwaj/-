@@ -54,6 +54,7 @@ const ROSTER = [
   let failWrites = false;          /* true でログイン確認の画面を返す（ログイン切れ） */
   let noRemind = false;            /* true で Lms_Remind の表が無い状態にする（code 2894） */
   let noCrit = false;              /* true で条件付きの検索を 400 で弾く（先方の Creator の振る舞い） */
+  let noEdit = false;              /* true で「編集」だけ権限で拒否する（ポータルユーザーの権限不足） */
   const tbl = n => String(n).replace(/_(Report|Form)$/, '');
   /* Creator がログイン確認の画面に飛ばしたときの返事。JSON ではなく HTML が返る */
   const AUTH_FAIL = { __reject: { status:0, responseText:
@@ -99,6 +100,8 @@ const ROSTER = [
       DB[k] = (DB[k] || []).filter(x => String(x.ID) !== String(q.id));
       return { code:3000 };
     }
+    if(method === 'updateRecordById' && noEdit) return { __reject: { status:403, statusText:'', responseText:
+      '{"code":2896,"message":"Permission denied. You do not have permission to edit records in this report."}' } };
     if(method === 'updateRecordById'){
       const a = DB[tbl(q.report_name)] || [];
       const r = a.filter(x => String(x.ID) === String(q.id))[0];
@@ -111,6 +114,10 @@ const ROSTER = [
   const srv = http.createServer((q, s) => {
     if(q.url === '/__fail' || q.url === '/__ok'){
       failWrites = (q.url === '/__fail');
+      s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
+    }
+    if(q.url === '/__noedit' || q.url === '/__editok'){
+      noEdit = (q.url === '/__noedit');
       s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
     }
     if(q.url === '/__nocrit'){
@@ -249,9 +256,11 @@ const ROSTER = [
 
   console.log('⑦ 視聴の保存の間隔');
   const src = html;
-  check('視聴の保存は、最初は5秒・その後は20秒おき', /P\.firstSaved \? 20000 : 5000/.test(src));
-  check('画面を閉じる・再読み込みのときも、その場で送る', /addEventListener\('pagehide', flushOnLeave\)/.test(src));
-  check('学習時間の送信は1分おき', /_dailySentAt > 60000/.test(src));
+  const tick = (src.match(/function startTick\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  check('再生中の自動保存は無い（押したときだけ送る）', tick && !/saveNow|queueSync/.test(tick));
+  check('putRec は Creator に送らない（メモリだけ）', !/cacheFlush\('records'\);\n  queueSync\('record'/.test(src));
+  check('閉じる前に、保存していない視聴があれば確認が出る', /svUnsaved\(\)\)\{ e\.preventDefault\(\); e\.returnValue = ''; \}/.test(src));
+  check('学習時間も自動では送らず、保存を押したときに送る', /学習時間も自動では送らない[\s\S]{0,80}if\(force\)\{/.test(src));
 
   console.log('⑧ Creator に表が無いとき（.ds を取り込み直していない）');
   await fetch(base + '__noremind').catch(() => {});
@@ -403,7 +412,8 @@ const ROSTER = [
   const sv = await open('hana@example.com', 'lms');
   await sv.evaluate(() => route('learn', courses()[0].id, 0));
   await sv.waitForSelector('#svGo');
-  check('動画の下に保存ボタンがある', (await sv.$('#svGo')) !== null);
+  check('動画の下に大きな保存ボタンがある', (await sv.$('#svGo.btn.big')) !== null);
+  check('「自動では保存されません」と書いてある', /自動では保存されません/.test(await sv.$eval('.save-box', e => e.textContent)));
   /* YouTube は無いので、見た区間を手で塗る（0〜30秒／180秒） */
   /* 再生中の状態を作る（YouTube は無いので、プレイヤーが持つ値を手で入れる） */
   await sv.evaluate(() => {
@@ -436,6 +446,30 @@ const ROSTER = [
   await sv.waitForFunction(() => /保存できませんでした/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('失敗したときは理由がその場に出る', /保存できませんでした/.test(await sv.$eval('#svState', e => e.textContent)));
   await fetch(base + '__ok').catch(() => {});
+  DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
+  /* 「次の章へ」を押すと保存してから移る */
+  await sv.evaluate(() => route('learn', courses()[1].id, 0));
+  await sv.waitForSelector('#nextCh:not([disabled])');
+  await sv.evaluate(() => {
+    var co = courses()[1];
+    P.course = co; P.chap = co.chapters[0]; P.owner = normName(me().name); P.term = currentTerm();
+    P.tr = trackerUnpack({ dur:100, ranges:[[0,25]], fast:false });
+  });
+  const c2ch0 = await sv.evaluate(() => courses()[1].chapters[0].id);
+  await sv.click('#nextCh');
+  await sv.waitForFunction(() => P.chap && P.chap.id === courses()[1].chapters[1].id, { timeout:20000 });
+  check('「次の章へ」で前の章が Creator に保存される（25%）',
+    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && r.chapter_id === c2ch0 && Number(r.watched_pct) === 25),
+    JSON.stringify((DB.Lms_Record || []).map(r => [r.chapter_id, r.watched_pct])));
+  /* 編集が権限で拒否されるポータルでも、追加で残る */
+  await fetch(base + '__noedit').catch(() => {});
+  await sv.evaluate(() => { P.tr = trackerUnpack({ dur:100, ranges:[[0,50]], fast:false }); });
+  await sv.click('#svGo');
+  await sv.waitForFunction(() => /保存しました|保存できません/.test(document.getElementById('svState').textContent), { timeout:20000 });
+  check('編集が拒否されても、新しい行として残る（50%）',
+    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 50),
+    await sv.$eval('#svState', e => e.textContent));
+  await fetch(base + '__editok').catch(() => {});
   DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
