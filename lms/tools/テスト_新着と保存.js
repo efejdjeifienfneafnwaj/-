@@ -257,7 +257,7 @@ const ROSTER = [
   console.log('⑦ 視聴の保存の間隔');
   const src = html;
   const tick = (src.match(/function startTick\(\)\{[\s\S]*?\n\}/) || [''])[0];
-  check('再生中の自動保存は無い（押したときだけ送る）', tick && !/saveNow|queueSync/.test(tick));
+  check('再生中の自動保存は、ボタンと同じ経路（saveProgressNow）で5秒→20秒ごと', /P\.firstSaved \? 20000 : 5000/.test(tick) && /saveProgressNow\(true\)/.test(tick) && !/queueSync/.test(tick));
   check('putRec は Creator に送らない（メモリだけ）', !/cacheFlush\('records'\);\n  queueSync\('record'/.test(src));
   check('閉じる前に、保存していない視聴があれば確認が出る', /svUnsaved\(\)\)\{ e\.preventDefault\(\); e\.returnValue = ''; \}/.test(src));
   check('学習時間も自動では送らず、保存を押したときに送る', /学習時間も自動では送らない[\s\S]{0,80}if\(force\)\{/.test(src));
@@ -413,7 +413,7 @@ const ROSTER = [
   await sv.evaluate(() => route('learn', courses()[0].id, 0));
   await sv.waitForSelector('#svGo');
   check('動画の下に大きな保存ボタンがある', (await sv.$('#svGo.btn.big')) !== null);
-  check('「自動では保存されません」と書いてある', /自動では保存されません/.test(await sv.$eval('.save-box', e => e.textContent)));
+  check('自動保存のことが書いてある', /自動で保存/.test(await sv.$eval('.save-box', e => e.textContent)));
   /* YouTube は無いので、見た区間を手で塗る（0〜30秒／180秒） */
   /* 再生中の状態を作る（YouTube は無いので、プレイヤーが持つ値を手で入れる） */
   await sv.evaluate(() => {

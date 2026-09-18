@@ -5821,14 +5821,16 @@ function svShow(text, bad){
 }
 function hhmmss(){ var d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function(n){ return (n < 10 ? '0' : '') + n; }).join(':'); }
 /* 手で押す保存。いまの視聴を Creator に書き、その行を読み返して何%入ったかを出す */
-function saveProgressNow(){
-  if(!P.tr || !P.chap || !P.owner){ svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
+function saveProgressNow(auto){
+  var tag = auto ? '自動保存：' : '';
+  if(!P.tr || !P.chap || !P.owner){ if(!auto) svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
+  P.saving = true; P.saveT = Date.now();
   if(!ON_CREATOR){ saveNow(); svShow(hhmmss() + '　この端末に保存しました（Creator には繋がっていません）'); return Promise.resolve(); }
   saveNow();
   bumpDaily(P.owner, 0, true);          /* 学習時間もこのタイミングで送る */
   var key = recKey(P.owner, P.chap.id, P.term);
   var pk = trackerPack(P.tr), sentPct = Math.round(watchedRate(P.tr) * 100);
-  svShow(hhmmss() + '　保存中…（送る視聴 ' + sentPct + '%）');
+  svShow(hhmmss() + '　' + tag + '保存中…（送る視聴 ' + sentPct + '%）');
   var waitIdle = function(){ return SYNC.busy ? new Promise(function(r){ setTimeout(r, 200); }).then(waitIdle) : Promise.resolve(); };
   return waitIdle().then(function(){
     SYNC.busy = true;
@@ -5842,15 +5844,16 @@ function saveProgressNow(){
     return fetchRowsStrict(FORM.recordR, '(rec_key == "' + crit(key) + '")');
   }).then(function(rows){
     var r = rows[0];
+    P.saving = false;
     if(!r){ svShow(hhmmss() + '　送りましたが、読み返すと行が見つかりません：' + key, true); return; }
-    svShow(hhmmss() + '　保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
+    svShow(hhmmss() + '　' + tag + '保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
     P.savedSec = watchedSeconds(P.tr);
     syncBadge('保存済み');
     if(pendKeys().length) flushSync();
   }).catch(function(e){
-    SYNC.busy = false;
+    SYNC.busy = false; P.saving = false;
     var raw = ''; try{ raw = JSON.stringify(e).slice(0, 300); }catch(x){ raw = String(e); }
-    svShow(hhmmss() + '　保存できませんでした：' + errText(e) + '　' + raw +
+    svShow(hhmmss() + '　' + tag + '保存できませんでした：' + errText(e) + '　' + raw +
       (isPermErr(e) ? '　→ ポータルユーザーにこの表を書く権限がありません。Creator の「ポータル → 権限」で ' +
         'Lms_Record・Lms_Daily・Lms_Quiz・Lms_Survey の「追加」と「編集」を許可してください' : ''), true);
   });
@@ -5975,8 +5978,8 @@ function viewLearn(courseId, chapIdx){
      「保存されたつもり」を無くし、失敗なら Creator の返事をそのまま見せる */
   h += '<div class="save-box" id="svBar">' +
        '<button class="btn big" id="svGo">' + ic('check') + '途中経過を保存する</button>' +
-       '<div class="save-note"><b>自動では保存されません。</b>画面を閉じる前・再読み込みの前に必ず押してください。' +
-       '「確認テストを受ける」「次の章へ」を押したときも保存します。</div>' +
+       '<div class="save-note">再生開始5秒後・その後20秒ごと・一時停止時に<b>自動で保存</b>します。' +
+       '結果はここに出ます。念のため、画面を閉じる前にも押してください。</div>' +
        '<div class="cap" id="svState">' + esc(SV.text || 'まだ保存していません') + '</div></div>';
   if(co.quiz && co.quiz.length){
     var qz = p.quiz;
@@ -6099,6 +6102,8 @@ function mountPlayer(videoId){
         onStateChange: function(e){
           if(e.data === YT.PlayerState.PLAYING){ startTick(); return; }
           stopTick(); trackerBreak(P.tr); saveNow();
+          /* 一時停止・終了のときも、押したときと同じ経路で保存する */
+          if(svUnsaved() && !P.saving) saveProgressNow(true);
           /* 最後まで再生したら、設定に応じて次の章へ進む */
           if(e.data === YT.PlayerState.ENDED) onChapterEnd();
         },
@@ -6138,8 +6143,11 @@ function startTick(){
     trackerTick(P.tr, t, rate);
     drawSeen(t);
     updateCourseBar();
-    /* 自動では Creator に送らない。見た区間はメモリに溜め、
-       「途中経過を保存する」などを押したときにまとめて送る */
+    /* 自動保存。再生開始5秒後に最初の保存、その後は20秒ごと。
+       「途中経過を保存する」を押したときとまったく同じ経路（Creator に書いて読み返す）を使う。
+       送っている最中は次を重ねない */
+    var gap = P.firstSaved ? 20000 : 5000;
+    if(Date.now() - P.saveT > gap && !P.saving){ P.firstSaved = true; saveProgressNow(true); }
   }, 500);
 }
 function stopTick(){
@@ -6152,7 +6160,7 @@ function stopPlayer(){
   if(P.player && P.player.destroy){ try{ P.player.destroy(); }catch(e){} }
   /* 状態を残すと、次に開いた人の記録に前の人の視聴が混ざる */
   P.player = null; P.tr = null; P.chap = null; P.course = null; P.owner = ''; P.term = null;
-  P.firstSaved = false; P.ready = false;
+  P.firstSaved = false; P.ready = false; P.saving = false;
 }
 function saveNow(){
   if(!P.tr || !P.chap || !P.owner) return;
