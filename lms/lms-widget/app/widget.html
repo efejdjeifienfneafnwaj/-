@@ -1024,6 +1024,20 @@ kbd{
   pointer-events:none;transition:opacity .22s;max-width:min(92vw,520px);z-index:200;text-align:center;
 }
 .toast.on{opacity:1;}
+/* 画面の下に出したままにする知らせ（保存できていない等）。
+   トーストは数秒で消えてしまい「保存できていない」ことに気づけないので、押せるボタンごと残す */
+.holdbar{
+  position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:220;
+  display:flex;align-items:center;gap:12px;max-width:min(94vw,640px);
+  background:#7a1f1f;color:#fff;padding:11px 14px 11px 18px;border-radius:12px;
+  font-size:13px;line-height:1.6;box-shadow:0 10px 30px rgba(10,20,30,.4);
+}
+.holdbar[hidden]{display:none;}
+.holdbar button{
+  flex:none;background:#fff;color:#7a1f1f;font-weight:700;font-size:12.5px;
+  border-radius:8px;padding:8px 13px;
+}
+.holdbar button:hover{background:#ffe9e9;}
 .spin{width:24px;height:24px;border:2.5px solid var(--sunken);border-top-color:var(--acc);border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 12px;}
 @keyframes sp{to{transform:rotate(360deg);}}
 .scrim{position:fixed;inset:0;background:rgba(10,20,30,.45);z-index:35;opacity:0;pointer-events:none;transition:opacity .2s;}
@@ -1964,9 +1978,10 @@ function bumpDaily(name, sec, force){
   var k = dailyKey(name);
   MEM.daily[k] = (MEM.daily[k] || 0) + Math.round(sec);
   cacheFlush('daily');
-  /* 画面の表示は毎回更新するが、Creatorへの送信は5分に1回にしぼる。
-     1人あたりの書き込みが大きく減り、200名同時でも詰まらない。 */
-  if(force || Date.now() - _dailySentAt > 300000){
+  /* 画面の表示は毎回更新する。Creatorへの送信は間引くが、5分だと
+     「学習時間が0分のまま」に見える時間が長すぎるので1分にする。
+     1人1日1行に足し込むだけなので、行数は増えない。 */
+  if(force || Date.now() - _dailySentAt > 60000){
     _dailySentAt = Date.now();
     queueSync('daily', k);
   }
@@ -2122,6 +2137,72 @@ function markNewsSeen(person){
   var seen = LS.get('newsSeen', {});
   newsFor(person).forEach(function(n){ seen[n.id] = true; });
   LS.set('newsSeen', seen);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   新しいお知らせ・掲示板を取り込んで知らせる
+     Creator には「誰かが書いた」と教えてくれる仕組みがないので、
+     開いている画面から定期的に読み直し、増えていたら知らせる。
+     掲示板を開いているときだけ見に行く feedWatch とは別に、
+     どのアプリにいても気づけるように、こちらは常に回す。
+   ══════════════════════════════════════════════════════════════ */
+var POLL = { timer:null, busy:false };
+var POLL_EVERY = 90000;   /* 200名が同時に開いても読み込みが増えすぎない間隔 */
+/* 掲示板の既読。お知らせと同じで、読んだ印はこの端末に持つ */
+function markFeedSeen(){
+  var seen = LS.get('feedSeen', {});
+  postList().forEach(function(p){ seen[p.id] = true; });
+  LS.set('feedSeen', seen);
+}
+function feedUnread(){
+  var seen = LS.get('feedSeen', {});
+  var mine = normName((me() || {}).name || '');
+  return postList().filter(function(p){
+    /* 自分が書いたものは「新着」ではない */
+    return !seen[p.id] && normName(p.by || '') !== mine;
+  }).length;
+}
+function myPerson(){
+  var u = me() || {};
+  return people()[normName(u.name)] || u;
+}
+function pollNow(){
+  if(!ON_CREATOR || POLL.busy) return Promise.resolve();
+  if(document.hidden) return Promise.resolve();
+  /* 動画を再生しているあいだは読みに行かない。
+     見ている最中に知らせても邪魔になるうえ、視聴の保存と読み込みがぶつかる */
+  if(P.timer) return Promise.resolve();
+  var u = me();
+  if(!u || !u.name) return Promise.resolve();
+  POLL.busy = true;
+  var beforeN = newsUnread(myPerson()), beforeF = feedUnread();
+  /* 掲示板を開いているときは feedWatch が見ているので、こちらは読まない */
+  var watching = (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks');
+  var jobs = [function(){ return loadNews(); }];
+  if(!watching) jobs.push(function(){ return loadFeed(); });
+  return runLimited(jobs, 1)
+    .then(function(){
+      var n = newsUnread(myPerson()) - beforeN, f = feedUnread() - beforeF;
+      if(n <= 0 && f <= 0) return;
+      var msg = [];
+      if(n > 0) msg.push('お知らせ ' + n + ' 件');
+      if(f > 0) msg.push('掲示板 ' + f + ' 件');
+      toast('新しい' + msg.join('と') + 'が届いています');
+      /* メニューの数字を直し、いま見ている画面が一覧ならその場で描き直す */
+      if(VIEW_NOW) drawNav(VIEW_NOW);
+      if(VIEW_NOW === 'home' || VIEW_NOW === 'mynews') route(VIEW_NOW);
+    })
+    .catch(function(e){ console.warn('新着を読めませんでした', e); })
+    .then(function(){ POLL.busy = false; },
+          function(){ POLL.busy = false; });
+}
+function pollStart(){
+  pollStop();
+  if(!ON_CREATOR) return;
+  POLL.timer = setInterval(pollNow, POLL_EVERY);
+}
+function pollStop(){
+  if(POLL.timer){ clearInterval(POLL.timer); POLL.timer = null; }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -2633,6 +2714,46 @@ function upsert(kind, keyField, keyValue, payload){
 }
 
 /* ── 送信待ちの行列。まとめてから順番に送る ── */
+/* ログインの有効期限切れ。Creator は API の返事ではなく、
+   ログイン確認の画面（confirmPassword）やログイン画面の HTML を返してくることがある。
+   これは電波でも混雑でもないので、再送を繰り返しても永久に通らない。 */
+function isAuthErr(e){
+  var cd = errCode(e);
+  if(cd === 2945 || cd === 401 || cd === 403) return true;
+  var t = '';
+  try{
+    t = (typeof e === 'string') ? e
+      : (e.responseText || e.description || e.message || JSON.stringify(e) || '');
+  }catch(x){ t = ''; }
+  return /confirmPassword|accounts\.zoho|INVALID_TICKET|AUTHENTICATION|Unauthorized|not\s+logged\s*in|<!DOCTYPE|<html/i
+           .test(String(t));
+}
+/* 画面の下に出したままにする知らせ。押せるボタンを添えられる */
+function holdBar(msg, btn, fn){
+  var el = document.getElementById('holdBar');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'holdBar'; el.className = 'holdbar';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '';
+  var sp = document.createElement('span');
+  sp.textContent = msg;
+  el.appendChild(sp);
+  if(btn){
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = btn;
+    b.onclick = fn || function(){ location.reload(); };
+    el.appendChild(b);
+  }
+  el.hidden = false;
+}
+function holdBarHide(){
+  var el = document.getElementById('holdBar');
+  if(el) el.hidden = true;
+}
+
 var SYNC = { pend:{}, timer:null, busy:false, err:0,
              lastErr:'', lastAt:'', lastKind:'', lastKey:'' };
 /* 送信待ちの控え。タブを閉じると行列が消えて、最後の視聴が届かなくなるのを防ぐ */
@@ -2814,6 +2935,7 @@ function flushSync(){
     .then(function(){ return upsert(kind, KEY_FIELD[kind], key, payload); })
     .then(function(){
       SYNC.err = 0;
+      holdBarHide();           /* 届いたので、下に出していた知らせを消す */
       delete SYNC.pend[k];     /* 届いたことを確かめてから行列を消す */
       savePend();
       done();
@@ -2833,8 +2955,11 @@ function flushSync(){
         SYNC.busy = false; syncBadge('未保存あり（明日再送します）', 'err');
         return;
       }
-      if(cd === 2945 || cd === 401){
-        toast('ログインの有効期限が切れました。画面を再読み込みしてください。');
+      if(isAuthErr(e)){
+        /* Creator がログイン確認の画面に飛ばしている。何度送っても通らないので止める。
+           記録は端末に残っているので、入り直せばそのまま送られる。 */
+        holdBar('Zoho のログインが切れたため保存できていません。' +
+                '受講した記録はこの端末に残っています。', '再読み込み');
         SYNC.busy = false; syncBadge('未保存あり（再読み込みしてください）', 'err');
         return;
       }
@@ -2870,7 +2995,12 @@ function flushAll(send){
 window.addEventListener('beforeunload', function(){ flushAll(false); });
 /* タブを閉じる直前に beforeunload が走らない端末があるので、こちらでも保存する */
 document.addEventListener('visibilitychange', function(){
-  if(!document.hidden) return;
+  if(!document.hidden){
+    /* 表に戻ってきた。溜まっていた未送信を送り、新着も見に行く */
+    if(Object.keys(SYNC.pend).length) setTimeout(flushSync, 300);
+    setTimeout(pollNow, 600);
+    return;
+  }
   /* 裏に回したら再生を止める。席を離れたまま進み続けるのを防ぐ */
   if(P.player && P.player.pauseVideo){
     try{ P.player.pauseVideo(); }catch(e){}
@@ -3523,7 +3653,7 @@ var NAV_USER = [
 /* 船井コネクトのメニュー。e-ラーニングの項目は出さない（アプリごとに分ける） */
 var NAV_CONNECT = [
   { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
-  { go:'feed',    icon:'mail',   label:'掲示板' },
+  { go:'feed',    icon:'mail',   label:'掲示板', badge:'feed' },
   { go:'thanks',  icon:'medal',  label:'サンクスカード' },
   { go:'members', icon:'users',  label:'メンバー' },
   { go:'profile', icon:'user',   label:'プロフィール' }
@@ -3602,6 +3732,14 @@ function drawNav(view){
     list = list.concat(adm);
   }
   var pendS = (inS && typeof App !== 'undefined' && App.pendingCount) ? App.pendingCount() : 0;
+  /* 未読のお知らせと、掲示板の新着。気づけないと「通知されない」と感じるので数字で出す */
+  var pendN = 0, pendF = 0;
+  try{
+    if((me() || {}).name){
+      pendN = newsUnread(myPerson());
+      if(APP_NOW === 'connect') pendF = feedUnread();
+    }
+  }catch(e){}
   var cur = NAV_OF[view] || '';
   var u = me() || { name:'', dept:'' };
 
@@ -3628,7 +3766,10 @@ function drawNav(view){
       h += '<div class="nav-sub' + (open ? ' on' : '') + '">';
       n.sub.forEach(function(s){
         h += '<button class="nav-s" data-go="' + s.go + '"' +
-             (s.go === cur ? ' aria-current="page"' : '') + '>' + esc(s.label) + '</button>';
+             (s.go === cur ? ' aria-current="page"' : '') + '>' + esc(s.label) +
+             (s.go === 'mynews' && pendN
+               ? '<span class="pill req" style="margin-left:6px">' + pendN + '</span>' : '') +
+             '</button>';
       });
       h += '</div>';
     }else{
@@ -3639,6 +3780,8 @@ function drawNav(view){
              ? '<span class="pill req" style="margin-left:auto">' + pend + '</span>' : '') +
            (n.badge === 'shinsei' && pendS
              ? '<span class="pill req" style="margin-left:auto">' + pendS + '</span>' : '') +
+           (n.badge === 'feed' && pendF
+             ? '<span class="pill req" style="margin-left:auto">' + pendF + '</span>' : '') +
            '</button>';
     }
   });
@@ -5341,9 +5484,10 @@ function startTick(){
     trackerTick(P.tr, t, rate);
     drawSeen(t);
     updateCourseBar();
-    /* 60秒おきに保存。止めた時・章を終えた時・画面を離れる時は別途すぐ保存するので、
-       これを短くしても得られるものは少なく、200名同時だと書き込みが4倍になる。 */
-    if(Date.now() - P.saveT > 60000) saveNow();
+    /* 20秒おきに保存。止めた時・章を終えた時・画面を離れる時は別途すぐ保存する。
+       60秒だと「見たのに反映されない」と感じる時間が長すぎるため短くした。
+       塗った区間をまとめて1行に書くので、200名同時でも書き込みは1人1行のまま。 */
+    if(Date.now() - P.saveT > 20000) saveNow();
   }, 500);
 }
 function stopTick(){
@@ -9203,6 +9347,7 @@ function route(view, a, b){
   /* アプリを選び直すときは、入口（ログイン画面）に戻る */
   if(view === 'hub'){
     feedWatch(false);
+    pollStop();
     if(typeof App !== 'undefined' && App.setActive) App.setActive(false);
     document.getElementById('shinsei').hidden = true;
     document.getElementById('main').hidden = false;
@@ -9239,8 +9384,12 @@ function route(view, a, b){
   if(!inS && typeof App !== 'undefined' && App.setActive) App.setActive(false);
 
   VIEW_NOW = view;
-  /* 掲示板を開いているあいだだけ、新着を見に行く */
+  /* 掲示板を開いているあいだだけ、細かく新着を見に行く */
   feedWatch(view === 'feed' || view === 'thanks');
+  /* どのアプリにいても新着に気づけるように、こちらは常に回す */
+  if(!POLL.timer) pollStart();
+  /* 掲示板・サンクスカードを開いたら、その時点の投稿は読んだことにする */
+  if(view === 'feed' || view === 'thanks') markFeedSeen();
 
   document.getElementById('app').classList.add('on');
   drawNav(view);
