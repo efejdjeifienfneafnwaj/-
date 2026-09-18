@@ -478,7 +478,7 @@ const ROSTER = [
   await a.waitForSelector('#holdBar:not([hidden])', { timeout:20000 });
   const abar = await a.$eval('#holdBar', e => e.textContent);
   check('表の名前が出る', /自動リマインド（Lms_Remind）/.test(abar), abar);
-  check('取り込み直すよう伝える', /FunaiPortal\.ds/.test(abar), abar);
+  check('取り込み直すよう伝える', /PortalNavi\.ds/.test(abar), abar);
 
   check('画面のエラーが出ていない（' + errs.slice(0, 3).join(' / ') + '）', errs.length === 0);
   await browser.close(); srv.close();

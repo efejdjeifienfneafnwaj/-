@@ -1,12 +1,12 @@
 /*
- * Purpose : 船井ポータル（社内申請・e-ラーニング・コネクト）用データ保存アプリ
+ * Purpose : PortalNavi（社内申請・e-ラーニング・社内コミュニティ）用データ保存アプリ
  *           Wf_* … 社内申請 / Lms_* … e-ラーニングとコネクト
  *           ・すべての項目を text / textarea / number で持ち、意味づけは
  *             ウィジェット側が担当する（ルックアップや選択肢に依存しない）
  *           ・Wf_Access_Form が「誰が何を見たか」の証跡。追記専用。
  *             取り込み後、この1フォームだけは全ロールで編集・削除を無効にすること。
  */
-application "船井ポータル"
+application "PortalNavi"
 {
 	date format = "yyyy-MM-dd"
 	time zone = "Asia/Tokyo"
@@ -3386,7 +3386,7 @@ application "船井ポータル"
 	{
 		page Wf_Console
 		{
-			displayname="船井ポータル"
+			displayname="PortalNavi"
 			Content=""
 		}
 	}
@@ -5487,7 +5487,7 @@ application "船井ポータル"
 				icon = "objects-spaceship"
 				section Section_Wf
 				{
-					displayname = "船井ポータル"
+					displayname = "PortalNavi"
 					icon = "files-paper"
 					page Wf_Console
 					{

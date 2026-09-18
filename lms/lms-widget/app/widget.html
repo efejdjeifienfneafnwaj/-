@@ -20,7 +20,7 @@
       法人カラーに合わせるときは、この30行だけ触れば全体が変わる。
    ══════════════════════════════════════════════════════════════ */
 :root{
-  /* 船井総研の青を基準にした配色。ここだけ触れば全体の色が変わる */
+  /* 基準の青を軸にした配色。ここだけ触れば全体の色が変わる */
   --brand-1:#1258b8; --brand-2:#1a72b5;          /* 上の帯・入口のグラデーション */
   --pri:#1258b8;     --pri-2:#0e4795;            /* 数字のタイル・主ボタン */
   --acc:#0e5aa6;     --acc-soft:#e7f1fd;         /* リンク・選択中 */
@@ -204,7 +204,7 @@ a{color:var(--acc);}
 .hub-s{font-size:12.5px;color:var(--ink-3);}
 /* 入口（ログイン画面）に並べる3つのアプリ */
 
-/* ───── 船井コネクト ───── */
+/* ───── 社内コミュニティ ───── */
 .fd-card{
   background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-md);
   padding:15px 17px;margin-bottom:13px;
@@ -525,7 +525,8 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   font-family:"Noto Sans JP",sans-serif;font-weight:400;color:#1c1c1c;position:relative;
   white-space:nowrap;padding-top:.12em;
 }
-.logo-wd b{font-weight:400;}
+.logo-wd b{font-weight:700;}
+.logo-wd .nv{color:#1f6fd0;}
 .logo-wd .ii{position:relative;display:inline-block;}
 .logo-wd .dot{
   position:absolute;left:50%;transform:translateX(-50%);top:.04em;
@@ -1238,38 +1239,28 @@ function ic(name, cls){
    ══════════════════════════════════════════════════════════════ */
 function logoMarkSVG(h){
   h = h || 34;
-  return '<svg class="logo-mk" viewBox="0 0 120 86" height="' + h + '" ' +
+  /* 仮の印。方位針（ナビ）を丸で囲んだもの。正式なロゴは設定画面から登録する */
+  return '<svg class="logo-mk" viewBox="0 0 86 86" height="' + h + '" ' +
     'role="img" aria-label="ロゴ" preserveAspectRatio="xMidYMid meet">' +
     '<defs><linearGradient id="lgA" x1="0" y1="0" x2="1" y2="1">' +
       '<stop offset="0" stop-color="#1b3a94"/><stop offset="1" stop-color="#1f7ad4"/>' +
-    '</linearGradient>' +
-    '<linearGradient id="lgB" x1="0" y1="1" x2="1" y2="0">' +
-      '<stop offset="0" stop-color="#1f7ad4"/><stop offset="1" stop-color="#16308a"/>' +
     '</linearGradient></defs>' +
-    /* 左側の細い線（Aの左脚） */
-    '<path d="M2 84 L52 6 L58 6 L10 84 Z" fill="#1565c0"/>' +
-    '<path d="M14 84 L58 12 L62 16 L22 84 Z" fill="#1976d2"/>' +
-    /* 上のリボン（Aの山から右へ波打つ） */
-    '<path d="M46 26 C60 2 74 2 88 18 C98 29 106 32 116 26 L116 46 ' +
-      'C104 54 92 50 80 37 C70 26 62 26 54 40 Z" fill="url(#lgA)"/>' +
-    /* 下のリボン */
-    '<path d="M30 62 C44 34 60 30 76 48 C88 62 98 66 116 56 L116 78 ' +
-      'C98 88 84 82 70 66 C58 52 50 54 42 74 Z" fill="url(#lgB)"/>' +
+    '<circle cx="43" cy="43" r="40" fill="url(#lgA)"/>' +
+    '<circle cx="43" cy="43" r="31" fill="none" stroke="#ffffff" stroke-opacity=".55" stroke-width="2"/>' +
+    '<path d="M43 14 L54 43 L43 72 L32 43 Z" fill="#ffffff"/>' +
+    '<path d="M43 14 L54 43 L43 43 Z" fill="#ffd23f"/>' +
+    '<circle cx="43" cy="43" r="4.5" fill="#1b3a94"/>' +
     '</svg>';
 }
-/* 文字の部分（Funai Soken ＋ 「i」の赤い点） */
+/* 文字の部分（Portal ＋ Navi。Navi だけ色を変える） */
 function logoWordSVG(){
-  /* 「i」の点だけ赤くする。
-     点のない i（U+0131 ı）を使い、その上に赤い丸を置く。
-     こうすると、もとの黒い点と二重にならない。 */
-  return '<span class="logo-wd"><b>Funa<span class="ii">\u0131<i class="dot"></i></span></b>' +
-         '<b>Soken</b></span>';
+  return '<span class="logo-wd"><b>Portal</b><b class="nv">Navi</b></span>';
 }
 /* 画面で使うロゴ。cfg.logo があれば画像を優先する */
 function logoHTML(height, withWord){
   var cfg = config();
   if(safeImageURI(cfg.logo)){
-    return '<img class="logo-img" src="' + esc(safeImageURI(cfg.logo)) + '" alt="' + esc(cfg.orgName) +
+    return '<img class="logo-img" src="' + esc(safeImageURI(cfg.logo)) + '" alt="' + esc(cfg.orgName || cfg.portalName) +
            '" style="height:' + (height || 34) + 'px">';
   }
   return '<span class="logo-set">' + logoMarkSVG(height) +
@@ -1503,7 +1494,7 @@ var FORM = {
   daily: 'Lms_Daily_Form',  dailyR: 'Lms_Daily_Report',
   survey:'Lms_Survey_Form', surveyR:'Lms_Survey_Report',
   news:  'Lms_News_Form',   newsR:  'Lms_News_Report',
-  /* 船井コネクト（掲示板・サンクスカード） */
+  /* 社内コミュニティ（掲示板・サンクスカード・表彰） */
   post:  'Lms_Post_Form',   postR:  'Lms_Post_Report',
   react: 'Lms_React_Form',  reactR: 'Lms_React_Report',
   /* 自動リマインド（Creator のスケジュールが、この表を見てメールを送る） */
@@ -2324,7 +2315,7 @@ var DEFAULT_CONFIG = {
   appName:'PortalNavi',
   termStart:4,        /* 年度の開始月。4＝4月はじまり */
   appSub:'研修ポータル',
-  orgName:'株式会社船井総合研究所',
+  orgName:'',
   tagline:'学ぶ。つながる。変えていく。',
   brandSub:'',
   /* 職種とグループの選択肢。Creator に入るので、全員の端末に同じものが配られる */
@@ -2945,12 +2936,12 @@ function boxMissing(kind){
   if(!kind || MISSING[kind]) return;
   MISSING[kind] = true;
   var name = BOX_LABEL[kind] || kind;
-  console.warn('Creator に「' + name + '」の表がありません。FunaiPortal.ds を取り込み直してください');
+  console.warn('Creator に「' + name + '」の表がありません。PortalNavi.ds を取り込み直してください');
   var adm = false;
   try{ adm = canAdmin(); }catch(e){}
   if(adm){
     holdBar('Creator に「' + name + '」の表がありません。' +
-            'FunaiPortal.ds を取り込み直してください（この機能だけ止めています）', '閉じる', holdBarHide);
+            'PortalNavi.ds を取り込み直してください（この機能だけ止めています）', '閉じる', holdBarHide);
   }
 }
 
@@ -3420,7 +3411,7 @@ function rowsToNews(rows){
   });
   cacheFlush('news');
 }
-/* ── 船井コネクト ── */
+/* ── 社内コミュニティ ── */
 function rowsToPosts(rows){
   rows.forEach(function(r){
     var k = r.post_key;
@@ -3487,7 +3478,7 @@ function fetchLive(rep){
 function loadNews(){
   return fetchLive(FORM.newsR).then(rowsToNews);
 }
-/* 船井コネクトの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
+/* 社内コミュニティの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
 function loadFeed(){
   return runLimited([
     function(){ return fetchLive(FORM.postR).then(rowsToPosts); },
@@ -4358,7 +4349,7 @@ function viewGate(){
   /* 板の下：使い方と、ポータル名・法人名 */
   h +=     '<div class="gate-help">';
   h +=       '<button class="hbtn" id="gHelp">' + ic('book') + '使い方</button>';
-  h +=       '<span class="gate-foot">' + esc(cfg.portalName) + '<span class="sep">｜</span>' + esc(cfg.orgName) + '</span>';
+  h +=       '<span class="gate-foot">' + esc(cfg.portalName) + (cfg.orgName ? '<span class="sep">｜</span>' + esc(cfg.orgName) : '') + '</span>';
   h +=     '</div>';
   h +=   '</div>';     /* gate-l */
   /* 右：大きな言葉と、右下の一言 */
@@ -4890,7 +4881,7 @@ function viewMyNews(){
 }
 
 /* ══════════════════════════════════════════════════════════════
-   船井コネクト（掲示板＋サンクスカード）
+   社内コミュニティ（掲示板＋サンクスカード＋表彰）
 
    ・投稿は押した瞬間に Creator に入る。自動保存のような仕組みは使わない。
    ・開いている画面は、一定の間隔で新着だけを見に行く（書きかけは消さない）。
@@ -10190,9 +10181,10 @@ var CRUMB = {
   asurvey:  ['管理ダッシュボード|adash', '学習進捗管理', 'アンケート'],
   anews:    ['管理ダッシュボード|adash', 'お知らせ配信'],
   hub:      ['アプリを選ぶ'],
-  feed:     ['アプリを選ぶ|hub', '船井コネクト', '掲示板'],
-  thanks:   ['アプリを選ぶ|hub', '船井コネクト', 'サンクスカード'],
-  members:  ['アプリを選ぶ|hub', '船井コネクト', 'メンバー'],
+  feed:     ['アプリを選ぶ|hub', '{connect}', '掲示板'],
+  thanks:   ['アプリを選ぶ|hub', '{connect}', 'サンクスカード'],
+  awards:   ['アプリを選ぶ|hub', '{connect}', '表彰'],
+  members:  ['アプリを選ぶ|hub', '{connect}', 'メンバー'],
   profile:  ['マイダッシュボード|home', 'マイページ', 'プロフィール'],
   aimport:  ['アプリを選ぶ|hub', '職員登録', '職員'],
   ajobs:    ['アプリを選ぶ|hub', '職員登録', '職種'],
@@ -10207,7 +10199,8 @@ function crumbFor(view, arg){
   if(spec){
     return spec.map(function(s){
       var p = s.split('|');
-      return p[1] ? { t:p[0], go:p[1] } : { t:p[0] };
+      var t = p[0].replace('{connect}', appLabel('connect'));   /* アプリ名は設定で変わる */
+      return p[1] ? { t:t, go:p[1] } : { t:t };
     });
   }
   if(view === 'learn' || view === 'quiz' || view === 'cert' || view === 'survey'){

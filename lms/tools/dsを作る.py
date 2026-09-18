@@ -6,13 +6,13 @@
 ・社内申請のフォーム（Wf_*）は shinsei/ShanaiShinsei.ds をそのまま使う
 ・e-ラーニングとコネクトのフォーム（Lms_*）は、ウィジェットが送る項目名から生成する
   （項目名は widget.html の payloadFor / rowsTo* と一対一）
-出力: lms-widget/FunaiPortal.ds
+出力: lms-widget/PortalNavi.ds
 """
 import io, os, re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'shinsei', 'ShanaiShinsei.ds')
-OUT = os.path.join(ROOT, 'lms-widget', 'FunaiPortal.ds')
+OUT = os.path.join(ROOT, 'lms-widget', 'PortalNavi.ds')
 
 T, A = 'text', 'textarea'
 N = 'number'
@@ -125,12 +125,12 @@ def main():
         names = [x[0] for x in f[4]]
         dup = set(n for n in names if names.count(n) > 1)
         if dup: raise SystemExit('項目名が重複: %s %s' % (f[0], dup))
-    s = s.replace('application "社内申請システム"', 'application "船井ポータル"', 1)
+    s = s.replace('application "社内申請システム"', 'application "PortalNavi"', 1)
     s = s.replace(' * Purpose : 社内申請・承認ワークフロー（閲覧証跡つき）用データ保存アプリ',
-                  ' * Purpose : 船井ポータル（社内申請・e-ラーニング・コネクト）用データ保存アプリ\n'
+                  ' * Purpose : PortalNavi（社内申請・e-ラーニング・社内コミュニティ）用データ保存アプリ\n'
                   ' *           Wf_* … 社内申請 / Lms_* … e-ラーニングとコネクト', 1)
-    s = s.replace('displayname="社内申請コンソール"', 'displayname="船井ポータル"', 1)
-    s = s.replace('displayname = "社内申請システム"', 'displayname = "船井ポータル"', 1)
+    s = s.replace('displayname="社内申請コンソール"', 'displayname="PortalNavi"', 1)
+    s = s.replace('displayname = "社内申請システム"', 'displayname = "PortalNavi"', 1)
 
     forms = ''.join(form_block(f) for f in FORMS)
     lists = ''.join(list_block(f) for f in FORMS)

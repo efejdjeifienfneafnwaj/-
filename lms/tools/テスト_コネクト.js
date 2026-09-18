@@ -139,7 +139,7 @@ const ROSTER = [
   await enter(hana, 'connect');
   check('コネクトを押すと掲示板が開く', (await hana.$('#fdBody')) !== null);
   const L = await side(hana);
-  check('上の帯は「社内コミュニティ」（船井は付けない）', (await hana.$eval('#topLogo .nm', e => e.textContent)) === '社内コミュニティ');
+  check('上の帯は「社内コミュニティ」', (await hana.$eval('#topLogo .nm', e => e.textContent)) === '社内コミュニティ');
   check('メニューに「表彰」がある', L.some(t => t === '表彰'));
   check('e-ラーニングの項目は出ない', !L.some(t => /研修コース|マイダッシュボード|修了証/.test(t)));
   check('メンバーとプロフィールがある', L.some(t => t === 'メンバー') && L.some(t => t === 'プロフィール'));
