@@ -9508,6 +9508,36 @@ function viewASettings(){
     }).then(function(res){
       dgPut(true, '行を更新できた', '使えたメソッド = ' + (UPDATE_BY_ID || '?') +
         '\n      戻り値 = ' + JSON.stringify(res).slice(0, 200));
+      /* ── 受講記録そのものを書けるか。名簿は通るのに記録だけ通らないことがある ── */
+      dgPut(null, '⑤-2 受講記録（Lms_Record）に、実際の保存と同じ項目で書く');
+      var co0 = (courses() || [])[0], ch0 = co0 && (co0.chapters || [])[0];
+      if(!ch0){ dgPut(null, 'コースが無いので飛ばします'); return null; }
+      var rk = testKey + '|' + ch0.id + '|' + currentTerm();
+      MEM.records[rk] = { dur:60, ranges:[[0, 10]], fast:false, pos:10, updated:new Date().toISOString() };
+      var pl = payloadFor('record', rk);
+      delete MEM.records[rk];
+      pl.updated_at = new Date().toISOString();
+      dgPut(null, '送る項目：' + Object.keys(pl).join(', '));
+      return ZOHO.CREATOR.DATA.addRecords({ form_name:FORM.record, payload:{ data:pl } }).then(function(r2){
+        var id2 = newIdOf(r2);
+        dgPut(!!id2, '受講記録の行を作れた', 'ID = ' + (id2 || '?') + '\n      戻り値 = ' + JSON.stringify(r2).slice(0, 300));
+        if(!id2) return null;
+        return callUpdateById(FORM.recordR, id2, { watched_sec:20, watched_pct:33, updated_at:new Date().toISOString() })
+          .then(function(r3){ dgPut(true, '受講記録の行を更新できた', JSON.stringify(r3).slice(0, 200)); })
+          .catch(function(e){ dgPut(false, '受講記録の行を更新できない', 'Creator の返事 = ' + (JSON.stringify(e) || '').slice(0, 400)); })
+          .then(function(){
+            var del2 = pickMethod(['deleteRecordById','deleteRecord','deleteRecords']);
+            if(!del2) return null;
+            return dataApi()[del2]({ report_name:FORM.recordR, id:String(id2) })
+              .then(function(){ dgPut(true, '受講記録のテスト行を消した'); })
+              .catch(function(e){ dgPut(false, '受講記録のテスト行を消せなかった（' + FORM.recordR + ' から「' + testKey + '」を手で消してください）', errText(e)); });
+          });
+      }).catch(function(e){
+        var raw = ''; try{ raw = JSON.stringify(e).slice(0, 500); }catch(x){ raw = String(e); }
+        dgPut(false, '受講記録の行を作れない ← これが「受講状況が反映されない」原因です', 'Creator の返事 = ' + raw +
+          '\n      送った項目 = ' + Object.keys(pl).join(', '));
+      });
+    }).then(function(){
       dgPut(null, '⑥ 後片付け');
       return rawFetch(FORM.personR, '(person_key == "' + crit(testKey) + '")');
     }).then(function(rows){
