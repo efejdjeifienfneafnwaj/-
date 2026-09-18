@@ -1699,6 +1699,60 @@ function renamePerson(oldName, newName){
   refreshRole();
   return { ok:true, moved:moved };
 }
+/* ── 名簿に無い氏名で残っている記録 ──
+   名簿の氏名を変えたり、消して作り直したりすると、Creator の記録は古い氏名のまま残り、
+   誰の記録でもなくなる（管理画面では未着手に見える）。その氏名を拾い出す。 */
+function orphanNames(){
+  var ps = people() || {}, seen = {}, out = [];
+  Object.keys(NAME_BOX).forEach(function(box){
+    Object.keys(MEM[box] || {}).forEach(function(k){
+      var n = k.split('|')[0];
+      if(!n || ps[n] || seen[n]) return;
+      seen[n] = true; out.push(n);
+    });
+  });
+  return out.sort();
+}
+/* 古い氏名の記録を、名簿の人に付け替える。Creator の行は行番号を引き継いで書き換える
+   （新しい行を作らないので、古い行が残らない）。付け替え先に同じ章の記録があれば足し合わせる。 */
+function adoptRecords(oldName, newName){
+  var o = normName(oldName), n = normName(newName);
+  if(!o || !n || o === n) return { ok:false, why:'変更がありません' };
+  if(!MEM.people[n]) return { ok:false, why:'付け替え先が名簿にありません' };
+  var moved = 0;
+  Object.keys(NAME_BOX).forEach(function(box){
+    var src = MEM[box];
+    Object.keys(src).forEach(function(k){
+      if(k.indexOf(o + '|') !== 0) return;
+      var nk = n + k.slice(o.length);
+      var cur = src[nk];
+      if(cur && box === 'records'){
+        var merged = createTracker(Math.max(src[k].dur || 1, cur.dur || 1));
+        [cur.ranges || [], src[k].ranges || []].forEach(function(rg){
+          rg.forEach(function(x){ for(var i = x[0]; i < x[1] && i < merged.dur; i++) merged.seen[i] = 1; });
+        });
+        var mp = trackerPack(merged);
+        src[nk] = { dur:merged.dur, ranges:mp.ranges, fast:!!(cur.fast || src[k].fast),
+                    pos:Math.max(cur.pos || 0, src[k].pos || 0), updated:new Date().toISOString() };
+      }else if(cur && box === 'daily'){
+        src[nk] = (Number(cur) || 0) + (Number(src[k]) || 0);
+      }else if(!cur){
+        src[nk] = src[k];
+        if(RID[box][k]){ RID[box][nk] = RID[box][k]; }
+      }
+      delete src[k];
+      if(RID[box][k] && RID[box][nk] !== RID[box][k]){
+        /* 付け替え先の行がすでにあるときは、古い行の中身を空にせず「付け替え済み」の印で残す */
+        delete RID[box][k];
+      }
+      delete RID[box][k];
+      queueSync(NAME_BOX[box], nk);
+      moved++;
+    });
+    cacheFlush(box);
+  });
+  return { ok:true, moved:moved };
+}
 /* 名簿から消す。受講記録は残す（消すと集計が合わなくなるため） */
 function removePerson(name){
   var n = normName(name);
@@ -6708,6 +6762,24 @@ function viewAUsers(){
 
   var h = '<div class="wrap">';
   h += loadNoteHTML();
+  var orphans = orphanNames();
+  if(orphans.length){
+    var rosterNames = Object.keys(people() || {}).sort();
+    h += '<div class="note" style="margin-bottom:14px"><b>名簿に無い氏名の受講記録があります</b>　' +
+         '氏名を変えた・消して作り直した方の記録が、古い氏名のまま残っています。' +
+         '今の名簿の方に付け替えると、その方の受講状況として集計されます。';
+    orphans.forEach(function(o, i){
+      var cnt = 0;
+      Object.keys(NAME_BOX).forEach(function(box){
+        Object.keys(MEM[box] || {}).forEach(function(k){ if(k.indexOf(o + '|') === 0) cnt++; });
+      });
+      h += '<div class="bar" style="margin-top:8px"><b>' + esc(o) + '</b><span class="cap">（記録 ' + cnt + ' 件）</span>→ ' +
+           '<select class="inp" data-adopt-to="' + i + '" style="max-width:220px"><option value="">名簿の方を選ぶ</option>' +
+           rosterNames.map(function(n){ return '<option>' + esc(n) + '</option>'; }).join('') + '</select>' +
+           '<button class="btn sm" data-adopt="' + esc(o) + '" data-i="' + i + '">この方に付け替える</button></div>';
+    });
+    h += '</div>';
+  }
   h += '<div class="ph"><div><h2>ユーザー</h2>' +
        '<div class="sub">受講者ごとの、コース別の受講状況です。名前をクリックすると個人の明細が開きます。</div>' +
        '</div></div>';
@@ -6773,6 +6845,19 @@ function viewAUsers(){
   bindSort(viewAUsers);
   eachIn('[data-person]', function(b){
     b.onclick = function(){ route('audetail', b.getAttribute('data-person')); };
+  });
+  eachIn('[data-adopt]', function(b){
+    b.onclick = function(){
+      var o = b.getAttribute('data-adopt');
+      var sel = document.querySelector('[data-adopt-to="' + b.getAttribute('data-i') + '"]');
+      var n = sel ? sel.value : '';
+      if(!n){ toast('付け替え先の方を選んでください'); return; }
+      if(!window.confirm('「' + o + '」の受講記録を「' + n + '」さんの記録として付け替えます。よろしいですか？')) return;
+      var r = adoptRecords(o, n);
+      if(!r.ok){ toast(r.why); return; }
+      toast(n + ' さんに ' + r.moved + ' 件を付け替えました（Creator にも送ります）');
+      viewAUsers();
+    };
   });
 }
 
@@ -9313,7 +9398,8 @@ function viewASettings(){
           var expect = (okN && okC) ? recKey(normName(name), r.chapter_id) : '';
           var okK = !!expect && !!records()[expect];
           var why = [];
-          if(!okN) why.push('× 名簿にこの氏名がありません：' + JSON.stringify(name) + '（名簿側：' + names.map(function(n){ return JSON.stringify(n); }).join('、') + '）');
+          if(!okN) why.push('× 名簿にこの氏名がありません：' + JSON.stringify(name) + '（名簿側：' + names.map(function(n){ return JSON.stringify(n); }).join('、') + '）' +
+          '\n      → 管理画面の「ユーザー」の上に出る「名簿に無い氏名の受講記録」から、今の名簿の方に付け替えられます');
           if(!okC) why.push('× 章ID ' + JSON.stringify(r.chapter_id) + ' は今のコースにありません（コースを作り直した／章を消した可能性）');
           if(okC && !okCo) why.push('△ コースID ' + JSON.stringify(r.course_id) + ' は今のコースと違います（章IDで結びつけるので集計には入ります）');
           if(okN && okC && !okK) why.push('× 鍵が合いません：Creator の行の鍵=' + stored + '　管理画面が探す鍵=' + expect +

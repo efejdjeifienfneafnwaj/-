@@ -330,10 +330,28 @@ const ROSTER = [
   await a.waitForSelector('tbody tr');
   const hanaRow = await a.$$eval('tbody tr', trs => trs.map(t => t.textContent).filter(t => /佐藤 花子/.test(t))[0] || '');
   check('管理画面のユーザーで、受講した人が「学習中」になる（未着手ではない）', /学習中/.test(hanaRow), hanaRow.slice(0, 160));
+
+  console.log('⑫ 名簿に無い氏名の記録を、名簿の人に付け替える');
+  check('「名簿に無い氏名の受講記録」の札が出る', (await a.$('[data-adopt="山田"]')) !== null);
+  const taroBefore = await a.$$eval('tbody tr', trs => trs.map(t => t.textContent).filter(t => /田中 一郎/.test(t))[0] || '');
+  check('付け替える前の田中さんは未着手', /未着手/.test(taroBefore));
+  await a.selectOption('[data-adopt-to="0"]', '田中 一郎');
+  a.once('dialog', d => d.accept());
+  await a.click('[data-adopt="山田"]');
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  const moved = (DB.Lms_Record || []).filter(r => r.ID === '70002')[0];
+  check('Creator の行を行番号のまま書き換える（新しい行を作らない）', moved && moved.person_name === '田中 一郎' && (DB.Lms_Record || []).length === 4,
+    JSON.stringify({ n:(DB.Lms_Record || []).length, moved:moved && moved.person_name }));
+  check('鍵（rec_key）も新しい氏名になる', moved && /^田中 一郎\|/.test(moved.rec_key), moved && moved.rec_key);
+  await a.waitForTimeout(300);
+  check('札が消える', (await a.$('[data-adopt="山田"]')) === null);
+  const taroAfter = await a.$$eval('tbody tr', trs => trs.map(t => t.textContent).filter(t => /田中 一郎/.test(t))[0] || '');
+  check('付け替えた田中さんが「学習中」になる', /学習中/.test(taroAfter), taroAfter.slice(0, 160));
   delete DB.Lms_Record;
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
-  await a.evaluate(() => { pushRemind('田中 一郎'); });
+  /* ⑪で管理画面を開いた時点で検知済みなので、いったん忘れさせてから改めて送る */
+  await a.evaluate(() => { delete MISSING.remind; delete SYNC.hold[Object.keys(SYNC.hold).filter(k => /^remind/.test(k))[0]]; delete MEM.reminds['田中 一郎']; pushRemind('田中 一郎'); });
   await a.waitForSelector('#holdBar:not([hidden])', { timeout:20000 });
   const abar = await a.$eval('#holdBar', e => e.textContent);
   check('表の名前が出る', /自動リマインド（Lms_Remind）/.test(abar), abar);
