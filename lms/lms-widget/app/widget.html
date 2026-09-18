@@ -1753,6 +1753,28 @@ function adoptRecords(oldName, newName){
   });
   return { ok:true, moved:moved };
 }
+/* 古い氏名の記録を消す（.ds を入れ替える前のテストデータなど）。
+   Creator の行も行番号で消す。行番号が分からない行は端末の控えだけ消す。 */
+function purgeRecords(oldName){
+  var o = normName(oldName), jobs = [], n = 0;
+  Object.keys(NAME_BOX).forEach(function(box){
+    var kind = NAME_BOX[box], rep = FORM[kind + 'R'];
+    Object.keys(MEM[box] || {}).forEach(function(k){
+      if(k.indexOf(o + '|') !== 0) return;
+      var id = RID[box][k];
+      delete MEM[box][k]; delete RID[box][k];
+      delete SYNC.pend[kind + '\u0000' + k];
+      n++;
+      if(id && ON_CREATOR){
+        var del = pickMethod(['deleteRecordById', 'deleteRecord']);
+        if(del) jobs.push(function(){ return dataApi()[del]({ report_name:rep, id:String(id) }); });
+      }
+    });
+    cacheFlush(box);
+  });
+  savePend();
+  return runLimited(jobs, 2).then(function(){ return n; });
+}
 /* 名簿から消す。受講記録は残す（消すと集計が合わなくなるため） */
 function removePerson(name){
   var n = normName(name);
@@ -6776,7 +6798,8 @@ function viewAUsers(){
       h += '<div class="bar" style="margin-top:8px"><b>' + esc(o) + '</b><span class="cap">（記録 ' + cnt + ' 件）</span>→ ' +
            '<select class="inp" data-adopt-to="' + i + '" style="max-width:220px"><option value="">名簿の方を選ぶ</option>' +
            rosterNames.map(function(n){ return '<option>' + esc(n) + '</option>'; }).join('') + '</select>' +
-           '<button class="btn sm" data-adopt="' + esc(o) + '" data-i="' + i + '">この方に付け替える</button></div>';
+           '<button class="btn sm" data-adopt="' + esc(o) + '" data-i="' + i + '">この方に付け替える</button>' +
+           '<button class="btn sub sm" data-purge="' + esc(o) + '">古いデータなので消す</button></div>';
     });
     h += '</div>';
   }
@@ -6857,6 +6880,16 @@ function viewAUsers(){
       if(!r.ok){ toast(r.why); return; }
       toast(n + ' さんに ' + r.moved + ' 件を付け替えました（Creator にも送ります）');
       viewAUsers();
+    };
+  });
+  eachIn('[data-purge]', function(b){
+    b.onclick = function(){
+      var o = b.getAttribute('data-purge');
+      if(!window.confirm('「' + o + '」の受講記録を消します（Creator の行も消えます）。元に戻せません。よろしいですか？')) return;
+      purgeRecords(o).then(function(n){
+        toast('「' + o + '」の記録 ' + n + ' 件を消しました');
+        viewAUsers();
+      }).catch(function(e){ toast('消せなかった行があります：' + errText(e)); viewAUsers(); });
     };
   });
 }

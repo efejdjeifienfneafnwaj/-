@@ -94,6 +94,11 @@ const ROSTER = [
       DB[k].push(r);
       return { code:3000, data:{ ID:r.ID } };
     }
+    if(method === 'deleteRecordById'){
+      const k = tbl(q.report_name);
+      DB[k] = (DB[k] || []).filter(x => String(x.ID) !== String(q.id));
+      return { code:3000 };
+    }
     if(method === 'updateRecordById'){
       const a = DB[tbl(q.report_name)] || [];
       const r = a.filter(x => String(x.ID) === String(q.id))[0];
@@ -311,6 +316,8 @@ const ROSTER = [
       course_id:'old_course', term:ch0.term, watched_pct:'9', ranges_json:'[[0,16]]', duration_sec:'180', updated_at:now },
     { ID:'70002', rec_key:'山田|' + ch0.chap + '|' + ch0.term, person_name:'山田', chapter_id:ch0.chap,
       course_id:'x', term:ch0.term, watched_pct:'4', ranges_json:'[[0,7]]', duration_sec:'180', updated_at:now },
+    { ID:'70005', rec_key:'鈴木|' + ch0.chap + '|' + ch0.term, person_name:'鈴木', chapter_id:ch0.chap,
+      course_id:ch0.co, term:ch0.term, watched_pct:'3', ranges_json:'[[0,5]]', duration_sec:'180', updated_at:now },
     { ID:'70003', rec_key:'佐藤 花子|old_ch|' + ch0.term, person_name:'佐藤 花子', chapter_id:'old_ch',
       course_id:'x', term:ch0.term, watched_pct:'50', ranges_json:'[[0,90]]', duration_sec:'180', updated_at:now }
   ];
@@ -322,7 +329,7 @@ const ROSTER = [
   check('突き合わせの項が出る', /③-5/.test(dg));
   check('名簿にある人の行は ✅', /✅ 行1：佐藤 花子/.test(dg), dg.split('\n').filter(l => /行1/.test(l)).join(''));
   check('名簿に無い氏名は ❌ で理由を出す', /❌ 行3：山田[\s\S]*名簿にこの氏名がありません/.test(dg));
-  check('今のコースに無い章は ❌ で理由を出す', /❌ 行4：[\s\S]*今のコースにありません/.test(dg));
+  check('今のコースに無い章は ❌ で理由を出す', /❌ 行5：[\s\S]*今のコースにありません/.test(dg));
   check('コースIDが違っても章IDで結びつく（△ で知らせる）', /✅ 行2：佐藤 花子[\s\S]*△ コースID "old_course"/.test(dg),
     dg.split('\n').filter(l => /行2|old_course/.test(l)).join(' | '));
   /* 管理画面の「ユーザー」でも未着手にならない */
@@ -340,13 +347,20 @@ const ROSTER = [
   await a.click('[data-adopt="山田"]');
   await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
   const moved = (DB.Lms_Record || []).filter(r => r.ID === '70002')[0];
-  check('Creator の行を行番号のまま書き換える（新しい行を作らない）', moved && moved.person_name === '田中 一郎' && (DB.Lms_Record || []).length === 4,
+  check('Creator の行を行番号のまま書き換える（新しい行を作らない）', moved && moved.person_name === '田中 一郎' && (DB.Lms_Record || []).length === 5,
     JSON.stringify({ n:(DB.Lms_Record || []).length, moved:moved && moved.person_name }));
   check('鍵（rec_key）も新しい氏名になる', moved && /^田中 一郎\|/.test(moved.rec_key), moved && moved.rec_key);
   await a.waitForTimeout(300);
   check('札が消える', (await a.$('[data-adopt="山田"]')) === null);
   const taroAfter = await a.$$eval('tbody tr', trs => trs.map(t => t.textContent).filter(t => /田中 一郎/.test(t))[0] || '');
   check('付け替えた田中さんが「学習中」になる', /学習中/.test(taroAfter), taroAfter.slice(0, 160));
+  /* 古いテストデータは消す */
+  check('もう1人の古い氏名（鈴木）の札が残っている', (await a.$('[data-purge="鈴木"]')) !== null);
+  a.once('dialog', d => d.accept());
+  await a.click('[data-purge="鈴木"]');
+  await a.waitForTimeout(600);
+  check('Creator の行が消える', !(DB.Lms_Record || []).some(r => r.ID === '70005'), JSON.stringify((DB.Lms_Record || []).map(r => r.ID)));
+  check('札が消える', (await a.$('[data-purge="鈴木"]')) === null);
   delete DB.Lms_Record;
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
