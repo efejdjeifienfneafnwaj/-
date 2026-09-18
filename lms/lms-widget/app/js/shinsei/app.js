@@ -203,7 +203,7 @@ var App = (function () {
   /* 閲覧証跡だけは全員に出す。範囲は権限で絞られ、一般利用者には
      「自分の申請を誰が見たか」しか出ない。自分の情報が誰に見られたかを
      本人が確認できることは、このアプリの根幹なので閉じない。 */
-  var ADMIN_ONLY = ['search', 'finance', 'routes', 'admin'];
+  var ADMIN_ONLY = ['search', 'finance', 'routes', 'admin', 'templates'];
   var NAV = [
     { group: 'マイページ' },
     { key: 'mine', label: 'マイページ', ico: '🏠' },
@@ -214,6 +214,7 @@ var App = (function () {
     { group: '管理（システム管理者のみ）', admin: true },
     { key: 'search', label: 'すべての申請', ico: '🔍', admin: true },
     { key: 'finance', label: '経理処理', ico: '💴', admin: true },
+    { key: 'templates', label: '申請フォーマットの作成・編集', ico: '📄', admin: true },
     { key: 'routes', label: '承認経路の設定', ico: '🧭', admin: true },
     { key: 'admin', label: '設定・マスタ', ico: '⚙️', admin: true }
   ];
@@ -316,6 +317,7 @@ var App = (function () {
         case 'access': Views.accessAudit(el); break;
         case 'routes': RouteEditor.render(el); break;
         case 'admin': Views.admin(el); break;
+        case 'templates': Views.templates(el); break;
         default: Views.dashboard(el);
       }
     } catch (e) {

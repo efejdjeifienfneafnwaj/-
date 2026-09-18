@@ -246,6 +246,38 @@ const ROSTER = [
   check('承認経路の画面が開いた', (await page.$eval('#view', e => e.textContent)).indexOf('承認経路の設定') >= 0);
   check('選ばれている区分は作ったもの', await page.evaluate(() => RouteEditor._state.code) === 'FACILITY');
 
+  console.log('⑨ 左メニューの「申請フォーマットの作成・編集」から直接開ける');
+  await page.evaluate(() => route('s_templates'));
+  await page.waitForSelector('[data-tpl-new]');
+  check('左メニューに項目がある', (await page.$('.nav-i[data-go="s_templates"]')) !== null);
+  check('見出しが「申請フォーマットの作成・編集」', (await page.$eval('#view .page-title', e => e.textContent)).indexOf('申請フォーマットの作成・編集') >= 0);
+  check('「＋ 新しい申請フォーマット」のボタンがある', /新しい申請フォーマット/.test(await page.$eval('[data-tpl-new]', e => e.textContent)));
+  check('作った区分の「編集」がある', (await page.$('[data-tpl-edit="FACILITY"]')) !== null);
+  await page.click('[data-tpl-edit="FACILITY"]');
+  await page.waitForSelector('[data-tb="code"]');
+  check('この画面でも編集に入れる', (await page.$eval('[data-tb="name"]', e => e.value)) === '設備購入稟議');
+  await page.click('[data-tpl-cancel]');
+  await page.waitForSelector('[data-tpl-new]');
+  await page.evaluate(() => route('s_new'));
+  await page.waitForSelector('[data-go-templates]');
+  check('「申請する」に管理者向けの「申請フォーマットを作る・直す」がある', (await page.$('[data-go-templates]')) !== null);
+  await page.click('[data-go-templates]');
+  await page.waitForSelector('[data-tpl-new]');
+  check('そのボタンからも開ける', (await page.$eval('#view .page-title', e => e.textContent)).indexOf('申請フォーマット') >= 0);
+
+  console.log('⑩ 一般の人には出ない');
+  const hana = await ctx.newPage();
+  hana.on('pageerror', e => errs.push(String(e)));
+  await hana.addInitScript(stub("hana@example.com"), { email:"hana@example.com" });
+  await hana.goto(base);
+  await hana.waitForSelector('#gate .gate-card');
+  await hana.click('#gate [data-app="shinsei"]');
+  await hana.waitForSelector('#shinsei:not([hidden]) #view .page-title', { timeout:15000 });
+  check('一般には左メニューに出ない', (await hana.$('.nav-i[data-go="s_templates"]')) === null);
+  await hana.evaluate(() => route('s_new'));
+  await hana.waitForSelector('[data-tpl]');
+  check('「申請する」にも作る・直すのボタンは出ない', (await hana.$('[data-go-templates]')) === null);
+
   check('画面のエラーが出ていない（' + errs.slice(0, 3).join(' / ') + '）', errs.length === 0);
   await browser.close(); srv.close();
   console.log('\n合格 ' + ok + ' 件 / 不合格 ' + ng + ' 件');

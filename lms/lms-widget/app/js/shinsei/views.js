@@ -138,6 +138,10 @@ var Views = (function () {
     var cats = {};
     App.templates().forEach(function (t) { (cats[t.category] = cats[t.category] || []).push(t); });
     var html = pageHead('申請する', '申請の種類を選んでください。金額に応じて承認経路は自動で決まります。');
+    if (Perm.isAdmin(me())) {
+      html += '<div class="inline-row" style="margin:4px 0 8px">' +
+        '<button class="btn" data-go-templates>📄 申請フォーマットを作る・直す（管理者）</button></div>';
+    }
     Object.keys(cats).forEach(function (c) {
       html += '<div class="nav-group" style="margin:16px 0 8px;padding:0">' + E(c) + '</div><div class="tpl-grid">';
       cats[c].forEach(function (t) {
@@ -151,6 +155,8 @@ var Views = (function () {
     el.querySelectorAll('[data-tpl]').forEach(function (b) {
       b.addEventListener('click', function () { App.go('form/' + b.dataset.tpl); });
     });
+    var gt = el.querySelector('[data-go-templates]');
+    if (gt) gt.addEventListener('click', function () { App.go('templates'); });
   }
 
   /* =======================================================================
@@ -1343,6 +1349,22 @@ var Views = (function () {
   /* =======================================================================
    * 設定・マスタ
    * ===================================================================== */
+  /* 申請フォーマット（申請区分）の作成・編集。設定・マスタのタブと同じ中身を、独立した画面として出す */
+  function templates(el) {
+    if (!Perm.isAdmin(me())) {
+      Access.denied('申請フォーマットの作成・編集', '権限なし');
+      el.innerHTML = pageHead('申請フォーマット') + UI.empty('🔒', 'この画面を開く権限がありません', 'アクセス拒否として証跡に記録しました');
+      return;
+    }
+    el.innerHTML = pageHead('申請フォーマットの作成・編集',
+      '申請の種類ごとに、入力してもらう項目（文字・数字・金額・日付・選択・添付など）を決めます。ここで作ったフォーマットが「申請する」に並びます。') +
+      '<div class="card" id="abody"></div>';
+    var b = el.querySelector('#abody');
+    b.innerHTML = tplAdmin();
+    bindTpl(b);
+    Access.log(CFG.ACCESS.ACTIONS.VIEW_LIST, { targetType: '申請フォーマット', detail: tplSt.draft ? '編集' : '一覧' });
+  }
+
   function admin(el) {
     /* ★統合：社員・部署は統合側の「職員登録」で扱う（登録する場所を1つにする） */
     var bridged = (typeof window !== 'undefined') && window.SHINSEI_BRIDGE;
@@ -1362,7 +1384,7 @@ var Views = (function () {
         return '<button class="tab" data-mtab="' + k + '">' + Masters.DEFS[k].icon + ' ' + E(Masters.DEFS[k].label) +
           '<span class="n">' + Masters.DEFS[k].list().length + '</span></button>';
       }).join('') +
-      '<button class="tab' + (tab === 'tpl' ? ' active' : '') + '" data-mtab="tpl">📄 申請テンプレート</button>' +
+      '<button class="tab' + (tab === 'tpl' ? ' active' : '') + '" data-mtab="tpl">📄 申請フォーマット</button>' +
       '<button class="tab' + (tab === '__other' ? ' active' : '') + '" data-mtab="__other">⚙️ 運用設定</button>' +
       '</div><div class="card" id="abody"></div>';
     var b = el.querySelector('#abody');
@@ -1428,11 +1450,11 @@ var Views = (function () {
     var off = (S().requestTypes || []).filter(function (r) { return r.Is_Active === false && r.Type_Code; });
     var h = '<div class="card-body">' +
       '<div class="inline-row" style="justify-content:space-between;margin-bottom:12px">' +
-      '<div class="page-sub">申請の種類（申請区分）です。ここで作った区分が「申請する」に並びます。' +
+      '<div class="page-sub">申請フォーマット（申請区分）の一覧です。「編集」で入力項目を直し、「＋ 新しい申請フォーマット」で新しい種類の申請を作れます。' +
       '承認の順番は「経路」から組みます。</div>' +
-      '<button class="btn btn-primary" data-tpl-new>＋ 新しい申請区分</button></div>';
+      '<button class="btn btn-primary" data-tpl-new>＋ 新しい申請フォーマット</button></div>';
     if (!list.length) {
-      h += UI.empty('📄', '申請区分がありません', '「＋ 新しい申請区分」から作ってください。');
+      h += UI.empty('📄', '申請フォーマットがありません', '「＋ 新しい申請フォーマット」から作ってください。');
     } else {
       h += '<div class="table-wrap"><table class="tbl"><thead><tr>' +
         '<th></th><th>名称</th><th>コード</th><th>カテゴリ</th><th>項目</th><th>承認の段数</th><th>機微度</th><th></th>' +
@@ -1724,7 +1746,7 @@ var Views = (function () {
 
   return {
     dashboard: dashboard, newRequest: newRequest, form: form, mine: mine, inbox: inbox,
-    search: search, finance: finance, accessAudit: accessAudit, admin: admin,
+    search: search, finance: finance, accessAudit: accessAudit, admin: admin, templates: templates,
     openDetail: openDetail, exportRequests: exportRequests
   };
 })();

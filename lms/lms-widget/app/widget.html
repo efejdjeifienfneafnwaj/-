@@ -3930,7 +3930,7 @@ var VIEW_RANK = {
   acedit:3,
   asettings:4, aroles:4,
   /* 社内申請の管理側 */
-  s_search:4, s_finance:4, s_routes:4, s_admin:4
+  s_search:4, s_finance:4, s_routes:4, s_admin:4, s_templates:4
 };
 function canOpen(view){
   var need = VIEW_RANK[view];
@@ -4045,7 +4045,7 @@ var NAV_OF = {
   hub:'hub', feed:'feed', thanks:'thanks', awards:'awards', afeed:'afeed',
   s_mine:'s_mine', s_new:'s_new', s_form:'s_new', s_inbox:'s_inbox', s_dashboard:'s_dashboard',
   s_access:'s_access', s_search:'s_search', s_finance:'s_finance', s_routes:'s_routes',
-  s_admin:'s_admin',
+  s_admin:'s_admin', s_templates:'s_templates',
   home:'home', courses:'courses', learn:'courses', quiz:'courses',
   cert:'certs', survey:'courses', certs:'certs', mynews:'mynews',
   profile:'profile', members:'members',
@@ -5763,9 +5763,12 @@ var NAV_SHINSEI = [
   { go:'s_access',    icon:'eye',    label:'閲覧証跡' }
 ];
 var NAV_SHINSEI_ADMIN = [
-  { go:'s_search',  icon:'folder', label:'すべての申請' },
-  { go:'s_finance', icon:'flag',   label:'経理処理' },
-  { go:'s_routes',  icon:'slider', label:'承認経路の設定' },
+  { go:'s_search',    icon:'folder', label:'すべての申請' },
+  { go:'s_finance',   icon:'flag',   label:'経理処理' },
+  /* 申請の書式（どんな項目を入力させるか）を作る・直す。
+     設定・マスタの中のタブにもあるが、見つけにくかったので独立した項目にした */
+  { go:'s_templates', icon:'plus',   label:'申請フォーマットの作成・編集' },
+  { go:'s_routes',    icon:'slider', label:'承認経路の設定' },
   { go:'s_admin',   icon:'gear',   label:'設定・マスタ' }
 ];
 function shinseiLabel(view){
