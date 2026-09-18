@@ -3413,6 +3413,27 @@ function rowsToDaily(rows){
   cacheFlush('daily');
 }
 
+/* ── 端末の控えは、どの Creator のデータに対するものか ──
+   控え（localStorage）は「lms_…」で一律に持っていたため、.ds を入れ替えて表を作り直しても
+   古いアプリの受講記録や送信待ちが端末に残り、新しい表へ送り込まれて「混ざる」ことがあった。
+   コース定義の行番号（Lms_Course の ID）をデータの印にし、印が変わっていたら
+   控えを捨ててから始める（コース定義と設定は Creator から読み直す）。 */
+function stampDataset(id){
+  if(!id) return;
+  var prev = LS.get('dataset', '');
+  if(prev === id) return;
+  if(prev){
+    console.warn('別の Creator のデータに切り替わったので、端末の控え（受講記録・送信待ち）を捨てます', prev, '→', id);
+    ['people','records','quizzes','surveys','daily','news','posts','reacts','reminds','newsSeen','feedSeen','pend','noCrit']
+      .forEach(function(k){ try{ localStorage.removeItem(LS.key(k)); }catch(e){} });
+    MEM.people = {}; MEM.records = {}; MEM.quizzes = {}; MEM.surveys = {}; MEM.daily = {};
+    MEM.news = {}; MEM.posts = {}; MEM.reacts = {}; MEM.reminds = {};
+    Object.keys(RID).forEach(function(k){ if(RID[k] && typeof RID[k] === 'object') RID[k] = {}; });
+    SYNC.pend = {}; SYNC.hold = {}; NO_CRIT_ALL = false;
+    LOADED.all = false; LOADED.person = ''; LOADED.daily = '';
+  }
+  LS.set('dataset', id);
+}
 /* コース定義を読む（いちばん新しい1件を使う） */
 /* お知らせは全員が読む（件数が少ないので1回で十分） */
 /* 「消していない行だけ」を読む。
@@ -3440,6 +3461,7 @@ function loadCourses(){
     });
     var r = rows[0];
     RID.courses = String(r.ID || '');
+    stampDataset(RID.courses);
     try{
       var c = JSON.parse(r.course_json || 'null');
       if(c && c.length){ MEM.courses = c; cacheFlush('courses'); }
@@ -9395,7 +9417,8 @@ function viewASettings(){
             });
           });
       }).then(function(){
-        dgPut(null, '③-4 この端末の送信待ち');
+        dgPut(null, '③-4 この端末の控え');
+        dgPut(null, '控えが対応するデータの印：' + (LS.get('dataset', '') || '（まだ無い）') + '　いまの Creator の印：' + (RID.courses || '（未読）'));
         var pend = Object.keys(SYNC.pend), hold = Object.keys(SYNC.hold);
         dgPut(null, '送信待ち ' + pend.length + ' 件' + (pend.length ? '：' + pend.slice(0, 8).map(function(k){ return k.replace('\u0000', ' '); }).join(' / ') : ''));
         dgPut(null, '預かり（表が無い）' + hold.length + ' 件' + (hold.length ? '：' + hold.slice(0, 8).map(function(k){ return k.replace('\u0000', ' '); }).join(' / ') : ''));

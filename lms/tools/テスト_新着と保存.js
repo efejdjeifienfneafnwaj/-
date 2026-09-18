@@ -363,6 +363,35 @@ const ROSTER = [
   check('札が消える', (await a.$('[data-purge="鈴木"]')) === null);
   delete DB.Lms_Record;
 
+  console.log('⑬ .ds を入れ替えた（別のデータになった）ら、端末に残る古い控えを送り込まない');
+  await a.evaluate(() => setConfig(config()));            /* コース定義の行を Creator に作る（データの印になる） */
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  const stamp = String(((DB.Lms_Course || [])[0] || {}).ID || '');
+  check('コース定義の行がある（印になる）', !!stamp, JSON.stringify(DB.Lms_Course));
+  const seed = ({ chap, term }) => {
+    /* 古いアプリで使っていた端末の控え：別の印、山田の記録、その送信待ち */
+    localStorage.setItem('lms_dataset', JSON.stringify('OLD_APP'));
+    localStorage.setItem('lms_records', JSON.stringify({ ['山田|' + chap + '|' + term]: { dur:180, ranges:[[0,30]], fast:false, pos:30, updated:new Date().toISOString() } }));
+    localStorage.setItem('lms_pend', JSON.stringify(['record\u0000山田|' + chap + '|' + term]));
+  };
+  const before = (DB.Lms_Record || []).length;
+  const ctxS = await browser.newContext({ viewport:{ width:1280, height:900 } });
+  const stale = await ctxS.newPage();
+  stale.on('pageerror', e => errs.push('stale: ' + e));
+  await stale.addInitScript(stub, { email:'hana@example.com' });
+  await stale.addInitScript(seed, ch0);
+  await stale.goto(base);
+  await stale.waitForSelector('#gate [data-app="lms"]');
+  await stale.click('#gate [data-app="lms"]');
+  await stale.waitForSelector('#app.on', { timeout:15000 });
+  await stale.waitForFunction(() => VIEW_NOW === appHome(), { timeout:15000 });
+  await stale.waitForTimeout(1500);
+  check('印が今の Creator のものに書き換わる', await stale.evaluate(() => LS.get('dataset', '')) === stamp);
+  check('古い控えの記録（山田）は捨てられる', await stale.evaluate(() => !Object.keys(MEM.records).some(k => /^山田/.test(k))));
+  check('古い送信待ちが新しい表に送られない', (DB.Lms_Record || []).length === before && !(DB.Lms_Record || []).some(r => /山田/.test(r.person_name || '')),
+    JSON.stringify((DB.Lms_Record || []).map(r => r.person_name)));
+  await ctxS.close();
+
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
   /* ⑪で管理画面を開いた時点で検知済みなので、いったん忘れさせてから改めて送る */
   await a.evaluate(() => { delete MISSING.remind; delete SYNC.hold[Object.keys(SYNC.hold).filter(k => /^remind/.test(k))[0]]; delete MEM.reminds['田中 一郎']; pushRemind('田中 一郎'); });
