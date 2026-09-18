@@ -3830,8 +3830,16 @@ function drawNav(view){
   var adm = canAdmin() ? navFor(inS ? NAV_SHINSEI_ADMIN : (APP_NOW === 'connect' ? NAV_CONNECT_ADMIN :
             (APP_NOW === 'staff' ? [] : NAV_ADMIN))) : [];
   if(adm.length){
-    list.push({ head:'管理' });
-    list = list.concat(adm);
+    if(!inS && APP_NOW !== 'connect' && APP_NOW !== 'staff'){
+      /* PortalNavi（e-ラーニング）の管理者は管理の項目を主に使うので上に置き、
+         受講の項目（マイダッシュボード・研修コース・マイページ）は一番下にまとめる */
+      var top = list.filter(function(n){ return n.go === 'hub'; });
+      var rest = list.filter(function(n){ return n.go !== 'hub'; });
+      list = top.concat([{ head:'管理' }], adm, [{ head:'受講' }], rest);
+    }else{
+      list.push({ head:'管理' });
+      list = list.concat(adm);
+    }
   }
   var pendS = (inS && typeof App !== 'undefined' && App.pendingCount) ? App.pendingCount() : 0;
   /* 未読のお知らせと、掲示板の新着。気づけないと「通知されない」と感じるので数字で出す */
@@ -4725,6 +4733,13 @@ function myLike(postId){
   });
   return hit;
 }
+function myVote(postId){
+  var u = me() || {}, hit = null;
+  reactsOf(postId, 'vote').forEach(function(r){
+    if(normName(r.by) === normName(u.name)) hit = r;
+  });
+  return hit;
+}
 /* 書き込みは、押した瞬間に1行入れて送る */
 function putPost(o){
   var k = o.id || newKey('p');
@@ -4790,6 +4805,10 @@ function feedKeepDraft(){
     var e = document.getElementById(id);
     if(e) AW[id.slice(2).toLowerCase()] = e.value;
   });
+  ['nmTitle', 'nmTo', 'nmBody'].forEach(function(id){
+    var e = document.getElementById(id);
+    if(e) NM[id.slice(2).toLowerCase()] = e.value;
+  });
   Object.keys(FEED.reply).forEach(function(k){ delete FEED.reply[k]; });
   eachIn('[data-rc]', function(e){
     if(e.value) FEED.reply[e.getAttribute('data-rc')] = e.value;
@@ -4815,6 +4834,9 @@ function postCard(p){
   if(p.kind === 'award'){
     h += '<span class="pill aw">' + ic('trophy') + '表彰</span>';
   }
+  if(p.kind === 'nominee'){
+    h += '<span class="pill aw">' + ic('flag') + '候補・投票中</span>';
+  }
   if(canDel){
     h += '<button class="btn sub sm" data-pdel="' + esc(p.id) + '">削除</button>';
   }
@@ -4825,12 +4847,30 @@ function postCard(p){
   if(p.kind === 'award'){
     h += '<div class="fd-to fd-aw">' + ic('trophy') + '<b>' + esc(p.to || '') + '</b> さん' +
          '<span class="aw-name">' + esc(p.title || '表彰') + '</span></div>';
+  }else if(p.kind === 'nominee'){
+    h += '<div class="fd-to fd-aw">' + ic('flag') + '<b>' + esc(p.to || '') + '</b> さんを推薦' +
+         '<span class="aw-name">' + esc(p.title || '表彰') + '</span></div>';
   }else if(p.title){
     h += '<div class="fd-ttl">' + esc(p.title) + '</div>';
   }
   h += '<div class="fd-body">' + esc(p.body || '').replace(/\n/g, '<br>') + '</div>';
 
   h += '<div class="fd-ops">';
+  if(p.kind === 'nominee'){
+    /* 候補には「いいね」の代わりに投票。1人1票、自分には入れられない */
+    var votes = reactsOf(p.id, 'vote'), myV = myVote(p.id);
+    h += '<button class="fd-like' + (myV ? ' on' : '') + '" data-pvote="' + esc(p.id) + '">' +
+         '🗳 投票 <span>' + votes.length + '</span></button>';
+    if(votes.length){
+      h += '<span class="fd-likers">' +
+           esc(votes.slice(0, 3).map(function(r){ return r.by; }).join('、')) +
+           (votes.length > 3 ? ' ほか' + (votes.length - 3) + '名' : '') + '</span>';
+    }
+    if(canAward()){
+      h += '<button class="btn sm" data-adecide="' + esc(p.id) + '" style="margin-left:auto">' +
+           ic('trophy') + 'この方を表彰する</button>';
+    }
+  }else{
   h += '<button class="fd-like' + (mine ? ' on' : '') + '" data-plike="' + esc(p.id) + '">' +
        '♥ <span>' + likes.length + '</span></button>';
   h += '<button class="fd-cmt" data-popen="' + esc(p.id) + '">' +
@@ -4839,6 +4879,7 @@ function postCard(p){
     h += '<span class="fd-likers">' +
          esc(likes.slice(0, 3).map(function(r){ return r.by; }).join('、')) +
          (likes.length > 3 ? ' ほか' + (likes.length - 3) + '名' : '') + '</span>';
+  }
   }
   h += '</div>';
 
@@ -5000,6 +5041,18 @@ function viewThanks(){
    掲示板にも並ぶので、みんなが「いいね」やコメントで祝える。
    表彰できるのはシステム管理者。受講者は見るだけ。 */
 var AW = { title:'', to:'', body:'' };
+var NM = { title:'', to:'', body:'' };     /* 推薦の書きかけ */
+/* 候補を表彰に確定する。票の数を理由に添え、候補は消す（表彰の行に引き継ぐ） */
+function decideAward(id){
+  var p = MEM.posts[id];
+  if(!p || p.kind !== 'nominee') return;
+  var u = me() || {};
+  var n = reactsOf(id, 'vote').length;
+  putPost({ kind:'award', by:u.name, byMail:LOGIN_EMAIL || u.email || '',
+            to:p.to, title:p.title,
+            body:String(p.body || '') + '\n（推薦：' + (p.by || '') + '　投票 ' + n + ' 票）', target:'' });
+  dropPost(id);
+}
 var AWARD_NAMES = ['月間MVP', '年間MVP', '新人賞', '永年勤続表彰', 'チームワーク賞', '感謝賞', '改善提案賞'];
 function canAward(){ return canAdmin(); }
 /* 受賞した数（名前 → 件数） */
@@ -5057,8 +5110,38 @@ function viewAwards(){
          '<span class="sp"></span>' +
          '<button class="btn" id="awGo">' + ic('trophy') + '表彰する</button></div>';
     h += '</div>';
+  }
+
+  /* 推薦（誰でも）と投票 */
+  h += '<div class="card pad" style="margin-bottom:18px;display:grid;gap:11px">';
+  h += '<div class="cat" style="margin:0">' + ic('flag') + '推薦する</div>';
+  h += '<div class="cap">がんばっている方を推薦できます。みんなの投票で決め、管理者が表彰します。</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="nmTitle">表彰名</label>' +
+           '<input class="inp" id="nmTitle" list="awNames" placeholder="例）月間MVP" value="' + esc(NM.title) + '">' +
+           (canAward() ? '' : '<datalist id="awNames">' + AWARD_NAMES.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') + '</datalist>') +
+           '</div>';
+  h +=   '<div class="field"><label for="nmTo">推薦する方</label>' +
+           '<select class="inp" id="nmTo"><option value="">選んでください</option>' +
+           names.filter(function(n){ return normName(n) !== normName(u.name); }).map(function(n){
+             return '<option' + (NM.to === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+           }).join('') + '</select></div>';
+  h += '</div>';
+  h += '<div class="field"><label for="nmBody">推薦の理由</label>' +
+       '<textarea class="inp" id="nmBody" rows="2" style="resize:vertical" ' +
+       'placeholder="例）新人の指導を毎日欠かさず、チーム全体の雰囲気が良くなりました。">' + esc(NM.body) + '</textarea></div>';
+  h += '<div class="bar"><span class="cap">推薦は全員に見えます。1人1票、自分には投票できません</span>' +
+       '<span class="sp"></span><button class="btn sub" id="nmGo">' + ic('flag') + '推薦する</button></div>';
+  h += '</div>';
+
+  var noms = postList('nominee').sort(function(a, b){
+    return reactsOf(b.id, 'vote').length - reactsOf(a.id, 'vote').length;
+  });
+  h += '<div class="cat">' + ic('flag') + '投票中の候補' + (noms.length ? '　' + noms.length + '名' : '') + '</div>';
+  if(!noms.length){
+    h += '<div class="card" style="margin-bottom:18px"><div class="empty">' + ic('flag') + 'いま投票中の候補はありません。</div></div>';
   }else{
-    h += '<div class="note" style="margin-bottom:18px">表彰はシステム管理者が行います。</div>';
+    noms.forEach(function(p){ h += postCard(p); });
   }
 
   if(rank_.length){
@@ -5082,6 +5165,19 @@ function viewAwards(){
   document.getElementById('main').innerHTML = h;
   bindFeed();
 
+  document.getElementById('nmGo').onclick = function(){
+    var t  = String(document.getElementById('nmTitle').value || '').trim();
+    var to = document.getElementById('nmTo').value;
+    var b  = String(document.getElementById('nmBody').value || '').trim();
+    if(!t){ document.getElementById('nmTitle').focus(); toast('表彰名を入れてください'); return; }
+    if(!to){ document.getElementById('nmTo').focus(); toast('推薦する方を選んでください'); return; }
+    if(!b){ document.getElementById('nmBody').focus(); toast('推薦の理由を書いてください'); return; }
+    putPost({ kind:'nominee', by:u.name, byMail:LOGIN_EMAIL || u.email || '',
+              to:to, title:t, body:b, target:'' });
+    NM.title = ''; NM.to = ''; NM.body = '';
+    toast(to + ' さんを推薦しました。投票が集まるとよいですね');
+    viewAwards();
+  };
   var go = document.getElementById('awGo');
   if(go) go.onclick = function(){
     var t  = String(document.getElementById('awTitle').value || '').trim();
@@ -5272,6 +5368,29 @@ function bindFeed(){
       var b = byAttr('data-csend', e.getAttribute('data-rc'));
       if(b) b.click();
     });
+  });
+  eachIn('[data-pvote]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-pvote');
+      var p = MEM.posts[id] || {};
+      if(normName(p.to) === normName(u.name)){ toast('自分には投票できません'); return; }
+      var mine = myVote(id);
+      feedKeepDraft();
+      if(mine){ dropReact(mine.id); toast('投票を取り消しました'); }
+      else{ putReact({ post:id, kind:'vote', by:u.name }); toast(p.to + ' さんに投票しました'); }
+      route(VIEW_NOW);
+    };
+  });
+  eachIn('[data-adecide]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-adecide');
+      var p = MEM.posts[id] || {};
+      if(!window.confirm(p.to + ' さんを「' + p.title + '」で表彰しますか？')) return;
+      feedKeepDraft();
+      decideAward(id);
+      toast(p.to + ' さんを表彰しました');
+      route('awards');
+    };
   });
   eachIn('[data-pdel]', function(b){
     b.onclick = function(){

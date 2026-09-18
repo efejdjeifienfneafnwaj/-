@@ -98,6 +98,12 @@ const ROSTER = [
   check('メニューは1つで、受講者の項目がある', L.some(t => t === '研修コース'));
   check('同じメニューに管理の項目もある', L.some(t => t === 'コース管理'));
   check('「管理」の見出しが出る', L.some(t => t === '管理'));
+  /* 管理者は管理の項目が上、受講の項目は一番下 */
+  const order = (await p.$$eval('#side .nav-h, #side .nav-i', els => els.map(e => e.textContent.trim()))).filter(Boolean);
+  check('管理者のメニューは「管理」が上、「受講」が下',
+    order.indexOf('管理') > 0 && order.indexOf('管理') < order.indexOf('受講') &&
+    order.indexOf('受講') < order.indexOf('マイダッシュボード'), order.join('>'));
+  check('「アプリを選ぶ」は一番上のまま', order[0] === 'アプリを選ぶ', order[0]);
   check('設定も出る', L.some(t => t === '設定'));
   check('管理メニューに職員登録は無い（ログイン画面の専用の入口だけ）', !L.some(t => t === '職員登録'));
   check('上の帯はアプリ名（PortalNavi）', (await p.$eval('#topLogo .nm', e => e.textContent)) === 'PortalNavi');

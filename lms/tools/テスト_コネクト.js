@@ -288,6 +288,46 @@ const ROSTER = [
   await hana4.waitForTimeout(300);
   check('メンバー一覧に受賞の数が出る', /受賞 1回/.test(await hana4.$eval('.members', e => e.textContent)));
 
+  console.log('⑧ 推薦と投票で決める');
+  await hana4.evaluate(() => route('awards'));
+  await hana4.waitForSelector('#nmGo');
+  check('受講者にも「推薦する」が出る', (await hana4.$('#nmTitle')) !== null);
+  await hana4.fill('#nmTitle', '年間MVP');
+  await hana4.selectOption('#nmTo', '鈴木 次郎');
+  await hana4.fill('#nmBody', '新人の指導を毎日欠かさず、チームの雰囲気が良くなりました。');
+  await hana4.click('#nmGo');
+  await hana4.waitForTimeout(400);
+  check('候補として並ぶ', (await hana4.$$('[data-pvote]')).length === 1);
+  await hana4.click('[data-pvote]');
+  await hana4.waitForTimeout(300);
+  check('推薦した人が投票できる（1票）', (await hana4.$eval('[data-pvote] span', e => e.textContent)) === '1');
+  await hana4.waitForFunction(() => Object.keys(SYNC.pend).length === 0, { timeout:10000 });
+  const jiro4 = await open('jiro@example.com');
+  await enter(jiro4, 'connect');
+  await jiro4.evaluate(() => route('awards'));
+  await jiro4.waitForSelector('[data-pvote]');
+  await jiro4.click('[data-pvote]');
+  await jiro4.waitForTimeout(300);
+  check('自分には投票できない', (await jiro4.$eval('[data-pvote] span', e => e.textContent)) === '1');
+  check('自分には投票できないと知らせる', /自分には投票できません/.test(await jiro4.$eval('.toast', e => e.textContent)));
+  check('受講者には「この方を表彰する」は出ない', (await jiro4.$('[data-adecide]')) === null);
+  const boss2 = await open('owner@example.com');
+  await enter(boss2, 'connect');
+  await boss2.evaluate(() => route('awards'));
+  await boss2.waitForSelector('[data-adecide]');
+  await boss2.click('[data-pvote]');
+  await boss2.waitForTimeout(300);
+  check('管理者も投票できる（2票）', (await boss2.$eval('[data-pvote] span', e => e.textContent)) === '2');
+  check('掲示板にも候補が出て投票できる', await boss2.evaluate(() => postList('').some(p => p.kind === 'nominee')));
+  boss2.once('dialog', d => d.accept());
+  await boss2.click('[data-adecide]');
+  await boss2.waitForTimeout(500);
+  check('確定すると候補は消える', (await boss2.$$('[data-pvote]')).length === 0);
+  const decided = await boss2.$$eval('.fd-aw', els => els.map(e => e.textContent));
+  check('表彰に変わる（年間MVP・鈴木 次郎）', decided.some(t => /鈴木 次郎.*年間MVP/.test(t)), decided.join(' / '));
+  check('票の数が理由に添えられる', /投票 2 票/.test(await boss2.$eval('#main', e => e.textContent)));
+  check('全社の表彰の数が 2', (await boss2.$$eval('.tile .big', els => els.map(e => e.textContent)))[1] === '2');
+
   check('画面のエラーが出ていない（' + errs.join(' / ') + '）', errs.length === 0);
 
   await browser.close(); srv.close();
