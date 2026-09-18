@@ -1,4 +1,4 @@
-/* 船井コネクト（掲示板・サンクスカード）と、3つのアプリの入口を確かめる */
+/* 社内コミュニティ（掲示板・サンクスカード・表彰）と、3つのアプリの入口を確かめる */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -135,11 +135,12 @@ const ROSTER = [
   check('入口に3つのカードが出る', (await hana.$$('#gate [data-app]')).length === 3);
   const names = await hana.$$eval('#gate [data-app] b', els => els.map(e => e.textContent.trim()));
   check('3つの名前が並ぶ',
-    names.join('/') === '社内申請/船井e-ラーニング/船井コネクト', names.join('/'));
+    names.join('/') === '社内申請/PortalNavi/社内コミュニティ', names.join('/'));
   await enter(hana, 'connect');
   check('コネクトを押すと掲示板が開く', (await hana.$('#fdBody')) !== null);
   const L = await side(hana);
-  check('上の帯は「船井コネクト」', (await hana.$eval('#topLogo .nm', e => e.textContent)) === '船井コネクト');
+  check('上の帯は「社内コミュニティ」（船井は付けない）', (await hana.$eval('#topLogo .nm', e => e.textContent)) === '社内コミュニティ');
+  check('メニューに「表彰」がある', L.some(t => t === '表彰'));
   check('e-ラーニングの項目は出ない', !L.some(t => /研修コース|マイダッシュボード|修了証/.test(t)));
   check('メンバーとプロフィールがある', L.some(t => t === 'メンバー') && L.some(t => t === 'プロフィール'));
   await hana.evaluate(() => route('home'));
@@ -255,6 +256,37 @@ const ROSTER = [
   await jiro3.waitForTimeout(400);
   const jb = await jiro3.$$eval('.fd-body', els => els.map(e => e.textContent));
   check('看護職の鈴木さんには出る', jb.some(t => t.indexOf('看護職の方へ') >= 0));
+
+  console.log('⑦ 社員表彰制度');
+  const boss = await open('owner@example.com');
+  await enter(boss, 'connect');
+  await boss.evaluate(() => route('awards'));
+  await boss.waitForSelector('#awGo');
+  check('管理者には「表彰する」の欄が出る', (await boss.$('#awTitle')) !== null);
+  await boss.fill('#awTitle', '月間MVP');
+  await boss.selectOption('#awTo', '佐藤 花子');
+  await boss.fill('#awBody', '送迎表の作り方を見直し、毎週2時間の作業を無くしてくれました。');
+  await boss.click('#awGo');
+  await boss.waitForTimeout(400);
+  check('表彰が一覧に並ぶ', (await boss.$$('.pill.aw')).length === 1);
+  check('受賞者と表彰名が出る',
+    /佐藤 花子.*月間MVP/.test(await boss.$eval('.fd-aw', e => e.textContent)));
+  check('殿堂に受賞者が載る', /佐藤 花子/.test(await boss.$eval('.rolelist', e => e.textContent)));
+  check('全社の表彰の数が 1', (await boss.$$eval('.tile .big', els => els.map(e => e.textContent)))[1] === '1');
+  await boss.waitForFunction(() => Object.keys(SYNC.pend).length === 0, { timeout:10000 });
+  check('Creator の投稿の表に kind=award で入る', (DB.Lms_Post || []).some(r => r.kind === 'award' && r.to_name === '佐藤 花子'));
+
+  const hana4 = await open('hana@example.com');
+  await enter(hana4, 'connect');
+  await hana4.waitForTimeout(400);
+  check('受賞者の掲示板にも表彰が並ぶ（みんなで祝える）', (await hana4.$$('.pill.aw')).length === 1);
+  await hana4.evaluate(() => route('awards'));
+  await hana4.waitForTimeout(300);
+  check('受講者には「表彰する」の欄は出ない', (await hana4.$('#awGo')) === null);
+  check('自分の受賞が 1 と出る', (await hana4.$$eval('.tile .big', els => els.map(e => e.textContent)))[0] === '1');
+  await hana4.evaluate(() => route('members'));
+  await hana4.waitForTimeout(300);
+  check('メンバー一覧に受賞の数が出る', /受賞 1回/.test(await hana4.$eval('.members', e => e.textContent)));
 
   check('画面のエラーが出ていない（' + errs.join(' / ') + '）', errs.length === 0);
 

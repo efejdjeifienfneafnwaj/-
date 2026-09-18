@@ -100,7 +100,7 @@ const ROSTER = [
   check('「管理」の見出しが出る', L.some(t => t === '管理'));
   check('設定も出る', L.some(t => t === '設定'));
   check('管理メニューに職員登録は無い（ログイン画面の専用の入口だけ）', !L.some(t => t === '職員登録'));
-  check('上の帯は e-ラーニングの名前', (await p.$eval('#topLogo .nm', e => e.textContent)) === '船井e-ラーニング');
+  check('上の帯はアプリ名（PortalNavi）', (await p.$eval('#topLogo .nm', e => e.textContent)) === 'PortalNavi');
   check('コネクトの項目は出ない', !L.some(t => /掲示板|サンクス|メンバー/.test(t)));
   await p.evaluate(() => route('feed'));
   await p.waitForTimeout(250);

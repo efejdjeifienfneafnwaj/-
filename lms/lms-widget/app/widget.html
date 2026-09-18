@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>研修ポータル</title>
+<title>PortalNavi</title>
 <!-- Zoho Creator ウィジェットSDK。Creator上でのみ ZOHO が定義される。
      ファイルを直接開いた場合は読み込みに失敗するが、
      そのときはブラウザ内保存で動くようにしてあるのでエラーにはならない。 -->
@@ -924,6 +924,10 @@ kbd{
 .mem b{font-size:14.5px;}
 .mem .mem-t{font-size:12px;color:var(--ink-3);}
 .mem .mem-b{font-size:12.5px;line-height:1.6;color:var(--ink-2);word-break:break-word;}
+.mem .mem-aw{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#7d5200;}
+/* 表彰の札と、受賞者の行 */
+.pill.aw{background:#fff3d6;color:#7d5200;border-color:#f0d9a0;}
+.fd-aw .aw-name{margin-left:10px;padding:2px 10px;border-radius:12px;background:#fff3d6;color:#7d5200;font-size:12px;font-weight:700;}
 @media (max-width:860px){ #shinsei .view{padding:16px 14px 80px;} }
 .scope .chip span{padding:6px 11px;font-size:12px;}
 @media (max-width:860px){ .rolerow{flex-wrap:wrap;} }
@@ -1209,6 +1213,7 @@ var SVG = {
   back:'<path d="M14.5 5.5 8 12l6.5 6.5"/>',
   folder:'<path d="M3 6.5h6l2 2.4h10V19H3z"/>',
   medal:'<circle cx="12" cy="14.5" r="5"/><path d="M8.5 9.6 6 3.5h12l-2.5 6.1"/>',
+  trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>',
   history:'<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.2 4v4h4"/><path d="M12 7.6V12l3.2 2"/>',
   target:'<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
   flag:'<path d="M6 3.5V21"/><path d="M6 4.6h12l-2.4 4.4L18 13.4H6z"/>'
@@ -2179,7 +2184,7 @@ function pollNow(){
   POLL.busy = true;
   var beforeN = newsUnread(myPerson()), beforeF = feedUnread();
   /* 掲示板を開いているときは feedWatch が見ているので、こちらは読まない */
-  var watching = (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks');
+  var watching = (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks' || VIEW_NOW === 'awards');
   var jobs = [];
   if(!MISSING.news) jobs.push(function(){ return loadNews(); });
   if(!watching && !MISSING.post) jobs.push(function(){ return loadFeed(); });
@@ -2215,7 +2220,7 @@ function pollStop(){
    ══════════════════════════════════════════════════════════════ */
 var DEFAULT_CONFIG = {
   /* ポータル全体（ログイン画面）の名前。3つのアプリの上にかぶさるもの */
-  portalName:'e-Learning',
+  portalName:'PortalNavi',
   portalSub:'研修ポータル',
   catchCopy:'学びが、明日の変化をつくる。',
   catchSub:'',
@@ -2223,7 +2228,7 @@ var DEFAULT_CONFIG = {
   scriptCopy:'LEARNING\nFOR A BRIGHTER TOMORROW',
   taglineSub:'',
   /* e-ラーニング（アプリの1つ）の名前 */
-  appName:'船井e-ラーニング',
+  appName:'PortalNavi',
   termStart:4,        /* 年度の開始月。4＝4月はじまり */
   appSub:'研修ポータル',
   orgName:'株式会社船井総合研究所',
@@ -2992,9 +2997,12 @@ function flushSync(){
   if(!payload){
     /* 中身が消えている＝章IDが変わった・氏名に区切り文字が入った等。
        黙って捨てると「保存済み」と出たまま記録が失われるので、必ず知らせる。 */
-    console.error('送信できない待ち行列を取り除きました', kind, key);
     delete SYNC.pend[k]; savePend();
-    toast('保存できなかった記録が1件あります（' + kind + '）。研修担当にご連絡ください。');
+    /* 日次の学習時間は「今日ぶんが無い」だけなので、送るものが無い＝失敗ではない */
+    if(kind !== 'daily'){
+      console.error('送信できない待ち行列を取り除きました', kind, key);
+      toast('保存できなかった記録が1件あります（' + kind + '）。研修担当にご連絡ください。');
+    }
     done(); return;
   }
 
@@ -3063,8 +3071,11 @@ function flushSync(){
    順番が逆だと、最後の視聴ぶんが行列に積まれただけで送られない。 */
 function flushAll(send){
   try{ if(typeof saveNow === 'function') saveNow(); }catch(e){}
-  /* 間引いていた日次の学習時間も、ここで必ず送る */
-  try{ var u = me(); if(u && u.name) queueSync('daily', dailyKey(u.name)); }catch(e){}
+  /* 間引いていた日次の学習時間も、ここで必ず送る（今日ぶんが無い日は積まない） */
+  try{
+    var u = me();
+    if(u && u.name && MEM.daily[dailyKey(u.name)] != null) queueSync('daily', dailyKey(u.name));
+  }catch(e){}
   clearTimeout(SYNC.timer);
   if(send !== false) flushSync();
 }
@@ -3250,24 +3261,28 @@ function rowsToDaily(rows){
 
 /* コース定義を読む（いちばん新しい1件を使う） */
 /* お知らせは全員が読む（件数が少ないので1回で十分） */
+/* 「消していない行だけ」を読む。
+   削除済みまで毎回全件読むと、何年も運用したときに件数の上限に当たる。
+   ただし古い版の表には deleted 列が無く、条件付きの検索が 400 で弾かれる。
+   一度弾かれた表は覚えておき、以後は条件なしで読む（毎回 400 を積まない）。 */
+var NO_CRIT = {};
+function fetchLive(rep){
+  if(NO_CRIT[rep]) return fetchRows(rep);
+  return rawFetch(rep, '(deleted == "")').catch(function(e){
+    if(isNoRows(e)) return [];
+    if(isMissingBox(e)){ boxMissing(kindOfBox(rep)); return []; }
+    NO_CRIT[rep] = true;
+    return fetchRows(rep);
+  });
+}
 function loadNews(){
-  /* 削除済みまで毎回全件読むと、何年も運用したときに件数の上限に当たる */
-  return fetchRows(FORM.newsR, '(deleted == "")').then(rowsToNews)
-    .catch(function(){ return fetchRows(FORM.newsR).then(rowsToNews); });
+  return fetchLive(FORM.newsR).then(rowsToNews);
 }
 /* 船井コネクトの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
 function loadFeed(){
-  /* 古い版の表には deleted 列が無く、条件付きの検索が 400 で弾かれる。
-     そのときは条件なしで読み直す（お知らせと同じ逃げ道） */
-  var any = function(rep, to){
-    return fetchRows(rep, '(deleted == "")').then(function(rows){
-      if(rows.length) return to(rows);
-      return fetchRows(rep).then(to);
-    });
-  };
   return runLimited([
-    function(){ return any(FORM.postR,  rowsToPosts); },
-    function(){ return any(FORM.reactR, rowsToReacts); }
+    function(){ return fetchLive(FORM.postR).then(rowsToPosts); },
+    function(){ return fetchLive(FORM.reactR).then(rowsToReacts); }
   ], 2);
 }
 function loadCourses(){
@@ -3697,7 +3712,7 @@ function appLabel(id){
   if(id === 'lms') return config().appName;
   var ov = (config().apps || {})[id] || {};
   if(ov.name) return ov.name;
-  if(id === 'connect') return '船井コネクト';
+  if(id === 'connect') return '社内コミュニティ';
   if(id === 'shinsei') return '社内申請';
   if(id === 'staff')   return '職員登録';
   return config().appName;
@@ -3720,7 +3735,7 @@ function viewApps(view){
   var v = String(view || '');
   if(v === 'hub') return ['lms', 'connect', 'shinsei'];
   if(v.indexOf('s_') === 0) return ['shinsei'];
-  if(v === 'feed' || v === 'thanks' || v === 'members' || v === 'profile') return ['connect'];
+  if(v === 'feed' || v === 'thanks' || v === 'awards' || v === 'members' || v === 'profile') return ['connect'];
   /* 職員登録（職員・職種・権限）は、ログイン画面の専用の入口からだけ */
   if(v === 'aimport' || v === 'ajobs' || v === 'atitles' || v === 'aroles') return ['staff'];
   return ['lms'];
@@ -3736,11 +3751,12 @@ var NAV_USER = [
       { go:'mynews',  label:'お知らせ' }
   ]}
 ];
-/* 船井コネクトのメニュー。e-ラーニングの項目は出さない（アプリごとに分ける） */
+/* 社内コミュニティのメニュー。e-ラーニングの項目は出さない（アプリごとに分ける） */
 var NAV_CONNECT = [
   { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'feed',    icon:'mail',   label:'掲示板', badge:'feed' },
   { go:'thanks',  icon:'medal',  label:'サンクスカード' },
+  { go:'awards',  icon:'trophy', label:'表彰' },
   { go:'members', icon:'users',  label:'メンバー' },
   { go:'profile', icon:'user',   label:'プロフィール' }
 ];
@@ -3788,7 +3804,7 @@ function navFor(list){
 var NAV_OPEN = {};
 /* 画面 → メニューのどの項目を光らせるか */
 var NAV_OF = {
-  hub:'hub', feed:'feed', thanks:'thanks', afeed:'afeed',
+  hub:'hub', feed:'feed', thanks:'thanks', awards:'awards', afeed:'afeed',
   s_mine:'s_mine', s_new:'s_new', s_form:'s_new', s_inbox:'s_inbox', s_dashboard:'s_dashboard',
   s_access:'s_access', s_search:'s_search', s_finance:'s_finance', s_routes:'s_routes',
   s_admin:'s_admin',
@@ -3925,7 +3941,9 @@ function drawNav(view){
     (safeImageURI(cfg.logo) ? '<img class="logo-img" src="' + esc(safeImageURI(cfg.logo)) + '" alt="" style="height:24px">'
               : '<span class="mk">研</span>') +
     '<span class="nm">' + esc(appLabel()) + '</span>' +
-    '<small>' + ((MODE === 'admin') ? '　管理機能' : '　' + esc(cfg.portalName)) + '</small>';
+    /* アプリ名とポータル名が同じときは、同じ言葉が2つ並ぶので添えない */
+    '<small>' + ((MODE === 'admin') ? '　管理機能'
+      : (appLabel() === cfg.portalName ? '' : '　' + esc(cfg.portalName))) + '</small>';
   document.getElementById('icoBell').hidden = APP_NOW !== 'lms';
   /* 職員登録の入口では「管理機能」ではなくポータル名を出す */
   document.getElementById('icoMail').hidden = APP_NOW !== 'lms';
@@ -4222,11 +4240,17 @@ function appPickHTML(isAdmin){
   h += '</div>';
   return h;
 }
-/* タイトルの「e-」だけ黄色にする（e-Learning のように、はじめの e- がある名前のとき） */
+/* タイトルの一部を黄色にする。
+     ・はじめが「e-」のとき（e-Learning）は、その e- を
+     ・PortalNavi のように大文字で2語をつないだ名前のときは、後ろの語を
+   どちらでもないときは、そのまま白い文字で出す。 */
 function wordmarkHTML(name){
-  var m = /^(e-)(.+)$/i.exec(String(name));
-  if(!m) return esc(name);
-  return '<span class="e">' + esc(m[1]) + '</span>' + esc(m[2]);
+  var s = String(name);
+  var m = /^(e-)(.+)$/i.exec(s);
+  if(m) return '<span class="e">' + esc(m[1]) + '</span>' + esc(m[2]);
+  m = /^([A-Z][a-z]+)([A-Z][a-zA-Z]+)$/.exec(s);
+  if(m) return esc(m[1]) + '<span class="e">' + esc(m[2]) + '</span>';
+  return esc(s);
 }
 
 /* 入口の「使い方」 */
@@ -4746,7 +4770,7 @@ function feedWatch(on){
     loadFeed().then(function(){
       var after = Object.keys(MEM.posts).length + Object.keys(MEM.reacts).length;
       /* いま見ている画面がコネクトのままで、増えていたときだけ描き直す */
-      if(after !== before && (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks')){
+      if(after !== before && (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks' || VIEW_NOW === 'awards')){
         feedKeepDraft();
         route(VIEW_NOW);
       }
@@ -4762,6 +4786,10 @@ function feedKeepDraft(){
   if(to) FEED.to = to.value;
   var tg = document.getElementById('fdTarget');
   if(tg) FEED.target = tg.value;
+  ['awTitle', 'awTo', 'awBody'].forEach(function(id){
+    var e = document.getElementById(id);
+    if(e) AW[id.slice(2).toLowerCase()] = e.value;
+  });
   Object.keys(FEED.reply).forEach(function(k){ delete FEED.reply[k]; });
   eachIn('[data-rc]', function(e){
     if(e.value) FEED.reply[e.getAttribute('data-rc')] = e.value;
@@ -4784,6 +4812,9 @@ function postCard(p){
   if(p.kind === 'thanks'){
     h += '<span class="pill ok">' + ic('medal') + 'サンクス</span>';
   }
+  if(p.kind === 'award'){
+    h += '<span class="pill aw">' + ic('trophy') + '表彰</span>';
+  }
   if(canDel){
     h += '<button class="btn sub sm" data-pdel="' + esc(p.id) + '">削除</button>';
   }
@@ -4791,7 +4822,12 @@ function postCard(p){
   if(p.kind === 'thanks'){
     h += '<div class="fd-to">' + ic('medal') + '<b>' + esc(p.to || '') + '</b> さんへ</div>';
   }
-  if(p.title) h += '<div class="fd-ttl">' + esc(p.title) + '</div>';
+  if(p.kind === 'award'){
+    h += '<div class="fd-to fd-aw">' + ic('trophy') + '<b>' + esc(p.to || '') + '</b> さん' +
+         '<span class="aw-name">' + esc(p.title || '表彰') + '</span></div>';
+  }else if(p.title){
+    h += '<div class="fd-ttl">' + esc(p.title) + '</div>';
+  }
   h += '<div class="fd-body">' + esc(p.body || '').replace(/\n/g, '<br>') + '</div>';
 
   h += '<div class="fd-ops">';
@@ -4959,6 +4995,109 @@ function viewThanks(){
   };
 }
 
+/* ── 画面：表彰（社員表彰制度） ──
+   表彰は投稿の1種類（kind:'award'）として同じ表に入れる。
+   掲示板にも並ぶので、みんなが「いいね」やコメントで祝える。
+   表彰できるのはシステム管理者。受講者は見るだけ。 */
+var AW = { title:'', to:'', body:'' };
+var AWARD_NAMES = ['月間MVP', '年間MVP', '新人賞', '永年勤続表彰', 'チームワーク賞', '感謝賞', '改善提案賞'];
+function canAward(){ return canAdmin(); }
+/* 受賞した数（名前 → 件数） */
+function awardCount(){
+  var cnt = {};
+  postList('award').forEach(function(p){
+    var n = normName(p.to);
+    if(n) cnt[n] = (cnt[n] || 0) + 1;
+  });
+  return cnt;
+}
+function viewAwards(){
+  var u = me() || {};
+  var list = postList('award');
+  var cnt = awardCount();
+  var rank_ = Object.keys(cnt).map(function(n){ return { name:n, n:cnt[n] }; })
+                .sort(function(a, b){ return b.n - a.n || a.name.localeCompare(b.name, 'ja'); });
+  var mine = list.filter(function(p){ return normName(p.to) === normName(u.name); });
+  var names = Object.keys(people() || {}).sort();
+
+  var h = '<div class="wrap" style="max-width:760px">';
+  h += '<div class="ph"><div><h2>表彰</h2>' +
+       '<div class="sub">がんばりを会社として称える場です。表彰は掲示板にも並び、' +
+       'みんなで祝えます。</div></div></div>';
+
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));' +
+       'gap:14px;margin-bottom:18px">';
+  h += '<div class="tile"><div class="th">' + ic('trophy') + 'あなたの受賞</div>' +
+       '<div class="big">' + mine.length + '</div>' +
+       '<div class="cap">' + (mine.length ? esc(mine[0].title || '') + ' ほか' : 'これまでの合計') + '</div></div>';
+  h += '<div class="tile"><div class="th">' + ic('users') + '表彰の数（全社）</div>' +
+       '<div class="big">' + list.length + '</div>' +
+       '<div class="cap">これまでの合計</div></div>';
+  h += '</div>';
+
+  if(canAward()){
+    h += '<div class="card pad" style="margin-bottom:18px;display:grid;gap:11px">';
+    h += '<div class="cat" style="margin:0">' + ic('trophy') + '表彰する</div>';
+    h += '<div class="two-g">';
+    h +=   '<div class="field"><label for="awTitle">表彰名</label>' +
+             '<input class="inp" id="awTitle" list="awNames" placeholder="例）月間MVP" value="' + esc(AW.title) + '">' +
+             '<datalist id="awNames">' + AWARD_NAMES.map(function(n){ return '<option value="' + esc(n) + '">'; }).join('') +
+             '</datalist></div>';
+    h +=   '<div class="field"><label for="awTo">受賞者</label>' +
+             '<select class="inp" id="awTo"><option value="">選んでください</option>' +
+             names.map(function(n){
+               return '<option' + (AW.to === n ? ' selected' : '') + '>' + esc(n) + '</option>';
+             }).join('') + '</select></div>';
+    h += '</div>';
+    h += '<div class="field"><label for="awBody">表彰の理由</label>' +
+         '<textarea class="inp" id="awBody" rows="3" style="resize:vertical" ' +
+         'placeholder="例）送迎表の作り方を見直し、毎週2時間の作業を無くしてくれました。">' +
+         esc(AW.body) + '</textarea></div>';
+    h += '<div class="bar"><span class="cap">表彰は全員に見えます。掲示板にも並びます</span>' +
+         '<span class="sp"></span>' +
+         '<button class="btn" id="awGo">' + ic('trophy') + '表彰する</button></div>';
+    h += '</div>';
+  }else{
+    h += '<div class="note" style="margin-bottom:18px">表彰はシステム管理者が行います。</div>';
+  }
+
+  if(rank_.length){
+    h += '<div class="cat">' + ic('chart') + '殿堂（受賞の多い方）</div>';
+    h += '<div class="card pad" style="margin-bottom:18px"><div class="rolelist">';
+    rank_.slice(0, 5).forEach(function(r, i){
+      h += '<div class="rolerow"><span class="ce-no" style="flex:none">' + (i+1) + '</span>' +
+           '<span style="flex:1">' + esc(r.name) + '</span>' +
+           '<b class="mono">' + r.n + '回</b></div>';
+    });
+    h += '</div></div>';
+  }
+
+  h += '<div class="cat">' + ic('trophy') + 'これまでの表彰</div>';
+  if(!list.length){
+    h += '<div class="card"><div class="empty">' + ic('trophy') + 'まだ表彰はありません。</div></div>';
+  }else{
+    list.forEach(function(p){ h += postCard(p); });
+  }
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  bindFeed();
+
+  var go = document.getElementById('awGo');
+  if(go) go.onclick = function(){
+    var t  = String(document.getElementById('awTitle').value || '').trim();
+    var to = document.getElementById('awTo').value;
+    var b  = String(document.getElementById('awBody').value || '').trim();
+    if(!t){ document.getElementById('awTitle').focus(); toast('表彰名を入れてください'); return; }
+    if(!to){ document.getElementById('awTo').focus(); toast('受賞者を選んでください'); return; }
+    if(!b){ document.getElementById('awBody').focus(); toast('表彰の理由を書いてください'); return; }
+    putPost({ kind:'award', by:u.name, byMail:LOGIN_EMAIL || u.email || '',
+              to:to, title:t, body:b, target:'' });
+    AW.title = ''; AW.to = ''; AW.body = '';
+    toast(to + ' さんを表彰しました（' + t + '）');
+    viewAwards();
+  };
+}
+
 /* ── 画面：プロフィール（顔写真と自己紹介） ── */
 var PHOTO_PX = 128;          /* 保存する写真の一辺。名簿に入れるので小さくする */
 /* 選んだ画像を、正方形に切って小さくし、JPEG のデータURIにする */
@@ -5056,6 +5195,7 @@ function viewMembers(){
     return n.indexOf(kw) >= 0 || String(p.dept || '').indexOf(kw) >= 0 ||
            String(p.title || '').indexOf(kw) >= 0 || String(p.bio || '').indexOf(kw) >= 0;
   }) : names;
+  var aw = awardCount();
   var h = '<div class="wrap">';
   h += '<div class="ph"><div><h2>メンバー</h2>' +
        '<div class="sub">職員の顔と自己紹介です。自分の分は「マイページ → プロフィール」で直せます。</div>' +
@@ -5073,6 +5213,7 @@ function viewMembers(){
       h += '<div class="mem">' + ava(n) +
            '<b>' + esc(n) + '</b>' +
            '<span class="mem-t">' + esc([p.dept || '', p.title || ''].filter(Boolean).join('　·　') || '—') + '</span>' +
+           (aw[n] ? '<span class="mem-aw">' + ic('trophy') + '受賞 ' + aw[n] + '回</span>' : '') +
            (p.bio ? '<span class="mem-b">' + esc(p.bio) + '</span>' : '') +
            '</div>';
     });
@@ -5306,9 +5447,9 @@ function viewShinsei(key){
 var APPS = [
   { id:'shinsei', name:'社内申請', sub:'稟議・経費・休暇の申請と承認',
     icon:'quiz',  go:'s_mine' },
-  { id:'lms',     name:'船井e-ラーニング', sub:'研修動画の受講と修了証',
+  { id:'lms',     name:'PortalNavi', sub:'研修動画の受講と修了証',
     icon:'book',  go:'home' },
-  { id:'connect', name:'船井コネクト', sub:'掲示板とサンクスカード',
+  { id:'connect', name:'社内コミュニティ', sub:'掲示板・サンクスカード・表彰',
     icon:'users', go:'feed' },
   /* 職員登録は3つのアプリの中には置かず、ここだけ。システム管理者にだけ出す */
   { id:'staff',   name:'職員登録', sub:'名簿・職種・権限（管理者用）',
@@ -8498,7 +8639,7 @@ function viewASettings(){
            '<input class="inp" id="cfBrandSub" value="' + esc(cfg.brandSub) + '"></div>';
   h +=   '<div class="field"><label for="cfTagSub">右下の英語の一言<span class="note-s">空なら出ません</span></label>' +
            '<input class="inp" id="cfTagSub" value="' + esc(cfg.taglineSub) + '"></div>';
-  h +=   '<div class="field"><label for="cfName">e-ラーニングの名前</label>' +
+  h +=   '<div class="field"><label for="cfName">アプリ名<span class="note-s">上の見出しと修了証に出ます</span></label>' +
            '<input class="inp" id="cfName" value="' + esc(cfg.appName) + '"></div>';
   h +=   '<div class="field"><label for="cfSub">サブタイトル</label>' +
            '<input class="inp" id="cfSub" value="' + esc(cfg.appSub) + '"></div>';
@@ -8540,6 +8681,7 @@ function viewASettings(){
        }).join('') + '</div></div>';
 
   h += '<div class="bar"><button class="btn" id="cfSave">' + ic('check') + '見た目を保存する</button>' +
+       '<button class="btn sub" id="cfTextReset">文字をはじめの値に戻す</button>' +
        '<span class="cap">ロゴと背景画像は Creator に保存され、全員の画面に反映されます</span></div>';
   h += '</div>';
 
@@ -8557,7 +8699,7 @@ function viewASettings(){
              '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '"' +
              (base.id === 'lms' ? ' disabled' : '') + '>' +
              (base.id === 'lms'
-               ? '<span class="note-s">上の「e-ラーニングの名前」で変わります</span>' : '') +
+               ? '<span class="note-s">上の「アプリ名」で変わります</span>' : '') +
            '</div>';
     h +=   '<div class="field"><label for="cfA_' + base.id + '_i">アイコン</label>' +
              '<select class="inp" id="cfA_' + base.id + '_i">' +
@@ -8790,6 +8932,20 @@ function viewASettings(){
     c.apps = ov;
     setConfig(c);
     toast('アプリのカードを保存しました');
+    viewASettings();
+  };
+  /* 一度保存すると、あとから組み込みの初期値を直しても Creator の保存分が勝つ。
+     名前や言葉を作り直したときに、打ち直さずに取り込めるようにしておく。
+     ロゴ・背景画像・配色は、登録したものをそのまま残す。 */
+  var CF_TEXT = ['portalName','portalSub','catchCopy','catchSub','sideCopy','scriptCopy',
+                 'brandSub','taglineSub','appName','appSub','orgName','tagline'];
+  document.getElementById('cfTextReset').onclick = function(){
+    if(!window.confirm('名前・見出し・言葉を、はじめの値に戻しますか？' +
+                       '（ロゴと背景画像はそのまま残ります）')) return;
+    var c = config();
+    CF_TEXT.forEach(function(k){ c[k] = DEFAULT_CONFIG[k]; });
+    setConfig(c);
+    toast('はじめの値に戻しました');
     viewASettings();
   };
   document.getElementById('cfAppsReset').onclick = function(){
@@ -9422,7 +9578,7 @@ function crumbFor(view, arg){
 }
 
 var USER_VIEWS = {
-  feed:viewFeed, thanks:viewThanks, members:viewMembers, profile:viewProfile,
+  feed:viewFeed, thanks:viewThanks, awards:viewAwards, members:viewMembers, profile:viewProfile,
   home:viewHome, courses:viewCourses, history:viewHistory, mytime:viewMyTime,
   certs:viewCerts, mynews:viewMyNews
 };
@@ -9471,11 +9627,11 @@ function route(view, a, b){
 
   VIEW_NOW = view;
   /* 掲示板を開いているあいだだけ、細かく新着を見に行く */
-  feedWatch(view === 'feed' || view === 'thanks');
+  feedWatch(view === 'feed' || view === 'thanks' || view === 'awards');
   /* どのアプリにいても新着に気づけるように、こちらは常に回す */
   if(!POLL.timer) pollStart();
   /* 掲示板・サンクスカードを開いたら、その時点の投稿は読んだことにする */
-  if(view === 'feed' || view === 'thanks') markFeedSeen();
+  if(view === 'feed' || view === 'thanks' || view === 'awards') markFeedSeen();
 
   document.getElementById('app').classList.add('on');
   drawNav(view);

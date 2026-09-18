@@ -147,7 +147,7 @@ const cardText = (page, id, sel) =>
     await page.evaluate(() => appLabel('shinsei')) === 'ワークフロー');
 
   console.log('④ 触っていないカードは、はじめのまま');
-  check('船井コネクトはそのまま', (await cardText(page, 'connect', 'b')) === '船井コネクト');
+  check('社内コミュニティはそのまま', (await cardText(page, 'connect', 'b')) === '社内コミュニティ');
   check('上書きは触ったカードの分だけ',
     await page.evaluate(() => Object.keys(config().apps).join(',')) === 'shinsei');
 
@@ -164,6 +164,43 @@ const cardText = (page, id, sel) =>
   check('名前が戻った', (await cardText(page, 'shinsei', 'b')) === '社内申請');
   check('説明が戻った',
     (await cardText(page, 'shinsei', '.hub-s')) === '稟議・経費・休暇の申請と承認');
+
+  console.log('⑥ 名前は PortalNavi');
+  check('サイト名（ブラウザのタブ）が PortalNavi', (await page.title()) === 'PortalNavi');
+  check('入口の見出しが PortalNavi',
+    (await page.$eval('#gate .wordmark', e => e.textContent)) === 'PortalNavi');
+  check('Navi だけ色を変えている',
+    (await page.$eval('#gate .wordmark .e', e => e.textContent)) === 'Navi');
+  check('アプリ名も PortalNavi', await page.evaluate(() => appLabel('lms')) === 'PortalNavi');
+  check('e-ラーニングのカードも PortalNavi', (await cardText(page, 'lms', 'b')) === 'PortalNavi');
+
+  console.log('⑦ 保存した文字を、はじめの値に戻せる');
+  await page.click('#gate [data-app="lms"]');
+  await page.waitForSelector('#app.on');
+  /* ロゴ・背景画像は残ることを確かめるため、先に背景を登録しておく */
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4z8AAAAMBAQBFyAEAAAAASUVORK5CYII=';
+  await page.evaluate(u => { const c = config(); c.hero = u; setConfig(c); }, PNG);
+  await page.evaluate(() => route('asettings'));
+  await page.waitForSelector('#cfTextReset');
+  await page.fill('#cfPortal', 'べつの名前');
+  await page.fill('#cfName', 'べつのアプリ');
+  await page.click('#cfSave');
+  await page.waitForTimeout(400);
+  check('変えた名前が保存される',
+    await page.evaluate(() => config().portalName) === 'べつの名前');
+  page.once('dialog', d => d.accept());
+  await page.click('#cfTextReset');
+  await page.waitForTimeout(500);
+  check('ポータル名がはじめの値に戻る',
+    await page.evaluate(() => config().portalName) === 'PortalNavi');
+  check('アプリ名もはじめの値に戻る',
+    await page.evaluate(() => config().appName) === 'PortalNavi');
+  check('背景画像は消さずに残す',
+    await page.evaluate(() => String(config().hero || '').indexOf('data:image/png') === 0));
+  await page.evaluate(() => route('hub'));
+  await page.waitForSelector('#gate .wordmark');
+  check('入口の見出しも戻っている',
+    (await page.$eval('#gate .wordmark', e => e.textContent)) === 'PortalNavi');
 
   check('画面のエラーが出ていない（' + errs.join(' / ') + '）', errs.length === 0);
 
