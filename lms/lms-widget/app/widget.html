@@ -1538,17 +1538,25 @@ var LS = {
     }
   }
 };
-MEM.people  = LS.get('people', {});
-MEM.records = LS.get('records', {});
-MEM.quizzes = LS.get('quizzes', {});
-MEM.daily   = LS.get('daily', {});
-MEM.surveys = LS.get('surveys', {});
-MEM.news    = LS.get('news', {});
-MEM.posts   = LS.get('posts', {});
-MEM.reacts  = LS.get('reacts', {});
-MEM.reminds = LS.get('reminds', {});
-MEM.courses = LS.get('courses', null);
-MEM.config  = LS.get('config', null);
+/* ── 端末の控えについての決まり ──
+   Creator の中で動くときは、受講記録・名簿・掲示板などの控えを端末に持たない。
+   読むのは毎回 Creator から、保存はその場で Creator へ。送信待ちは画面を開いている
+   あいだのメモリだけに置き、次に開いたときに端末から送り直すことはしない。
+   （端末に古い控えが残り、.ds を入れ替えたあとの表に混ざる事故を防ぐ）
+   端末に残すのは、既読・表示の設定・ログイン中の人、といった Creator に送らないものだけ。
+   Creator に繋がっていない動作確認（ファイルを直接開く）のときだけ、控えで動く。 */
+var KEEP_LOCAL = !ON_CREATOR;
+MEM.people  = KEEP_LOCAL ? LS.get('people', {})  : {};
+MEM.records = KEEP_LOCAL ? LS.get('records', {}) : {};
+MEM.quizzes = KEEP_LOCAL ? LS.get('quizzes', {}) : {};
+MEM.daily   = KEEP_LOCAL ? LS.get('daily', {})   : {};
+MEM.surveys = KEEP_LOCAL ? LS.get('surveys', {}) : {};
+MEM.news    = KEEP_LOCAL ? LS.get('news', {})    : {};
+MEM.posts   = KEEP_LOCAL ? LS.get('posts', {})   : {};
+MEM.reacts  = KEEP_LOCAL ? LS.get('reacts', {})  : {};
+MEM.reminds = KEEP_LOCAL ? LS.get('reminds', {}) : {};
+MEM.courses = KEEP_LOCAL ? LS.get('courses', null) : null;
+MEM.config  = KEEP_LOCAL ? LS.get('config', null) : null;
 /* この仕組みを入れる前に保存された記録を、年度つきのキーに直す（起動時に1回だけ） */
 /* 年度つきキーへの移行。
    コース定義（毎年受け直す／一度きり）を知らないと行き先を間違えるので、
@@ -1574,6 +1582,7 @@ function migrateTerms(){
 }
 var _quotaWarned = false;
 function cacheFlush(k){
+  if(!KEEP_LOCAL) return;     /* Creator の中では控えを持たない */
   var v = MEM[k];
   /* 顔写真は端末の控えに入れない。人数ぶん貯まると端末の空きを食いつぶし、
      受講記録の控えが残せなくなる。写真は開くたびに Creator から読む。
@@ -2976,11 +2985,13 @@ function pendKeys(){
 }
 /* 送信待ちの控え。タブを閉じると行列が消えて、最後の視聴が届かなくなるのを防ぐ */
 function savePend(){
+  if(!KEEP_LOCAL) return;     /* 送信待ちは画面を開いているあいだだけ */
   if(!LS.set('pend', Object.keys(SYNC.pend))){
     syncBadge('端末の空きが足りません', 'err');
   }
 }
 function restorePend(){
+  if(!KEEP_LOCAL) return;     /* 端末から送り直すことはしない */
   (LS.get('pend', []) || []).forEach(function(k){ SYNC.pend[k] = true; });
   if(Object.keys(SYNC.pend).length){
     syncBadge('未送信を送っています…', 'wait');
@@ -3195,8 +3206,8 @@ function flushSync(){
       if(isAuthErr(e)){
         /* Creator がログイン確認の画面に飛ばしている。何度送っても通らないので止める。
            記録は端末に残っているので、入り直せばそのまま送られる。 */
-        holdBar('Zoho のログインが切れたため保存できていません。' +
-                '受講した記録はこの端末に残っています。', '再読み込み');
+        holdBar('Zoho のログインが切れたため保存できていません。この画面を閉じずに、' +
+                '別のタブで Zoho にログインし直してから「再送する」を押してください。', '再送する', flushSync);
         SYNC.busy = false; syncBadge('未保存あり（再読み込みしてください）', 'err');
         return;
       }
@@ -3211,8 +3222,8 @@ function flushSync(){
          リマインドやお知らせの行が送れないのは管理者側の話で、
          受講者に出しても直せないうえ、受講記録は無事なのに不安にさせてしまう。 */
       if(MINE_KIND[kind] && (SYNC.err === 1 || SYNC.err % 10 === 0)){
-        toast('うまく保存できませんでした。受講した記録はこの端末に残っています。' +
-              '電波のよい場所で画面を開いたままにしていただくと、自動で保存されます。');
+        toast('うまく保存できませんでした。この画面を閉じずにお待ちください。' +
+              'つながり次第、自動で保存します（閉じると未保存分は失われます）。');
       }
       SYNC.busy = false;
       syncBadge('未保存あり（再試行します）', 'err');
@@ -9149,8 +9160,8 @@ function viewASettings(){
      「何が使えて、何が失敗したか」をそのまま出す。 */
   h += '<div class="cat">' + ic('alert') + 'この端末の控え</div>';
   h += '<div class="card pad" style="margin-bottom:16px"><div class="cap">' +
-       'この端末（ブラウザ）には、受講記録や名簿の控えが残ります。.ds を入れ替えて Creator の表を作り直したときなど、' +
-       '古い控えが混ざるのを止めるには、ここで控えを消して Creator から読み直してください。Creator の記録は消えません。</div>' +
+       'Creator の中では、受講記録や名簿の控えを端末に持ちません（毎回 Creator から読み、保存はその場で Creator へ）。' +
+       '端末に残るのは既読・表示の設定だけです。念のため消したいときはここから。</div>' +
        '<div class="bar" style="margin-top:8px"><button class="btn sub" id="stWipe">' + ic('cross') +
        'この端末の控えを消して読み直す</button>' +
        '<span class="cap">控えの印：' + esc(LS.get('dataset', '') || '（まだ無い）') + '　いまの Creator：' + esc(RID.courses || '（未読）') + '</span></div></div>';
@@ -9425,7 +9436,7 @@ function viewASettings(){
             });
           });
       }).then(function(){
-        dgPut(null, '③-4 この端末の控え');
+        dgPut(null, '③-4 この画面の送信待ち（端末には控えを持ちません）');
         dgPut(null, '控えが対応するデータの印：' + (LS.get('dataset', '') || '（まだ無い）') + '　いまの Creator の印：' + (RID.courses || '（未読）'));
         var pend = Object.keys(SYNC.pend), hold = Object.keys(SYNC.hold);
         dgPut(null, '送信待ち ' + pend.length + ' 件' + (pend.length ? '：' + pend.slice(0, 8).map(function(k){ return k.replace('\u0000', ' '); }).join(' / ') : ''));

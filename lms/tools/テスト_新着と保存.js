@@ -233,9 +233,9 @@ const ROSTER = [
   const bar = await b.$eval('#holdBar', e => e.textContent);
   check('「Zoho のログインが切れた」と出る', /ログインが切れた/.test(bar), bar);
   check('「電波」の話ではない', !/電波/.test(bar), bar);
-  check('記録が端末に残っていると伝える', /端末に残って/.test(bar), bar);
-  check('「再読み込み」のボタンがある',
-    (await b.$eval('#holdBar button', e => e.textContent)) === '再読み込み');
+  check('画面を閉じないよう伝える', /閉じずに/.test(bar), bar);
+  check('「再送する」のボタンがある',
+    (await b.$eval('#holdBar button', e => e.textContent)) === '再送する');
   check('送信待ちは消えずに残っている',
     await b.evaluate(() => Object.keys(SYNC.pend).length) > 0);
 
@@ -363,7 +363,13 @@ const ROSTER = [
   check('札が消える', (await a.$('[data-purge="鈴木"]')) === null);
   delete DB.Lms_Record;
 
-  console.log('⑬ .ds を入れ替えた（別のデータになった）ら、端末に残る古い控えを送り込まない');
+  console.log('⑬ Creator の中では、受講記録の控えを端末（localStorage）に持たない');
+  const lsKeys = await b.evaluate(() => ['records','daily','people','quizzes','surveys','news','posts','reacts','reminds','pend']
+    .filter(k => localStorage.getItem('lms_' + k) !== null));
+  check('受講したあとも、記録・名簿・送信待ちが端末に書かれていない', lsKeys.length === 0, '残っている鍵：' + lsKeys.join(','));
+  check('端末に残るのは既読・表示の設定だけ', await b.evaluate(() => Object.keys(localStorage).every(k => /^lms_(me|admin|newsSeen|feedSeen|autoNext|remindAllAt|noCrit|dataset|theme|termMigrated)/.test(k) || !/^lms_/.test(k))),
+    await b.evaluate(() => Object.keys(localStorage).join(',')));
+  console.log('⑭ 端末に古い控えが残っていても、Creator には送り込まない');
   await a.evaluate(() => setConfig(config()));            /* コース定義の行を Creator に作る（データの印になる） */
   await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
   const stamp = String(((DB.Lms_Course || [])[0] || {}).ID || '');
