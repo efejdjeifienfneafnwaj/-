@@ -2845,7 +2845,8 @@ function upsert(kind, keyField, keyValue, payload){
   payload.updated_at = new Date().toISOString();
 
   function doUpdate(id){
-    return withRetry(function(){ return callUpdateById(reportName, id, payload); });
+    return withRetry(function(){ return callUpdateById(reportName, id, payload); })
+      .then(function(res){ delete WHOLE[reportName]; return res; });   /* 丸ごと読みの控えは古くなるので捨てる */
   }
   function doAdd(){
     return withRetry(function(){
@@ -2858,6 +2859,7 @@ function upsert(kind, keyField, keyValue, payload){
         if(kind === 'course') RID.courses = String(id);
         else box[ridKey] = String(id);
       }
+      delete WHOLE[reportName];   /* 丸ごと読みの控えは古くなるので捨てる */
       return res;
     });
   }
@@ -3186,6 +3188,7 @@ function flushSync(){
       SYNC.lastAt = new Date().toISOString();
       SYNC.lastKind = kind; SYNC.lastKey = key;
       console.error('保存に失敗しました', kind, key, e);
+      if(kind === 'record') svShow(hhmmss() + '　自動保存に失敗：' + errText(e), true);
       savePend();              /* 行列にはそのまま残っている */
       var cd = errCode(e);
       if(isMissingBox(e)){
@@ -5795,6 +5798,48 @@ function parseVideoId(s){
 /* ══════════════════════════════════════════════════════════════
    画面：受講（YouTube プレーヤー ＋ 視聴計測）
    ══════════════════════════════════════════════════════════════ */
+/* 保存の状態（画面に出す文） */
+var SV = { text:'', bad:false };
+function svShow(text, bad){
+  SV.text = text; SV.bad = !!bad;
+  var el = document.getElementById('svState');
+  if(!el) return;
+  el.textContent = text;
+  el.style.color = bad ? 'var(--bad-ink)' : '';
+  el.style.fontWeight = bad ? '700' : '';
+}
+function hhmmss(){ var d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function(n){ return (n < 10 ? '0' : '') + n; }).join(':'); }
+/* 手で押す保存。いまの視聴を Creator に書き、その行を読み返して何%入ったかを出す */
+function saveProgressNow(){
+  if(!P.tr || !P.chap || !P.owner){ svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
+  if(!ON_CREATOR){ saveNow(); svShow(hhmmss() + '　この端末に保存しました（Creator には繋がっていません）'); return Promise.resolve(); }
+  saveNow();
+  var key = recKey(P.owner, P.chap.id, P.term);
+  var pk = trackerPack(P.tr), sentPct = Math.round(watchedRate(P.tr) * 100);
+  svShow(hhmmss() + '　保存中…（送る視聴 ' + sentPct + '%）');
+  var waitIdle = function(){ return SYNC.busy ? new Promise(function(r){ setTimeout(r, 200); }).then(waitIdle) : Promise.resolve(); };
+  return waitIdle().then(function(){
+    SYNC.busy = true;
+    clearTimeout(SYNC.timer);
+    var payload = payloadFor('record', key);
+    if(!payload) throw { message:'この章の記録を組み立てられません（章IDがコースにありません）：' + key };
+    return initParams().then(function(){ return upsert('record', 'rec_key', key, payload); });
+  }).then(function(){
+    delete SYNC.pend['record\u0000' + key]; savePend();
+    SYNC.busy = false;
+    return fetchRowsStrict(FORM.recordR, '(rec_key == "' + crit(key) + '")');
+  }).then(function(rows){
+    var r = rows[0];
+    if(!r){ svShow(hhmmss() + '　送りましたが、読み返すと行が見つかりません：' + key, true); return; }
+    svShow(hhmmss() + '　保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
+    syncBadge('保存済み');
+    if(pendKeys().length) flushSync();
+  }).catch(function(e){
+    SYNC.busy = false;
+    var raw = ''; try{ raw = JSON.stringify(e).slice(0, 300); }catch(x){ raw = String(e); }
+    svShow(hhmmss() + '　保存できませんでした：' + errText(e) + '　' + raw, true);
+  });
+}
 var P = { player:null, tr:null, chap:null, course:null, timer:null, saveT:0,
            owner:'',    /* この記録が誰のものか。受講者を切り替えたときの取り違えを防ぐ */
            term:null,   /* 開いたときの年度。3/31→4/1をまたいでも記録の行き先を変えない */
@@ -5889,6 +5934,11 @@ function viewLearn(courseId, chapIdx){
            '<span class="pb' + (p.videoDone ? ' done' : '') + '"><i id="allBar" style="width:' +
              Math.round(p.rate*100) + '%"></i></span>' +
            '<span class="n" id="allPct">' + pct(p.rate) + '</span></div>';
+  /* 自動保存に加えて、手で押せる保存。押した結果は Creator から読み返して出す。
+     「保存されたつもり」を無くし、失敗なら Creator の返事をそのまま見せる */
+  h += '<div class="bar" id="svBar" style="margin-top:6px">' +
+       '<button class="btn sub" id="svGo">' + ic('check') + '進行状況を保存する</button>' +
+       '<span class="cap" id="svState">' + esc(SV.text || '自動保存：再生開始5秒後、その後20秒ごと・一時停止時') + '</span></div>';
   if(co.quiz && co.quiz.length){
     var qz = p.quiz;
     h += '<div class="bar">' +
@@ -5932,6 +5982,9 @@ function viewLearn(courseId, chapIdx){
   });
   h += '</div></div></div>';
   document.getElementById('main').innerHTML = h;
+  SV.text = ''; SV.bad = false;
+  var svb = document.getElementById('svGo');
+  if(svb) svb.onclick = function(){ svb.disabled = true; saveProgressNow().then(function(){ svb.disabled = false; }); };
 
   document.querySelector('[data-back]').onclick = function(){ route('courses'); };
   var gq = document.getElementById('goQuiz');
@@ -6077,6 +6130,7 @@ function saveNow(){
   putRec(P.owner, P.chap.id, pk, P.term);   /* 「今の受講者」ではなく「この記録の持ち主」に書く */
   pushRemindSelf();
   P.saveT = Date.now();
+  if(!SV.bad) svShow(hhmmss() + '　自動保存を送りました（視聴 ' + Math.round(watchedRate(P.tr) * 100) + '%）');
 }
 function updateCourseBar(){
   var u = me(), p = courseProgress(u.name, P.course);

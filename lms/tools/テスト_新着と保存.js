@@ -399,6 +399,45 @@ const ROSTER = [
     JSON.stringify((DB.Lms_Record || []).map(r => r.person_name)));
   await ctxS.close();
 
+  console.log('⑮ 「進行状況を保存する」を押すと、Creator に書いて読み返した%が出る');
+  const sv = await open('hana@example.com', 'lms');
+  await sv.evaluate(() => route('learn', courses()[0].id, 0));
+  await sv.waitForSelector('#svGo');
+  check('動画の下に保存ボタンがある', (await sv.$('#svGo')) !== null);
+  /* YouTube は無いので、見た区間を手で塗る（0〜30秒／180秒） */
+  /* 再生中の状態を作る（YouTube は無いので、プレイヤーが持つ値を手で入れる） */
+  await sv.evaluate(() => {
+    var co = courses()[0];
+    P.course = co; P.chap = co.chapters[0]; P.owner = normName(me().name); P.term = currentTerm();
+    P.tr = trackerUnpack({ dur:180, ranges:[[0,30]], fast:false });
+  });
+  await sv.click('#svGo');
+  try{
+    await sv.waitForFunction(() => /保存しました|保存できません/.test(document.getElementById('svState').textContent), { timeout:20000 });
+  }catch(e){
+    console.log('   [debug] svState=' + await sv.$eval('#svState', el => el.textContent) +
+      ' busy=' + await sv.evaluate(() => SYNC.busy) + ' pend=' + await sv.evaluate(() => Object.keys(SYNC.pend).join(',')) +
+      ' errs=' + errs.slice(-3).join(' / '));
+    throw e;
+  }
+  const svText = await sv.$eval('#svState', e => e.textContent);
+  check('Creator から読み返した視聴%が出る', /保存しました：Creator の記録 = 視聴 17%/.test(svText), svText);
+  const svRow = (DB.Lms_Record || []).filter(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 17)[0];
+  check('Creator の行に 17% が入っている', !!svRow, JSON.stringify((DB.Lms_Record || []).map(r => [r.person_name, r.watched_pct])));
+  /* もう一度押しても行は増えない */
+  await sv.evaluate(() => { P.tr = trackerUnpack({ dur:180, ranges:[[0,60]], fast:false }); });
+  await sv.click('#svGo');
+  await sv.waitForFunction(() => /視聴 33%/.test(document.getElementById('svState').textContent), { timeout:20000 });
+  check('2回目は同じ行の更新（33%）', (DB.Lms_Record || []).filter(r => r.person_name === '佐藤 花子').length === 1 &&
+    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 33));
+  /* 失敗したときは Creator の返事が出る */
+  await fetch(base + '__fail').catch(() => {});
+  await sv.click('#svGo');
+  await sv.waitForFunction(() => /保存できませんでした/.test(document.getElementById('svState').textContent), { timeout:20000 });
+  check('失敗したときは理由がその場に出る', /保存できませんでした/.test(await sv.$eval('#svState', e => e.textContent)));
+  await fetch(base + '__ok').catch(() => {});
+  DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
+
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
   /* ⑪で管理画面を開いた時点で検知済みなので、いったん忘れさせてから改めて送る */
   await a.evaluate(() => { delete MISSING.remind; delete SYNC.hold[Object.keys(SYNC.hold).filter(k => /^remind/.test(k))[0]]; delete MEM.reminds['田中 一郎']; pushRemind('田中 一郎'); });
