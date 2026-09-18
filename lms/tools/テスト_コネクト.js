@@ -135,7 +135,7 @@ const ROSTER = [
   check('入口に3つのカードが出る', (await hana.$$('#gate [data-app]')).length === 3);
   const names = await hana.$$eval('#gate [data-app] b', els => els.map(e => e.textContent.trim()));
   check('3つの名前が並ぶ',
-    names.join('/') === '社内申請/PortalNavi/社内コミュニティ', names.join('/'));
+    names.join('/') === '社内申請/e-ラーニング/社内コミュニティ', names.join('/'));
   await enter(hana, 'connect');
   check('コネクトを押すと掲示板が開く', (await hana.$('#fdBody')) !== null);
   const L = await side(hana);

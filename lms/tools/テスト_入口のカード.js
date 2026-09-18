@@ -171,8 +171,8 @@ const cardText = (page, id, sel) =>
     (await page.$eval('#gate .wordmark', e => e.textContent)) === 'PortalNavi');
   check('Navi だけ色を変えている',
     (await page.$eval('#gate .wordmark .e', e => e.textContent)) === 'Navi');
-  check('アプリ名も PortalNavi', await page.evaluate(() => appLabel('lms')) === 'PortalNavi');
-  check('e-ラーニングのカードも PortalNavi', (await cardText(page, 'lms', 'b')) === 'PortalNavi');
+  check('e-ラーニングの名前はポータル名と別（e-ラーニング）', await page.evaluate(() => appLabel('lms')) === 'e-ラーニング');
+  check('e-ラーニングのカードは e-ラーニング', (await cardText(page, 'lms', 'b')) === 'e-ラーニング');
 
   console.log('⑦ 保存した文字を、はじめの値に戻せる');
   await page.click('#gate [data-app="lms"]');
@@ -194,7 +194,7 @@ const cardText = (page, id, sel) =>
   check('ポータル名がはじめの値に戻る',
     await page.evaluate(() => config().portalName) === 'PortalNavi');
   check('アプリ名もはじめの値に戻る',
-    await page.evaluate(() => config().appName) === 'PortalNavi');
+    await page.evaluate(() => config().appName) === 'e-ラーニング');
   check('背景画像は消さずに残す',
     await page.evaluate(() => String(config().hero || '').indexOf('data:image/png') === 0));
   await page.evaluate(() => route('hub'));

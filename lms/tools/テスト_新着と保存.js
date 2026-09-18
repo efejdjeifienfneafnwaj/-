@@ -411,8 +411,9 @@ const ROSTER = [
   console.log('⑮ 「進行状況を保存する」を押すと、Creator に書いて読み返した%が出る');
   const sv = await open('hana@example.com', 'lms');
   await sv.evaluate(() => route('learn', courses()[0].id, 0));
-  await sv.waitForSelector('#svGo');
-  check('動画の下に大きな保存ボタンがある', (await sv.$('#svGo.btn.big')) !== null);
+  await sv.waitForSelector('#svState');
+  check('動画の下に自動保存の状況が出る', (await sv.$('#svState')) !== null);
+  check('章ごとの%が出る', /章ごと：第1章/.test(await sv.$eval('#chapPcts', e => e.textContent)));
   check('自動保存のことが書いてある', /自動で保存/.test(await sv.$eval('.save-box', e => e.textContent)));
   /* YouTube は無いので、見た区間を手で塗る（0〜30秒／180秒） */
   /* 再生中の状態を作る（YouTube は無いので、プレイヤーが持つ値を手で入れる） */
@@ -421,7 +422,7 @@ const ROSTER = [
     P.course = co; P.chap = co.chapters[0]; P.owner = normName(me().name); P.term = currentTerm();
     P.tr = trackerUnpack({ dur:180, ranges:[[0,30]], fast:false });
   });
-  await sv.click('#svGo');
+  sv.evaluate(() => saveProgressNow());
   try{
     await sv.waitForFunction(() => /保存しました|保存できません/.test(document.getElementById('svState').textContent), { timeout:20000 });
   }catch(e){
@@ -436,13 +437,13 @@ const ROSTER = [
   check('Creator の行に 17% が入っている', !!svRow, JSON.stringify((DB.Lms_Record || []).map(r => [r.person_name, r.watched_pct])));
   /* もう一度押しても行は増えない */
   await sv.evaluate(() => { P.tr = trackerUnpack({ dur:180, ranges:[[0,60]], fast:false }); });
-  await sv.click('#svGo');
+  sv.evaluate(() => saveProgressNow());
   await sv.waitForFunction(() => /視聴 33%/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('2回目は同じ行の更新（33%）', (DB.Lms_Record || []).filter(r => r.person_name === '佐藤 花子').length === 1 &&
     (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 33));
   /* 失敗したときは Creator の返事が出る */
   await fetch(base + '__fail').catch(() => {});
-  await sv.click('#svGo');
+  sv.evaluate(() => saveProgressNow());
   await sv.waitForFunction(() => /保存できませんでした/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('失敗したときは理由がその場に出る', /保存できませんでした/.test(await sv.$eval('#svState', e => e.textContent)));
   await fetch(base + '__ok').catch(() => {});
@@ -464,13 +465,24 @@ const ROSTER = [
   /* 編集が権限で拒否されるポータルでも、追加で残る */
   await fetch(base + '__noedit').catch(() => {});
   await sv.evaluate(() => { P.tr = trackerUnpack({ dur:100, ranges:[[0,50]], fast:false }); });
-  await sv.click('#svGo');
+  sv.evaluate(() => saveProgressNow());
   await sv.waitForFunction(() => /保存しました|保存できません/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('編集が拒否されても、新しい行として残る（50%）',
     (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 50),
     await sv.$eval('#svState', e => e.textContent));
   await fetch(base + '__editok').catch(() => {});
   DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
+
+  console.log('⑯ 相手が再読み込みしなくても、変更が見える');
+  const rb = await open('hana@example.com', 'lms');          /* 受講者：マイダッシュボードを開いたまま */
+  await a.evaluate(() => { var cs = courses(); cs[0].title = '虐待防止研修（改訂版）'; MEM.courses = cs; queueSync('course', '1'); });
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  check('管理者の変更が Creator に入った', /改訂版/.test(String(((DB.Lms_Course || [])[0] || {}).course_json || '')));
+  await rb.evaluate(() => pollNow());
+  await rb.waitForTimeout(800);
+  check('受講者の画面が、再読み込みなしで新しい題名になる', /改訂版/.test(await rb.$eval('#main', e => e.textContent)));
+  await a.evaluate(() => { var cs = courses(); cs[0].title = '虐待防止研修'; MEM.courses = cs; queueSync('course', '1'); });
+  await a.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
   /* ⑪で管理画面を開いた時点で検知済みなので、いったん忘れさせてから改めて送る */
