@@ -249,7 +249,8 @@ const ROSTER = [
 
   console.log('⑦ 視聴の保存の間隔');
   const src = html;
-  check('視聴の保存は20秒おき', /P\.saveT > 20000/.test(src));
+  check('視聴の保存は、最初は5秒・その後は20秒おき', /P\.firstSaved \? 20000 : 5000/.test(src));
+  check('画面を閉じる・再読み込みのときも、その場で送る', /addEventListener\('pagehide', flushOnLeave\)/.test(src));
   check('学習時間の送信は1分おき', /_dailySentAt > 60000/.test(src));
 
   console.log('⑧ Creator に表が無いとき（.ds を取り込み直していない）');

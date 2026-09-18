@@ -3244,9 +3244,16 @@ function flushAll(send){
   clearTimeout(SYNC.timer);
   if(send !== false) flushSync();
 }
-/* ページを閉じる途中の通信はブラウザに打ち切られるので、
-   ここでは「この端末への保存」だけを確実に行う。送信は次に開いたときに再開する。 */
-window.addEventListener('beforeunload', function(){ flushAll(false); });
+/* ページを閉じる・再読み込みするとき。端末に控えを持たないので、送れるものは
+   その場で送る（打ち切られることもあるが、試さなければ必ず失われる）。
+   待ち時間を挟まず、すぐに送り始める。 */
+function flushOnLeave(){
+  try{ if(typeof saveNow === 'function') saveNow(); }catch(e){}
+  clearTimeout(SYNC.timer);
+  if(!SYNC.busy) flushSync();
+}
+window.addEventListener('beforeunload', flushOnLeave);
+window.addEventListener('pagehide', flushOnLeave);
 /* タブを閉じる直前に beforeunload が走らない端末があるので、こちらでも保存する */
 document.addEventListener('visibilitychange', function(){
   if(!document.hidden){
@@ -6023,10 +6030,11 @@ function startTick(){
     trackerTick(P.tr, t, rate);
     drawSeen(t);
     updateCourseBar();
-    /* 20秒おきに保存。止めた時・章を終えた時・画面を離れる時は別途すぐ保存する。
-       60秒だと「見たのに反映されない」と感じる時間が長すぎるため短くした。
+    /* 再生を始めて5秒で最初の保存、その後は20秒おき。止めた時・章を終えた時・
+       画面を離れる時は別途すぐ保存する。端末に控えを持たないので、早めに Creator へ入れる。
        塗った区間をまとめて1行に書くので、200名同時でも書き込みは1人1行のまま。 */
-    if(Date.now() - P.saveT > 20000) saveNow();
+    var gap = P.firstSaved ? 20000 : 5000;
+    if(Date.now() - P.saveT > gap){ saveNow(); P.firstSaved = true; }
   }, 500);
 }
 function stopTick(){
