@@ -1922,6 +1922,8 @@ function remindTextFor(name, pend){
 }
 /* 1人ぶんの行を作り、前と変わっていれば Creator に送る。送ったら true */
 function pushRemind(name){
+  /* 表が無いと分かっているときは、行を積まない（積むだけ積んで全部預かりになる） */
+  if(MISSING.remind) return false;
   var n = normName(name);
   var pr = people()[n];
   if(!pr || !String(pr.email || '').trim()) return false;   /* メールが無い人には送れない */
@@ -1958,7 +1960,7 @@ function refreshAllReminds(){
 }
 /* 管理者が受講者一覧を開いたとき、1日1回だけ全員ぶんを見直す */
 function refreshAllRemindsDaily(){
-  if(!canAdmin() || !ON_CREATOR) return;
+  if(!canAdmin() || !ON_CREATOR || MISSING.remind) return;
   if(LS.get('remindAllAt', '') === new Date().toISOString().slice(0, 10)) return;
   var n = refreshAllReminds();
   if(n) toast('リマインドの対象を更新しました（' + n + '名）');
@@ -2178,8 +2180,10 @@ function pollNow(){
   var beforeN = newsUnread(myPerson()), beforeF = feedUnread();
   /* 掲示板を開いているときは feedWatch が見ているので、こちらは読まない */
   var watching = (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks');
-  var jobs = [function(){ return loadNews(); }];
-  if(!watching) jobs.push(function(){ return loadFeed(); });
+  var jobs = [];
+  if(!MISSING.news) jobs.push(function(){ return loadNews(); });
+  if(!watching && !MISSING.post) jobs.push(function(){ return loadFeed(); });
+  if(!jobs.length){ POLL.busy = false; pollStop(); return Promise.resolve(); }
   return runLimited(jobs, 1)
     .then(function(){
       var n = newsUnread(myPerson()) - beforeN, f = feedUnread() - beforeF;
@@ -2578,6 +2582,7 @@ function rawFetch(report, criteria){
 function fetchRows(report, criteria){
   return rawFetch(report, criteria).catch(function(e){
     if(isNoRows(e)) return [];
+    if(isMissingBox(e)){ boxMissing(kindOfBox(report)); return []; }
     console.error('取得に失敗しました: ' + report, e);
     LOADED.partial = true;
     LOADED.lastErr = errText(e);
@@ -2590,6 +2595,8 @@ function fetchRows(report, criteria){
 function fetchRowsStrict(report, criteria){
   return rawFetch(report, criteria).catch(function(e){
     if(isNoRows(e)) return [];
+    /* 表そのものが無いときは、毎回同じ失敗を積み上げても意味がないので静かに投げる */
+    if(isMissingBox(e)){ boxMissing(kindOfBox(report)); throw e; }
     console.error('検索に失敗しました: ' + report, e);
     throw e;
   });
@@ -2714,6 +2721,53 @@ function upsert(kind, keyField, keyValue, payload){
 }
 
 /* ── 送信待ちの行列。まとめてから順番に送る ── */
+/* ── Creator にその表（フォーム／レポート）が作られていない ──
+   .ds を取り込み直していないと、追加した表だけが無い状態になる。
+   Creator は code 2894「No report named ... found.」を返す。
+   これは何度送っても通らないので、その行だけ預かって先へ進む。
+   （1件のために視聴記録まで止まってしまうのを防ぐ） */
+function isMissingBox(e){
+  if(!e) return false;
+  if(errCode(e) === 2894) return true;
+  var t = '';
+  try{
+    t = (typeof e === 'string') ? e
+      : (e.responseText || e.description || e.message || JSON.stringify(e) || '');
+  }catch(x){ t = ''; }
+  t = String(t);
+  return /"?code"?\s*:\s*"?2894/.test(t) || /No\s+(report|form)\s+named/i.test(t);
+}
+/* 表の名前をやさしい言い方に。管理者に「どれを入れ直せばよいか」を伝えるため */
+var BOX_LABEL = {
+  remind:'自動リマインド（Lms_Remind）', news:'お知らせ（Lms_News）',
+  post:'掲示板（Lms_Post）',            react:'いいね・コメント（Lms_React）',
+  record:'視聴記録（Lms_Record）',      quiz:'テスト結果（Lms_Quiz）',
+  survey:'アンケート（Lms_Survey）',    daily:'学習時間（Lms_Daily）',
+  person:'名簿（Lms_Person）',          course:'コース定義（Lms_Course）'
+};
+var MISSING = {};        /* 無いと分かった表。この画面を開いているあいだ覚えておく */
+function kindOfBox(name){
+  var out = '';
+  Object.keys(FORM).forEach(function(k){
+    if(FORM[k] === name) out = k.replace(/R$/, '');
+  });
+  return out;
+}
+/* 無い表に気づいたら、管理者にだけ1回知らせる。
+   受講者に見せても直せないので、受講者には出さない。 */
+function boxMissing(kind){
+  if(!kind || MISSING[kind]) return;
+  MISSING[kind] = true;
+  var name = BOX_LABEL[kind] || kind;
+  console.warn('Creator に「' + name + '」の表がありません。FunaiPortal.ds を取り込み直してください');
+  var adm = false;
+  try{ adm = canAdmin(); }catch(e){}
+  if(adm){
+    holdBar('Creator に「' + name + '」の表がありません。' +
+            'FunaiPortal.ds を取り込み直してください（この機能だけ止めています）', '閉じる', holdBarHide);
+  }
+}
+
 /* ログインの有効期限切れ。Creator は API の返事ではなく、
    ログイン確認の画面（confirmPassword）やログイン画面の HTML を返してくることがある。
    これは電波でも混雑でもないので、再送を繰り返しても永久に通らない。 */
@@ -2754,8 +2808,13 @@ function holdBarHide(){
   if(el) el.hidden = true;
 }
 
-var SYNC = { pend:{}, timer:null, busy:false, err:0,
+var SYNC = { pend:{}, hold:{}, timer:null, busy:false, err:0,
              lastErr:'', lastAt:'', lastKind:'', lastKey:'' };
+/* いま送れる行（Creator に表が無いと分かった行は外す）。
+   1件の行き止まりで、後ろの視聴記録まで止まってしまうのを防ぐ */
+function pendKeys(){
+  return Object.keys(SYNC.pend).filter(function(k){ return !SYNC.hold[k]; });
+}
 /* 送信待ちの控え。タブを閉じると行列が消えて、最後の視聴が届かなくなるのを防ぐ */
 function savePend(){
   if(!LS.set('pend', Object.keys(SYNC.pend))){
@@ -2899,15 +2958,23 @@ function payloadFor(kind, key){
   }
   return null;
 }
+/* 受講者自身の記録。これが送れないときだけ、受講者に知らせる */
+var MINE_KIND = { record:1, quiz:1, survey:1, daily:1 };
 var KEY_FIELD = { course:null, person:'person_key', record:'rec_key',
                   quiz:'quiz_key', daily:'day_key',
                   survey:'survey_key', news:'news_key',
                   post:'post_key', react:'react_key', remind:'remind_key' };
 
+/* 行列の見た目。預かりだけが残っているときは、受講者を不安にさせない言い方にする */
+function syncRest(){
+  if(pendKeys().length) return;
+  if(Object.keys(SYNC.hold).length){ syncBadge('保存済み（未作成の表を除く）', ''); return; }
+  syncBadge(SYNC.err ? '未保存あり' : '保存済み', SYNC.err ? 'err' : '');
+}
 function flushSync(){
   if(!ON_CREATOR || SYNC.busy) return;
-  var keys = Object.keys(SYNC.pend);
-  if(!keys.length){ syncBadge(SYNC.err ? '未保存あり' : '保存済み', SYNC.err ? 'err' : ''); return; }
+  var keys = pendKeys();
+  if(!keys.length){ syncRest(); return; }
   SYNC.busy = true;
   syncBadge('保存中…', 'wait');
 
@@ -2919,8 +2986,8 @@ function flushSync(){
 
   var done = function(){
     SYNC.busy = false;
-    if(Object.keys(SYNC.pend).length) flushSync();
-    else syncBadge(SYNC.err ? '未保存あり（再試行します）' : '保存済み', SYNC.err ? 'err' : '');
+    if(pendKeys().length) flushSync();
+    else syncRest();
   };
   if(!payload){
     /* 中身が消えている＝章IDが変わった・氏名に区切り文字が入った等。
@@ -2948,6 +3015,14 @@ function flushSync(){
       console.error('保存に失敗しました', kind, key, e);
       savePend();              /* 行列にはそのまま残っている */
       var cd = errCode(e);
+      if(isMissingBox(e)){
+        /* Creator にその表が無い。何度送っても通らないので、この行は預かって次へ進む。
+           控え（端末）には残したままなので、表を入れ直せばそのまま送られる。 */
+        SYNC.hold[k] = true;
+        boxMissing(kind);
+        SYNC.err = 0;
+        done(); return;
+      }
       /* 何度やっても直らない種類のものは、叩き続けない */
       if(cd === 4000){
         toast('本日のAPIの上限に達しました。記録はこの端末に残しています。' +
@@ -2970,7 +3045,10 @@ function flushSync(){
         setTimeout(flushSync, 4000 + Math.random() * 4000);
         return;
       }
-      if(SYNC.err === 1 || SYNC.err % 10 === 0){
+      /* この知らせは「自分の受講記録が届いていない」ときだけ。
+         リマインドやお知らせの行が送れないのは管理者側の話で、
+         受講者に出しても直せないうえ、受講記録は無事なのに不安にさせてしまう。 */
+      if(MINE_KIND[kind] && (SYNC.err === 1 || SYNC.err % 10 === 0)){
         toast('うまく保存できませんでした。受講した記録はこの端末に残っています。' +
               '電波のよい場所で画面を開いたままにしていただくと、自動で保存されます。');
       }
@@ -3179,9 +3257,17 @@ function loadNews(){
 }
 /* 船井コネクトの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
 function loadFeed(){
+  /* 古い版の表には deleted 列が無く、条件付きの検索が 400 で弾かれる。
+     そのときは条件なしで読み直す（お知らせと同じ逃げ道） */
+  var any = function(rep, to){
+    return fetchRows(rep, '(deleted == "")').then(function(rows){
+      if(rows.length) return to(rows);
+      return fetchRows(rep).then(to);
+    });
+  };
   return runLimited([
-    function(){ return fetchRows(FORM.postR,  '(deleted == "")').then(rowsToPosts); },
-    function(){ return fetchRows(FORM.reactR, '(deleted == "")').then(rowsToReacts); }
+    function(){ return any(FORM.postR,  rowsToPosts); },
+    function(){ return any(FORM.reactR, rowsToReacts); }
   ], 2);
 }
 function loadCourses(){

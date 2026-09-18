@@ -52,15 +52,22 @@ const ROSTER = [
   const DB = { Lms_Person: ROSTER.map((p, i) => Object.assign({ ID:String(100 + i) }, p)) };
   let seq = 1000;
   let failWrites = false;          /* true でログイン確認の画面を返す（ログイン切れ） */
+  let noRemind = false;            /* true で Lms_Remind の表が無い状態にする（code 2894） */
   const tbl = n => String(n).replace(/_(Report|Form)$/, '');
   /* Creator がログイン確認の画面に飛ばしたときの返事。JSON ではなく HTML が返る */
   const AUTH_FAIL = { __reject: { status:0, responseText:
     '<!DOCTYPE html><html><head><title>Confirm Password</title></head>' +
     '<body>/portal/app5/confirmPassword?serviceurl=https://example.zohocreatorportal.jp</body></html>' } };
 
+  /* .ds を取り込み直していないときの Creator の返事 */
+  const NO_BOX = name => ({ __reject: { status:404, statusText:'', responseText:
+    '{"code":2894,"message":"No report named ' + name + ' found. Please check and try again."}' } });
+
   function api(method, q){
     const writing = (method !== 'getRecords');
     if(writing && failWrites) return AUTH_FAIL;
+    const box = String(q.form_name || q.report_name || '');
+    if(noRemind && /^Lms_Remind/.test(box)) return NO_BOX(box);
     if(method === 'getRecords'){
       let rows = (DB[tbl(q.report_name)] || []).slice();
       const conds = [];
@@ -88,6 +95,10 @@ const ROSTER = [
   const srv = http.createServer((q, s) => {
     if(q.url === '/__fail' || q.url === '/__ok'){
       failWrites = (q.url === '/__fail');
+      s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
+    }
+    if(q.url === '/__noremind'){
+      noRemind = true;
       s.writeHead(200, { 'Content-Type':'text/plain' }); s.end('ok'); return;
     }
     if(q.url === '/__api' && q.method === 'POST'){
@@ -124,6 +135,9 @@ const ROSTER = [
     await page.waitForSelector('#gate [data-app="' + app + '"]');
     await page.click('#gate [data-app="' + app + '"]');
     await page.waitForSelector('#app.on', { timeout:15000 });
+    /* 記録の読み込みが終わってから、そのアプリの最初の画面が描かれる。
+       待たないと、このあとの route() が後から来た route() に上書きされる */
+    await page.waitForFunction(() => VIEW_NOW === appHome(), { timeout:15000 });
     return page;
   }
 
@@ -217,6 +231,42 @@ const ROSTER = [
   const src = html;
   check('視聴の保存は20秒おき', /P\.saveT > 20000/.test(src));
   check('学習時間の送信は1分おき', /_dailySentAt > 60000/.test(src));
+
+  console.log('⑧ Creator に表が無いとき（.ds を取り込み直していない）');
+  await fetch(base + '__noremind').catch(() => {});
+  /* 受講者の画面。リマインドの行は通らないが、学習時間は通らないといけない */
+  await b.evaluate(() => { TOASTED = []; });
+  await b.evaluate(() => {
+    pushRemind('佐藤 花子');        /* ← 通らない行（Lms_Remind が無い） */
+    bumpDaily('佐藤 花子', 600, true);  /* ← 受講者の記録。こちらは通らないと困る */
+  });
+  await b.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  check('表が無い行は預かりになる',
+    await b.evaluate(() => Object.keys(SYNC.hold).length) === 1);
+  check('後ろに並んでいた学習時間は届く（1件で行列が止まらない）',
+    (DB.Lms_Daily || []).length === 1, JSON.stringify(DB.Lms_Daily || []));
+  check('控えは消していない（表を入れ直せば送られる）',
+    await b.evaluate(() => Object.keys(SYNC.pend).length) === 1);
+  check('無い表と分かった', await b.evaluate(() => MISSING.remind === true));
+  check('それ以降は行を積まない', await b.evaluate(() => pushRemind('佐藤 花子') === false));
+  check('受講者に「電波」の知らせは出さない',
+    !/電波/.test(await b.$eval('.toast', e => e.textContent)),
+    await b.$eval('.toast', e => e.textContent));
+  check('受講者には管理者向けの知らせも出さない',
+    await b.evaluate(() => {
+      var el = document.getElementById('holdBar');
+      return !el || el.hidden;
+    }));
+  check('行列の見た目は不安にさせない言い方',
+    (await b.$eval('#syncBadge', e => e.textContent)) === '保存済み（未作成の表を除く）',
+    await b.$eval('#syncBadge', e => e.textContent));
+
+  console.log('⑨ 管理者には、どの表を入れ直すか伝える');
+  await a.evaluate(() => { pushRemind('田中 一郎'); });
+  await a.waitForSelector('#holdBar:not([hidden])', { timeout:20000 });
+  const abar = await a.$eval('#holdBar', e => e.textContent);
+  check('表の名前が出る', /自動リマインド（Lms_Remind）/.test(abar), abar);
+  check('取り込み直すよう伝える', /FunaiPortal\.ds/.test(abar), abar);
 
   check('画面のエラーが出ていない（' + errs.slice(0, 3).join(' / ') + '）', errs.length === 0);
   await browser.close(); srv.close();
