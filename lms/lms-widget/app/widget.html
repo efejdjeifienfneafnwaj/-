@@ -2602,6 +2602,8 @@ function rawFetch(report, criteria){
    管理画面の読み込みも空になって全員が未着手に見える。
    弾かれた表は覚えておき、以後は表を丸ごと読んで、こちらで条件に合う行だけ選ぶ。 */
 var NO_CRIT = {};        /* 条件が通らないと分かった表 */
+/* 1つでも弾かれたら、この Creator では条件検索を使わない。端末に覚えて次回からは最初から使わない */
+var NO_CRIT_ALL = !!LS.get('noCrit', false);
 var WHOLE = {};          /* 丸ごと読んだ結果の控え（同じ画面の読み込みの中でだけ使い回す） */
 function isBadCriteria(e){
   if(!e) return false;
@@ -2645,10 +2647,11 @@ function pickRows(report, criteria){
 /* 条件付きで読む。弾かれたら丸ごと読んで選ぶ */
 function fetchSmart(report, criteria){
   if(!criteria) return rawFetch(report);
-  if(NO_CRIT[report]) return pickRows(report, criteria);
+  if(NO_CRIT_ALL || NO_CRIT[report]) return pickRows(report, criteria);
   return rawFetch(report, criteria).catch(function(e){
     if(isNoRows(e) || isMissingBox(e) || isAuthErr(e) || isBusy(e) || !isBadCriteria(e)) throw e;
     NO_CRIT[report] = true;
+    NO_CRIT_ALL = true; LS.set('noCrit', true);
     console.warn('条件付きの検索が弾かれたので、表を丸ごと読んで選びます: ' + report, errText(e));
     return pickRows(report, criteria);
   });
@@ -9233,15 +9236,42 @@ function viewASettings(){
         throw e;
       }).then(function(){
         /* 条件付きの検索。弾かれる環境では、丸ごと読んで選ぶ方式に自動で切り替わる */
-        return rawFetch(FORM.personR, '(person_key == "__x__")').then(function(){
-          dgPut(true, '条件付きの検索が通る');
-        }).catch(function(e){
-          if(isNoRows(e)){ dgPut(true, '条件付きの検索が通る（該当0件）'); return; }
-          var raw = '';
-          try{ raw = JSON.stringify(e).slice(0, 400); }catch(x){ raw = String(e); }
-          dgPut(null, '条件付きの検索は弾かれる → 表を丸ごと読んで選ぶ方式で動きます（保存・集計は問題なし）',
-                'Creator の返事 = ' + raw);
-        });
+        var rawOf = function(e){ try{ return JSON.stringify(e).slice(0, 500); }catch(x){ return String(e); } };
+        var tryCrit = function(label, rep, c){
+          return rawFetch(rep, c).then(function(rows){
+            dgPut(true, label + '：通る', rows.length + '件');
+            if(NO_CRIT_ALL && rep === FORM.recordR){ NO_CRIT_ALL = false; LS.set('noCrit', false); dgPut(null, '条件検索が通るので、記憶していた「使わない」を消しました'); }
+          }).catch(function(e){
+            if(isNoRows(e)){ dgPut(true, label + '：通る（該当0件）'); return; }
+            dgPut(false, label + '：弾かれる', 'Creator の返事 = ' + rawOf(e));
+          });
+        };
+        dgPut(null, '③-2 条件付きの検索（ここが弾かれると、以前の版では保存も集計も止まっていました）');
+        dgPut(null, 'いまの動き方：' + (NO_CRIT_ALL ? '条件検索を使わず、表を丸ごと読んで選ぶ（端末に記憶済み）' : '条件検索を使う'));
+        return tryCrit('名簿を person_key で探す', FORM.personR, '(person_key == "__x__")')
+          .then(function(){ return tryCrit('視聴記録を rec_key で探す（保存前の検索と同じ）', FORM.recordR, '(rec_key == "__x__")'); })
+          .then(function(){ return tryCrit('視聴記録を course_id で読む（管理画面と同じ）', FORM.recordR, '(course_id == "__x__")'); })
+          .then(function(){ return tryCrit('掲示板を deleted == "" で読む', FORM.postR, '(deleted == "")'); })
+          .then(function(){
+            dgPut(null, '③-3 表を丸ごと読む（条件なし）');
+            return rawFetch(FORM.recordR).then(function(rows){
+              dgPut(true, '視聴記録を丸ごと読めた', rows.length + '件' +
+                (rows[0] ? '　1件目の項目名 = ' + Object.keys(rows[0]).join(', ').slice(0, 300) : ''));
+            }).catch(function(e){
+              if(isNoRows(e)){ dgPut(true, '視聴記録は0件（読み取りは通っている）'); return; }
+              dgPut(false, '視聴記録を丸ごと読めない', 'Creator の返事 = ' + rawOf(e));
+            });
+          });
+      }).then(function(){
+        dgPut(null, '③-4 この端末の送信待ち');
+        var pend = Object.keys(SYNC.pend), hold = Object.keys(SYNC.hold);
+        dgPut(null, '送信待ち ' + pend.length + ' 件' + (pend.length ? '：' + pend.slice(0, 8).map(function(k){ return k.replace('\u0000', ' '); }).join(' / ') : ''));
+        dgPut(null, '預かり（表が無い）' + hold.length + ' 件' + (hold.length ? '：' + hold.slice(0, 8).map(function(k){ return k.replace('\u0000', ' '); }).join(' / ') : ''));
+        if(SYNC.lastErr) dgPut(null, '最後に失敗した保存：' + SYNC.lastKind + ' ' + SYNC.lastKey + '（' + SYNC.lastAt + '）\n      ' + SYNC.lastErr);
+        var u = me() || {};
+        var mine = Object.keys(MEM.records || {}).filter(function(k){ return k.indexOf((u.name || '') + '|') === 0; });
+        dgPut(null, 'この端末にある自分の視聴記録：' + mine.length + ' 件、うち Creator の行番号が分かっているもの：' +
+          mine.filter(function(k){ return !!RID.records[k]; }).length + ' 件');
       });
     }).then(function(){
       dgPut(null, '④ 書き込み（追加）');
