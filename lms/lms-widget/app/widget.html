@@ -3652,7 +3652,8 @@ function leaveDevice(){
   wipeDevice();
 }
 function wipeDevice(){
-  ['me','admin','people','records','quizzes','surveys','daily','news','newsSeen','pend']
+  ['me','admin','people','records','quizzes','surveys','daily','news','newsSeen','pend',
+   'posts','reacts','reminds','feedSeen','noCrit','dataset']
     .forEach(function(k){ try{ localStorage.removeItem('lms_' + k); }catch(e){} });
   try{ sessionStorage.clear(); }catch(e){}
   location.reload();
@@ -9146,6 +9147,13 @@ function viewASettings(){
   /* ── 接続テスト ──
      保存できないときに、原因を画面だけで突き止められるようにする。
      「何が使えて、何が失敗したか」をそのまま出す。 */
+  h += '<div class="cat">' + ic('alert') + 'この端末の控え</div>';
+  h += '<div class="card pad" style="margin-bottom:16px"><div class="cap">' +
+       'この端末（ブラウザ）には、受講記録や名簿の控えが残ります。.ds を入れ替えて Creator の表を作り直したときなど、' +
+       '古い控えが混ざるのを止めるには、ここで控えを消して Creator から読み直してください。Creator の記録は消えません。</div>' +
+       '<div class="bar" style="margin-top:8px"><button class="btn sub" id="stWipe">' + ic('cross') +
+       'この端末の控えを消して読み直す</button>' +
+       '<span class="cap">控えの印：' + esc(LS.get('dataset', '') || '（まだ無い）') + '　いまの Creator：' + esc(RID.courses || '（未読）') + '</span></div></div>';
   h += '<div class="cat">' + ic('alert') + 'Zoho Creator との接続テスト</div>';
   h += '<div class="card pad" style="margin-bottom:16px;display:grid;gap:12px">';
   h += '<div class="cap">保存できないときは、ここで確かめてください。' +
@@ -9513,6 +9521,12 @@ function viewASettings(){
       dgPut(false, 'ここで止まりました', errText(e));
       dgPut(null, '── この行の内容を研修担当（または開発）にお伝えください ──');
     });
+  };
+  var sw = document.getElementById('stWipe');
+  if(sw) sw.onclick = function(){
+    if(!window.confirm('この端末の控え（受講記録・名簿・掲示板・送信待ち）を消して、Creator から読み直します。\n' +
+                       'Creator に保存された記録は消えません。まだ送っていない記録があれば失われます。よろしいですか？')) return;
+    wipeDevice();
   };
   var dc = document.getElementById('dgCopy');
   if(dc) dc.onclick = function(){
