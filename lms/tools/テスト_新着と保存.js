@@ -77,6 +77,8 @@ const ROSTER = [
       String(q.criteria || '').replace(/([A-Za-z_][A-Za-z0-9_]*)\s*==\s*"([^"]*)"/g,
         (m, f, v) => { conds.push([f, v]); return m; });
       if(conds.length) rows = rows.filter(r => conds.every(c => String(r[c[0]] || '') === c[1]));
+      if(!rows.length && q.criteria) return { __reject: { status:400, statusText:'', responseText:
+        '{"code":9280,"message":"No records found matching the given criteria."}' } };
       if(!rows.length) return { code:3100, message:'No records found' };
       /* 1000件を超えるときは、続きの印（record_cursor）を付けて分けて返す */
       const max = Number(q.max_records) || 200, start = Number(q.record_cursor || 0);
@@ -297,6 +299,38 @@ const ROSTER = [
   const newsN = await a.evaluate(() => { MEM.news = {}; return loadNews().then(() => Object.keys(MEM.news).length); });
   check('1000件を超える表も続きを読んで全部そろう（1200件）', newsN === 1200, String(newsN));
   check('切れた印は付かない', await a.evaluate(() => LOADED.truncated === false));
+
+  console.log('⑪ 接続テストが、視聴記録が集計に結びつかない理由を出す');
+  const ch0 = await a.evaluate(() => ({ chap:courses()[0].chapters[0].id, co:courses()[0].id, term:currentTerm() }));
+  const now = new Date().toISOString();
+  DB.Lms_Record = [
+    { ID:'70001', rec_key:'佐藤 花子|' + ch0.chap + '|' + ch0.term, person_name:'佐藤 花子', chapter_id:ch0.chap,
+      course_id:ch0.co, term:ch0.term, watched_pct:'17', ranges_json:'[[0,30]]', duration_sec:'180', updated_at:now },
+    /* コースを作り直して course_id が変わった行。章IDで結びつくので集計には入る */
+    { ID:'70004', rec_key:'佐藤 花子|' + ch0.chap + '|' + ch0.term, person_name:'佐藤 花子', chapter_id:ch0.chap,
+      course_id:'old_course', term:ch0.term, watched_pct:'9', ranges_json:'[[0,16]]', duration_sec:'180', updated_at:now },
+    { ID:'70002', rec_key:'山田|' + ch0.chap + '|' + ch0.term, person_name:'山田', chapter_id:ch0.chap,
+      course_id:'x', term:ch0.term, watched_pct:'4', ranges_json:'[[0,7]]', duration_sec:'180', updated_at:now },
+    { ID:'70003', rec_key:'佐藤 花子|old_ch|' + ch0.term, person_name:'佐藤 花子', chapter_id:'old_ch',
+      course_id:'x', term:ch0.term, watched_pct:'50', ranges_json:'[[0,90]]', duration_sec:'180', updated_at:now }
+  ];
+  await a.evaluate(() => route('asettings'));
+  await a.waitForSelector('#dgRun');
+  await a.click('#dgRun');
+  await a.waitForFunction(() => /── 結果|ここで止まりました/.test((document.getElementById('dgOut') || {}).textContent || ''), { timeout:30000 });
+  const dg = await a.$eval('#dgOut', e => e.textContent);
+  check('突き合わせの項が出る', /③-5/.test(dg));
+  check('名簿にある人の行は ✅', /✅ 行1：佐藤 花子/.test(dg), dg.split('\n').filter(l => /行1/.test(l)).join(''));
+  check('名簿に無い氏名は ❌ で理由を出す', /❌ 行3：山田[\s\S]*名簿にこの氏名がありません/.test(dg));
+  check('今のコースに無い章は ❌ で理由を出す', /❌ 行4：[\s\S]*今のコースにありません/.test(dg));
+  check('コースIDが違っても章IDで結びつく（△ で知らせる）', /✅ 行2：佐藤 花子[\s\S]*△ コースID "old_course"/.test(dg),
+    dg.split('\n').filter(l => /行2|old_course/.test(l)).join(' | '));
+  /* 管理画面の「ユーザー」でも未着手にならない */
+  await a.evaluate(() => route('ausers'));
+  await a.waitForSelector('tbody tr');
+  const hanaRow = await a.$$eval('tbody tr', trs => trs.map(t => t.textContent).filter(t => /佐藤 花子/.test(t))[0] || '');
+  check('管理画面のユーザーで、受講した人が「学習中」になる（未着手ではない）', /学習中/.test(hanaRow), hanaRow.slice(0, 160));
+  delete DB.Lms_Record;
 
   console.log('⑨ 管理者には、どの表を入れ直すか伝える');
   await a.evaluate(() => { pushRemind('田中 一郎'); });

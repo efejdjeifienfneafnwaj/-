@@ -2607,11 +2607,13 @@ var NO_CRIT_ALL = !!LS.get('noCrit', false);
 var WHOLE = {};          /* 丸ごと読んだ結果の控え（同じ画面の読み込みの中でだけ使い回す） */
 function isBadCriteria(e){
   if(!e) return false;
-  if(errCode(e) === 400) return true;
+  /* 注意：Creator は「条件に合う行が0件」も HTTP 400 で返す（code 9280 など）。
+     それは isNoRows が先に拾う。ここでは文面に criteria の不正が書かれているときだけ */
   var t = '';
   try{ t = (typeof e === 'string') ? e : (e.responseText || e.message || JSON.stringify(e) || ''); }
   catch(x){ t = ''; }
-  return /criteria/i.test(String(t)) && /invalid|error|不正/i.test(String(t));
+  t = String(t);
+  return /criteria/i.test(t) && /invalid|不正|syntax|not\s+(valid|allowed)/i.test(t);
 }
 /* (項目 == "値") を && でつないだ条件だけ。この画面で使う条件はこの形しかない */
 function critMatch(criteria, row){
@@ -3419,11 +3421,23 @@ function loadAll(){
     function(){ return fetchRows(FORM.quizR).then(rowsToQuizzes); },
     function(){ return fetchRows(FORM.surveyR).then(rowsToSurveys); }
   ];
-  /* 視聴記録だけは 人数×章数 ぶんあって多いので、コースごとに分けて読む */
-  courses().forEach(function(co){
-    jobs.push(function(){
-      return fetchRows(FORM.recordR, '(course_id == "' + crit(co.id) + '")')
-               .then(rowsToRecords);
+  /* 視聴記録は丸ごと読む（続きがあれば次のページも読む）。
+     以前はコースIDで分けて読んでいたが、コースを作り直すと旧IDの行が読まれず、
+     受講したのに未着手に見える。章IDで結びつけるので、コースIDに頼らない。 */
+  jobs.push(function(){
+    var was = LOADED.truncated;
+    LOADED.truncated = false;
+    return fetchRows(FORM.recordR).then(function(rows){
+      rowsToRecords(rows);
+      var cut = LOADED.truncated;
+      LOADED.truncated = was || cut;
+      if(!cut) return null;
+      /* 1回の上限で切れた（続きの印が無い版）。コースごとに分けて読み足す */
+      return runLimited(courses().map(function(co){
+        return function(){
+          return fetchRows(FORM.recordR, '(course_id == "' + crit(co.id) + '")').then(rowsToRecords);
+        };
+      }));
     });
   });
   return runLimited(jobs).then(function(){ LOADED.all = true; });
@@ -9272,6 +9286,47 @@ function viewASettings(){
         var mine = Object.keys(MEM.records || {}).filter(function(k){ return k.indexOf((u.name || '') + '|') === 0; });
         dgPut(null, 'この端末にある自分の視聴記録：' + mine.length + ' 件、うち Creator の行番号が分かっているもの：' +
           mine.filter(function(k){ return !!RID.records[k]; }).length + ' 件');
+      });
+    }).then(function(){
+      /* Creator に入っている視聴記録が、管理画面の集計に結びつくかを1行ずつ確かめる。
+         結びつかない理由は「氏名が名簿と違う」「章IDが今のコースに無い」「年度が違う」のどれか。 */
+      dgPut(null, '③-5 Creator の視聴記録が、集計に結びつくか（氏名・章ID・年度の突き合わせ）');
+      var names = Object.keys(people() || {});
+      var cs = courses() || [];
+      var chapOf = {};
+      cs.forEach(function(co){ (co.chapters || []).forEach(function(ch){ chapOf[ch.id] = co.title + ' / ' + ch.title; }); });
+      dgPut(null, '名簿の氏名（' + names.length + '名）：' + names.join('、'));
+      dgPut(null, 'コース（' + cs.length + '本）：' + cs.map(function(co){
+        return co.title + '［' + co.id + '］ 章ID=' + (co.chapters || []).map(function(c){ return c.id; }).join(',');
+      }).join(' ／ '));
+      dgPut(null, '今年度 ' + currentTerm() + '　表示中の年度 ' + actTerm() + '　年度の始まり ' + termStartMonth() + '月');
+      LOADED.all = false;
+      return loadAll().then(function(){ return rawFetch(FORM.recordR); }).then(function(rows){
+        dgPut(null, 'Creator の視聴記録 ' + rows.length + ' 件（管理画面が読み込めた鍵 ' + Object.keys(MEM.records).length + ' 件）');
+        rows.slice(0, 30).forEach(function(r, i){
+          var key = r.rec_key || ((r.person_name || '') + '|' + (r.chapter_id || '') + (r.term ? '|' + r.term : ''));
+          var stored = withTerm(key, r.chapter_id, r.updated_at || r.Added_Time, chapCourse(r.chapter_id));
+          var name = String(r.person_name || key.split('|')[0] || '');
+          var okN = names.indexOf(normName(name)) >= 0;
+          var okC = !!chapOf[r.chapter_id];
+          var okCo = cs.some(function(co){ return co.id === r.course_id; });
+          var expect = (okN && okC) ? recKey(normName(name), r.chapter_id) : '';
+          var okK = !!expect && !!records()[expect];
+          var why = [];
+          if(!okN) why.push('× 名簿にこの氏名がありません：' + JSON.stringify(name) + '（名簿側：' + names.map(function(n){ return JSON.stringify(n); }).join('、') + '）');
+          if(!okC) why.push('× 章ID ' + JSON.stringify(r.chapter_id) + ' は今のコースにありません（コースを作り直した／章を消した可能性）');
+          if(okC && !okCo) why.push('△ コースID ' + JSON.stringify(r.course_id) + ' は今のコースと違います（章IDで結びつけるので集計には入ります）');
+          if(okN && okC && !okK) why.push('× 鍵が合いません：Creator の行の鍵=' + stored + '　管理画面が探す鍵=' + expect +
+            '（年度の食い違い。Creator の行に年度が無い／別の年度で保存されている）');
+          dgPut(okN && okC && okK,
+            '行' + (i + 1) + '：' + name + ' ／ ' + (chapOf[r.chapter_id] || ('章ID ' + r.chapter_id)) +
+            ' ／ 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '% ／ 更新 ' + String(r.updated_at || r.Added_Time || '').slice(0, 16),
+            why.join('\n      '));
+        });
+        if(!rows.length) dgPut(null, '視聴記録はまだ1件もありません（受講者が動画を見ると増えます）');
+      }).catch(function(e){
+        if(isNoRows(e)){ dgPut(null, '視聴記録はまだ1件もありません'); return; }
+        dgPut(false, '突き合わせができませんでした', errText(e));
       });
     }).then(function(){
       dgPut(null, '④ 書き込み（追加）');
