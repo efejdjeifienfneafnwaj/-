@@ -3211,9 +3211,8 @@ function flushSync(){
       SYNC.err++;
       SYNC.lastErr = errText(e);
       SYNC.lastAt = new Date().toISOString();
-      SYNC.lastKind = kind; SYNC.lastKey = key;
+      SYNC.lastKind = kind; SYNC.lastKey = key; SYNC.lastErrObj = e || { message:'不明なエラー' }; SYNC.lastT = Date.now();
       console.error('保存に失敗しました', kind, key, e);
-      if(kind === 'record') svShow(hhmmss() + '　自動保存に失敗：' + errText(e), true);
       savePend();              /* 行列にはそのまま残っている */
       var cd = errCode(e);
       if(isMissingBox(e)){
@@ -3240,7 +3239,9 @@ function flushSync(){
         return;
       }
       if(isBusy(e)){
-        /* 込み合っているだけ。黙って待って再送する（受講者に不安を与えない） */
+        /* 込み合っているだけ。黙って待って再送する（受講者に不安を与えない）。
+           押した人にも「失敗」とは出さず、届くまで待ってもらう */
+        SYNC.lastErrObj = null;
         SYNC.busy = false;
         syncBadge('保存待ち', 'wait');
         setTimeout(flushSync, 4000 + Math.random() * 4000);
@@ -3328,6 +3329,7 @@ function rowsToRecords(rows){
     var srvUpd = r.updated_at || r.Added_Time || '';
     var cur = MEM.records[key];
     var dur = Number(r.duration_sec) || 1;
+    SV_SAVED[key] = Math.max(SV_SAVED[key] || 0, secOfRanges(ranges));
     if(cur){
       /* 手元にも記録がある場合は、見た区間を「足し合わせる」。
          どちらかを捨てると、送信前に閉じた分の視聴が消える。 */
@@ -5841,6 +5843,8 @@ function chapPctsText(name, co){
 }
 /* 保存の状態（画面に出す文） */
 var SV = { text:'', bad:false };
+/* 章ごとに「Creator に届いている秒数」。読み込んだとき・保存できたときに更新する */
+var SV_SAVED = {};
 function svShow(text, bad){
   SV.text = text; SV.bad = !!bad;
   var el = document.getElementById('svState');
@@ -5851,40 +5855,63 @@ function svShow(text, bad){
 }
 function hhmmss(){ var d = new Date(); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(function(n){ return (n < 10 ? '0' : '') + n; }).join(':'); }
 /* 手で押す保存。いまの視聴を Creator に書き、その行を読み返して何%入ったかを出す */
-function saveProgressNow(auto){
-  var tag = auto ? '自動保存：' : '';
-  if(!P.tr || !P.chap || !P.owner){ if(!auto) svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
+/* 「お知らせ」「掲示板」と同じ送り方：送信待ちの行列に入れてすぐ送り、届くまで自動で再送する。
+   届いたら Creator から同じ鍵の行を読み返して、何が入ったかを返す（「保存されたつもり」を無くす）。
+   失敗の返事はそのまま投げる（行列には残るので、つながり次第もう一度送られる） */
+var SEND_WAIT = 45000;
+function sendNow(kind, key){
+  if(!ON_CREATOR) return Promise.resolve(null);
+  var k = kind + '\u0000' + key, t0 = Date.now();
+  SYNC.pend[k] = true; savePend();
+  delete SYNC.hold[k];
+  clearTimeout(SYNC.timer);
+  SYNC.lastErrObj = null; SYNC.lastT = 0;
+  flushSync();                       /* 送信中なら、その続きで送られる（done() が次を呼ぶ） */
+  var field = KEY_FIELD[kind], rep = FORM[kind + 'R'];
+  function wait(){
+    if(!SYNC.pend[k]){
+      if(!field || !rep) return Promise.resolve(null);
+      return fetchRowsStrict(rep, '(' + field + ' == "' + crit(key) + '")')
+        .then(function(rows){ return rows[0] || null; });
+    }
+    if(SYNC.hold[k]) return Promise.reject({ message:'Creator に ' + (BOX_LABEL[kind] || kind) + ' の表がありません（.ds を取り込み直してください）', code:2894 });
+    /* 行列は順番に送るので、前に並んでいる行（学習時間など）が止まれば、この行も届かない。
+       どの行の失敗でも、押した人にその返事を見せる */
+    if(SYNC.lastErrObj && SYNC.lastT >= t0) return Promise.reject(SYNC.lastErrObj);
+    if(Date.now() - t0 > SEND_WAIT) return Promise.reject({ message:'まだ Creator に届いていません。この画面を閉じずにお待ちください（自動で再送を続けます）' });
+    return new Promise(function(r){ setTimeout(r, 250); }).then(wait);
+  }
+  return wait();
+}
+/* 手で押す保存。いまの視聴を Creator に書き、その行を読み返して何%入ったかを出す */
+function saveProgressNow(){
+  if(!P.tr || !P.chap || !P.owner){ svShow('再生していないので保存するものがありません'); return Promise.resolve(); }
+  if(P.saving) return Promise.resolve();
   P.saving = true; P.saveT = Date.now();
-  if(!ON_CREATOR){ saveNow(); svShow(hhmmss() + '　この端末に保存しました（Creator には繋がっていません）'); return Promise.resolve(); }
+  var btn = document.getElementById('svGo');
+  if(btn) btn.disabled = true;
+  var unlock = function(){ P.saving = false; var b2 = document.getElementById('svGo'); if(b2) b2.disabled = false; };
+  if(!ON_CREATOR){ saveNow(); P.savedSec = watchedSeconds(P.tr); svShow(hhmmss() + '　この端末に保存しました（Creator には繋がっていません）'); unlock(); return Promise.resolve(); }
   saveNow();
   bumpDaily(P.owner, 0, true);          /* 学習時間もこのタイミングで送る */
   var key = recKey(P.owner, P.chap.id, P.term);
-  var pk = trackerPack(P.tr), sentPct = Math.round(watchedRate(P.tr) * 100);
-  svShow(hhmmss() + '　' + tag + '保存中…（送る視聴 ' + sentPct + '%）');
-  var waitIdle = function(){ return SYNC.busy ? new Promise(function(r){ setTimeout(r, 200); }).then(waitIdle) : Promise.resolve(); };
-  return waitIdle().then(function(){
-    SYNC.busy = true;
-    clearTimeout(SYNC.timer);
-    var payload = payloadFor('record', key);
-    if(!payload) throw { message:'この章の記録を組み立てられません（章IDがコースにありません）：' + key };
-    return initParams().then(function(){ return upsert('record', 'rec_key', key, payload); });
-  }).then(function(){
-    delete SYNC.pend['record\u0000' + key]; savePend();
-    SYNC.busy = false;
-    return fetchRowsStrict(FORM.recordR, '(rec_key == "' + crit(key) + '")');
-  }).then(function(rows){
-    var r = rows[0];
-    P.saving = false;
-    if(P.saveAgain){ P.saveAgain = false; setTimeout(function(){ if(svUnsaved()) saveProgressNow(true); }, 300); }
+  var sentSec = watchedSeconds(P.tr), sentPct = Math.round(watchedRate(P.tr) * 100);
+  svShow(hhmmss() + '　保存中…（送る視聴 ' + sentPct + '%）');
+  if(!payloadFor('record', key)){
+    svShow(hhmmss() + '　この章の記録を組み立てられません（章IDがコースにありません）：' + key, true);
+    unlock(); return Promise.resolve();
+  }
+  return sendNow('record', key).then(function(r){
+    unlock();
     if(!r){ svShow(hhmmss() + '　送りましたが、読み返すと行が見つかりません：' + key, true); return; }
-    svShow(hhmmss() + '　' + tag + '保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
-    P.savedSec = watchedSeconds(P.tr);
+    svShow(hhmmss() + '　保存しました：Creator の記録 = 視聴 ' + (r.watched_pct != null ? r.watched_pct : '?') + '%（行 ' + r.ID + '）');
+    SV_SAVED[key] = Math.max(SV_SAVED[key] || 0, sentSec);
+    P.savedSec = SV_SAVED[key];
     syncBadge('保存済み');
-    if(pendKeys().length) flushSync();
   }).catch(function(e){
-    SYNC.busy = false; P.saving = false;
+    unlock();
     var raw = ''; try{ raw = JSON.stringify(e).slice(0, 300); }catch(x){ raw = String(e); }
-    svShow(hhmmss() + '　' + tag + '保存できませんでした：' + errText(e) + '　' + raw +
+    svShow(hhmmss() + '　保存できませんでした：' + errText(e) + '　' + raw +
       (isPermErr(e) ? '　→ ポータルユーザーにこの表を書く権限がありません。Creator の「ポータル → 権限」で ' +
         'Lms_Record・Lms_Daily・Lms_Quiz・Lms_Survey の「追加」と「編集」を許可してください' : ''), true);
   });
@@ -6005,13 +6032,15 @@ function viewLearn(courseId, chapIdx){
            '<span class="pb' + (p.videoDone ? ' done' : '') + '"><i id="allBar" style="width:' +
              Math.round(p.rate*100) + '%"></i></span>' +
            '<span class="n" id="allPct">' + pct(p.rate) + '</span></div>';
-  /* 自動保存に加えて、手で押せる保存。押した結果は Creator から読み返して出す。
+  /* 手で押す保存。押した結果は Creator から読み返して出す。
      「保存されたつもり」を無くし、失敗なら Creator の返事をそのまま見せる */
   /* 章ごとの視聴%。全体の%は「章ごとの見た秒数の合計 ÷ 章の長さの合計」なので、
      どの章が足りないかが見えないと「なぜこの%か」が分からない */
   h += '<div class="cap" id="chapPcts">' + chapPctsText(u.name, co) + '</div>';
   h += '<div class="save-box" id="svBar">' +
-       '<div class="save-note">' + ic('check') + '再生開始5秒後・その後20秒ごと・一時停止時に<b>自動で保存</b>します。結果はここに出ます。</div>' +
+       '<button class="btn big" id="svGo">' + ic('check') + '途中経過を保存する</button>' +
+       '<div class="save-note">自動では保存しません。区切りのよいところで<b>このボタン</b>を押してください。' +
+         '「確認テストを受ける」「次の章へ」を押したときも保存します。結果は Creator から読み返して下に出ます。</div>' +
        '<div class="cap" id="svState">' + esc(SV.text || 'まだ保存していません') + '</div></div>';
   if(co.quiz && co.quiz.length){
     var qz = p.quiz;
@@ -6082,6 +6111,9 @@ function viewLearn(courseId, chapIdx){
 
   var rec = getRec(u.name, ch.id);
   P.tr = rec ? trackerUnpack(rec) : createTracker(ch.dur);
+  /* Creator に届いている秒数。これより多く見ていれば「保存していない視聴があります」と出す */
+  P.savedSec = SV_SAVED[recKey(P.owner, ch.id, P.term)] || 0;
+  svDirty();
   drawSeen();
   if(ch.videoId) mountPlayer(ch.videoId);
 }
@@ -6134,9 +6166,8 @@ function mountPlayer(videoId){
         onStateChange: function(e){
           if(e.data === YT.PlayerState.PLAYING){ startTick(); return; }
           stopTick(); trackerBreak(P.tr); saveNow();
-          /* 一時停止・終了のときも、押したときと同じ経路で保存する。
-             送信中なら、終わってからもう一度送る（終了間際の視聴が抜けないように） */
-          if(svUnsaved()){ if(P.saving) P.saveAgain = true; else saveProgressNow(true); }
+          /* 一時停止・終了でも自動では送らない。未保存があることだけ知らせる */
+          svDirty();
           /* 最後まで再生したら、設定に応じて次の章へ進む */
           if(e.data === YT.PlayerState.ENDED) onChapterEnd();
         },
@@ -6176,11 +6207,10 @@ function startTick(){
     trackerTick(P.tr, t, rate);
     drawSeen(t);
     updateCourseBar();
-    /* 自動保存。再生開始5秒後に最初の保存、その後は20秒ごと。
-       「途中経過を保存する」を押したときとまったく同じ経路（Creator に書いて読み返す）を使う。
-       送っている最中は次を重ねない */
-    var gap = P.firstSaved ? 20000 : 5000;
-    if(Date.now() - P.saveT > gap && !P.saving){ P.firstSaved = true; saveProgressNow(true); }
+    /* 自動では保存しない（「自動保存はやっぱりなし」）。
+       Creator へ送るのは「途中経過を保存する」「確認テストを受ける」「次の章へ」を押したとき。
+       ここでは「保存していない視聴があります」の表示だけを更新する */
+    svDirty();
   }, 500);
 }
 function stopTick(){
@@ -6193,7 +6223,7 @@ function stopPlayer(){
   if(P.player && P.player.destroy){ try{ P.player.destroy(); }catch(e){} }
   /* 状態を残すと、次に開いた人の記録に前の人の視聴が混ざる */
   P.player = null; P.tr = null; P.chap = null; P.course = null; P.owner = ''; P.term = null;
-  P.firstSaved = false; P.ready = false; P.saving = false; P.saveAgain = false;
+  P.ready = false; P.saving = false; P.savedSec = 0;
 }
 function saveNow(){
   if(!P.tr || !P.chap || !P.owner) return;
@@ -6417,8 +6447,19 @@ function viewQuiz(courseId){
     if(!passed && (Number(co.maxTries) || 0)){
       r += '<span class="sm">受験できる回数：' + tries + ' / ' + co.maxTries + '回</span>';
     }
+    r += '<span class="sm" id="qzState">テストの結果を Creator に保存中…</span>';
     r += '</div>';
     document.getElementById('qArea').insertAdjacentHTML('beforebegin', r);
+    /* 結果はその場で送り、読み返して確かめる（視聴の保存と同じ経路） */
+    var qzKey = quizKey(u.name, co.id);
+    var qzShow = function(t, bad){ var el = document.getElementById('qzState'); if(!el) return; el.textContent = t; el.style.color = bad ? 'var(--bad-ink)' : ''; };
+    sendNow('quiz', qzKey).then(function(row){
+      if(!ON_CREATOR){ qzShow('この端末に保存しました（Creator には繋がっていません）'); return; }
+      qzShow(row ? hhmmss() + '　テストの結果を保存しました（Creator の行 ' + row.ID + '・' + (row.passed || '') + '）'
+                 : hhmmss() + '　送りましたが、読み返すと行が見つかりません', !row);
+    }).catch(function(e){
+      qzShow(hhmmss() + '　テストの結果を保存できませんでした：' + errText(e) + '　この画面を閉じずにお待ちください（自動で再送します）', true);
+    });
 
     var again = quizGate(u.name, co);
     document.getElementById('submitQ').outerHTML =
@@ -6563,6 +6604,9 @@ function viewSurvey(courseId){
       at: new Date().toISOString()
     });
     toast('ご回答ありがとうございました');
+    sendNow('survey', quizKey(u.name, co.id)).then(function(row){
+      if(ON_CREATOR) toast(row ? 'アンケートを Creator に保存しました' : 'アンケートを送りましたが、読み返すと行が見つかりません');
+    }).catch(function(e){ toast('アンケートを保存できませんでした：' + errText(e) + '（自動で再送します）'); });
     route('learn', co.id);
   };
 }

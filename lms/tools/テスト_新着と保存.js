@@ -257,7 +257,10 @@ const ROSTER = [
   console.log('⑦ 視聴の保存の間隔');
   const src = html;
   const tick = (src.match(/function startTick\(\)\{[\s\S]*?\n\}/) || [''])[0];
-  check('再生中の自動保存は、ボタンと同じ経路（saveProgressNow）で5秒→20秒ごと', /P\.firstSaved \? 20000 : 5000/.test(tick) && /saveProgressNow\(true\)/.test(tick) && !/queueSync/.test(tick));
+  /* 「自動保存はやっぱりなし」。再生中も一時停止でも Creator へは送らない */
+  check('再生中に自動では送らない（tick に saveProgressNow / queueSync が無い）', !/saveProgressNow/.test(tick) && !/queueSync/.test(tick));
+  check('一時停止・終了でも自動では送らない', !/saveProgressNow\(true\)/.test(src) && !/P\.saveAgain = true/.test(src));
+  check('テストの結果とアンケートも「送ってすぐ読み返す」同じ経路（sendNow）', /sendNow\('quiz'/.test(src) && /sendNow\('survey'/.test(src) && /sendNow\('record'/.test(src));
   check('putRec は Creator に送らない（メモリだけ）', !/cacheFlush\('records'\);\n  queueSync\('record'/.test(src));
   check('閉じる前に、保存していない視聴があれば確認が出る', /svUnsaved\(\)\)\{ e\.preventDefault\(\); e\.returnValue = ''; \}/.test(src));
   check('学習時間も自動では送らず、保存を押したときに送る', /学習時間も自動では送らない[\s\S]{0,80}if\(force\)\{/.test(src));
@@ -414,7 +417,8 @@ const ROSTER = [
   await sv.waitForSelector('#svState');
   check('動画の下に自動保存の状況が出る', (await sv.$('#svState')) !== null);
   check('章ごとの%が出る', /章ごと：第1章/.test(await sv.$eval('#chapPcts', e => e.textContent)));
-  check('自動保存のことが書いてある', /自動で保存/.test(await sv.$eval('.save-box', e => e.textContent)));
+  check('大きな「途中経過を保存する」ボタンがある', /途中経過を保存する/.test(await sv.$eval('#svGo', e => e.textContent)) && await sv.$eval('#svGo', e => e.classList.contains('big')));
+  check('自動では保存しないと書いてある', /自動では保存しません/.test(await sv.$eval('.save-box', e => e.textContent)));
   /* YouTube は無いので、見た区間を手で塗る（0〜30秒／180秒） */
   /* 再生中の状態を作る（YouTube は無いので、プレイヤーが持つ値を手で入れる） */
   await sv.evaluate(() => {
@@ -422,7 +426,7 @@ const ROSTER = [
     P.course = co; P.chap = co.chapters[0]; P.owner = normName(me().name); P.term = currentTerm();
     P.tr = trackerUnpack({ dur:180, ranges:[[0,30]], fast:false });
   });
-  sv.evaluate(() => saveProgressNow());
+  await sv.click('#svGo');
   try{
     await sv.waitForFunction(() => /保存しました|保存できません/.test(document.getElementById('svState').textContent), { timeout:20000 });
   }catch(e){
@@ -438,15 +442,28 @@ const ROSTER = [
   /* もう一度押しても行は増えない */
   await sv.evaluate(() => { P.tr = trackerUnpack({ dur:180, ranges:[[0,60]], fast:false }); });
   sv.evaluate(() => saveProgressNow());
-  await sv.waitForFunction(() => /視聴 33%/.test(document.getElementById('svState').textContent), { timeout:20000 });
+  await sv.waitForFunction(() => /保存しました：Creator の記録 = 視聴 33%/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('2回目は同じ行の更新（33%）', (DB.Lms_Record || []).filter(r => r.person_name === '佐藤 花子').length === 1 &&
-    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 33));
+    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 33),
+    JSON.stringify((DB.Lms_Record || []).map(r => [r.ID, r.person_name, r.rec_key, r.watched_pct])));
   /* 失敗したときは Creator の返事が出る */
   await fetch(base + '__fail').catch(() => {});
   sv.evaluate(() => saveProgressNow());
   await sv.waitForFunction(() => /保存できませんでした/.test(document.getElementById('svState').textContent), { timeout:20000 });
   check('失敗したときは理由がその場に出る', /保存できませんでした/.test(await sv.$eval('#svState', e => e.textContent)));
   await fetch(base + '__ok').catch(() => {});
+  /* 失敗した分は行列に残っていて、つながれば送られる（お知らせと同じ） */
+  await sv.evaluate(() => flushSync());
+  try{
+    await sv.waitForFunction(() => pendKeys().length === 0, { timeout:20000 });
+  }catch(e){
+    console.log('   [debug] busy=' + await sv.evaluate(() => SYNC.busy) + ' pend=' + await sv.evaluate(() => Object.keys(SYNC.pend).join(',')) +
+      ' hold=' + await sv.evaluate(() => Object.keys(SYNC.hold).join(',')) + ' lastErr=' + await sv.evaluate(() => SYNC.lastErr) +
+      ' hold=' + await sv.$eval('#holdBar', e => e.hidden + ' ' + e.textContent.slice(0, 80)) + ' errs=' + errs.slice(-3).join(' / '));
+    throw e;
+  }
+  check('失敗した分は行列に残り、つながったら送られる（33%）',
+    (DB.Lms_Record || []).some(r => r.person_name === '佐藤 花子' && Number(r.watched_pct) === 33));
   DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
   /* 「次の章へ」を押すと保存してから移る */
   await sv.evaluate(() => route('learn', courses()[1].id, 0));
@@ -472,6 +489,31 @@ const ROSTER = [
     await sv.$eval('#svState', e => e.textContent));
   await fetch(base + '__editok').catch(() => {});
   DB.Lms_Record = (DB.Lms_Record || []).filter(r => r.person_name !== '佐藤 花子');
+  /* 確認テストの結果も、その場で送って読み返す */
+  await sv.evaluate(() => {
+    var co = courses()[2], ch = co.chapters[0];
+    putRec(normName(me().name), ch.id, { dur:ch.dur, ranges:[[0, ch.dur]], fast:false }, currentTerm());
+    route('quiz', co.id);
+  });
+  await sv.waitForSelector('#submitQ');
+  /* 出題順と選択肢順は人ごとに並べ替わるので、文で正解を探して選ぶ */
+  await sv.evaluate(() => {
+    var qs = courses()[2].quiz;
+    Array.prototype.forEach.call(document.querySelectorAll('#qArea .q'), function(box){
+      var qt = box.querySelector('.qt span:last-child').textContent;
+      var q = qs.filter(function(x){ return x.q === qt; })[0];
+      var want = q.c[q.a];
+      Array.prototype.forEach.call(box.querySelectorAll('label.opt'), function(l){
+        if(l.querySelector('span').textContent === want) l.querySelector('input').checked = true;
+      });
+    });
+  });
+  await sv.click('#submitQ');
+  await sv.waitForFunction(() => /保存しました|保存できません|見つかりません/.test((document.getElementById('qzState') || {}).textContent || ''), { timeout:20000 });
+  const qzText = await sv.$eval('#qzState', e => e.textContent);
+  check('テストの結果が Creator に保存され、読み返した行が出る', /テストの結果を保存しました（Creator の行 \d+・合格）/.test(qzText), qzText);
+  check('Creator の Lms_Quiz に合格の行がある', (DB.Lms_Quiz || []).some(r => r.person_name === '佐藤 花子' && r.passed === '合格'),
+    JSON.stringify((DB.Lms_Quiz || []).map(r => [r.person_name, r.passed])));
 
   console.log('⑯ 相手が再読み込みしなくても、変更が見える');
   const rb = await open('hana@example.com', 'lms');          /* 受講者：マイダッシュボードを開いたまま */
