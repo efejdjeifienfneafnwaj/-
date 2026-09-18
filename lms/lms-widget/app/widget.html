@@ -3679,10 +3679,14 @@ function courseProgress(name, co){
 /* ══════════════════════════════════════════════════════════════
    小さな道具
    ══════════════════════════════════════════════════════════════ */
+/* 「14秒」「1分30秒」「22分」「1時間5分」。1時間を超えたら秒は出さない。
+   秒を出さないと 14 秒の動画が「0分」になってしまう */
 function hhmm(sec){
-  var h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
-  if(m === 60){ h++; m = 0; }
-  return h > 0 ? (h + '時間' + m + '分') : (m + '分');
+  sec = Math.max(0, Math.round(Number(sec) || 0));
+  var h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec % 60;
+  if(h > 0) return h + '時間' + m + '分';
+  if(m > 0) return m + '分' + (s ? s + '秒' : '');
+  return s + '秒';
 }
 /* 「00分」「48分」「54時間55分」のように桁をそろえて出す */
 function hm2(sec){
@@ -4690,9 +4694,10 @@ function ccHTML(co, p){
   h +=   '<span class="pline"><span class="pb' + (p.done ? ' done' : '') +
            '"><i style="width:' + Math.round(p.rate*100) + '%"></i></span>' +
            '<span class="n">' + pct(p.rate) + '</span></span>';
-  h +=   '<span class="cc-foot">' + stPill(co, p) +
-           (p.done ? '<button type="button" class="lnk" data-cert="' + esc(co.id) + '">' + ic('file') + '修了証</button>' : '') +
-         '</span>';
+  /* 修了証のボタンはここには置かない。カード自体が button なので中に button は入れられず、
+     ブラウザが外に押し出してカードの横に「修了証」だけが浮いていた。修了証は
+     コースの画面と「修了証」の一覧から開ける */
+  h +=   '<span class="cc-foot">' + stPill(co, p) + '</span>';
   h += '</span></button>';
   return h;
 }
@@ -7759,9 +7764,13 @@ function viewACEdit(courseId){
       h +=   '<div class="field"><label>動画のURL<span class="note-s">YouTubeの限定公開</span></label>' +
                '<input class="inp mono" data-cv="' + i + '" value="' + esc(ch.videoId || '') +
                '" placeholder="https://www.youtube.com/watch?v=..." style="font-size:12px"></div>';
-      h +=   '<div class="field"><label>長さ<span class="note-s">分</span></label>' +
-               '<input class="inp" data-cd="' + i + '" inputmode="numeric" style="width:110px" value="' +
-               Math.round((Number(ch.dur) || 0) / 60) + '"></div>';
+      var dsec = Math.max(0, Math.round(Number(ch.dur) || 0));
+      h +=   '<div class="field"><label>長さ<span class="note-s">分と秒</span></label>' +
+               '<div style="display:flex;align-items:center;gap:6px">' +
+               '<input class="inp" data-cd="' + i + '" inputmode="numeric" style="width:90px" value="' +
+               Math.floor(dsec / 60) + '"><span>分</span>' +
+               '<input class="inp" data-cs="' + i + '" inputmode="numeric" style="width:90px" value="' +
+               (dsec % 60) + '"><span>秒</span></div></div>';
       h += '</div>';
       h += '<div class="cap mono">章ID ' + esc(ch.id) + '（記録の紐づけに使うため変えられません）</div>';
       h += '</div>';
@@ -7853,7 +7862,7 @@ function viewACEdit(courseId){
     if(CE.tab === 'chap'){
       d.chapters.forEach(function(ch, i){
         var t = byAttr('data-ct', String(i)), v = byAttr('data-cv', String(i)),
-            du = byAttr('data-cd', String(i));
+            du = byAttr('data-cd', String(i)), ds = byAttr('data-cs', String(i));
         if(t) ch.title = String(t.value).trim();
         if(v){
           var raw = String(v.value).trim();
@@ -7863,8 +7872,12 @@ function viewACEdit(courseId){
           else if(!raw) ch.videoId = '';
         }
         if(du){
-          var m = parseInt(du.value, 10);
-          if(!isNaN(m) && m > 0) ch.dur = m * 60;
+          var m = parseInt(du.value, 10), sc = ds ? parseInt(ds.value, 10) : 0;
+          if(isNaN(m)) m = 0;
+          if(isNaN(sc)) sc = 0;
+          /* 秒だけ（例：14秒）の動画も登録できるように、合計が 1 秒以上なら受ける */
+          var tot = m * 60 + Math.max(0, Math.min(59, sc));
+          if(tot > 0) ch.dur = tot;
         }
       });
     }
@@ -9211,10 +9224,9 @@ function viewASettings(){
          '<span class="hub-i">' + ic(a.icon) + '</span></div>';
     h += '<div class="up-b" style="flex:1"><div class="two-g">';
     h +=   '<div class="field"><label for="cfA_' + base.id + '_n">名前</label>' +
-             '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '"' +
-             (base.id === 'lms' ? ' disabled' : '') + '>' +
+             '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '">' +
              (base.id === 'lms'
-               ? '<span class="note-s">上の「アプリ名」で変わります</span>' : '') +
+               ? '<span class="note-s">上の「アプリ名」と同じ名前です。どちらで変えても揃います</span>' : '') +
            '</div>';
     h +=   '<div class="field"><label for="cfA_' + base.id + '_i">アイコン</label>' +
              '<select class="inp" id="cfA_' + base.id + '_i">' +
@@ -9441,10 +9453,12 @@ function viewASettings(){
       var i = document.getElementById('cfA_' + base.id + '_i');
       var one = {};
       /* 初期値と同じものは持たない。あとで初期値を直したときに追従できるように */
-      if(base.id !== 'lms'){
-        var nv = String((n && n.value) || '').trim();
-        if(nv && nv !== base.name) one.name = nv;
-      }
+      var nv = String((n && n.value) || '').trim();
+      if(base.id === 'lms'){
+        /* e-ラーニングの名前は config().appName が正（見出し・修了証も同じ）。
+           このカードで変えたら、上の「アプリ名」も同じ値になる */
+        c.appName = nv || DEFAULT_CONFIG.appName;
+      }else if(nv && nv !== base.name) one.name = nv;
       var sv = String((s && s.value) || '').trim();
       if(sv && sv !== base.sub) one.sub = sv;
       var iv = String((i && i.value) || '');

@@ -104,8 +104,23 @@ const cardText = (page, id, sel) =>
   await page.waitForSelector('#app.on');
   await page.evaluate(() => route('asettings'));
   await page.waitForSelector('#cfAppsSave');
-  check('e-ラーニングの名前は上の欄で変えるので、ここでは触れない',
-    await page.$eval('#cfA_lms_n', e => e.disabled) === true);
+  /* 「上のアプリ名で変える感じになってるから、ここを普通にいじりたい」への対策。
+     カードの名前欄をそのまま書き換えられ、上の「アプリ名」と同じ値になる */
+  check('e-ラーニングの名前欄もそのまま書き換えられる',
+    await page.$eval('#cfA_lms_n', e => e.disabled) === false);
+  await page.fill('#cfA_lms_n', 'e ラーニング');
+  await page.click('#cfAppsSave');
+  await page.waitForTimeout(400);
+  check('カードで変えた名前が「アプリ名」になる',
+    await page.evaluate(() => config().appName) === 'e ラーニング');
+  check('上の「アプリ名」の欄も同じ値になる',
+    await page.$eval('#cfName', e => e.value) === 'e ラーニング');
+  check('カードの名前は上書きとして二重に持たない',
+    await page.evaluate(() => !(config().apps || {}).lms));
+  await page.fill('#cfA_lms_n', 'e-ラーニング');
+  await page.click('#cfAppsSave');
+  await page.waitForTimeout(400);
+  await page.waitForSelector('#cfAppsSave');
   /* zip に bg.jpg があるとき、設定画面のプレビューの写真が枠から出て
      画面全体を覆い、設定が「見当たらない」状態になっていた */
   const pv = await page.evaluate(() => {

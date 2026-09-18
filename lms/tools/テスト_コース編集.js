@@ -88,6 +88,35 @@ function check(name, cond, extra){
   check('問題文が残っている',
     (await page.inputValue('[data-qq="0"]')).indexOf('障害者虐待') === 0);
 
+  console.log('⑧ 章の長さは秒まで指定できること');
+  await page.click('#ceTab button[data-t="chap"]');
+  await page.waitForSelector('#ceAddChap');
+  if(!(await page.$('[data-cd="0"]'))){ await page.click('#ceAddChap'); await page.waitForSelector('[data-cd="0"]'); }
+  check('秒の欄がある', (await page.$('[data-cs="0"]')) !== null);
+  await page.fill('[data-ct="0"]', '第1章');
+  await page.fill('[data-cd="0"]', '0');
+  await page.fill('[data-cs="0"]', '14');
+  await page.click('#ceSave');
+  await page.waitForSelector('#acNew');
+  const dur = await page.evaluate(() => {
+    const id = document.querySelector('[data-edit]').getAttribute('data-edit');
+    const co = courses().filter(c => c.id === id)[0];
+    return co && co.chapters[0] ? co.chapters[0].dur : null;
+  });
+  check('14秒が秒のまま保存される（0分にならない）', dur === 14, String(dur));
+  check('14秒は「14秒」と出る', await page.evaluate(() => hhmm(14)) === '14秒');
+  check('90秒は「1分30秒」と出る', await page.evaluate(() => hhmm(90)) === '1分30秒');
+  check('22分は「22分」のまま', await page.evaluate(() => hhmm(1320)) === '22分');
+  check('1時間を超えたら秒は出さない', await page.evaluate(() => hhmm(3905)) === '1時間5分');
+  await page.click('[data-edit]');
+  await page.waitForSelector('#ceTab');
+  await page.click('#ceTab button[data-t="chap"]');
+  await page.waitForSelector('[data-cs="0"]');
+  check('開き直すと 0分 14秒 で出る',
+    (await page.inputValue('[data-cd="0"]')) === '0' && (await page.inputValue('[data-cs="0"]')) === '14');
+  await page.click('#ceSave');
+  await page.waitForSelector('#acNew');
+
   console.log('⑦ 受講者側でも選択肢がきちんと出ること');
   const lw = await page.evaluate(() => {
     const q = { q:'x', c:['身体的虐待','経済的虐待','業務的虐待','心理的虐待'], a:2 };
