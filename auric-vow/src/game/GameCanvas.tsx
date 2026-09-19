@@ -5,7 +5,7 @@
  * mission → vfx, then the frame-end GameTick orchestrator.
  */
 import { useEffect, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import PostFX from './PostFX'
 import { Input } from './Input'
@@ -95,10 +95,16 @@ function disableKeyShadows(scene: THREE.Scene) {
   })
 }
 
+/** QA capture mode (?qa=1): pin quality tier 0 so screenshots show the real
+ * art direction even on software renderers that never reach 45 fps. */
+const QA_CAPTURE =
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('qa')
+
 function QualityWatcher() {
   const acc = useRef({ warmup: FPS_WARMUP_SEC, windowT: 0, frames: 0 })
 
   useFrame(({ scene, setDpr }, delta) => {
+    if (QA_CAPTURE) return
     const a = acc.current
     if (a.warmup > 0) {
       a.warmup -= delta
@@ -155,7 +161,56 @@ interface QaWindow extends Window {
     lookAt: (x: number, y: number, z: number) => void
     /** [id, type, alive, [x,y,z]] for every registered enemy (combat evidence) */
     enemyPositions: () => [number, string, boolean, number[]][]
+    /** ?qa=1 only — set by QaBridge */
+    gl?: THREE.WebGLRenderer
+    scene?: THREE.Scene
+    camera?: THREE.Camera
+    setFixedDt?: (dt: number | null) => void
+    setShadows?: (on: boolean) => void
   }
+}
+
+
+/**
+ * QA bridge (?qa=1 only). Exposes the renderer/scene/camera on window.__qa and
+ * allows pinning a fixed per-frame delta. R3F computes one delta per frame via
+ * clock.getDelta() and hands the same value to every useFrame subscriber, so
+ * patching it here drives the whole simulation at a deterministic step —
+ * screenshots of 0.3 s VFX are reproducible on software renderers that run at
+ * a fraction of a frame per second.
+ */
+function QaBridge() {
+  const { gl, scene, camera, clock } = useThree()
+  useEffect(() => {
+    if (!QA_CAPTURE) return
+    const w = window as QaWindow & { __qaGl?: unknown }
+    const orig = clock.getDelta.bind(clock)
+    let fixed: number | null = null
+    clock.getDelta = () => {
+      const real = orig()
+      return fixed === null ? real : fixed
+    }
+    const q = w.__qa
+    if (q) {
+      q.gl = gl
+      q.scene = scene
+      q.camera = camera
+      q.setFixedDt = (dt: number | null) => {
+        fixed = dt
+      }
+      q.setShadows = (on: boolean) => {
+        gl.shadowMap.enabled = on
+        scene.traverse((o) => {
+          const l = o as THREE.DirectionalLight
+          if (l.isDirectionalLight) l.castShadow = on
+        })
+      }
+    }
+    return () => {
+      clock.getDelta = orig
+    }
+  }, [gl, scene, camera, clock])
+  return null
 }
 
 export default function GameCanvas() {
@@ -252,6 +307,7 @@ export default function GameCanvas() {
 
         {/* frame-end orchestrator (mounted last → runs last at priority 0) */}
         <GameTick />
+        <QaBridge />
 
         <PostFX />
       </Canvas>

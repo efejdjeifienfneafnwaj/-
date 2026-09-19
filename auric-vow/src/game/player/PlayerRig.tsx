@@ -15,7 +15,7 @@
  *   crouch, wall-run tilt, glide superman pose, lunge tuck-spin
  * - Player rim point light (§2.3) + lunge afterimage ghosts
  */
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
@@ -243,6 +243,18 @@ class Ribbon {
 // component
 // ---------------------------------------------------------------------------
 
+/**
+ * Weapon attachment sockets, published for the third-person view model.
+ * The rig is procedural (no skeleton), so these are plain groups parented into
+ * the arm / hip hierarchy; combat/ViewModel.tsx reads their world matrices
+ * each frame instead of gluing weapons to the camera.
+ */
+export const PlayerSockets: {
+  rightHand: THREE.Object3D | null
+  leftHand: THREE.Object3D | null
+  hip: THREE.Object3D | null
+} = { rightHand: null, leftHand: null, hip: null }
+
 const _fwd = new THREE.Vector3()
 const _rgt = new THREE.Vector3()
 const _anchor = new THREE.Vector3()
@@ -260,6 +272,9 @@ export default function PlayerRig() {
   const legR = useRef<THREE.Group>(null)
   const kneeL = useRef<THREE.Group>(null)
   const kneeR = useRef<THREE.Group>(null)
+  const handSocketR = useRef<THREE.Group>(null)
+  const handSocketL = useRef<THREE.Group>(null)
+  const hipSocket = useRef<THREE.Group>(null)
 
   const springs = useRef({
     torsoPitch: new Spring(),
@@ -268,6 +283,18 @@ export default function PlayerRig() {
     bodyRoll: new Spring(),
     bodyY: new Spring(),
   })
+
+  // publish weapon sockets for the third-person view model
+  useEffect(() => {
+    PlayerSockets.rightHand = handSocketR.current
+    PlayerSockets.leftHand = handSocketL.current
+    PlayerSockets.hip = hipSocket.current
+    return () => {
+      PlayerSockets.rightHand = null
+      PlayerSockets.leftHand = null
+      PlayerSockets.hip = null
+    }
+  }, [])
 
   const ribbons = useMemo(() => [new Ribbon(), new Ribbon()], [])
   const ribbonsInit = useRef(false)
@@ -573,6 +600,9 @@ export default function PlayerRig() {
               <torusGeometry args={[0.135, 0.008, 6, 20]} />
             </mesh>
 
+            {/* scabbard socket — read by combat/ViewModel.tsx */}
+            <group ref={hipSocket} position={[-0.17, -0.02, -0.04]} rotation={[0, 0, 0.3]} />
+
             {/* torso (spine lean pivot) */}
             <group ref={torso}>
               {/* slim waist — tapered obsidian underlayer */}
@@ -678,6 +708,7 @@ export default function PlayerRig() {
                   <mesh material={mats.gold} position={[0, -0.28, 0]}>
                     <boxGeometry args={[0.075, 0.1, 0.08]} />
                   </mesh>
+                  <group ref={handSocketL} position={[0, -0.3, 0.02]} />
                 </group>
               </group>
               <group ref={shoulderR} position={[0.27, 0.48, 0]}>
@@ -710,6 +741,8 @@ export default function PlayerRig() {
                   <mesh material={mats.gold} position={[0, -0.28, 0]}>
                     <boxGeometry args={[0.075, 0.1, 0.08]} />
                   </mesh>
+                  {/* weapon grip socket — read by combat/ViewModel.tsx */}
+                  <group ref={handSocketR} position={[0, -0.3, 0.02]} />
                 </group>
               </group>
             </group>

@@ -446,8 +446,18 @@ function updateGunFx(fx: GunFx, dt: number) {
 // Rifle
 // ---------------------------------------------------------------------------
 
-/** world-space muzzle position (camera-space MUZZLE_LOCAL) */
+/**
+ * World-space muzzle tip, published each frame by the third-person view model
+ * (combat/ViewModel.tsx) from the actual barrel mesh. Tracers, muzzle flashes,
+ * shells and the muzzle light all spawn here so they leave the weapon the
+ * player can see rather than the camera.
+ */
+export const MuzzleWorld = { position: new THREE.Vector3(), valid: false }
+
+/** world-space muzzle position — the rig's barrel tip, or the camera-space
+ * fallback offset before the player rig has mounted. */
 export function getMuzzleWorld(camera: THREE.Camera, out: THREE.Vector3): THREE.Vector3 {
+  if (MuzzleWorld.valid) return out.copy(MuzzleWorld.position)
   return out.copy(MUZZLE_LOCAL).applyMatrix4(camera.matrixWorld)
 }
 

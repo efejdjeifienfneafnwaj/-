@@ -17,10 +17,15 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { COLORS } from '@/game/config'
-import { bladeTipWorld, MUZZLE_LOCAL } from './Weapons'
+import { bladeTipWorld, MUZZLE_LOCAL, MuzzleWorld } from './Weapons'
+import { PlayerSockets } from '@/game/player/PlayerRig'
 import { CombatState } from './state'
 
 const _tip = new THREE.Vector3()
+const _socketPos = new THREE.Vector3()
+const _aimDir = new THREE.Vector3()
+const _lookTarget = new THREE.Vector3()
+const _muzzleWorld = new THREE.Vector3()
 
 /** aim delta: rifle slides from hip offset toward screen center on RMB */
 const AIM_DELTA = new THREE.Vector3(-0.14, 0.05, -0.05)
@@ -56,9 +61,27 @@ export function WeaponViewModel() {
     const g = groupRef.current
     if (!g) return
 
-    // glue the rig to the camera
-    g.position.copy(state.camera.position)
-    g.quaternion.copy(state.camera.quaternion)
+    // The camera is third-person, so the weapons live in the character's hands,
+    // not at the lens. Anchor the rig at the right-hand socket and aim it down
+    // the camera's forward axis, which is also what the hit raycast uses — so
+    // what the player sees and what the shot does agree. Falls back to the old
+    // camera-space placement only if the rig has not mounted yet.
+    const socket = PlayerSockets.rightHand
+    if (socket) {
+      socket.getWorldPosition(_socketPos)
+      state.camera.getWorldDirection(_aimDir)
+      _lookTarget.copy(_socketPos).add(_aimDir)
+      g.position.copy(_socketPos)
+      g.up.set(0, 1, 0)
+      g.lookAt(_lookTarget)
+      // the weapon meshes are authored in camera space (grip near the origin,
+      // barrel toward -Z); lookAt points +Z at the target, so flip to match.
+      g.rotateY(Math.PI)
+      g.position.addScaledVector(_aimDir, 0.12)
+    } else {
+      g.position.copy(state.camera.position)
+      g.quaternion.copy(state.camera.quaternion)
+    }
 
     // aim slide (CameraRig owns the FOV 70→55 kick)
     aimT.current += ((cs.aiming ? 1 : 0) - aimT.current) * Math.min(1, rawDt / 0.12)
@@ -74,6 +97,13 @@ export function WeaponViewModel() {
       rifle.rotation.x = 0.06 * cs.recoil
     }
 
+    // publish the visual muzzle tip so tracers and flashes leave the barrel
+    if (flashARef.current) {
+      flashARef.current.getWorldPosition(_muzzleWorld)
+      MuzzleWorld.position.copy(_muzzleWorld)
+      MuzzleWorld.valid = true
+    }
+
     // ---- muzzle flash star: 0.05 s life, two alternating orientations ----
     const flashAge = cs.clock - cs.muzzleFlashAt
     const flashOn = flashAge >= 0 && flashAge < 0.05
@@ -87,6 +117,14 @@ export function WeaponViewModel() {
         flashMats[0].opacity = o
         flashMats[1].opacity = o * 0.75
       }
+    }
+
+    // ---- scabbard: rides the hip socket in world space ----
+    const hipSock = PlayerSockets.hip
+    if (hipSock && sheathKatanaRef.current) {
+      hipSock.getWorldPosition(_socketPos)
+      sheathKatanaRef.current.parent?.worldToLocal(_socketPos)
+      sheathKatanaRef.current.position.copy(_socketPos)
     }
 
     // ---- katana: in-hand tracking the world arc during a swing ----
