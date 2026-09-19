@@ -1,12 +1,21 @@
 /**
  * AURIC VOW — Particles.tsx
- * Pooled GPU point particles (vfx-hud.md §1.1): 3 × THREE.Points pools by
- * color family (gold / teal / red), 1000 points each. Custom shader:
- * additive, distance-attenuated point size, per-particle color, life fade.
+ * Pooled GPU point particles (vfx-hud.md §1.1). CPU integrates motion into the
+ * position/life attributes each frame, GPU handles shape/fade/streaking.
+ * Zero runtime allocation after construction.
  *
- * CPU integrates motion into the position/life attributes each frame
- * (3000 particles ≈ trivial), GPU handles shape/fade. Zero runtime
- * allocation after construction.
+ * [vfx R1] Rebuilt around three things the register called out:
+ *   V3 — every particle now samples one of four tiles from the procedural
+ *        atlas (spark / ember / smoke / debris) instead of one smoothstep blob.
+ *   V7 — a dedicated NON-additive smoke pool (dark alpha mass, NormalBlending)
+ *        so explosions have body and occlude what is behind them.
+ *   V15 — birth ramp (no pop-in at full size), per-particle flicker, and drag
+ *        so sparks decelerate instead of flying dead straight forever.
+ *
+ * On top of that, particles stretch along their own SCREEN-SPACE velocity:
+ * the sprite is rotated into the direction of travel and squashed across it,
+ * with the point size grown to match, so fast ejecta streaks and slow embers
+ * stay round. That is what turns "flat square debris" into motion.
  */
 import { useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -14,53 +23,106 @@ import * as THREE from 'three'
 import { COLORS } from '../config'
 import { useGameStore } from '../store'
 import { drainBursts, type BurstCmd } from './VFXBus'
+import { getParticleAtlas, PARTICLE_SHAPE } from './vfxTextures'
 
-// Raised 1000 → 1500 so ability-scale bursts (Requiem 120 + 40 embers,
-// dash 114-spray, volley 7×30 impacts) never starve the pool (fix1).
 const POOL_CAP = 1500
+/** smoke is heavier per pixel and far sparser — its own, smaller pool */
+const SMOKE_CAP = 420
 
-type Family = 'gold' | 'teal' | 'red'
+type Family = 'gold' | 'teal' | 'red' | 'smoke'
 
 const FAMILY_BASE: Record<Family, string> = {
   gold: COLORS.aureate,
   teal: COLORS.cadenceTeal,
   red: COLORS.emberRed,
+  smoke: '#2A2118',
 }
+
+/**
+ * HDR boost for additive particles. The bloom knee is 1.0 now, so particle
+ * cores have to be authored above white to bloom at all — this is the same
+ * contract MATERIALS.emissiveBoost applies to the architecture's energy.
+ */
+const ADDITIVE_BOOST = 2.6
+/** smoke is lit by nothing and must stay under the knee — it is mass, not light */
+const SMOKE_BOOST = 0.18
 
 const VERT = /* glsl */ `
 attribute float aSize;
 attribute float aLife;
 attribute float aMaxLife;
 attribute vec3 aColor;
+attribute vec3 aVel;
+attribute float aShape;
+attribute float aStretch;
+attribute float aSeed;
 uniform float uPixelScale;
+uniform float uAspect;
+uniform float uTime;
+uniform float uBoost;
 varying float vAlpha;
 varying vec3 vColor;
+varying float vAngle;
+varying float vStretch;
+varying vec2 vTile;
 void main() {
   float t = aMaxLife > 0.0 ? clamp(aLife / aMaxLife, 0.0, 1.0) : 0.0;
-  vAlpha = t * t;
-  vColor = aColor * (0.6 + 0.4 * t);
+  // birth ramp: fade and scale up over the first 12% of life so nothing pops
+  // in at full size (V15)
+  float birth = smoothstep(0.0, 0.12, 1.0 - t);
+  // per-particle flicker — embers breathe, sparks scintillate
+  float flick = 0.80 + 0.20 * sin(uTime * (13.0 + aSeed * 23.0) + aSeed * 37.0);
+  vAlpha = t * t * birth * flick;
+  vColor = aColor * (0.55 + 0.45 * t) * uBoost;
+  // 2×2 atlas; uv origin is bottom-left (flipY), tile 0 is the canvas top-left
+  vTile = vec2(mod(aShape, 2.0), 1.0 - floor(aShape * 0.5));
+
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  float s = aSize * (0.55 + 0.45 * t);
-  gl_PointSize = aLife > 0.0 ? s * uPixelScale / max(0.1, -mv.z) : 0.0;
-  gl_Position = projectionMatrix * mv;
+  vec4 clip0 = projectionMatrix * mv;
+  // project a short step along the velocity to get the screen-space heading
+  vec4 clip1 = projectionMatrix * (modelViewMatrix * vec4(position + aVel * 0.035, 1.0));
+  vec2 s0 = clip0.xy / max(1e-4, abs(clip0.w));
+  vec2 s1 = clip1.xy / max(1e-4, abs(clip1.w));
+  vec2 d = vec2((s1.x - s0.x) * uAspect, s1.y - s0.y);
+  float dl = length(d);
+  vAngle = dl > 1e-5 ? atan(d.y, d.x) : 0.0;
+  vStretch = aStretch * clamp(dl * 7.0, 0.0, 2.4);
+
+  float s = aSize * (0.45 + 0.55 * t) * (0.35 + 0.65 * birth);
+  gl_PointSize = aLife > 0.0 ? s * (1.0 + vStretch) * uPixelScale / max(0.1, -mv.z) : 0.0;
+  gl_Position = clip0;
 }
 `
 
 const FRAG = /* glsl */ `
+uniform sampler2D uAtlas;
+uniform float uSoft;
 varying float vAlpha;
 varying vec3 vColor;
+varying float vAngle;
+varying float vStretch;
+varying vec2 vTile;
 void main() {
-  float d = length(gl_PointCoord - 0.5);
-  float disc = smoothstep(0.5, 0.05, d);
-  float a = disc * vAlpha;
+  // y-up sprite space (gl_PointCoord is y-down)
+  vec2 p = vec2(gl_PointCoord.x - 0.5, 0.5 - gl_PointCoord.y);
+  float c = cos(-vAngle);
+  float s = sin(-vAngle);
+  vec2 r = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+  // squash across the travel axis → a streak inside the enlarged point quad
+  r.y *= (1.0 + vStretch);
+  vec2 uv = r + 0.5;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) discard;
+  vec2 tuv = clamp(uv, 0.008, 0.992) * 0.5 + vTile * 0.5;
+  vec4 tex = texture2D(uAtlas, tuv);
+  float a = tex.a * vAlpha * uSoft;
   if (a < 0.003) discard;
-  gl_FragColor = vec4(vColor, a);
+  gl_FragColor = vec4(vColor * tex.rgb, a);
 }
 `
 
 class ParticlePool {
   readonly points: THREE.Points
-  private readonly cap = POOL_CAP
+  private readonly cap: number
   private cursor = 0
   private readonly pos: Float32Array
   private readonly vel: Float32Array
@@ -69,55 +131,90 @@ class ParticlePool {
   private readonly life: Float32Array
   private readonly maxLife: Float32Array
   private readonly grav: Float32Array
+  private readonly drag: Float32Array
+  private readonly shape: Float32Array
+  private readonly stretch: Float32Array
+  private readonly seed: Float32Array
   private readonly posAttr: THREE.BufferAttribute
   private readonly lifeAttr: THREE.BufferAttribute
   private readonly colAttr: THREE.BufferAttribute
   private readonly sizeAttr: THREE.BufferAttribute
   private readonly maxLifeAttr: THREE.BufferAttribute
+  private readonly velAttr: THREE.BufferAttribute
+  private readonly shapeAttr: THREE.BufferAttribute
+  private readonly stretchAttr: THREE.BufferAttribute
+  private readonly seedAttr: THREE.BufferAttribute
   readonly material: THREE.ShaderMaterial
 
   readonly family: Family
 
   constructor(family: Family) {
     this.family = family
-    this.pos = new Float32Array(this.cap * 3)
-    this.vel = new Float32Array(this.cap * 3)
-    this.col = new Float32Array(this.cap * 3)
-    this.size = new Float32Array(this.cap)
-    this.life = new Float32Array(this.cap)
-    this.maxLife = new Float32Array(this.cap)
-    this.grav = new Float32Array(this.cap)
+    const isSmoke = family === 'smoke'
+    this.cap = isSmoke ? SMOKE_CAP : POOL_CAP
+    const cap = this.cap
+    this.pos = new Float32Array(cap * 3)
+    this.vel = new Float32Array(cap * 3)
+    this.col = new Float32Array(cap * 3)
+    this.size = new Float32Array(cap)
+    this.life = new Float32Array(cap)
+    this.maxLife = new Float32Array(cap)
+    this.grav = new Float32Array(cap)
+    this.drag = new Float32Array(cap)
+    this.shape = new Float32Array(cap)
+    this.stretch = new Float32Array(cap)
+    this.seed = new Float32Array(cap)
+    for (let i = 0; i < cap; i++) this.seed[i] = Math.random()
 
     const geo = new THREE.BufferGeometry()
-    this.posAttr = new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage)
-    this.lifeAttr = new THREE.BufferAttribute(this.life, 1).setUsage(THREE.DynamicDrawUsage)
-    this.colAttr = new THREE.BufferAttribute(this.col, 3).setUsage(THREE.DynamicDrawUsage)
-    this.sizeAttr = new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage)
-    this.maxLifeAttr = new THREE.BufferAttribute(this.maxLife, 1).setUsage(THREE.DynamicDrawUsage)
+    const dyn = (arr: Float32Array, n: number) =>
+      new THREE.BufferAttribute(arr, n).setUsage(THREE.DynamicDrawUsage)
+    this.posAttr = dyn(this.pos, 3)
+    this.lifeAttr = dyn(this.life, 1)
+    this.colAttr = dyn(this.col, 3)
+    this.sizeAttr = dyn(this.size, 1)
+    this.maxLifeAttr = dyn(this.maxLife, 1)
+    this.velAttr = dyn(this.vel, 3)
+    this.shapeAttr = dyn(this.shape, 1)
+    this.stretchAttr = dyn(this.stretch, 1)
+    this.seedAttr = new THREE.BufferAttribute(this.seed, 1)
     geo.setAttribute('position', this.posAttr)
     geo.setAttribute('aLife', this.lifeAttr)
     geo.setAttribute('aMaxLife', this.maxLifeAttr)
     geo.setAttribute('aColor', this.colAttr)
     geo.setAttribute('aSize', this.sizeAttr)
+    geo.setAttribute('aVel', this.velAttr)
+    geo.setAttribute('aShape', this.shapeAttr)
+    geo.setAttribute('aStretch', this.stretchAttr)
+    geo.setAttribute('aSeed', this.seedAttr)
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5) // never cull
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT,
       fragmentShader: FRAG,
-      uniforms: { uPixelScale: { value: 800 } },
+      uniforms: {
+        uPixelScale: { value: 800 },
+        uAspect: { value: 1.777 },
+        uTime: { value: 0 },
+        uBoost: { value: isSmoke ? SMOKE_BOOST : ADDITIVE_BOOST },
+        uSoft: { value: isSmoke ? 0.55 : 1 },
+        uAtlas: { value: getParticleAtlas() },
+      },
       transparent: true,
       depthWrite: false,
       depthTest: true,
-      blending: THREE.AdditiveBlending,
+      // smoke is the one family that is NOT additive — it has to be able to
+      // darken and occlude, which is what gives a detonation mass (V7)
+      blending: isSmoke ? THREE.NormalBlending : THREE.AdditiveBlending,
     })
 
     this.points = new THREE.Points(geo, this.material)
     this.points.frustumCulled = false
-    this.points.renderOrder = 20
+    // smoke renders under the additive layers so cores composite on top of it
+    this.points.renderOrder = isSmoke ? 18 : 20
 
-    // seed default family color so unused-but-alive slots still tint correctly
     const c = new THREE.Color(FAMILY_BASE[family])
-    for (let i = 0; i < this.cap; i++) {
+    for (let i = 0; i < cap; i++) {
       this.col[i * 3] = c.r
       this.col[i * 3 + 1] = c.g
       this.col[i * 3 + 2] = c.b
@@ -137,8 +234,13 @@ class ParticlePool {
   }
 
   spawn(cmd: BurstCmd): void {
-    const color = new THREE.Color(cmd.color)
+    const color = _spawnColor.set(cmd.color)
+    if (this.family === 'smoke') {
+      // smoke is soot lit by the blast, not the blast itself: desaturate hard
+      color.lerp(_soot, 0.82)
+    }
     const count = Math.min(cmd.count, this.cap)
+    const isSmoke = this.family === 'smoke'
     for (let n = 0; n < count; n++) {
       const i = this.cursor
       this.cursor = (this.cursor + 1) % this.cap
@@ -156,7 +258,7 @@ class ParticlePool {
       // field reads as a vortex instead of a point puff
       const spawnR = cmd.swirl !== 0 ? 0.35 + Math.random() * 1.1 : 0.05
       const px = cmd.x + dx * spawnR
-      const py = cmd.y + dy * 0.05
+      const py = cmd.y + dy * (isSmoke ? 0.35 : 0.05)
       const pz = cmd.z + dz * spawnR
       this.pos[i3] = px
       this.pos[i3 + 1] = py
@@ -184,26 +286,48 @@ class ParticlePool {
       this.col[i3] = color.r
       this.col[i3 + 1] = color.g
       this.col[i3 + 2] = color.b
-      this.size[i] = cmd.size * (0.7 + Math.random() * 0.6)
+      this.size[i] = cmd.size * (0.7 + Math.random() * 0.6) * (isSmoke ? 6.5 : 1)
       const lf = cmd.life * (0.6 + Math.random() * 0.4)
       this.life[i] = lf
       this.maxLife[i] = lf
       this.grav[i] = cmd.gravity
+      this.shape[i] = cmd.shape
+      this.stretch[i] = cmd.stretch
+      // drag (V15): sparks bleed speed fast, embers float, smoke stalls
+      this.drag[i] =
+        cmd.shape === PARTICLE_SHAPE.smoke
+          ? 2.4
+          : cmd.shape === PARTICLE_SHAPE.ember
+            ? 0.9
+            : 1.6 + Math.random() * 1.2
     }
     this.colAttr.needsUpdate = true
     this.sizeAttr.needsUpdate = true
     this.maxLifeAttr.needsUpdate = true
+    this.shapeAttr.needsUpdate = true
+    this.stretchAttr.needsUpdate = true
+    // upload the freshly written state immediately: update() would otherwise
+    // only flush it next frame, and never at all while timeScale is 0
+    this.posAttr.needsUpdate = true
+    this.lifeAttr.needsUpdate = true
+    this.velAttr.needsUpdate = true
   }
 
   update(dt: number): void {
     if (dt <= 0) return
-    const { pos, vel, life, grav, cap } = this
+    const { pos, vel, life, grav, drag, cap } = this
     let anyAlive = false
     for (let i = 0; i < cap; i++) {
       if (life[i] <= 0) continue
       anyAlive = true
       life[i] -= dt
       const i3 = i * 3
+      // exponential drag, integrated explicitly and clamped so a long frame
+      // can never flip the velocity sign
+      const k = Math.max(0, 1 - drag[i] * dt)
+      vel[i3] *= k
+      vel[i3 + 1] *= k
+      vel[i3 + 2] *= k
       vel[i3 + 1] -= grav[i] * dt
       pos[i3] += vel[i3] * dt
       pos[i3 + 1] += vel[i3 + 1] * dt
@@ -212,16 +336,24 @@ class ParticlePool {
     if (anyAlive) {
       this.posAttr.needsUpdate = true
       this.lifeAttr.needsUpdate = true
+      this.velAttr.needsUpdate = true
     }
   }
 }
 
+const _spawnColor = new THREE.Color()
+const _soot = new THREE.Color('#1A1512')
 const drainBuffer: BurstCmd[] = []
 
-/** 3 pooled Points systems (gold/teal/red), drained from the VFX bus. */
+/** 4 pooled Points systems (gold/teal/red additive + smoke), drained from the bus. */
 export default function Particles() {
   const pools = useMemo(
-    () => [new ParticlePool('gold'), new ParticlePool('teal'), new ParticlePool('red')],
+    () => [
+      new ParticlePool('gold'),
+      new ParticlePool('teal'),
+      new ParticlePool('red'),
+      new ParticlePool('smoke'),
+    ],
     [],
   )
   const size = useThree((s) => s.size)
@@ -237,12 +369,21 @@ export default function Particles() {
       persp.isPerspectiveCamera === true
         ? size.height / (2 * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2))
         : size.height
-    for (const p of pools) p.material.uniforms.uPixelScale!.value = px
+    const aspect = size.height > 0 ? size.width / size.height : 1.777
+    for (const p of pools) {
+      p.material.uniforms.uPixelScale!.value = px
+      p.material.uniforms.uAspect!.value = aspect
+      // flicker runs on REAL time so embers keep shimmering during hitstop
+      p.material.uniforms.uTime!.value += delta
+    }
 
     drainBursts(drainBuffer)
     for (let i = 0; i < drainBuffer.length; i++) {
       const cmd = drainBuffer[i]
-      const pool = pools.find((p) => p.matches(cmd.color)) ?? pools[0]
+      const pool =
+        cmd.shape === PARTICLE_SHAPE.smoke
+          ? pools[3]
+          : (pools.find((p) => p.matches(cmd.color)) ?? pools[0])
       pool.spawn(cmd)
     }
     drainBuffer.length = 0

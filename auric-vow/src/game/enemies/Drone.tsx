@@ -1,10 +1,16 @@
 /**
  * AURIC VOW — enemies/Drone.tsx
  * "CHIRP" Drone — flying harasser / patrol scout (enemies-mission.md §1).
- * Procedural build: flattened octahedron shell, teal core (weakpoint ×2),
- * 3 spinning blade fins, hover bob, tilt-into-movement.
- * AI: PATROL → ALERT (0.6s screech, rise, broadcast) → ATTACK (strafe-orbit,
- * telegraphed teal bolts, dart-away) → STAGGER (spin-out) → dissolve death.
+ *
+ * R1 art pass: the old flattened octahedron + 3 sticks read as debris. The
+ * drone is now a wide, flat, forward-swept delta — a dark hull with two
+ * forward sensor prongs, a counter-rotating gimbal ring and ONE crimson eye
+ * on the nose. Nothing else in the game is horizontal-and-hovering, so the
+ * type reads instantly against troopers (vertical) and heavies (massive).
+ *
+ * AI: PATROL → ALERT (0.6 s screech, rise, broadcast) → ATTACK (strafe-orbit
+ * with real obstacle avoidance, telegraphed crimson bolts, dart-away) →
+ * STAGGER (spin-out) → dissolve death.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -12,10 +18,20 @@ import * as THREE from 'three'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { useGameStore } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
-import { COLORS } from '@/game/config'
+import { VFX } from '@/game/vfx/VFXBus'
+import { ENEMY_LOOK } from '@/game/config'
 import { broadcastAlert, type EnemyEntity } from './EnemyRegistry'
-import { canSeePlayer, hasLineOfSight, integrateFlying, separationForce, PERCEPTION_INTERVAL } from './ai'
-import { patchDissolve } from './dissolve'
+import {
+  avoidFlying,
+  canSeePlayer,
+  clearThreat,
+  hasLineOfSight,
+  integrateFlying,
+  markThreat,
+  separationForce,
+  PERCEPTION_INTERVAL,
+} from './ai'
+import { patchDissolve, makeOutlineMaterial } from './dissolve'
 import { fireEnemyBolt } from './EnemyProjectiles'
 
 const SPEED_PATROL = 3
@@ -25,7 +41,7 @@ const DETECT_FOV = 100
 const ORBIT_RADIUS_MIN = 8
 const ORBIT_RADIUS_MAX = 12
 const FIRE_INTERVAL = 1.6
-const FIRE_TELEGRAPH = 0.2
+const FIRE_TELEGRAPH = 0.28
 const BOLT_SPEED = 25
 const BOLT_DAMAGE = 8
 const DART_RANGE = 3
@@ -36,34 +52,61 @@ const _v = new THREE.Vector3()
 const _desired = new THREE.Vector3()
 const _sep = new THREE.Vector3()
 const _aimAt = new THREE.Vector3()
-const CORE_DIM = new THREE.Color('#0B5A55')
-const CORE_FULL = new THREE.Color(COLORS.cadenceTeal)
+const _fx = new THREE.Vector3()
+const CORE_DIM = new THREE.Color(ENEMY_LOOK.accent).multiplyScalar(0.4)
+const CORE_FULL = new THREE.Color(ENEMY_LOOK.accent)
+const CORE_HOT = new THREE.Color(ENEMY_LOOK.accentHot)
 
 export function Drone({ entity }: { entity: EnemyEntity }) {
   const group = useRef<THREE.Group>(null)
   const bobGroup = useRef<THREE.Group>(null)
   const finGroup = useRef<THREE.Group>(null)
+  const ringGroup = useRef<THREE.Group>(null)
   const coreMesh = useRef<THREE.Mesh>(null)
 
   const facing = useRef(new THREE.Vector3(0, 0, 1))
   const orbitDir = useRef(Math.random() < 0.5 ? 1 : -1)
   const orbitRadius = useRef(THREE.MathUtils.lerp(ORBIT_RADIUS_MIN, ORBIT_RADIUS_MAX, Math.random()))
   const bobPhase = useRef(Math.random() * Math.PI * 2)
+  const prevFlash = useRef(0)
+  const shadowsOff = useRef(false)
+  const rollTarget = useRef(0)
 
   const mats = useMemo(() => {
-    const shell = new THREE.MeshStandardMaterial({ color: '#DDD6C4', metalness: 0.7, roughness: 0.35 })
-    const fin = new THREE.MeshStandardMaterial({ color: '#C9C2B0', metalness: 0.8, roughness: 0.3 })
-    const core = new THREE.MeshBasicMaterial({ color: COLORS.cadenceTeal, toneMapped: false, transparent: true })
+    const shell = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.shell,
+      metalness: 0.55,
+      roughness: 0.5,
+    })
+    const fin = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.shellLit,
+      metalness: 0.75,
+      roughness: 0.38,
+    })
+    const joint = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.joint,
+      metalness: 0.92,
+      roughness: 0.3,
+    })
+    const core = new THREE.MeshBasicMaterial({
+      color: ENEMY_LOOK.accent,
+      toneMapped: false,
+      transparent: true,
+    })
     const dShell = patchDissolve(shell)
     const dFin = patchDissolve(fin)
-    return { shell, fin, core, dShell, dFin }
+    const dJoint = patchDissolve(joint, { rimStrength: ENEMY_LOOK.rimStrength * 0.5 })
+    const outline = makeOutlineMaterial(ENEMY_LOOK.outline.pixels * 0.85)
+    return { shell, fin, joint, core, dShell, dFin, dJoint, outline }
   }, [])
 
   useEffect(() => {
     return () => {
       mats.shell.dispose()
       mats.fin.dispose()
+      mats.joint.dispose()
       mats.core.dispose()
+      mats.outline.dispose()
     }
   }, [mats])
 
@@ -75,19 +118,47 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
     if (!g) return
 
     const e = entity
+    if (e.hitFlash > prevFlash.current + 0.001 && e.alive) {
+      _v.subVectors(PlayerRef.position, e.position).normalize()
+      _fx.copy(e.position).addScaledVector(_v, 0.22)
+      VFX.burst({
+        position: _fx,
+        color: ENEMY_LOOK.accentHot,
+        count: 4,
+        speed: 4,
+        life: 0.2,
+        size: 0.035,
+        gravity: -2,
+      })
+    }
+    prevFlash.current = e.hitFlash
     e.hitFlash = Math.max(0, e.hitFlash - dt)
 
     if (!e.alive) {
+      if (!shadowsOff.current) {
+        shadowsOff.current = true
+        clearThreat(e.id)
+        g.traverse((o) => {
+          const m = o as THREE.Mesh
+          if (m.isMesh) m.castShadow = false
+        })
+      }
       // dissolve is driven by manager-incremented deathTimer
       const t = Math.min(1, e.deathTimer / e.dissolveSec)
       mats.dShell.uniform.value = t
       mats.dFin.uniform.value = t
+      mats.dJoint.uniform.value = t
+      mats.outline.setOpacity(ENEMY_LOOK.outline.opacity * Math.max(0, 1 - t * 2.2))
       if (coreMesh.current) {
         const cs = Math.max(0, 1 - t * 4)
         coreMesh.current.scale.setScalar(cs)
       }
+      // tumble out of the sky rather than spinning in place
+      e.position.y -= dt * (1.2 + e.deathTimer * 6)
       g.position.copy(e.position)
-      g.rotation.y += dt * 6 // death spin
+      g.rotation.y += dt * 7
+      g.rotation.z += dt * 4.5
+      g.rotation.x += dt * 2.5
       return
     }
 
@@ -101,7 +172,11 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
       integrateFlying(e, dt)
       g.position.copy(e.position)
       g.rotation.y += dt * 14
-      if (e.staggerTimer <= 0) e.state = e.alerted ? 'attack' : 'patrol'
+      g.rotation.z = Math.sin(e.staggerTimer * 24) * 0.5
+      if (e.staggerTimer <= 0) {
+        e.state = e.alerted ? 'attack' : 'patrol'
+        g.rotation.z = 0
+      }
       syncHead(e)
       return
     }
@@ -140,9 +215,11 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
           if (_v.length() < 1) {
             e.ai.wpIdx = (idx + 1) % e.waypoints.length
           } else {
-            _v.normalize()
-            e.velocity.lerp(_v.multiplyScalar(SPEED_PATROL), Math.min(1, 4 * dt))
-            facing.current.lerp(_v.normalize(), Math.min(1, 3 * dt)).normalize()
+            _v.normalize().multiplyScalar(SPEED_PATROL)
+            avoidFlying(e, _v, 5)
+            e.velocity.lerp(_v, Math.min(1, 4 * dt))
+            _desired.copy(_v).normalize()
+            facing.current.lerp(_desired, Math.min(1, 3 * dt)).normalize()
           }
         } else {
           e.velocity.multiplyScalar(Math.max(0, 1 - 2 * dt))
@@ -178,6 +255,7 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
           e.ai.dartT = DART_TIME
           _v.subVectors(e.position, PlayerRef.position).normalize()
           e.velocity.copy(_v).multiplyScalar(DART_SPEED)
+          rollTarget.current = orbitDir.current * 0.7
           AudioBus.playEnemyChirp()
         }
         if ((e.ai.dartT ?? 0) > 0) {
@@ -197,8 +275,10 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
             _v.normalize().multiplyScalar(Math.min(SPEED_ATTACK, d * 3))
             separationForce(e, _sep)
             _v.addScaledVector(_sep, 4)
+            avoidFlying(e, _v, 4.5) // N13: path around pillars instead of stalling
             e.velocity.lerp(_v, Math.min(1, 5 * dt))
           }
+          rollTarget.current = -orbitDir.current * 0.32
         }
 
         // face the player
@@ -208,7 +288,7 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
         // fire cycle: telegraph glint then bolt, only with LOS
         e.ai.fireT = (e.ai.fireT ?? FIRE_INTERVAL) - dt
         if (e.ai.fireT <= FIRE_TELEGRAPH && e.ai.fireT > 0) {
-          // glint — core scale pulse handled in visuals via fireT
+          markThreat(e, 'fire', 0.3)
           if (e.ai.glinted !== 1) {
             e.ai.glinted = 1
             AudioBus.playEnemyChirp()
@@ -223,6 +303,8 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
           if (hasLineOfSight(e.headPosition, _aimAt)) {
             _v.subVectors(_aimAt, e.headPosition)
             fireEnemyBolt(e.headPosition, _v, BOLT_SPEED, BOLT_DAMAGE)
+            markThreat(e, 'fire', 0.5)
+            e.ai.muzzle = 0.07
           }
         }
         break
@@ -234,6 +316,7 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
         break
       }
     }
+    e.ai.muzzle = Math.max(0, (e.ai.muzzle ?? 0) - dt)
 
     integrateFlying(e, dt)
     syncHead(e)
@@ -242,52 +325,92 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
     g.position.copy(e.position)
     // yaw toward facing
     g.rotation.y = Math.atan2(facing.current.x, facing.current.z)
-    // tilt into movement (up to 25°)
-    const tiltX = THREE.MathUtils.clamp(e.velocity.length() / SPEED_ATTACK, 0, 1) * THREE.MathUtils.degToRad(25)
+    // pitch/bank into movement (nose down when pushing, bank into the orbit)
+    const tiltX = THREE.MathUtils.clamp(e.velocity.length() / SPEED_ATTACK, 0, 1) * THREE.MathUtils.degToRad(22)
     g.rotation.x = THREE.MathUtils.lerp(g.rotation.x, tiltX, Math.min(1, 6 * dt))
+    g.rotation.z = THREE.MathUtils.lerp(g.rotation.z, e.alerted ? rollTarget.current : 0, Math.min(1, 4 * dt))
 
     if (bobGroup.current) {
-      bobGroup.current.position.y = Math.sin(state.clock.elapsedTime * Math.PI * 2 * 1.2 + bobPhase.current) * 0.15
+      bobGroup.current.position.y = Math.sin(state.clock.elapsedTime * Math.PI * 2 * 1.2 + bobPhase.current) * 0.12
     }
-    if (finGroup.current) finGroup.current.rotation.y += dt * 2.2
+    if (finGroup.current) finGroup.current.rotation.z += dt * (e.alerted ? 5.2 : 2.2)
+    if (ringGroup.current) ringGroup.current.rotation.z -= dt * (e.alerted ? 3.4 : 1.4)
 
     if (coreMesh.current) {
       const mat = mats.core
       const inCombat = e.state === 'attack' || e.state === 'alert'
-      mat.color.lerpColors(CORE_DIM, CORE_FULL, inCombat ? 1 : 0.6 * 0.5)
-      // telegraph glint: flare scale in the last 0.2s before firing
       const glinting = e.state === 'attack' && (e.ai.fireT ?? 1) <= FIRE_TELEGRAPH
-      coreMesh.current.scale.setScalar(glinting ? 1.6 : 1)
+      if (e.hitFlash > 0) mat.color.set('#FFFFFF')
+      else if (glinting || (e.ai.muzzle ?? 0) > 0) mat.color.copy(CORE_HOT).multiplyScalar(2.6)
+      else mat.color.lerpColors(CORE_DIM, CORE_FULL, inCombat ? 1 : 0.35)
+      coreMesh.current.scale.setScalar(glinting ? 1.5 : 1)
     }
-    // hit flash — white shell override
-    mats.shell.emissive.setScalar(e.hitFlash > 0 ? 0.9 : 0)
+    // hit flash — shell override
+    mats.shell.emissive.setScalar(e.hitFlash > 0 ? 0.85 : 0)
+    mats.fin.emissive.setScalar(e.hitFlash > 0 ? 0.85 : 0)
   })
 
   function syncHead(e: EnemyEntity) {
     e.headPosition.copy(e.position) // core is body-center on the drone
   }
 
+  const o = mats.outline.material
+
   return (
     <group ref={group} position={entity.position.toArray()}>
       <group ref={bobGroup}>
-        {/* flattened octahedron shell, 0.5 m wide */}
-        <mesh material={mats.shell} scale={[1, 0.55, 1]} castShadow>
-          <octahedronGeometry args={[0.25, 0]} />
+        {/* ---- flat swept hull ---- */}
+        <mesh material={mats.shell} position={[0, 0, -0.02]} scale={[1, 0.34, 1.25]} castShadow>
+          <octahedronGeometry args={[0.3, 0]} />
         </mesh>
-        {/* glowing teal core in the center cage (weakpoint) */}
-        <mesh ref={coreMesh} material={mats.core}>
-          <sphereGeometry args={[0.12, 12, 10]} />
+        <mesh material={o} position={[0, 0, -0.02]} scale={[1, 0.34, 1.25]}>
+          <octahedronGeometry args={[0.3, 0]} />
         </mesh>
-        {/* 3 blade fins at 120°, slow spin */}
-        <group ref={finGroup}>
+        {/* dorsal spine plate */}
+        <mesh material={mats.fin} position={[0, 0.07, -0.08]} rotation-x={-0.12} castShadow>
+          <boxGeometry args={[0.16, 0.04, 0.42]} />
+        </mesh>
+        {/* ---- swept wings ---- */}
+        {[-1, 1].map((side) => (
+          <group key={side} position={[side * 0.2, 0, -0.03]} rotation-y={side * -0.5}>
+            <mesh material={mats.fin} position={[side * 0.16, 0, 0]} rotation-z={side * 0.22} castShadow>
+              <boxGeometry args={[0.36, 0.035, 0.2]} />
+            </mesh>
+            {/* wingtip prong */}
+            <mesh material={mats.joint} position={[side * 0.34, 0.01, 0.07]} castShadow>
+              <boxGeometry args={[0.06, 0.05, 0.16]} />
+            </mesh>
+          </group>
+        ))}
+        {/* ---- forward sensor prongs framing the eye ---- */}
+        {[-1, 1].map((side) => (
+          <mesh key={side} material={mats.joint} position={[side * 0.1, 0.01, 0.26]} rotation-y={side * 0.18} castShadow>
+            <boxGeometry args={[0.04, 0.045, 0.24]} />
+          </mesh>
+        ))}
+        {/* ---- crimson eye on the nose (weakpoint) ---- */}
+        <mesh material={mats.joint} position={[0, 0, 0.2]} rotation-x={Math.PI / 2}>
+          <cylinderGeometry args={[0.1, 0.12, 0.08, 10]} />
+        </mesh>
+        <mesh ref={coreMesh} material={mats.core} position={[0, 0, 0.24]}>
+          <sphereGeometry args={[0.075, 12, 10]} />
+        </mesh>
+        {/* ---- counter-rotating gimbal ring + blades ---- */}
+        <group ref={ringGroup} rotation-x={Math.PI / 2}>
+          <mesh material={mats.joint} position={[0, 0, 0]}>
+            <torusGeometry args={[0.26, 0.018, 6, 20]} />
+          </mesh>
+        </group>
+        <group ref={finGroup} rotation-x={Math.PI / 2}>
           {[0, 1, 2].map((i) => (
             <mesh
               key={i}
               material={mats.fin}
-              position={[Math.sin((i * Math.PI * 2) / 3) * 0.28, 0, Math.cos((i * Math.PI * 2) / 3) * 0.28]}
-              rotation-y={(i * Math.PI * 2) / 3}
+              position={[Math.cos((i * Math.PI * 2) / 3) * 0.2, Math.sin((i * Math.PI * 2) / 3) * 0.2, 0.02]}
+              rotation-z={(i * Math.PI * 2) / 3}
+              castShadow
             >
-              <boxGeometry args={[0.02, 0.06, 0.3]} />
+              <boxGeometry args={[0.16, 0.022, 0.04]} />
             </mesh>
           ))}
         </group>

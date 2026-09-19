@@ -1,56 +1,88 @@
 /**
  * AURIC VOW — Title screen.
- * Gold-on-indigo cinematic title; click engages pointer lock and starts the run.
+ *
+ * R1 art pass (H8): the plain centred text column is replaced by a composed
+ * front end — a gradient scrim that darkens the live mission behind it and
+ * reserves a quiet band for the wordmark, a layered plate/bevel/filigree
+ * treatment instead of glow-on-serif, the subtitle demoted to ash, a real
+ * menu, and the control hints collapsed to one low-opacity base line.
+ *
+ * The hero camera itself belongs to the world stream (a title camera lives in
+ * GameCanvas/Lighting, which this stream does not own) — everything here is
+ * the composition that sits over it.
  */
-import { COLORS } from '@/game/config'
+import { useEffect, useState } from 'react'
+import { AudioBus } from '@/game/AudioBus'
+import '@/game/hud/hud.css'
 
 interface Props {
   onEngage: () => void
 }
 
+const HINTS: [string, string][] = [
+  ['WASD', 'MOVE'],
+  ['SHIFT', 'SPRINT'],
+  ['LMB', 'RIFLE'],
+  ['F', 'KATANA'],
+  ['Q E 1 4', 'ABILITIES'],
+]
+
 export default function TitleScreen({ onEngage }: Props) {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 420)
+    return () => clearTimeout(t)
+  }, [])
+
+  const engage = () => {
+    AudioBus.playUIClick()
+    onEngage()
+  }
+
   return (
-    <div
-      className="av-fade-in fixed inset-0 z-20 flex cursor-pointer flex-col items-center justify-center"
-      style={{ background: 'radial-gradient(ellipse at 50% 60%, rgba(27,36,64,0.55), rgba(10,13,31,0.92) 75%)' }}
-      onClick={onEngage}
-    >
-      {/* thin gold rules */}
-      <div style={{ width: 220, height: 1, background: `linear-gradient(90deg, transparent, ${COLORS.regalGold}, transparent)` }} />
-      <p
-        className="font-display mt-4 text-sm tracking-[0.5em]"
-        style={{ color: COLORS.ash }}
-      >
-        VESSEL KAIRO
-      </p>
-      <h1
-        className="av-title-in font-display my-6 text-center text-7xl font-bold md:text-8xl"
-        style={{
-          color: COLORS.aureate,
-          textShadow: `0 0 24px rgba(255,184,53,0.45), 0 0 80px rgba(255,184,53,0.2)`,
-        }}
-      >
-        AURIC VOW
-      </h1>
-      <p className="font-display text-xl tracking-[0.6em]" style={{ color: COLORS.vellum }}>
-        THE SILENT ANVIL
-      </p>
-      <p
-        className="av-pulse-gold font-hud mt-16 text-lg font-semibold tracking-[0.35em]"
-        style={{ color: COLORS.solarWhite }}
-      >
-        CLICK TO ENGAGE
-      </p>
-      <div className="mt-3 flex gap-6 text-xs tracking-[0.25em]" style={{ color: COLORS.ash }}>
-        <span>WASD MOVE</span>
-        <span>LMB RIFLE</span>
-        <span>F KATANA</span>
-        <span>Q / E / 1 / 4 ABILITIES</span>
+    <div className="avs av-fade-in" style={{ cursor: 'pointer' }} onClick={engage}>
+      <div className="avs-scrim" />
+      <div className="avs-vig" />
+
+      <div className="avs-body">
+        <p className="avs-eyebrow av-fade-in">VESSEL KAIRO</p>
+
+        <div className="avs-wordmark av-title-in">
+          <i className="avs-fil tl" />
+          <i className="avs-fil tr" />
+          <i className="avs-fil bl" />
+          <i className="avs-fil br" />
+          <h1 className="avs-title">AURIC VOW</h1>
+        </div>
+
+        <p className="avs-sub">THE SILENT ANVIL</p>
+
+        {ready && (
+          <div className="avs-menu avs-reveal">
+            <button
+              className="avs-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                engage()
+              }}
+            >
+              ENGAGE
+            </button>
+            <div className="avs-btn ghost" style={{ cursor: 'default', pointerEvents: 'none' }}>
+              MISSION · THE SILENT ANVIL
+            </div>
+          </div>
+        )}
       </div>
-      <div
-        className="absolute bottom-0 left-0 right-0"
-        style={{ height: 1, background: `linear-gradient(90deg, transparent, ${COLORS.regalGold}, transparent)` }}
-      />
+
+      <div className="avs-hints">
+        {HINTS.map(([k, v]) => (
+          <span key={k}>
+            <b>{k}</b> {v}
+          </span>
+        ))}
+      </div>
+      <div className="avs-rule-b" />
     </div>
   )
 }

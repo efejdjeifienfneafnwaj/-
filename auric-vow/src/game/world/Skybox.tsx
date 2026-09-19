@@ -1,19 +1,31 @@
 /**
  * AURIC VOW — world/Skybox.tsx
- * design.md §2.6 + environment.md §3: gradient dome shader (#0A0D1F zenith →
- * #16224A horizon, faint fbm nebula band), 2000-star twinkling field, and a
- * giant ringed-planet silhouette low over the east void — the establishing
- * shot through the canyon glass. Also the indigo void-glow plane far below.
+ * design.md §2.6 + environment.md §3: gradient dome shader, star field, a
+ * giant ringed-planet silhouette low over the east void, and the indigo
+ * void-glow plane far below.
  *
- * The dome group follows the camera (radius 300 < camera far 400) so stars /
- * planet read as infinitely distant.
+ * R1 rebuild (art review item 9/10):
+ * - the planet's terminator is derived from the LEVEL's key direction
+ *   (Lighting.KEY_DIR), so the sky agrees with the architecture lighting
+ *   instead of inventing its own light
+ * - the ring is a mip-filtered textured disc that now carries the planet's
+ *   shadow band, cast along that same key vector
+ * - three parallax strata: a far dome + far stars locked to the camera, and a
+ *   NEAR stratum (bigger stars + a nebula shelf) that lags the camera by 6 %
+ *   so the backdrop moves as the player runs the 265 m of level
+ * - the dome is authored darker with a warm glow around the key direction, so
+ *   architecture silhouettes stay separated at the top of the frame and the
+ *   sky supports the composition rather than competing with it
  */
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { COLORS, FOG } from '../config'
+import { KEY_DIR } from './Lighting'
 
 const DOME_R = 300
+/** how much the near stratum lags the camera (0 = locked, 1 = world-fixed) */
+const PARALLAX = 0.06
 
 // ---------------------------------------------------------------------------
 // Gradient dome
@@ -23,6 +35,7 @@ const domeMaterial = () =>
     uniforms: {
       uZenith: { value: new THREE.Color(FOG.skyZenith) },
       uHorizon: { value: new THREE.Color(FOG.skyHorizon) },
+      uSun: { value: KEY_DIR.clone() },
     },
     vertexShader: /* glsl */ `
       varying vec3 vDir;
@@ -35,6 +48,7 @@ const domeMaterial = () =>
       varying vec3 vDir;
       uniform vec3 uZenith;
       uniform vec3 uHorizon;
+      uniform vec3 uSun;
       // cheap value-noise fbm for the nebula band
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -52,14 +66,22 @@ const domeMaterial = () =>
         vec3 d = normalize(vDir);
         float h = clamp(d.y, -1.0, 1.0);
         vec3 col = mix(uHorizon, uZenith, smoothstep(-0.05, 0.65, h));
-        // saturated indigo/violet nebula bands, ~2.5× the original contrast
+        // indigo/violet nebula bands — pulled back so the sky reads as a dark
+        // backdrop the architecture can silhouette against
         float band = exp(-pow((d.y - 0.18 - d.x * 0.12) * 3.0, 2.0));
         float band2 = exp(-pow((d.y + 0.28 + d.x * 0.10) * 2.6, 2.0));
         float n = pow(fbm(d.xz * 4.0 + d.y * 3.0), 1.35);
         float n2 = fbm(d.zx * 7.0 - d.y * 5.0);
         vec3 indigo = vec3(0.13, 0.10, 0.46);
         vec3 violet = vec3(0.32, 0.13, 0.58);
-        col += (indigo * band * (0.35 + 1.3 * n) + violet * band2 * n2 * 0.9) * 1.7;
+        col += (indigo * band * (0.35 + 1.3 * n) + violet * band2 * n2 * 0.9) * 1.05;
+        // warm glow around the key direction — the sky agrees with the rig
+        float sd = max(dot(d, uSun), 0.0);
+        col += vec3(0.62, 0.46, 0.30) * pow(sd, 6.0) * 0.55;
+        col += vec3(0.30, 0.26, 0.24) * pow(sd, 2.0) * 0.12;
+        // exposure was dropped to 0.85 for the level; the sky is authored, not
+        // tonemapped, so match it here or the backdrop floats off the frame
+        col *= 0.6;
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -69,32 +91,41 @@ const domeMaterial = () =>
   })
 
 // ---------------------------------------------------------------------------
-// Starfield — 2000 points, additive, 10% twinkle amplitude
+// Starfield — additive points, 10% twinkle amplitude
 // ---------------------------------------------------------------------------
-function Stars() {
+function Stars({
+  count,
+  radius,
+  sizeScale,
+  tint,
+}: {
+  count: number
+  radius: number
+  sizeScale: number
+  tint: [number, number, number]
+}) {
   const { geom, mat } = useMemo(() => {
-    const pos = new Float32Array(FOG.starCount * 3)
-    const phase = new Float32Array(FOG.starCount)
-    const size = new Float32Array(FOG.starCount)
-    for (let i = 0; i < FOG.starCount; i++) {
+    const pos = new Float32Array(count * 3)
+    const phase = new Float32Array(count)
+    const size = new Float32Array(count)
+    for (let i = 0; i < count; i++) {
       // random direction on the dome interior
       const u = Math.random()
       const v = Math.random()
       const theta = 2 * Math.PI * u
       const phi = Math.acos(2 * v - 1)
-      const r = DOME_R * 0.93
-      pos[i * 3] = r * Math.sin(phi) * Math.cos(theta)
-      pos[i * 3 + 1] = r * Math.cos(phi)
-      pos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta)
+      pos[i * 3] = radius * Math.sin(phi) * Math.cos(theta)
+      pos[i * 3 + 1] = radius * Math.cos(phi)
+      pos[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta)
       phase[i] = Math.random() * Math.PI * 2
-      size[i] = 1 + Math.random() * 2
+      size[i] = (1 + Math.random() * 2) * sizeScale
     }
     const geom = new THREE.BufferGeometry()
     geom.setAttribute('position', new THREE.BufferAttribute(pos, 3))
     geom.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1))
     geom.setAttribute('aSize', new THREE.BufferAttribute(size, 1))
     const mat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uTint: { value: new THREE.Vector3(...tint) } },
       vertexShader: /* glsl */ `
         attribute float aPhase;
         attribute float aSize;
@@ -109,10 +140,12 @@ function Stars() {
       `,
       fragmentShader: /* glsl */ `
         varying float vTw;
+        uniform vec3 uTint;
         void main() {
           float d = length(gl_PointCoord - 0.5);
-          float a = smoothstep(0.5, 0.08, d);
-          gl_FragColor = vec4(vec3(0.82, 0.88, 1.0) * vTw, a);
+          // soft core + wider falloff so stars are anti-aliased, not 1 px dots
+          float a = smoothstep(0.5, 0.12, d) * 0.65 + smoothstep(0.32, 0.0, d) * 0.6;
+          gl_FragColor = vec4(uTint * vTw, a);
         }
       `,
       transparent: true,
@@ -121,7 +154,7 @@ function Stars() {
       fog: false,
     })
     return { geom, mat }
-  }, [])
+  }, [count, radius, sizeScale, tint])
 
   useFrame((state) => {
     mat.uniforms.uTime.value = state.clock.elapsedTime
@@ -131,11 +164,70 @@ function Stars() {
 }
 
 // ---------------------------------------------------------------------------
-// Ringed planet (fix2 rebuild) — real sphere with banded Lambert-style ramp
-// shading (lit limb vs dark side) + fresnel atmosphere rim glow, and a
-// separate tilted ring plane with a radial canvas texture (varying-alpha
-// bands, faded inner edge). Opaque sphere writes depth, so the ring plane
-// correctly passes behind the body. No more clip-art ellipse.
+// Nebula shelf — the near parallax stratum. A single large additive plane sat
+// behind the planet, so the backdrop has two depths that separate as the
+// player traverses the level.
+// ---------------------------------------------------------------------------
+function NebulaShelf() {
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: { uTime: { value: 0 } },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv;
+          uniform float uTime;
+          float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float noise(vec2 p) {
+            vec2 i = floor(p), f = fract(p);
+            vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+                       mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+          }
+          float fbm(vec2 p) {
+            float v = 0.0, a = 0.5;
+            for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.05; a *= 0.5; }
+            return v;
+          }
+          void main() {
+            vec2 p = vUv * vec2(3.2, 1.8);
+            float n = fbm(p * 2.0 + vec2(uTime * 0.005, 0.0));
+            float n2 = fbm(p * 5.0 - vec2(0.0, uTime * 0.004));
+            // horizontal shelf shape, feathered top and bottom
+            float shelf = smoothstep(0.0, 0.34, vUv.y) * (1.0 - smoothstep(0.58, 1.0, vUv.y));
+            float edge = smoothstep(0.0, 0.18, vUv.x) * (1.0 - smoothstep(0.82, 1.0, vUv.x));
+            float a = shelf * edge * pow(n, 1.6) * 0.3;
+            vec3 col = mix(vec3(0.16, 0.12, 0.42), vec3(0.42, 0.20, 0.52), n2);
+            col += vec3(0.30, 0.34, 0.62) * pow(n2, 3.0) * 0.6;
+            gl_FragColor = vec4(col, a);
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+      }),
+    [],
+  )
+  useFrame((state) => {
+    mat.uniforms.uTime.value = state.clock.elapsedTime
+  })
+  return (
+    <mesh material={mat} position={[0, 52, 292]}>
+      <planeGeometry args={[430, 260]} />
+    </mesh>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Ringed planet — banded gas giant with a key-agreeing terminator, fresnel
+// limb glow, and a textured ring disc carrying the planet's shadow band.
 // ---------------------------------------------------------------------------
 const PLANET_R = 40
 
@@ -170,7 +262,9 @@ function makeRingTexture(): THREE.CanvasTexture {
   ctx.globalAlpha = 1
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.NoColorSpace
-  tex.anisotropy = 4
+  tex.anisotropy = 8
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.generateMipmaps = true
   return tex
 }
 
@@ -179,27 +273,24 @@ function RingedPlanet() {
     () =>
       new THREE.ShaderMaterial({
         uniforms: {
-          // view-space light: from camera upper-left, slightly toward camera,
-          // so the lit limb is consistent as the dome group follows the camera
-          uLightDir: { value: new THREE.Vector3(-0.55, 0.3, 0.75).normalize() },
+          // world-space direction toward the key light — the SAME vector the
+          // directional rig uses, so sky and level agree
+          uSun: { value: KEY_DIR.clone() },
         },
         vertexShader: /* glsl */ `
-          varying vec3 vViewN;  // view-space normal (lighting + fresnel)
-          varying vec3 vObjN;   // object-space normal (latitude bands)
+          varying vec3 vWorldN;
           varying vec3 vViewDir;
           void main() {
-            vObjN = normalize(normal);
-            vViewN = normalize(normalMatrix * normal);
+            vWorldN = normalize(mat3(modelMatrix) * normal);
             vec4 mv = modelViewMatrix * vec4(position, 1.0);
             vViewDir = normalize(-mv.xyz);
             gl_Position = projectionMatrix * mv;
           }
         `,
         fragmentShader: /* glsl */ `
-          varying vec3 vViewN;
-          varying vec3 vObjN;
+          varying vec3 vWorldN;
           varying vec3 vViewDir;
-          uniform vec3 uLightDir;
+          uniform vec3 uSun;
           float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float noise(vec2 p) {
             vec2 i = floor(p), f = fract(p);
@@ -209,49 +300,83 @@ function RingedPlanet() {
           }
           float fbm(vec2 p) {
             float v = 0.0, a = 0.5;
-            for (int i = 0; i < 3; i++) { v += a * noise(p); p *= 2.3; a *= 0.5; }
+            for (int i = 0; i < 4; i++) { v += a * noise(p); p *= 2.3; a *= 0.5; }
             return v;
           }
           void main() {
-            vec3 n = normalize(vViewN);
-            vec3 on = normalize(vObjN);
+            vec3 n = normalize(vWorldN);
             // --- banded gas-giant albedo (latitude + fbm warp) ---
-            float lat = on.y;
-            float warp = fbm(vec2(lat * 3.0, atan(on.z, on.x) * 1.2)) - 0.5;
+            float lat = n.y;
+            float warp = fbm(vec2(lat * 3.0, atan(n.z, n.x) * 1.2)) - 0.5;
             float bands = fbm(vec2(lat * 7.0 + warp * 1.6, warp * 2.0));
-            vec3 bandDark = vec3(0.075, 0.095, 0.19);   // deep indigo belts
-            vec3 bandLight = vec3(0.24, 0.30, 0.52);    // pale indigo zones
-            vec3 bandViolet = vec3(0.30, 0.22, 0.52);   // violet accent band
+            float fine = fbm(vec2(lat * 26.0 + warp * 4.0, warp * 6.0));
+            vec3 bandDark = vec3(0.075, 0.095, 0.19);
+            vec3 bandLight = vec3(0.24, 0.30, 0.52);
+            vec3 bandViolet = vec3(0.30, 0.22, 0.52);
             vec3 alb = mix(bandDark, bandLight, smoothstep(0.25, 0.75, bands));
             alb = mix(alb, bandViolet, smoothstep(0.6, 0.95, sin(lat * 9.0 + warp * 3.0)) * 0.35);
-            // polar darkening
+            alb *= 0.88 + 0.24 * fine; // fine banding detail
             alb = mix(alb, bandDark * 0.7, smoothstep(0.55, 0.95, abs(lat)));
-            // --- Lambert-style ramp: soft terminator, lit limb vs dark side ---
-            float d = dot(n, uLightDir);
-            float day = smoothstep(-0.25, 0.7, d); // soft terminator
-            vec3 nightCol = vec3(0.035, 0.042, 0.075); // dark side, faint blue
-            vec3 col = mix(nightCol, alb * 1.25, day);
-            // lit-limb warm tint near the day edge
-            float limb = pow(1.0 - abs(dot(n, normalize(vViewDir))), 2.0);
-            col += vec3(0.36, 0.42, 0.72) * limb * day * 0.5;
+            // --- terminator from the level's key vector ---
+            float d = dot(n, uSun);
+            float day = smoothstep(-0.12, 0.42, d); // tight, smoothstepped
+            vec3 nightCol = vec3(0.028, 0.034, 0.062);
+            vec3 col = mix(nightCol, alb * 1.2, day);
+            // warm scatter right at the terminator
+            col += vec3(0.42, 0.28, 0.18) * exp(-pow((d - 0.05) * 7.0, 2.0)) * 0.5;
             // --- atmosphere rim glow (fresnel), stronger on the lit side ---
             float fres = pow(1.0 - max(dot(n, normalize(vViewDir)), 0.0), 3.0);
             vec3 rimCol = vec3(0.42, 0.58, 0.95);
-            col += rimCol * fres * (0.18 + 0.82 * day) * 1.5;
-            // faint night-side rim so the dark limb never merges with the void
-            col += rimCol * 0.08 * fres * (1.0 - day);
-            gl_FragColor = vec4(col, 1.0);
+            col += rimCol * fres * (0.14 + 0.86 * day) * 1.45;
+            col += rimCol * 0.07 * fres * (1.0 - day);
+            gl_FragColor = vec4(col * 0.72, 1.0);
           }
         `,
         fog: false,
       }),
     [],
   )
+
   const ringMat = useMemo(
     () =>
-      new THREE.MeshBasicMaterial({
-        map: makeRingTexture(),
-        color: '#8E9CCF',
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uMap: { value: makeRingTexture() },
+          uSun: { value: KEY_DIR.clone() },
+          uRadius: { value: PLANET_R },
+          uTint: { value: new THREE.Color('#8E9CCF') },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv;
+          varying vec3 vRel;   // world offset from the planet centre
+          void main() {
+            vUv = uv;
+            vec3 originW = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            vRel = (modelMatrix * vec4(position, 1.0)).xyz - originW;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          varying vec2 vUv;
+          varying vec3 vRel;
+          uniform sampler2D uMap;
+          uniform vec3 uSun;
+          uniform float uRadius;
+          uniform vec3 uTint;
+          void main() {
+            float a = texture2D(uMap, vUv).r;
+            if (a <= 0.002) discard;
+            // cylindrical shadow cast by the planet along the key vector
+            float along = dot(vRel, uSun);
+            float perp = length(vRel - uSun * along);
+            float shadow = 1.0;
+            if (along < 0.0) {
+              shadow = mix(0.22, 1.0, smoothstep(uRadius * 0.9, uRadius * 1.25, perp));
+            }
+            vec3 col = uTint * (0.55 + 0.45 * shadow) * shadow;
+            gl_FragColor = vec4(col, a * (0.35 + 0.65 * shadow));
+          }
+        `,
         transparent: true,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -259,12 +384,10 @@ function RingedPlanet() {
       }),
     [],
   )
+
   // Dead ahead down +Z, elevated ~19° above the camera — the DROPSHIP intro
-  // camera (starts 22 m above / 26 m behind the spawn dais, sweeping its
-  // pitch up toward horizontal while looking down-canyon +Z) frames it
-  // center as the establishing shot. The celestial group follows the camera
-  // position, so these are camera-relative offsets (~280 m out, inside the
-  // 300 m dome, within the 400 m far plane).
+  // camera frames it centre as the establishing shot. The celestial group
+  // follows the camera position, so these are camera-relative offsets.
   return (
     <group position={[0, 84, 265]}>
       <mesh material={planetMat}>
@@ -298,8 +421,8 @@ function VoidGlow() {
           void main() {
             float r = length(vUv);
             float glow = pow(max(0.0, 1.0 - r), 1.6);
-            vec3 col = mix(vec3(0.05, 0.06, 0.14), vec3(0.22, 0.30, 0.58), glow);
-            gl_FragColor = vec4(col, glow * 0.95);
+            vec3 col = mix(vec3(0.04, 0.05, 0.12), vec3(0.19, 0.26, 0.5), glow);
+            gl_FragColor = vec4(col, glow * 0.6);
           }
         `,
         transparent: true,
@@ -323,16 +446,22 @@ function VoidGlow() {
   )
 }
 
+const FAR_TINT: [number, number, number] = [0.82, 0.88, 1.0]
+const NEAR_TINT: [number, number, number] = [1.0, 0.93, 0.86]
+
 export default function Skybox() {
   const group = useRef<THREE.Group>(null!)
+  const parallax = useRef<THREE.Group>(null!)
   const dome = useMemo(
     () => new THREE.Mesh(new THREE.SphereGeometry(DOME_R, 32, 20), domeMaterial()),
     [],
   )
 
   useFrame((state) => {
-    // keep the celestial shell centered on the camera (renders within far=400)
+    // far stratum locked to the camera (renders within far=400)
     group.current.position.copy(state.camera.position)
+    // near stratum lags by PARALLAX, so the backdrop slides as the player runs
+    parallax.current.position.copy(state.camera.position).multiplyScalar(1 - PARALLAX)
   })
 
   return (
@@ -340,8 +469,12 @@ export default function Skybox() {
       <color attach="background" args={[COLORS.cosmicIndigo]} />
       <group ref={group}>
         <primitive object={dome} />
-        <Stars />
+        <Stars count={FOG.starCount} radius={DOME_R * 0.93} sizeScale={1} tint={FAR_TINT} />
         <RingedPlanet />
+      </group>
+      <group ref={parallax}>
+        <Stars count={Math.round(FOG.starCount * 0.22)} radius={DOME_R * 0.78} sizeScale={1.9} tint={NEAR_TINT} />
+        <NebulaShelf />
       </group>
       <VoidGlow />
     </group>

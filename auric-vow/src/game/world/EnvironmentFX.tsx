@@ -11,14 +11,20 @@
  * - drives banner cloth-shader time + teal vein pulse
  * - pushes the objective marker position into the store (Reliquary until
  *   EXTRACT, then the extraction pad)
+ *
+ * R1 (art review item 7): the gold veins get real practicals too — two pooled
+ * point lights that ride the nearest GOLD_FIXTURES (slab veins, megalith
+ * under-glow, medallion) by camera distance, so the gold energy in the level
+ * actually lights the stone it sits on.
  */
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { useGameStore } from '../store'
-import { COLORS } from '../config'
+import { COLORS, LIGHTING } from '../config'
 import { RELIQUARY_POSITION, EXTRACTION_PAD_POSITION, BRIDGE_SEAL } from './layout'
 import { registerCollider, unregisterCollider } from './Colliders'
+import { GOLD_FIXTURES } from './ShrineStation'
 import {
   veinTealMaterial,
   purifyVeinMaterial,
@@ -40,10 +46,16 @@ const PHASE_INDEX: Record<string, number> = {
   LOSE: 6,
 }
 
+const GOLD_PRACTICALS = 2
+
 export default function EnvironmentFX() {
   const chamberGold = useRef<THREE.PointLight>(null!)
   const padGold = useRef<THREE.PointLight>(null!)
   const sealColliderId = useRef<number | null>(null)
+  const goldLights = useRef<(THREE.PointLight | null)[]>([])
+  // preallocated nearest-N selection buffers (nothing allocates in useFrame)
+  const gIdx = useRef<Int32Array>(new Int32Array(GOLD_PRACTICALS))
+  const gDist = useRef<Float32Array>(new Float32Array(GOLD_PRACTICALS))
 
   // bridge-gate seal collider — removed when the seal dissolves at EXTRACT
   useEffect(() => {
@@ -118,6 +130,50 @@ export default function EnvironmentFX() {
       padGold.current.intensity = THREE.MathUtils.lerp(padGold.current.intensity, target, 1 - Math.exp(-3 * dt))
     }
 
+    // --- gold vein practicals: nearest 2 modelled fixtures by camera distance
+    {
+      const cam = state.camera.position
+      const idx = gIdx.current
+      const dist = gDist.current
+      for (let i = 0; i < GOLD_PRACTICALS; i++) {
+        idx[i] = -1
+        dist[i] = Infinity
+      }
+      for (let f = 0; f < GOLD_FIXTURES.length; f++) {
+        const p = GOLD_FIXTURES[f]
+        const dx = p[0] - cam.x
+        const dy = p[1] - cam.y
+        const dz = p[2] - cam.z
+        const d2 = dx * dx + dy * dy + dz * dz
+        if (d2 > 1024) continue // 32 m cull
+        for (let i = 0; i < GOLD_PRACTICALS; i++) {
+          if (d2 < dist[i]) {
+            for (let j = GOLD_PRACTICALS - 1; j > i; j--) {
+              dist[j] = dist[j - 1]
+              idx[j] = idx[j - 1]
+            }
+            dist[i] = d2
+            idx[i] = f
+            break
+          }
+        }
+      }
+      const goldPulse = 0.85 + 0.15 * Math.sin(t * 1.7)
+      const lerpK = 1 - Math.exp(-6 * dt)
+      for (let i = 0; i < GOLD_PRACTICALS; i++) {
+        const l = goldLights.current[i]
+        if (!l) continue
+        const f = idx[i]
+        if (f < 0) {
+          l.intensity = THREE.MathUtils.lerp(l.intensity, 0, lerpK)
+          continue
+        }
+        const p = GOLD_FIXTURES[f]
+        l.position.set(p[0], p[1], p[2])
+        l.intensity = LIGHTING.goldPractical.intensity * goldPulse
+      }
+    }
+
     // --- banner cloth sway
     bannerMaterial().uniforms.uTime.value = t
 
@@ -146,6 +202,19 @@ export default function EnvironmentFX() {
         distance={14}
         decay={2}
       />
+      {/* gold vein practicals — pooled, ride the nearest modelled fixtures */}
+      {Array.from({ length: GOLD_PRACTICALS }).map((_, i) => (
+        <pointLight
+          key={i}
+          ref={(r) => {
+            goldLights.current[i] = r
+          }}
+          color={LIGHTING.goldPractical.color}
+          intensity={0}
+          distance={LIGHTING.goldPractical.distance}
+          decay={LIGHTING.goldPractical.decay}
+        />
+      ))}
       {/* 10 — extraction pad gold point (off until phase EXTRACT) */}
       <pointLight
         ref={padGold}

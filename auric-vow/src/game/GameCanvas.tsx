@@ -23,10 +23,10 @@ import {
 } from './world'
 import { PlayerController, PlayerRig, CameraRig, resetPlayer, PlayerRef } from './player'
 import { CamRef } from './player/CameraRig'
-import { CombatSystems, WeaponViewModel, resetCombat } from './combat'
+import { CombatSystems, WeaponViewModel, resetCombat, ImpactFx } from './combat'
 import { EnemyManager, EnemyRegistry } from './enemies'
 import { MissionDirector, ObjectiveMarker } from './mission'
-import { VFXSystems } from './vfx'
+import { VFXSystems, resetVfx } from './vfx'
 import { setEnemiesAlive } from './hud'
 
 /**
@@ -56,6 +56,12 @@ function GameTick() {
       if (store.phase === 'DROPSHIP') {
         resetPlayer(SPAWN_POSITION)
         resetCombat()
+        // resetCombat() only clears state flags, so the ability updates that
+        // own leased lights and live ribbons early-out instead of releasing
+        // them. The bus has to be cleared explicitly or a restart taken
+        // mid-ability strands both for the rest of the session.
+        resetVfx()
+        ImpactFx.clear()
         CamRef.yaw = Math.PI // face +Z, down the traversal canyon
         CamRef.pitch = -0.08
       }

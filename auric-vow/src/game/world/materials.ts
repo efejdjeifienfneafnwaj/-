@@ -7,7 +7,15 @@
  */
 import * as THREE from 'three'
 import { MATERIALS, COLORS } from '../config'
-import { getNoiseRoughnessTexture, getGlyphSpriteTexture } from '../textures'
+import {
+  getGlyphSpriteTexture,
+  getOrokinNormalTexture,
+  getOrokinAOTexture,
+  getOrokinRoughnessTexture,
+  getBrushedGoldRoughnessTexture,
+  getFretBandTexture,
+  getStripFalloffTexture,
+} from '../textures'
 
 let ivory: THREE.MeshStandardMaterial | null = null
 let gold: THREE.MeshStandardMaterial | null = null
@@ -23,40 +31,271 @@ let seal: THREE.MeshBasicMaterial | null = null
 let glyphDecal: THREE.MeshBasicMaterial | null = null
 let banner: THREE.ShaderMaterial | null = null
 let rockVeinTex: THREE.CanvasTexture | null = null
+let ivoryContact: THREE.MeshStandardMaterial | null = null
+let goldPolished: THREE.MeshStandardMaterial | null = null
+let goldCast: THREE.MeshStandardMaterial | null = null
+let recess: THREE.MeshStandardMaterial | null = null
+let umber: THREE.MeshStandardMaterial | null = null
+let fretTrim: THREE.MeshStandardMaterial | null = null
 
 /** HDR-boosted emissive color (MATERIALS.emissiveBoost) so bloom threshold is crossed. */
 function boosted(hex: string, k: number = MATERIALS.emissiveBoost): THREE.Color {
   return new THREE.Color(hex).multiplyScalar(k)
 }
 
-/** Shrine Ivory ceramic with fine speckle roughnessMap (design §2.4). */
+// ---------------------------------------------------------------------------
+// R1 — carved-stone surfacing
+//
+// Every architectural material samples the shared Orokin trim sheet through a
+// WORLD-SPACE triplanar-ish projection (dominant axis, per fragment-stable per
+// vertex), so a 2 m tile is 2 m everywhere: no more 18 cm/texel walls next to
+// 2 mm/texel pillars (map E11), and no stretching on non-uniformly scaled
+// primitives. The AO map is also multiplied into albedo (`aoBite`) so cavities
+// stay dark under DIRECT light too — PBR-pure aoMap only touches indirect, and
+// this level is lit by one hard key.
+// ---------------------------------------------------------------------------
+
+/** meters covered by one tile of the Orokin sheet */
+export const TRIM_TILE_M = 4.0
+
+function worldUvChunk(uvScale: number): string {
+  const k = uvScale.toFixed(5)
+  return /* glsl */ `
+      #include <uv_vertex>
+      {
+        vec4 avWp = vec4( position, 1.0 );
+        vec3 avN = normal;
+        #ifdef USE_INSTANCING
+          avWp = instanceMatrix * avWp;
+          avN = mat3( instanceMatrix ) * avN;
+        #endif
+        avWp = modelMatrix * avWp;
+        avN = normalize( mat3( modelMatrix ) * avN );
+        vec3 avA = abs( avN );
+        vec2 avUv = avA.y > max( avA.x, avA.z )
+          ? avWp.xz
+          : ( avA.x > avA.z ? avWp.zy : avWp.xy );
+        avUv *= ${k};
+        #ifdef USE_MAP
+          vMapUv = avUv;
+        #endif
+        #ifdef USE_NORMALMAP
+          vNormalMapUv = avUv;
+        #endif
+        #ifdef USE_ROUGHNESSMAP
+          vRoughnessMapUv = avUv;
+        #endif
+        #ifdef USE_METALNESSMAP
+          vMetalnessMapUv = avUv;
+        #endif
+        #ifdef USE_AOMAP
+          vAoMapUv = avUv;
+        #endif
+      }
+      `
+}
+
+/**
+ * Wire a standard material to the world-space trim-sheet projection.
+ * `aoBite` additionally multiplies the AO map into albedo (0 = off).
+ */
+function applyWorldSurface(
+  mat: THREE.MeshStandardMaterial,
+  key: string,
+  uvScale: number,
+  aoBite = 0,
+) {
+  const chunk = worldUvChunk(uvScale)
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', chunk)
+    if (aoBite > 0) {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        /* glsl */ `
+        #include <map_fragment>
+        #ifdef USE_AOMAP
+          float avAo = texture2D( aoMap, vAoMapUv ).r;
+          diffuseColor.rgb *= mix( 1.0, avAo, ${aoBite.toFixed(3)} );
+        #endif
+        `,
+      )
+    }
+  }
+  // distinct injected source ⇒ distinct program cache entry
+  mat.customProgramCacheKey = () => key
+}
+
+/** shared trim-sheet maps (one texture object, many materials) */
+function trimMaps() {
+  const ao = getOrokinAOTexture()
+  ao.channel = 0
+  return {
+    normalMap: getOrokinNormalTexture(),
+    roughnessMap: getOrokinRoughnessTexture(),
+    aoMap: ao,
+  }
+}
+
+/**
+ * Shrine Ivory ceramic — carved Orokin stone.
+ * Albedo pulled down to #C4BCAC so lit faces land mid-band instead of clipping
+ * at the top of the histogram; normal/AO/roughness from the shared trim sheet.
+ */
 export function ivoryMaterial(): THREE.MeshStandardMaterial {
   if (ivory) return ivory
-  const m = MATERIALS.shrineIvory
+  const t = trimMaps()
   ivory = new THREE.MeshStandardMaterial({
-    color: m.color,
-    // roughnessMap multiplies material.roughness; the speckle averages ~0.5
-    // gray, so 1.0 × ~0.5 ≈ the specced 0.5 with subtle variation.
-    roughness: 1.0,
-    metalness: m.metalness,
-    roughnessMap: getNoiseRoughnessTexture(),
+    color: COLORS.shrineIvoryDeep,
+    roughness: 0.82,
+    metalness: 0.04,
+    normalMap: t.normalMap,
+    roughnessMap: t.roughnessMap,
+    aoMap: t.aoMap,
+    aoMapIntensity: 1.0,
   })
+  ivory.normalScale.set(0.5, 0.5)
+  applyWorldSurface(ivory, 'av-ivory', 1 / TRIM_TILE_M, 0.32)
   return ivory
 }
 
-/** Regal Gold trim — non-emissive, needs env map to read as metal. */
+/**
+ * Ivory variant that reads a baked vertex-colour contact AO (see
+ * ShrineStation.bakeContactAO). Same surfacing as ivoryMaterial; used for the
+ * instanced ribs / wall panels / buttresses whose bases must stay grounded
+ * even when the SSAO pass is off on low quality tiers.
+ */
+export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
+  if (ivoryContact) return ivoryContact
+  const t = trimMaps()
+  ivoryContact = new THREE.MeshStandardMaterial({
+    color: COLORS.shrineIvoryDeep,
+    roughness: 0.82,
+    metalness: 0.04,
+    normalMap: t.normalMap,
+    roughnessMap: t.roughnessMap,
+    aoMap: t.aoMap,
+    aoMapIntensity: 1.0,
+    vertexColors: true,
+  })
+  ivoryContact.normalScale.set(0.5, 0.5)
+  applyWorldSurface(ivoryContact, 'av-ivory-contact', 1 / TRIM_TILE_M, 0.32)
+  return ivoryContact
+}
+
+/**
+ * Polished gold — narrow, bright specular for edge highlights, nosings and
+ * small ornament. Brushed streak roughness map so the highlight is a ramp.
+ */
+export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
+  if (goldPolished) return goldPolished
+  goldPolished = new THREE.MeshStandardMaterial({
+    // brighter face than cast gold so edge highlights carry the specular ramp;
+    // base × brushed map (mean ~0.5) lands on the specced ~0.14
+    color: '#D9B25F',
+    metalness: 0.95,
+    roughness: 0.28,
+    roughnessMap: getBrushedGoldRoughnessTexture(),
+    envMapIntensity: 1.35,
+  })
+  applyWorldSurface(goldPolished, 'av-gold-polished', 1 / 0.6)
+  return goldPolished
+}
+
+/**
+ * Cast gold — the bulk trim. Rougher (0.38 × map) so big runs read as cast
+ * metal with a broad ramp rather than one blown-out chrome strip.
+ */
+export function goldCastMaterial(): THREE.MeshStandardMaterial {
+  if (goldCast) return goldCast
+  goldCast = new THREE.MeshStandardMaterial({
+    color: '#B8913F',
+    metalness: 0.92,
+    // base × brushed map (mean ~0.5) lands on the specced ~0.38
+    roughness: 0.76,
+    roughnessMap: getBrushedGoldRoughnessTexture(),
+    envMapIntensity: 1.15,
+  })
+  applyWorldSurface(goldCast, 'av-gold-cast', 1 / 0.9)
+  return goldCast
+}
+
+/** Legacy name — the bulk trim gold. */
 export function goldMaterial(): THREE.MeshStandardMaterial {
   if (gold) return gold
-  const m = MATERIALS.regalGold
-  gold = new THREE.MeshStandardMaterial({ color: m.color, metalness: m.metalness, roughness: m.roughness })
+  gold = goldCastMaterial()
   return gold
+}
+
+/**
+ * Near-black recess — every panel gap, channel behind an energy strip and
+ * joint shadow line. This is the level's true black: nothing else is allowed
+ * this dark, so recesses always separate from the ivory faces.
+ */
+export function recessMaterial(): THREE.MeshStandardMaterial {
+  if (recess) return recess
+  recess = new THREE.MeshStandardMaterial({
+    color: COLORS.recessBlack,
+    roughness: 0.95,
+    metalness: 0.15,
+  })
+  return recess
+}
+
+/**
+ * Deep umber — floor bands and panel-recess surrounds. The warm mid-dark the
+ * palette was missing, so gold has somewhere to sit between ivory and black.
+ */
+export function umberMaterial(): THREE.MeshStandardMaterial {
+  if (umber) return umber
+  const t = trimMaps()
+  umber = new THREE.MeshStandardMaterial({
+    color: COLORS.umberDeep,
+    roughness: 0.78,
+    metalness: 0.25,
+    normalMap: t.normalMap,
+    roughnessMap: t.roughnessMap,
+    aoMap: t.aoMap,
+  })
+  umber.normalScale.set(0.38, 0.38)
+  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.34)
+  return umber
+}
+
+/**
+ * Filigree band — gold fret run applied as an alpha-mapped decal strip along
+ * column joints, arch springs and wall courses.
+ */
+export function fretTrimMaterial(): THREE.MeshStandardMaterial {
+  if (fretTrim) return fretTrim
+  const tex = getFretBandTexture()
+  fretTrim = new THREE.MeshStandardMaterial({
+    color: '#D8B25C',
+    metalness: 0.9,
+    roughness: 0.28,
+    map: tex,
+    alphaMap: tex,
+    transparent: true,
+    alphaTest: 0.35,
+    side: THREE.DoubleSide,
+  })
+  return fretTrim
 }
 
 /** Deep Relic obsidian — near-mirror floors/props. */
 export function obsidianMaterial(): THREE.MeshStandardMaterial {
   if (obsidian) return obsidian
   const m = MATERIALS.deepRelic
-  obsidian = new THREE.MeshStandardMaterial({ color: m.color, metalness: m.metalness, roughness: m.roughness })
+  const t = trimMaps()
+  obsidian = new THREE.MeshStandardMaterial({
+    color: m.color,
+    metalness: m.metalness,
+    roughness: 0.34,
+    normalMap: t.normalMap,
+    roughnessMap: t.roughnessMap,
+    aoMap: t.aoMap,
+  })
+  obsidian.normalScale.set(0.3, 0.3)
+  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.22)
   return obsidian
 }
 
@@ -133,17 +372,31 @@ export function glassMaterial(): THREE.MeshBasicMaterial {
   return glass
 }
 
-/** Cadence teal energy veins (enemy domain). Pulsed by EnvironmentFX. */
+/**
+ * Cadence teal energy veins (enemy domain). Pulsed by EnvironmentFX.
+ * The alphaMap ramps the strip out at both ends so it dies into its recessed
+ * channel instead of stopping on a hard cut.
+ */
 export function veinTealMaterial(): THREE.MeshBasicMaterial {
   if (veinTeal) return veinTeal
-  veinTeal = new THREE.MeshBasicMaterial({ color: boosted(COLORS.cadenceTeal), toneMapped: false })
+  veinTeal = new THREE.MeshBasicMaterial({
+    color: boosted(COLORS.cadenceTeal),
+    toneMapped: false,
+    alphaMap: getStripFalloffTexture(),
+    transparent: true,
+  })
   return veinTeal
 }
 
 /** Aureate gold energy (player/purified domain). */
 export function veinGoldMaterial(): THREE.MeshBasicMaterial {
   if (veinGold) return veinGold
-  veinGold = new THREE.MeshBasicMaterial({ color: boosted(COLORS.aureate), toneMapped: false })
+  veinGold = new THREE.MeshBasicMaterial({
+    color: boosted(COLORS.aureate),
+    toneMapped: false,
+    alphaMap: getStripFalloffTexture(),
+    transparent: true,
+  })
   return veinGold
 }
 
@@ -191,7 +444,9 @@ export function glyphDecalMaterial(): THREE.MeshBasicMaterial {
     map: getGlyphSpriteTexture(),
     color: COLORS.cadenceTeal,
     transparent: true,
-    opacity: 0.85,
+    // R1: corruption glyphs were reading as flat green rectangles; they are a
+    // stain on the architecture, not a light source
+    opacity: 0.38,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -247,6 +502,7 @@ export function bannerMaterial(): THREE.ShaderMaterial {
 let floor: THREE.MeshStandardMaterial | null = null
 let floorMapTex: THREE.CanvasTexture | null = null
 let floorRoughTex: THREE.CanvasTexture | null = null
+let floorNormalTex: THREE.CanvasTexture | null = null
 let goldEdge: THREE.MeshStandardMaterial | null = null
 let grooveTex: THREE.CanvasTexture | null = null
 let groove: THREE.MeshBasicMaterial | null = null
@@ -378,44 +634,63 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     floorRoughTex.wrapS = floorRoughTex.wrapT = THREE.RepeatWrapping
     floorRoughTex.colorSpace = THREE.NoColorSpace
     floorRoughTex.anisotropy = 4
+    // relief straight off the albedo's own value structure: seams become
+    // grooves, grate bars become ribs, bolts become domes
+    floorNormalTex = normalFromLuminance(alb, 2.6)
   }
   const m = MATERIALS.deepRelic
   floor = new THREE.MeshStandardMaterial({
-    color: '#FFFFFF', // albedo comes from the map
+    color: '#B9B9B9', // albedo comes from the map; pulled down for value depth
     map: floorMapTex,
     roughnessMap: floorRoughTex,
+    normalMap: floorNormalTex ?? undefined,
     roughness: 0.9, // × map (~0.45–0.88) → matte panels, glossier grate bars
     metalness: m.metalness * 0.6,
   })
-  floor.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <uv_vertex>',
-      /* glsl */ `
-      #include <uv_vertex>
-      {
-        vec4 avFloorWp = vec4( position, 1.0 );
-        vec3 avFloorN = normal;
-        #ifdef USE_INSTANCING
-          avFloorWp = instanceMatrix * avFloorWp;
-          avFloorN = mat3( instanceMatrix ) * avFloorN;
-        #endif
-        avFloorWp = modelMatrix * avFloorWp;
-        avFloorN = normalize( mat3( modelMatrix ) * avFloorN );
-        vec2 avFloorUv = abs( avFloorN.y ) > 0.5
-          ? avFloorWp.xz
-          : ( abs( avFloorN.x ) > 0.5 ? avFloorWp.zy : avFloorWp.xy );
-        avFloorUv *= 0.25; // 1 texture tile = 4 m
-        #ifdef USE_MAP
-          vMapUv = avFloorUv;
-        #endif
-        #ifdef USE_ROUGHNESSMAP
-          vRoughnessMapUv = avFloorUv;
-        #endif
-      }
-      `,
-    )
-  }
+  floor.normalScale.set(0.7, 0.7)
+  // 1 tile = 4 m, world-space projection (same helper as the stone surfaces)
+  applyWorldSurface(floor, 'av-floor', 0.25)
   return floor
+}
+
+/**
+ * Sobel a canvas' luminance into a tangent-space normal map. Used for the
+ * floor (and any other authored albedo whose value structure IS its relief).
+ */
+function normalFromLuminance(src: HTMLCanvasElement, strength: number): THREE.CanvasTexture {
+  const size = src.width
+  const sctx = src.getContext('2d')!
+  const d = sctx.getImageData(0, 0, size, size).data
+  const h = new Float32Array(size * size)
+  for (let i = 0; i < h.length; i++) {
+    h[i] = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) / 255
+  }
+  const at = (x: number, y: number) =>
+    h[(((y % size) + size) % size) * size + (((x % size) + size) % size)]
+  const out = document.createElement('canvas')
+  out.width = out.height = size
+  const octx = out.getContext('2d')!
+  const img = octx.createImageData(size, size)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      let nx = (at(x - 1, y) - at(x + 1, y)) * strength
+      let ny = (at(x, y - 1) - at(x, y + 1)) * strength
+      const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1)
+      nx *= inv
+      ny *= inv
+      img.data[i] = (nx * 0.5 + 0.5) * 255
+      img.data[i + 1] = (ny * 0.5 + 0.5) * 255
+      img.data[i + 2] = inv * 255
+      img.data[i + 3] = 255
+    }
+  }
+  octx.putImageData(img, 0, 0)
+  const t = new THREE.CanvasTexture(out)
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.colorSpace = THREE.NoColorSpace
+  t.anisotropy = 4
+  return t
 }
 
 /**
@@ -425,7 +700,13 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
  */
 export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
   if (goldEdge) return goldEdge
-  goldEdge = new THREE.MeshStandardMaterial({ color: '#EFCF8E', metalness: 0.85, roughness: 0.18 })
+  goldEdge = new THREE.MeshStandardMaterial({
+    color: '#EFCF8E',
+    metalness: 0.9,
+    roughness: 0.3, // × brushed map ⇒ ~0.15, a narrow ramp along the lip
+    roughnessMap: getBrushedGoldRoughnessTexture(),
+    envMapIntensity: 1.4,
+  })
   return goldEdge
 }
 

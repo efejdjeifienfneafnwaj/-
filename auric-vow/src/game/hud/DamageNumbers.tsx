@@ -19,10 +19,13 @@ import * as THREE from 'three'
 import { useGameStore, type DamageEvent } from '../store'
 
 const POOL = 32
-const RISE_PX = 60
-const LIFE_SEC = 0.7
+const RISE_PX = 64
+const LIFE_SEC = 0.75
 const MERGE_WINDOW_SEC = 0.25
 const MERGE_DIST = 2
+/** scale punch: 1.35 → 1.0 over 120 ms so every number lands with weight */
+const PUNCH_SEC = 0.12
+const PUNCH_AMOUNT = 0.35
 
 // ---------------------------------------------------------------------------
 // Module-level camera binding + hitmarker forwarding queue
@@ -122,6 +125,7 @@ export default function DamageNumbers() {
           )
           if (m) {
             m.amount += ev.amount
+            // restart life + punch so the merged total lands with weight
             m.born = tNow
             continue
           }
@@ -175,10 +179,15 @@ export default function DamageNumbers() {
 
         const rise = easeOutCubic(p) * RISE_PX
         const opacity = p > 0.5 ? 1 - (p - 0.5) / 0.5 : 1
-        el.textContent = String(Math.round(s.amount))
-        el.className = `dmg dmg-${s.kind}`
+        const age = tNow - s.born
+        const punch = age < PUNCH_SEC ? 1 + PUNCH_AMOUNT * (1 - age / PUNCH_SEC) : 1
+        const txt = String(Math.round(s.amount))
+        if (el.textContent !== txt) el.textContent = txt
+        const cls = `dmg dmg-${s.kind}`
+        if (el.className !== cls) el.className = cls
         el.style.opacity = opacity.toFixed(3)
-        el.style.transform = `translate3d(${(x + s.driftX * p).toFixed(1)}px, ${(y - rise).toFixed(1)}px, 0) translate(-50%, -100%)`
+        el.style.transform =
+          `translate3d(${(x + s.driftX * p).toFixed(1)}px, ${(y - rise).toFixed(1)}px, 0) translate(-50%, -100%) scale(${punch.toFixed(3)})`
       }
     }
 

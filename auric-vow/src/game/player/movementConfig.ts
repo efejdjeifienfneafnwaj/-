@@ -105,11 +105,31 @@ export const MOVE = {
 
   // §8 camera rig
   cam: {
-    offsetNormal: { right: 0.55, up: 0.45, back: 3.2 },
-    offsetAim: { right: 0.7, up: 0.35, back: 1.6 },
+    offsetNormal: { right: 0.62, up: 0.42, back: 3.45 },
+    offsetAim: { right: 0.76, up: 0.34, back: 1.85 },
     followRate: 14, // position lerp 1-exp(-14*dt)
-    boomMargin: 0.25,
-    boomMin: 0.5,
+    boomMargin: 0.28,
+    /** never closer than this to the head — above the 0.54 m shoulder span */
+    boomMin: 1.25,
+    /** boom is swept as a sphere of this radius so thin geometry can't cut the
+        near plane (5 probe rays: axis + 4 rim offsets) */
+    boomRadius: 0.26,
+    /** rig dither/opacity fade window: full at fadeStart, floor at fadeEnd */
+    fadeStart: 1.7,
+    fadeEnd: 0.9,
+    fadeMin: 0.1,
+    /** ultimate (auric requiem) camera state: long boom + drop so the frame
+        silhouettes against the nova */
+    ult: { back: 6.0, drop: 1.0, right: 0.15, rate: 3.2, fov: 7 },
+    /** wall-run: bias the shoulder offset to the free side and push off the wall */
+    wallrunSideBias: 1.35,
+    wallrunNormalPush: 0.45,
+    /** positional shake (m) at trauma 1, on top of the rotational component */
+    shakePosAmp: 0.075,
+    /** directional positional kick decay (1/s) */
+    kickDecay: 9,
+    /** FOV punch on a hard landing (deg) */
+    landFovPunch: 5,
     lookSensitivity: 0.0022, // rad/px
     pitchLimit: 1.35, // ~77°
     baseFov: AIM.baseFov, // 70
@@ -137,10 +157,14 @@ export const MOVE = {
 
 /** §10 — procedural animation tuning (PlayerRig) */
 export const ANIM = {
-  strideLength: 2.2, // gait phase += speed/stride·dt
-  legSwing: 0.45, // rad
-  armSwingMult: 0.6,
-  bobAmp: 0.04,
+  /** stride (m) per FULL gait cycle at walk speed — phase advances by
+      2π·speed/stride·dt so one cycle really is one stride (was missing the 2π) */
+  strideLength: 1.85,
+  /** stride opens up toward this at full sprint */
+  strideLengthSprint: 2.9,
+  legSwing: 0.52, // rad
+  armSwingMult: 0.62,
+  bobAmp: 0.045,
   leanPitchPerAccel: 0.02, // max ±0.25 rad (~12° spec says 12° ≈ 0.21)
   leanPitchMax: 0.21,
   leanRollPerStrafeAccel: 0.015,
@@ -154,11 +178,58 @@ export const ANIM = {
   wallrunLegAmp: 0.5, // m-scale exaggeration → rad swing below
   scarf: {
     segments: 12,
-    segmentLength: 0.09,
-    gravity: 2,
-    drag: 0.85, // velocity-inherit drag
+    segmentLength: 0.095,
+    gravity: 6, // was 2 — the scarf hung like a wet rope
+    drag: 0.7, // was 0.85 (velocity-inherit drag)
     constraintIters: 2,
-    width: 0.07,
-    tipWidth: 0.02,
+    width: 0.14, // was 0.07 — reads at silhouette distance
+    tipWidth: 0.04,
+    /** last N segments carry the emissive material group */
+    emissiveSegments: 4,
+    /** ribbon[1] is deliberately NOT a mirror of ribbon[0] */
+    asymSegLen: 1.18,
+    asymGravity: 1.25,
+    asymDrag: 0.78,
+    /** per-segment twist (rad) per m/s of local segment speed */
+    twistPerSpeed: 0.05,
+    twistMax: 0.9,
+  },
+
+  /** idle: asymmetric weight shift + slow breath */
+  idle: {
+    breathHz: 0.4,
+    breathAmp: 0.014,
+    swayHz: 0.17,
+    weightRoll: 0.045, // torso roll onto the loaded leg
+    blendSpeed: 1.3, // idle authority fades out by this horizontal speed
+  },
+
+  /** air pose blend: ascend ↔ fall mixed by v.y over ±this */
+  airBlendVy: 5.5,
+
+  /** landing absorb (driven from impact speed, recovered on the springs) */
+  landing: {
+    absorbTime: 0.24,
+    minImpact: 4.5,
+    fullImpact: 22,
+    bodyDrop: 0.35,
+    kneeBend: 1.3,
+    torsoPitch: 0.3,
+  },
+
+  /** additive aim/look layer — head leads the torso by ~80 ms */
+  look: {
+    headYawMax: 0.6,
+    headPitchMax: 0.5,
+    headStiffness: 200,
+    torsoStiffness: 120,
+    chestTwistMax: 0.25,
+  },
+
+  /** lunge afterimages: pooled clones of the real rig subtree */
+  ghosts: {
+    count: 3,
+    frameGap: 3, // history samples between ghosts (~0.05 s @60fps)
+    maxOpacity: 0.34, // clamped so the additive stack can't clip to white
   },
 } as const

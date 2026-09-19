@@ -38,8 +38,13 @@ import {
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
 import {
   ivoryMaterial,
+  ivoryContactMaterial,
   goldMaterial,
+  goldPolishedMaterial,
   goldEdgeMaterial,
+  recessMaterial,
+  umberMaterial,
+  fretTrimMaterial,
   obsidianMaterial,
   floorMaterial,
   arenaGrooveMaterial,
@@ -63,30 +68,16 @@ const BOX = new THREE.BoxGeometry(1, 1, 1)
 const RBOX = new RoundedBoxGeometry(1, 1, 1, 2, 0.05)
 const PLANE = new THREE.PlaneGeometry(1, 1)
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 20)
-const PILLAR_GEO = new THREE.CylinderGeometry(0.6, 0.72, 9, 12)
 const PETAL = new THREE.BoxGeometry(1, 0.12, 2.2)
 const OCTA = new THREE.OctahedronGeometry(1, 0)
 const RIB_CANYON = new THREE.TorusGeometry(7, 0.5, 8, 24, Math.PI)
-const RIB_CANYON_TRIM = new THREE.TorusGeometry(6.25, 0.16, 6, 24, Math.PI)
 const RIB_ARENA = new THREE.TorusGeometry(30, 0.9, 8, 40, Math.PI)
-const RIB_ARENA_TRIM = new THREE.TorusGeometry(28.7, 0.24, 6, 40, Math.PI)
 const RIB_CHAMBER = new THREE.TorusGeometry(14, 0.45, 8, 28, Math.PI)
 const RIB_BRIDGE = new THREE.TorusGeometry(5.5, 0.35, 8, 20, Math.PI)
-const RIB_BRIDGE_TRIM = new THREE.TorusGeometry(4.9, 0.13, 6, 20, Math.PI)
 const WALL_ARCH = new THREE.TorusGeometry(2.2, 0.3, 8, 20, Math.PI)
-const WALL_ARCH_TRIM = new THREE.TorusGeometry(1.82, 0.12, 6, 20, Math.PI)
 // arch-bay variants (fix2): B = narrow + heavy, C = wide + slender
 const WALL_ARCH_B = new THREE.TorusGeometry(1.55, 0.36, 8, 18, Math.PI)
-const WALL_ARCH_B_TRIM = new THREE.TorusGeometry(1.2, 0.13, 6, 18, Math.PI)
 const WALL_ARCH_C = new THREE.TorusGeometry(2.9, 0.24, 8, 24, Math.PI)
-const WALL_ARCH_C_TRIM = new THREE.TorusGeometry(2.55, 0.1, 6, 24, Math.PI)
-// pillar engraving rings + gold bands (open cylinder shells, radius matches
-// the tapered PILLAR_GEO surface at each local height)
-const PILLAR_ENG1 = new THREE.CylinderGeometry(0.708, 0.708, 0.07, 20, 1, true)
-const PILLAR_ENG2 = new THREE.CylinderGeometry(0.671, 0.671, 0.07, 20, 1, true)
-const PILLAR_ENG3 = new THREE.CylinderGeometry(0.634, 0.634, 0.07, 20, 1, true)
-const PILLAR_BAND_LO = new THREE.CylinderGeometry(0.72, 0.72, 0.2, 20, 1, true)
-const PILLAR_BAND_HI = new THREE.CylinderGeometry(0.616, 0.616, 0.16, 20, 1, true)
 const RING_GEO = new THREE.TorusGeometry(1, 0.012, 6, 72)
 const DOME_GEO = new THREE.SphereGeometry(18, 40, 20, 0, Math.PI * 2, 0, Math.PI / 2)
 const ICOSA = new THREE.IcosahedronGeometry(1.5, 0)
@@ -120,6 +111,247 @@ const ROCK = (() => {
 })()
 
 // ---------------------------------------------------------------------------
+// R1 — Orokin ornament toolkit
+//
+// Everything here is generated ONCE at module scope and shared by InstancedMesh
+// draws, so ornament density costs geometry memory, not draw calls or frame
+// time. Three generators:
+//   sweepArc / sweepLine — a stepped moulding profile swept along an arch or a
+//     straight run (the <OrokinTrim> the review asked for, as geometry rather
+//     than a component so it can be instanced)
+//   flutedColumn — LatheGeometry-style profile with entasis plus real angular
+//     fluting, replacing the plain tapered cylinders
+//   bakeContactAO — vertex-colour contact darkening at the foot of a mesh, so
+//     grounding survives with the SSAO pass off
+// ---------------------------------------------------------------------------
+
+/** Stepped Orokin fascia, [radialOffset, depth] pairs, closed loop. */
+const TRIM_PROFILE: [number, number][] = [
+  [0.0, -0.085],
+  [0.1, -0.085],
+  [0.115, -0.055],
+  [0.075, -0.03],
+  [0.075, 0.03],
+  [0.115, 0.055],
+  [0.1, 0.085],
+  [0.0, 0.085],
+]
+
+/** Slimmer inner rail used for the second, tighter trim run on big arches. */
+const TRIM_PROFILE_FINE: [number, number][] = [
+  [0.0, -0.045],
+  [0.055, -0.045],
+  [0.062, -0.022],
+  [0.03, -0.01],
+  [0.03, 0.01],
+  [0.062, 0.022],
+  [0.055, 0.045],
+  [0.0, 0.045],
+]
+
+/**
+ * Sweep a closed profile around an arc of `radius` spanning `arc` radians in
+ * the XY plane (matching TorusGeometry's orientation), profile X = radial
+ * offset, profile Y = out-of-plane depth.
+ */
+function sweepArc(
+  profile: [number, number][],
+  radius: number,
+  arc: number,
+  steps: number,
+): THREE.BufferGeometry {
+  const pn = profile.length
+  const pos: number[] = []
+  const uv: number[] = []
+  const idx: number[] = []
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps
+    const a = t * arc
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    for (let j = 0; j < pn; j++) {
+      const [pr, pd] = profile[j]
+      const r = radius + pr
+      pos.push(r * ca, r * sa, pd)
+      uv.push(t * radius * 0.5, j / (pn - 1))
+    }
+  }
+  for (let i = 0; i < steps; i++) {
+    for (let j = 0; j < pn; j++) {
+      const a0 = i * pn + j
+      const b0 = i * pn + ((j + 1) % pn)
+      const a1 = (i + 1) * pn + j
+      const b1 = (i + 1) * pn + ((j + 1) % pn)
+      idx.push(a0, a1, b1, a0, b1, b0)
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/** Same profile swept along a unit straight run down +Z (scale Z to length). */
+function sweepLine(profile: [number, number][]): THREE.BufferGeometry {
+  const pn = profile.length
+  const pos: number[] = []
+  const uv: number[] = []
+  const idx: number[] = []
+  for (let i = 0; i <= 1; i++) {
+    for (let j = 0; j < pn; j++) {
+      const [px, py] = profile[j]
+      pos.push(px, py, i - 0.5)
+      uv.push(i, j / (pn - 1))
+    }
+  }
+  for (let j = 0; j < pn; j++) {
+    const a0 = j
+    const b0 = (j + 1) % pn
+    const a1 = pn + j
+    const b1 = pn + ((j + 1) % pn)
+    idx.push(a0, a1, b1, a0, b1, b0)
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * Fluted Orokin column. `profile` is a list of [y, radius] rows (bottom→top);
+ * the shaft band gets `flutes` angular grooves with a soft cosine section that
+ * fades out into the base and capital.
+ */
+function flutedColumn(
+  profile: [number, number][],
+  flutes: number,
+  depth: number,
+  shaft: [number, number],
+  radial = 48,
+): THREE.BufferGeometry {
+  const rows = profile.length
+  const pos: number[] = []
+  const uv: number[] = []
+  const idx: number[] = []
+  for (let r = 0; r < rows; r++) {
+    const [y, rad] = profile[r]
+    // flute amplitude fades in/out across the shaft band
+    const fadeLo = THREE.MathUtils.smoothstep(y, shaft[0], shaft[0] + 0.45)
+    const fadeHi = 1 - THREE.MathUtils.smoothstep(y, shaft[1] - 0.45, shaft[1])
+    const amp = depth * fadeLo * fadeHi
+    for (let c = 0; c <= radial; c++) {
+      const a = (c / radial) * Math.PI * 2
+      // rounded grooves: cos^2 lobes between sharp arrises
+      const groove = Math.pow(Math.max(0, Math.cos(a * flutes)), 0.6)
+      const rr = rad * (1 - amp * groove)
+      pos.push(Math.cos(a) * rr, y, Math.sin(a) * rr)
+      uv.push(c / radial, y)
+    }
+  }
+  const stride = radial + 1
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < radial; c++) {
+      const a0 = r * stride + c
+      const b0 = a0 + 1
+      const a1 = (r + 1) * stride + c
+      const b1 = a1 + 1
+      idx.push(a0, a1, b1, a0, b1, b0)
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * Clone a geometry and bake a vertex-colour contact gradient: vertices at
+ * local y ≤ `from` are multiplied by `min`, ramping to white at `to`.
+ * Instanced ribs and wall panels use this through ivoryContactMaterial() so a
+ * grounded dark band survives even when screen-space AO is off.
+ */
+function bakeContactAO(
+  src: THREE.BufferGeometry,
+  from: number,
+  to: number,
+  min: number,
+): THREE.BufferGeometry {
+  const g = src.clone()
+  const pos = g.attributes.position as THREE.BufferAttribute
+  const col = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i)
+    const t = THREE.MathUtils.smoothstep(y, from, to)
+    const v = min + (1 - min) * t
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = v
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  return g
+}
+
+/** Bake a UV repeat into a geometry so one shared trim material can serve
+ *  runs of different lengths without cloning the texture. */
+function repeatUv(g: THREE.BufferGeometry, ru: number, rv = 1): THREE.BufferGeometry {
+  const uv = g.attributes.uv as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * ru, uv.getY(i) * rv)
+  uv.needsUpdate = true
+  return g
+}
+
+// --- shared ornament geometries -------------------------------------------
+/** stepped trim run, unit length along Z (scale Z) */
+const TRIM_RUN = sweepLine(TRIM_PROFILE)
+const TRIM_RUN_FINE = sweepLine(TRIM_PROFILE_FINE)
+/** arch trims matching the three canyon bay variants + chamber/arena/bridge */
+const ARCH_TRIM_A = sweepArc(TRIM_PROFILE, 2.05, Math.PI, 22)
+const ARCH_TRIM_B = sweepArc(TRIM_PROFILE, 1.42, Math.PI, 20)
+const ARCH_TRIM_C = sweepArc(TRIM_PROFILE, 2.72, Math.PI, 26)
+const ARCH_TRIM_CANYON = sweepArc(TRIM_PROFILE, 6.4, Math.PI, 40)
+const ARCH_TRIM_CANYON_IN = sweepArc(TRIM_PROFILE_FINE, 6.05, Math.PI, 40)
+const ARCH_TRIM_CHAMBER = sweepArc(TRIM_PROFILE, 13.4, Math.PI, 52)
+const ARCH_TRIM_ARENA = sweepArc(TRIM_PROFILE, 28.9, Math.PI, 72)
+const ARCH_TRIM_ARENA_IN = sweepArc(TRIM_PROFILE_FINE, 28.2, Math.PI, 72)
+const ARCH_TRIM_BRIDGE = sweepArc(TRIM_PROFILE, 5.05, Math.PI, 26)
+
+/** 9 m fluted column with entasis, base torus and flared capital */
+const COLUMN_PROFILE: [number, number][] = (() => {
+  const rows: [number, number][] = []
+  rows.push([-4.5, 0.9], [-4.34, 0.88], [-4.3, 0.8], [-4.16, 0.78], [-4.1, 0.745])
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16
+    const y = -4.1 + t * 7.5
+    // entasis: slight convex swell, narrowing toward the neck
+    const base = 0.735 - t * 0.135
+    rows.push([y, base * (1 + 0.035 * Math.sin(Math.PI * t))])
+  }
+  rows.push([3.46, 0.585], [3.56, 0.56], [3.7, 0.575], [3.86, 0.64], [4.0, 0.78], [4.1, 0.82], [4.34, 0.8], [4.4, 0.86], [4.5, 0.86])
+  return rows
+})()
+const COLUMN_GEO = flutedColumn(COLUMN_PROFILE, 18, 0.07, [-3.9, 3.3], 54)
+/** flat fret course for wall panels (unit square, scaled per run) */
+const FRET_PANEL = repeatUv(new THREE.PlaneGeometry(1, 1), 6)
+/** column collars + fret bands sized to the fluted profile */
+const COLUMN_FRET_LO = repeatUv(new THREE.CylinderGeometry(0.775, 0.775, 0.42, 30, 1, true), 5)
+const COLUMN_FRET_HI = repeatUv(new THREE.CylinderGeometry(0.655, 0.655, 0.34, 28, 1, true), 4)
+const COLUMN_COLLAR_LO = new THREE.CylinderGeometry(0.84, 0.86, 0.22, 30, 1, true)
+const COLUMN_COLLAR_HI = new THREE.CylinderGeometry(0.635, 0.635, 0.18, 28, 1, true)
+
+// --- contact-AO baked variants (drawn with ivoryContactMaterial) ----------
+/** wall panel body: plain box (no absurd 0.85 m fillet from scaling RBOX,
+ *  map E2) subdivided in Y so the baked contact gradient has vertices */
+const PANEL_BOX = bakeContactAO(new THREE.BoxGeometry(1, 1, 1, 1, 26, 1), -0.5, -0.44, 0.36)
+const RIB_CANYON_AO = bakeContactAO(RIB_CANYON, 0, 1.9, 0.4)
+const RIB_CHAMBER_AO = bakeContactAO(RIB_CHAMBER, 0, 2.6, 0.4)
+const RIB_ARENA_AO = bakeContactAO(RIB_ARENA, 0, 4.4, 0.42)
+const RIB_BRIDGE_AO = bakeContactAO(RIB_BRIDGE, 0, 1.4, 0.42)
+
+// ---------------------------------------------------------------------------
 // Instancing helper
 // ---------------------------------------------------------------------------
 interface InstItem {
@@ -139,11 +371,13 @@ function Instanced({
   material,
   items,
   receiveShadow = false,
+  castShadow = false,
 }: {
   geometry: THREE.BufferGeometry
   material: THREE.Material
   items: InstItem[]
   receiveShadow?: boolean
+  castShadow?: boolean
 }) {
   const ref = useRef<THREE.InstancedMesh>(null!)
   useLayoutEffect(() => {
@@ -168,6 +402,7 @@ function Instanced({
       ref={ref}
       args={[geometry, material, items.length]}
       receiveShadow={receiveShadow}
+      castShadow={castShadow}
     />
   )
 }
@@ -177,15 +412,26 @@ function MassMesh({
   spec,
   material,
   receiveShadow = true,
+  castShadow = false,
+  geometry = RBOX,
 }: {
   spec: BoxSpec
   material: THREE.Material
   receiveShadow?: boolean
+  castShadow?: boolean
+  geometry?: THREE.BufferGeometry
 }) {
   const c = boxCenter(spec)
   const s = boxSize(spec)
   return (
-    <mesh geometry={RBOX} material={material} position={c} scale={s} receiveShadow={receiveShadow} />
+    <mesh
+      geometry={geometry}
+      material={material}
+      position={c}
+      scale={s}
+      receiveShadow={receiveShadow}
+      castShadow={castShadow}
+    />
   )
 }
 
@@ -237,22 +483,35 @@ const A_DAIS_TRIM_EDGE: InstItem[] = [
   { p: [-5.75, 0.022, 7.5], s: [0.035, 0.006, 11.8] },
   { p: [5.75, 0.022, 7.5], s: [0.035, 0.006, 11.8] },
 ]
-// pillar dressing: engraved segment rings, gold base/capital bands, plinths
-const A_PILLAR_ENG1: InstItem[] = []
-const A_PILLAR_ENG2: InstItem[] = []
-const A_PILLAR_ENG3: InstItem[] = []
+// pillar dressing: fret bands, gold collars, plinths, base recess ring
+const A_PILLAR_FRET_LO: InstItem[] = []
+const A_PILLAR_FRET_HI: InstItem[] = []
 const A_PILLAR_BAND_LO: InstItem[] = []
 const A_PILLAR_BAND_HI: InstItem[] = []
 const A_PILLAR_PLINTHS: InstItem[] = []
+const A_PILLAR_RECESS: InstItem[] = []
 for (const it of A_PILLARS) {
   const [x, y, z] = it.p
-  A_PILLAR_ENG1.push({ p: [x, y - 3.4, z] })
-  A_PILLAR_ENG2.push({ p: [x, y - 0.6, z] })
-  A_PILLAR_ENG3.push({ p: [x, y + 2.2, z] })
+  A_PILLAR_FRET_LO.push({ p: [x, y - 3.6, z] })
+  A_PILLAR_FRET_HI.push({ p: [x, y + 2.9, z] })
   A_PILLAR_BAND_LO.push({ p: [x, y - 4.15, z] })
-  A_PILLAR_BAND_HI.push({ p: [x, y + 3.9, z] })
-  A_PILLAR_PLINTHS.push({ p: [x, 0.16, z], s: [1.16, 0.3, 1.16] })
+  A_PILLAR_BAND_HI.push({ p: [x, y + 3.42, z] })
+  A_PILLAR_PLINTHS.push({ p: [x, 0.15, z], s: [2.0, 0.3, 2.0] })
+  // dark shadow-gap under the plinth so the column meets the deck on a line
+  A_PILLAR_RECESS.push({ p: [x, 0.015, z], s: [2.2, 0.03, 2.2] })
 }
+// stepped trim course framing the dais edge (the swept Orokin moulding)
+const A_DAIS_MOULD: InstItem[] = [
+  { p: [0, 0.06, 1.62], r: [0, Math.PI / 2, 0], s: [1, 1, 12] },
+  { p: [0, 0.06, 13.38], r: [0, Math.PI / 2, 0], s: [1, 1, 12] },
+  { p: [-5.96, 0.06, 7.5], s: [1, 1, 11.9] },
+  { p: [5.96, 0.06, 7.5], s: [1, 1, 11.9] },
+]
+// umber inlay band inside the gold lines — the warm mid-dark the floor lacked
+const A_DAIS_UMBER: InstItem[] = [
+  { p: [0, 0.008, 2.25], s: [11.2, 0.016, 0.7] },
+  { p: [0, 0.008, 12.75], s: [11.2, 0.016, 0.7] },
+]
 const A_POD_PETALS = rosette(0, 0.55, 9, 1.15, 8, -1.0, [0.7, 1, 0.7])
 const A_POD_PETALS_GOLD = rosette(0, 0.35, 9, 0.75, 8, -0.6, [0.45, 0.8, 0.45])
 
@@ -261,22 +520,25 @@ function ZoneA() {
     <group>
       {/* textured obsidian dais + ivory under-skirt */}
       <MassMesh spec={{ x0: -6, y0: -1, z0: 1.5, x1: 6, y1: 0, z1: 13.5 }} material={floorMaterial()} />
+      {/* under-skirt in umber: a 14 m ivory slab at the bottom of frame was
+          the brightest thing in the spawn shot and carried no information */}
       <MassMesh
         spec={{ x0: -7, y0: -1.9, z0: 0.5, x1: 7, y1: -1, z1: 14.5 }}
-        material={ivoryMaterial()}
-        receiveShadow={false}
+        material={umberMaterial()}
       />
+      <Instanced geometry={BOX} material={umberMaterial()} items={A_DAIS_UMBER} />
       <Instanced geometry={BOX} material={goldMaterial()} items={A_DAIS_TRIM} />
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={A_DAIS_TRIM_EDGE} />
-      {/* pillar ring: engraving rings + gold bands/plinths + gold capitals */}
-      <Instanced geometry={PILLAR_GEO} material={ivoryMaterial()} items={A_PILLARS} />
-      <Instanced geometry={PILLAR_ENG1} material={obsidianMaterial()} items={A_PILLAR_ENG1} />
-      <Instanced geometry={PILLAR_ENG2} material={obsidianMaterial()} items={A_PILLAR_ENG2} />
-      <Instanced geometry={PILLAR_ENG3} material={obsidianMaterial()} items={A_PILLAR_ENG3} />
-      <Instanced geometry={PILLAR_BAND_LO} material={goldMaterial()} items={A_PILLAR_BAND_LO} />
-      <Instanced geometry={PILLAR_BAND_HI} material={goldMaterial()} items={A_PILLAR_BAND_HI} />
-      <Instanced geometry={RBOX} material={goldMaterial()} items={A_PILLAR_PLINTHS} />
-      <Instanced geometry={BOX} material={goldMaterial()} items={A_CAPITALS} />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={A_DAIS_MOULD} />
+      {/* pillar ring: fluted columns, fret bands, gold collars, plinths */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={A_PILLAR_RECESS} />
+      <Instanced geometry={COLUMN_GEO} material={ivoryMaterial()} items={A_PILLARS} castShadow receiveShadow />
+      <Instanced geometry={COLUMN_FRET_LO} material={fretTrimMaterial()} items={A_PILLAR_FRET_LO} />
+      <Instanced geometry={COLUMN_FRET_HI} material={fretTrimMaterial()} items={A_PILLAR_FRET_HI} />
+      <Instanced geometry={COLUMN_COLLAR_LO} material={goldMaterial()} items={A_PILLAR_BAND_LO} />
+      <Instanced geometry={COLUMN_COLLAR_HI} material={goldPolishedMaterial()} items={A_PILLAR_BAND_HI} />
+      <Instanced geometry={RBOX} material={umberMaterial()} items={A_PILLAR_PLINTHS} castShadow />
+      <Instanced geometry={BOX} material={goldMaterial()} items={A_CAPITALS} castShadow />
       {/* insertion pod — opened petal flower, still glowing gold */}
       <Instanced geometry={PETAL} material={ivoryMaterial()} items={A_POD_PETALS} />
       <Instanced geometry={PETAL} material={goldMaterial()} items={A_POD_PETALS_GOLD} />
@@ -300,9 +562,12 @@ const B_DECKS: BoxSpec[] = [...B1_DECKS, { x0: -6, y0: -1, z0: 85, x1: 6, y1: 0,
 // deck gold lines: thin insets 0.02 m proud + edge-highlight lip (fix2)
 const B_DECK_TRIM: InstItem[] = []
 const B_DECK_TRIM_EDGE: InstItem[] = []
+const B_DECK_UMBER: InstItem[] = []
 for (const d of B_DECKS) {
   const len = d.z1 - d.z0 - 0.2
   const zc = (d.z0 + d.z1) / 2
+  B_DECK_UMBER.push({ p: [-5.3, 0.008, zc], s: [0.8, 0.016, len] })
+  B_DECK_UMBER.push({ p: [5.3, 0.008, zc], s: [0.8, 0.016, len] })
   B_DECK_TRIM.push({ p: [-5.85, 0.01, zc], s: [0.16, 0.02, len] })
   B_DECK_TRIM.push({ p: [5.85, 0.01, zc], s: [0.16, 0.02, len] })
   B_DECK_TRIM_EDGE.push({ p: [-5.74, 0.022, zc], s: [0.035, 0.006, len] })
@@ -320,9 +585,14 @@ for (let z = 15; z <= 133; z += 3) {
 // west wall (B2–B4) with gold pilaster strips + teal vein insets
 const B_WEST_PILASTERS: InstItem[] = []
 const B_WEST_VEINS: InstItem[] = []
+const B_WEST_VEIN_CHANNEL: InstItem[] = []
 for (let z = 44; z <= 132; z += 8) {
   B_WEST_PILASTERS.push({ p: [-5.85, 4.5, z], s: [0.25, 9, 0.6] })
-  B_WEST_VEINS.push({ p: [-5.68, 3, z + 4], s: [0.06, 4.5, 0.3] })
+  // every other one only — and each sits in a dark channel
+  if (((z - 44) / 8) % 2 === 0) {
+    B_WEST_VEINS.push({ p: [-5.68, 3, z + 4], s: [0.06, 4.5, 0.3] })
+    B_WEST_VEIN_CHANNEL.push({ p: [-5.76, 3, z + 4], s: [0.08, 5.2, 0.66] })
+  }
 }
 
 // canyon arch-ribs
@@ -343,10 +613,16 @@ const B_WALL_ARCH_A: InstItem[] = []
 const B_WALL_ARCH_B: InstItem[] = []
 const B_WALL_ARCH_C: InstItem[] = []
 const B_WALL_TEAL: InstItem[] = []
+const B_WALL_TEAL_CHANNEL: InstItem[] = []
 const B_WALL_GOLD: InstItem[] = []
 const B_WALL_ENGRAVE: InstItem[] = []
 const B_WALL_KEYSTONE: InstItem[] = []
 const B_WALL_MINIPIL: InstItem[] = []
+const B_WALL_NICHE: InstItem[] = []
+const B_WALL_FRET: InstItem[] = []
+const B_WALL_BASE_UMBER: InstItem[] = []
+/** teal practical fixtures: [x, y, z] of every canyon glow strip (Lighting) */
+const B_TEAL_FIXTURES: [number, number, number][] = []
 
 const BAY_RHYTHM = [5, 4, 6, 4, 7]
 {
@@ -368,14 +644,29 @@ const BAY_RHYTHM = [5, 4, 6, 4, 7]
       const py = west ? 8.5 : 9.5
       const ph = west ? 17 : 19
       const dir = west ? 1 : -1
+      const face = west ? 1 : -1 // outward normal of the visible panel face
       B_WALL_PANELS.push({ p: [px, py, zc], s: [1.2, ph, w * 0.94] })
+      // near-black inset filling each arch: the bay reads as a recessed niche
+      // rather than a decal ring stuck on a flat slab. Sits 1 cm proud of the
+      // panel face and 6 cm behind the arch moulding.
+      B_WALL_NICHE.push({
+        p: [px + face * 0.66, (0.8 + ay + 2.0) / 2, zc],
+        s: [0.08, ay + 1.2, w * 0.8],
+      })
       const archItem: InstItem = { p: [ax, ay, zc], r: [0, Math.PI / 2, 0], s: archScale }
       if (variant === 0) B_WALL_ARCH_A.push(archItem)
       else if (variant === 1) B_WALL_ARCH_B.push(archItem)
       else B_WALL_ARCH_C.push(archItem)
-      // teal practical strips flanking the arch
-      B_WALL_TEAL.push({ p: [tx, west ? 2.4 : 2.8, zc - w * 0.34], s: [0.1, west ? 3.6 : 4.4, 0.24] })
-      B_WALL_TEAL.push({ p: [tx, west ? 2.4 : 2.8, zc + w * 0.34], s: [0.1, west ? 3.6 : 4.4, 0.24] })
+      // ONE recessed teal practical every other bay (was two per bay, both
+      // proud of the wall): cyan count cut ~75%, each one now sits in a dark
+      // channel so it reads as a fixture instead of a sticker
+      if (bi % 2 === 0) {
+        const ty = west ? 2.4 : 2.8
+        const th = west ? 3.6 : 4.4
+        B_WALL_TEAL_CHANNEL.push({ p: [px + face * 0.58, ty, zc - w * 0.34], s: [0.08, th + 0.7, 0.62] })
+        B_WALL_TEAL.push({ p: [tx, ty, zc - w * 0.34], s: [0.1, th, 0.24] })
+        B_TEAL_FIXTURES.push([tx + face * 0.3, ty, zc - w * 0.34])
+      }
       // gold vertical seam trim (variants A/B) or flanking mini-pilasters (C)
       if (variant === 2) {
         B_WALL_MINIPIL.push({ p: [gx, 5, zc - w * 0.42], s: [0.16, 7, 0.4] })
@@ -383,10 +674,18 @@ const BAY_RHYTHM = [5, 4, 6, 4, 7]
       } else {
         B_WALL_GOLD.push({ p: [gx, west ? 9.5 : 10.5, zc - dir * (w / 2 - 0.2)], s: [0.14, west ? 13 : 14, 0.3] })
       }
-      // engraved segment lines across the panel face
+      // engraved segment lines across the panel face (now true recess black)
       for (const ey of [3.8, 7.6]) {
         B_WALL_ENGRAVE.push({ p: [ex, ey, zc], s: [0.05, 0.09, w * 0.7] })
       }
+      // filigree course running over the arch crown
+      B_WALL_FRET.push({
+        p: [ex + face * 0.02, ay + 2.5, zc],
+        r: [0, face * Math.PI / 2, 0],
+        s: [w * 0.82, 0.5, 1],
+      })
+      // umber plinth course grounding the panel
+      B_WALL_BASE_UMBER.push({ p: [px, 0.55, zc], s: [1.32, 1.1, w * 0.96] })
       // variant B ornament: gold keystone at the arch apex
       if (variant === 1) {
         B_WALL_KEYSTONE.push({ p: [ax, ay + 1.45, zc], s: [0.3, 0.8, 0.5] })
@@ -409,7 +708,7 @@ for (const d of B_DECKS) {
   const len = d.z1 - d.z0 - 0.4
   B_BUTTRESSES.push({ p: [-4.6, -9, zc], s: [1.4, 16, 1.8] })
   B_BUTTRESSES.push({ p: [4.6, -9, zc], s: [1.4, 16, 1.8] })
-  B_UNDERGLOW.push({ p: [-5.5, -1.06, zc], s: [0.14, 0.12, len] })
+  // one under-glow rail per deck instead of two (cyan discipline)
   B_UNDERGLOW.push({ p: [5.5, -1.06, zc], s: [0.14, 0.12, len] })
 }
 // root piers under wall-run slabs + the spire so nothing floats
@@ -431,15 +730,20 @@ for (let z = 14; z <= 37; z += 2) {
 
 // wall-run slab gold vein strips (readability: "long gold-veined slabs")
 const B_SLAB_VEINS: InstItem[] = []
+const B_SLAB_CHANNEL: InstItem[] = []
 for (const s of WALLRUN_SLABS) {
   const len = s.z1 - s.z0 - 2
   const zc = (s.z0 + s.z1) / 2
-  for (const fy of [s.y0 + (s.y1 - s.y0) * 0.35, s.y0 + (s.y1 - s.y0) * 0.65]) {
-    B_SLAB_VEINS.push({ p: [s.x0 - 0.02, fy, zc], s: [0.06, 0.16, len] })
-    B_SLAB_VEINS.push({ p: [s.x1 + 0.02, fy, zc], s: [0.06, 0.16, len] })
+  // one recessed vein per face instead of two proud strips, so the slab reads
+  // as carved stone with a lit channel rather than a neon pinstripe
+  const fy = s.y0 + (s.y1 - s.y0) * 0.55
+  for (const fx of [s.x0 - 0.02, s.x1 + 0.02]) {
+    const dir = fx < 0 ? 1 : -1
+    B_SLAB_CHANNEL.push({ p: [fx + dir * 0.05, fy, zc], s: [0.08, 0.24, len + 0.4] })
+    B_SLAB_VEINS.push({ p: [fx, fy, zc], s: [0.05, 0.12, len] })
   }
-  // top edge highlight
-  B_SLAB_VEINS.push({ p: [(s.x0 + s.x1) / 2, s.y1 + 0.02, zc], s: [s.x1 - s.x0 - 0.4, 0.08, len] })
+  // top edge highlight — gold nosing, not energy
+  B_SLAB_VEINS.push({ p: [(s.x0 + s.x1) / 2, s.y1 + 0.02, zc], s: [s.x1 - s.x0 - 0.4, 0.06, len] })
 }
 
 // spire trim ring + broken crown
@@ -470,6 +774,7 @@ function ZoneB() {
       {B_DECKS.map((d, i) => (
         <MassMesh key={i} spec={d} material={floorMaterial()} />
       ))}
+      <Instanced geometry={BOX} material={umberMaterial()} items={B_DECK_UMBER} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_DECK_TRIM} />
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={B_DECK_TRIM_EDGE} />
 
@@ -484,6 +789,7 @@ function ZoneB() {
         material={ivoryMaterial()}
       />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WEST_PILASTERS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_VEIN_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={B_WEST_VEINS} />
 
       {/* east glass wall to space */}
@@ -494,16 +800,26 @@ function ZoneB() {
 
       {/* canyon outer wall layers: 3 arch-bay variants, irregular rhythm,
           engraved panel lines, teal practical strips */}
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_WALL_PANELS} receiveShadow />
-      <Instanced geometry={WALL_ARCH} material={ivoryMaterial()} items={B_WALL_ARCH_A} />
-      <Instanced geometry={WALL_ARCH_TRIM} material={goldMaterial()} items={B_WALL_ARCH_A} />
-      <Instanced geometry={WALL_ARCH_B} material={ivoryMaterial()} items={B_WALL_ARCH_B} />
-      <Instanced geometry={WALL_ARCH_B_TRIM} material={goldMaterial()} items={B_WALL_ARCH_B} />
-      <Instanced geometry={WALL_ARCH_C} material={ivoryMaterial()} items={B_WALL_ARCH_C} />
-      <Instanced geometry={WALL_ARCH_C_TRIM} material={goldMaterial()} items={B_WALL_ARCH_C} />
-      <Instanced geometry={BOX} material={goldMaterial()} items={B_WALL_KEYSTONE} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_WALL_NICHE} />
+      <Instanced
+        geometry={PANEL_BOX}
+        material={ivoryContactMaterial()}
+        items={B_WALL_PANELS}
+        receiveShadow
+        castShadow
+      />
+      <Instanced geometry={BOX} material={umberMaterial()} items={B_WALL_BASE_UMBER} receiveShadow />
+      <Instanced geometry={WALL_ARCH} material={ivoryMaterial()} items={B_WALL_ARCH_A} castShadow />
+      <Instanced geometry={ARCH_TRIM_A} material={goldMaterial()} items={B_WALL_ARCH_A} />
+      <Instanced geometry={WALL_ARCH_B} material={ivoryMaterial()} items={B_WALL_ARCH_B} castShadow />
+      <Instanced geometry={ARCH_TRIM_B} material={goldMaterial()} items={B_WALL_ARCH_B} />
+      <Instanced geometry={WALL_ARCH_C} material={ivoryMaterial()} items={B_WALL_ARCH_C} castShadow />
+      <Instanced geometry={ARCH_TRIM_C} material={goldMaterial()} items={B_WALL_ARCH_C} />
+      <Instanced geometry={BOX} material={goldPolishedMaterial()} items={B_WALL_KEYSTONE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WALL_MINIPIL} />
-      <Instanced geometry={BOX} material={obsidianMaterial()} items={B_WALL_ENGRAVE} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_WALL_ENGRAVE} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={B_WALL_FRET} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_WALL_TEAL_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={B_WALL_TEAL} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WALL_GOLD} />
       {/* cornice beams crowning the outer walls */}
@@ -511,17 +827,25 @@ function ZoneB() {
       <mesh geometry={BOX} material={goldMaterial()} position={[14.1, 19.2, 75]} scale={[0.7, 0.5, 115]} />
 
       {/* descending under-structure + teal under-glow (void = depth, not empty) */}
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_BUTTRESSES} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_BUTTRESSES} castShadow />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={B_UNDERGLOW} />
 
-      {/* arch-rib colonnade */}
-      <Instanced geometry={RIB_CANYON} material={ivoryMaterial()} items={B_RIBS} receiveShadow />
-      <Instanced geometry={RIB_CANYON_TRIM} material={goldMaterial()} items={B_RIBS} />
+      {/* arch-rib colonnade — contact-AO baked feet, casts shadow */}
+      <Instanced
+        geometry={RIB_CANYON_AO}
+        material={ivoryContactMaterial()}
+        items={B_RIBS}
+        receiveShadow
+        castShadow
+      />
+      <Instanced geometry={ARCH_TRIM_CANYON} material={goldMaterial()} items={B_RIBS} />
+      <Instanced geometry={ARCH_TRIM_CANYON_IN} material={goldPolishedMaterial()} items={B_RIBS} />
 
       {/* wall-run slabs + gold veins */}
       {WALLRUN_SLABS.map((s, i) => (
         <MassMesh key={i} spec={s} material={ivoryMaterial()} />
       ))}
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_SLAB_CHANNEL} />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_SLAB_VEINS} />
 
       {/* broken spire + crown */}
@@ -781,12 +1105,33 @@ const C_WALLS: BoxSpec[] = [
   { x0: 15, y0: 0, z0: 135, x1: 16, y1: 10, z1: 165 },
   { x0: -16, y0: 0, z0: 135, x1: -15, y1: 10, z1: 165 },
 ]
+/** dark plinth course at the foot of every chamber/arena wall — the contact
+ *  line that keeps 10 m walls from floating on the floor */
+const C_BASE: InstItem[] = [
+  { p: [0, 0.35, 135.2], s: [30, 0.7, 0.45] },
+  { p: [0, 0.35, 164.8], s: [30, 0.7, 0.45] },
+  { p: [14.8, 0.35, 150], s: [0.45, 0.7, 30] },
+  { p: [-14.8, 0.35, 150], s: [0.45, 0.7, 30] },
+]
+const D_BASE: InstItem[] = [
+  { p: [0, 0.4, 165.2], s: [60, 0.8, 0.5] },
+  { p: [0, 0.4, 224.8], s: [60, 0.8, 0.5] },
+  { p: [29.8, 0.4, 195], s: [0.5, 0.8, 60] },
+  { p: [-29.8, 0.4, 195], s: [0.5, 0.8, 60] },
+]
+const C_CORNICE: InstItem[] = [
+  { p: [-14.8, 9.5, 150], s: [1, 1, 29.6] },
+  { p: [14.8, 9.5, 150], r: [0, Math.PI, 0], s: [1, 1, 29.6] },
+]
 const C_WALL_TRIM: InstItem[] = []
 for (const w of C_WALLS) {
   const c = boxCenter(w)
   const s = boxSize(w)
   C_WALL_TRIM.push({ p: [c[0], 10.1, c[2]], s: [Math.max(s[0], 0.4), 0.2, Math.max(s[2], 0.4)] })
 }
+
+/** teal practical fixtures in the chamber (Lighting reads these) */
+const C_TEAL_FIXTURES: [number, number, number][] = []
 
 // chamber wall detail: gold pilasters, obsidian panel-line bands, teal insets
 const C_WALL_PILASTERS: InstItem[] = []
@@ -811,11 +1156,25 @@ for (const y of [7.4, 2.2]) {
 }
 C_WALL_BANDS.push({ p: [14.94, 7.4, 150], s: [0.1, 0.4, 30] })
 C_WALL_BANDS.push({ p: [-14.94, 7.4, 150], s: [0.1, 0.4, 30] })
-// teal vein insets between pilasters
-for (const z of [144.5, 155.5]) {
-  C_WALL_INSETS.push({ p: [14.93, 3.4, z], s: [0.08, 4.6, 0.22] })
-  C_WALL_INSETS.push({ p: [-14.93, 3.4, z], s: [0.08, 4.6, 0.22] })
+// teal vein insets between pilasters — halved, each in a recessed channel
+const C_WALL_CHANNEL: InstItem[] = []
+const C_WALL_FRET: InstItem[] = []
+const C_FLOOR_UMBER: InstItem[] = []
+for (const z of [144.5]) {
+  for (const sx of [1, -1]) {
+    C_WALL_INSETS.push({ p: [sx * 14.93, 3.4, z + (sx > 0 ? 0 : 11)], s: [0.08, 4.6, 0.22] })
+    C_WALL_CHANNEL.push({ p: [sx * 14.88, 3.4, z + (sx > 0 ? 0 : 11)], s: [0.1, 5.3, 0.6] })
+    C_TEAL_FIXTURES.push([sx * 14.4, 3.4, z + (sx > 0 ? 0 : 11)])
+  }
 }
+// filigree course running the length of both long walls
+for (const sx of [1, -1]) {
+  C_WALL_FRET.push({ p: [sx * 14.86, 5.6, 150], r: [0, sx * Math.PI / 2, 0], s: [28, 0.55, 1] })
+}
+// umber floor course: a border frame around the Reliquary plaza, leaving the
+// obsidian centre to read dark (a full field just turned the floor brown)
+for (const dz of [-10.5, 10.5]) C_FLOOR_UMBER.push({ p: [0, 0.004, 150 + dz], s: [22, 0.008, 1.8] })
+for (const dx of [-10.5, 10.5]) C_FLOOR_UMBER.push({ p: [dx, 0.004, 150], s: [1.8, 0.008, 22] })
 
 // 6 floor sockets + vein cables to the Reliquary
 const C_SOCKETS: InstItem[] = []
@@ -921,6 +1280,7 @@ function ZoneC() {
       <mesh geometry={BOX} material={goldMaterial()} position={[0, 0.01, 164.78]} scale={[29.8, 0.02, 0.16]} />
       <mesh geometry={BOX} material={goldEdgeMaterial()} position={[0, 0.022, 135.33]} scale={[29.8, 0.006, 0.035]} />
       <mesh geometry={BOX} material={goldEdgeMaterial()} position={[0, 0.022, 164.67]} scale={[29.8, 0.006, 0.035]} />
+      <Instanced geometry={BOX} material={umberMaterial()} items={C_FLOOR_UMBER} receiveShadow />
 
       {/* dome + oculus */}
       <mesh geometry={DOME_GEO} material={domeMat} position={[0, 0, 150]} />
@@ -929,16 +1289,27 @@ function ZoneC() {
         <meshBasicMaterial color={SOLAR_HOT} toneMapped={false} />
       </mesh>
 
-      {/* radial arch-rib cage */}
-      <Instanced geometry={RIB_CHAMBER} material={ivoryMaterial()} items={C_RIBS} receiveShadow />
+      {/* radial arch-rib cage — gold moulding run along every rib */}
+      <Instanced
+        geometry={RIB_CHAMBER_AO}
+        material={ivoryContactMaterial()}
+        items={C_RIBS}
+        receiveShadow
+        castShadow
+      />
+      <Instanced geometry={ARCH_TRIM_CHAMBER} material={goldMaterial()} items={C_RIBS} />
 
       {/* perimeter walls + trim + panel detail */}
       {C_WALLS.map((w, i) => (
-        <MassMesh key={i} spec={w} material={ivoryMaterial()} />
+        <MassMesh key={i} spec={w} material={ivoryMaterial()} castShadow />
       ))}
+      <Instanced geometry={RBOX} material={umberMaterial()} items={C_BASE} receiveShadow />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={C_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={C_WALL_TRIM} />
       <Instanced geometry={BOX} material={goldMaterial()} items={C_WALL_PILASTERS} />
-      <Instanced geometry={BOX} material={obsidianMaterial()} items={C_WALL_BANDS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_BANDS} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={C_WALL_FRET} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={C_WALL_INSETS} />
 
       {/* teal vein clusters + corruption glyphs */}
@@ -1005,11 +1376,28 @@ D_WALL_BANDS.push({ p: [-17, 7.4, 224.94], s: [26, 0.4, 0.1] })
 D_WALL_BANDS.push({ p: [17, 7.4, 224.94], s: [26, 0.4, 0.1] })
 D_WALL_BANDS.push({ p: [29.94, 2.2, 195], s: [0.1, 0.3, 60] })
 D_WALL_BANDS.push({ p: [-29.94, 2.2, 195], s: [0.1, 0.3, 60] })
-// teal vein insets on the east/west walls (practical glow in arena framing)
-for (const z of [177, 189, 201, 213]) {
-  D_WALL_INSETS.push({ p: [29.93, 3.2, z], s: [0.08, 4.8, 0.24] })
-  D_WALL_INSETS.push({ p: [-29.93, 3.2, z], s: [0.08, 4.8, 0.24] })
+// teal vein insets on the east/west walls — halved, each recessed into a
+// dark channel (practical glow in the arena framing)
+const D_WALL_CHANNEL: InstItem[] = []
+const D_WALL_FRET: InstItem[] = []
+const D_FLOOR_UMBER: InstItem[] = []
+const D_TEAL_FIXTURES: [number, number, number][] = []
+for (const z of [183, 207]) {
+  for (const sx of [1, -1]) {
+    D_WALL_INSETS.push({ p: [sx * 29.93, 3.2, z], s: [0.08, 4.8, 0.24] })
+    D_WALL_CHANNEL.push({ p: [sx * 29.88, 3.2, z], s: [0.1, 5.5, 0.64] })
+    D_TEAL_FIXTURES.push([sx * 29.4, 3.2, z])
+  }
 }
+// filigree courses along both long walls
+for (const sx of [1, -1]) {
+  D_WALL_FRET.push({ p: [sx * 29.86, 5.7, 195], r: [0, sx * Math.PI / 2, 0], s: [58, 0.6, 1] })
+}
+// umber floor bands: an outer ring outside the medallion and two cross bands,
+// so the arena floor has a warm mid-dark between obsidian and gold
+D_FLOOR_UMBER.push({ p: [0, 0.004, 195], s: [56, 0.008, 3.2] })
+D_FLOOR_UMBER.push({ p: [0, 0.004, 175], s: [56, 0.008, 1.4] })
+D_FLOOR_UMBER.push({ p: [0, 0.004, 215], s: [56, 0.008, 1.4] })
 
 // floor medallion: concentric gold rings + radial petals (r 20)
 const D_MEDAL_RINGS: InstItem[] = [20, 16, 12].map((r) => ({
@@ -1031,6 +1419,16 @@ for (let i = 0; i < 12; i++) {
 const D_PYLON_ITEMS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 1.5, z], s: [1.2, 3, 1.2] }))
 const D_PYLON_CAPS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 3.1, z], s: [1.5, 0.25, 1.5] }))
 const D_PYLON_VEINS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 1.6, z + 0.63], s: [0.2, 2.6, 0.06] }))
+
+// stepped moulding capping every pylon
+const D_PYLON_MOULD: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({
+  p: [x, 2.95, z] as [number, number, number],
+  s: [1, 1, 1.35] as [number, number, number],
+}))
+const D_CORNICE: InstItem[] = [
+  { p: [-29.8, 9.5, 195], s: [1, 1, 59.6] },
+  { p: [29.8, 9.5, 195], r: [0, Math.PI, 0], s: [1, 1, 59.6] },
+]
 
 // low walls with gold wall-runnable tops
 const D_LOW_WALLS: InstItem[] = ARENA_LOW_WALLS.map(([x, z]) => ({ p: [x, 0.6, z], s: [8, 1.2, 0.6] }))
@@ -1080,7 +1478,7 @@ for (const s of ARENA_WALLRUN_SLABS) {
   const len = s.z1 - s.z0 - 2
   const zc = (s.z0 + s.z1) / 2
   const face = s.x0 < 0 ? s.x1 + 0.02 : s.x0 - 0.02 // face the arena interior
-  for (const fy of [2, 4, 6]) D_SLAB_VEINS.push({ p: [face, fy, zc], s: [0.06, 0.16, len] })
+  for (const fy of [2.6, 5.4]) D_SLAB_VEINS.push({ p: [face, fy, zc], s: [0.05, 0.14, len] })
 }
 
 // corruption vein-growth crawling up 3 ribs + glyph decals
@@ -1088,9 +1486,8 @@ const D_CORRUPTION: InstItem[] = []
 for (const [bx, bz] of [
   [-27, 180],
   [26, 200],
-  [-24, 220],
 ] as [number, number][]) {
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 7; i++) {
     D_CORRUPTION.push({
       p: [bx + (Math.random() - 0.5) * 3, 1 + i * 0.9, bz + (Math.random() - 0.5) * 3],
       r: [(Math.random() - 0.5) * 0.9, Math.random() * Math.PI, (Math.random() - 0.5) * 0.9],
@@ -1115,6 +1512,7 @@ function ZoneD() {
     <group>
       {/* floor + medallion */}
       <MassMesh spec={{ x0: -30, y0: -1, z0: 165, x1: 30, y1: 0, z1: 225 }} material={floorMaterial()} />
+      <Instanced geometry={BOX} material={umberMaterial()} items={D_FLOOR_UMBER} receiveShadow />
       {/* emissive radial-groove etching (fix2): concentric rings + rays from
           arena center, low-intensity gold so it never bloom-blows */}
       <mesh
@@ -1124,49 +1522,64 @@ function ZoneD() {
         rotation={[-Math.PI / 2, 0, 0]}
         scale={[28.6, 28.6, 1]}
       />
-      <Instanced geometry={RING_GEO} material={medallionMaterial()} items={D_MEDAL_RINGS} />
-      <Instanced geometry={PETAL} material={medallionMaterial()} items={D_MEDAL_PETALS} />
+      {/* the rings and petals are GILDED INLAY, not energy — lit metal, so the
+          arena floor stops reading as a flat orange decal. Only the small
+          centre disc stays emissive, and EnvironmentFX still pulses it. */}
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_MEDAL_RINGS} />
+      <Instanced geometry={PETAL} material={goldMaterial()} items={D_MEDAL_PETALS} />
       <mesh geometry={CIRCLE} material={medallionMaterial()} position={[0, 0.04, 195]} rotation={[-Math.PI / 2, 0, 0]} scale={[2.2, 2.2, 1]} />
 
       {/* walls + trim + panel detail */}
       {D_WALLS.map((w, i) => (
-        <MassMesh key={i} spec={w} material={ivoryMaterial()} />
+        <MassMesh key={i} spec={w} material={ivoryMaterial()} castShadow />
       ))}
+      <Instanced geometry={RBOX} material={umberMaterial()} items={D_BASE} receiveShadow />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={D_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_WALL_TRIM} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_WALL_PILASTERS} />
-      <Instanced geometry={BOX} material={obsidianMaterial()} items={D_WALL_BANDS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_WALL_BANDS} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_WALL_FRET} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_WALL_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_WALL_INSETS} />
 
-      {/* massive arch-ribs */}
-      <Instanced geometry={RIB_ARENA} material={ivoryMaterial()} items={D_RIBS} receiveShadow />
-      <Instanced geometry={RIB_ARENA_TRIM} material={goldMaterial()} items={D_RIBS} />
+      {/* massive arch-ribs — swept gold moulding, contact-AO feet */}
+      <Instanced
+        geometry={RIB_ARENA_AO}
+        material={ivoryContactMaterial()}
+        items={D_RIBS}
+        receiveShadow
+        castShadow
+      />
+      <Instanced geometry={ARCH_TRIM_ARENA} material={goldMaterial()} items={D_RIBS} />
+      <Instanced geometry={ARCH_TRIM_ARENA_IN} material={goldPolishedMaterial()} items={D_RIBS} />
 
       {/* upper galleries */}
       {ARENA_GALLERIES.map((g, i) => (
-        <MassMesh key={i} spec={g} material={floorMaterial()} />
+        <MassMesh key={i} spec={g} material={floorMaterial()} castShadow />
       ))}
       <Instanced geometry={BOX} material={goldMaterial()} items={D_GALLERY_TRIM} />
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_GALLERY_TRIM_EDGE} />
 
       {/* elevation layers around the portal ring (fix2): broken platforms +
           floating megaliths — landable, colliders in layout.ts */}
-      <Instanced geometry={RBOX} material={floorMaterial()} items={D_MEGA_BODY} receiveShadow />
+      <Instanced geometry={RBOX} material={floorMaterial()} items={D_MEGA_BODY} receiveShadow castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_MEGA_RIM} />
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_MEGA_UNDER} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_MEGA_UNDER} castShadow />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={D_MEGA_GLOW} />
       <Instanced geometry={ROCK} material={rockMaterial()} items={D_MEGA_FRAGS} />
 
       {/* wall-run slabs to the gallery */}
       {ARENA_WALLRUN_SLABS.map((s, i) => (
-        <MassMesh key={i} spec={s} material={ivoryMaterial()} />
+        <MassMesh key={i} spec={s} material={ivoryMaterial()} castShadow />
       ))}
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={D_SLAB_VEINS} />
 
       {/* cover: pylons, low walls, planters */}
-      <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_PYLON_ITEMS} receiveShadow />
+      <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_PYLON_ITEMS} receiveShadow castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_PYLON_CAPS} />
+      <Instanced geometry={TRIM_RUN_FINE} material={goldPolishedMaterial()} items={D_PYLON_MOULD} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_PYLON_VEINS} />
-      <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_LOW_WALLS} receiveShadow />
+      <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_LOW_WALLS} receiveShadow castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_LOW_WALL_TOPS} />
       {ARENA_PLANTERS.map(([px, pz]) => (
         <Planter key={`${px},${pz}`} x={px} z={pz} />
@@ -1176,7 +1589,6 @@ function ZoneD() {
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_CORRUPTION} />
       <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-26, 3, 181.5]} rotation={[0, Math.PI / 3, 0]} scale={[3, 3, 1]} />
       <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[25, 2.5, 201]} rotation={[0, -Math.PI / 2.5, 0]} scale={[3, 3, 1]} />
-      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-10, 0.06, 208]} rotation={[-Math.PI / 2, 0, 0.4]} scale={[4, 4, 1]} />
 
       {/* enemy spawn gates */}
       <Instanced geometry={CIRCLE} material={obsidianMaterial()} items={D_GATE_DISCS} />
@@ -1300,8 +1712,14 @@ function ZoneE() {
       <mesh geometry={BOX} material={goldMaterial()} position={[-4.1, 1.02, 239]} scale={[0.14, 0.1, 27]} />
       <mesh geometry={BOX} material={goldMaterial()} position={[4.1, 1.02, 239]} scale={[0.14, 0.1, 27]} />
       {/* flanking arch-ribs */}
-      <Instanced geometry={RIB_BRIDGE} material={ivoryMaterial()} items={E_RIBS} receiveShadow />
-      <Instanced geometry={RIB_BRIDGE_TRIM} material={goldMaterial()} items={E_RIBS} />
+      <Instanced
+        geometry={RIB_BRIDGE_AO}
+        material={ivoryContactMaterial()}
+        items={E_RIBS}
+        receiveShadow
+        castShadow
+      />
+      <Instanced geometry={ARCH_TRIM_BRIDGE} material={goldMaterial()} items={E_RIBS} />
       {/* pad: ivory disc + gold ring + beacon socket */}
       <mesh geometry={CYL} material={ivoryMaterial()} position={[0, -0.5, 258]} scale={[6, 1, 6]} receiveShadow />
       <mesh geometry={RING_GEO} material={goldMaterial()} position={[0, 0.04, 258]} rotation={[Math.PI / 2, 0, 0]} scale={[5.4, 5.4, 10]} />
@@ -1390,6 +1808,40 @@ MONOLITHS.forEach((m, idx) => {
 })
 
 // ---------------------------------------------------------------------------
+// Practical-light fixtures (R1)
+//
+// The teal/gold point lights used to be six hand-typed coordinates sitting
+// 5–12 m from anything that glows (map E4). These tables are built from the
+// SAME data that places the emissive strips, offset ~0.3–0.5 m along the
+// surface normal, so every practical has a modelled fixture behind it.
+// Lighting.tsx / EnvironmentFX.tsx light only the nearest few by camera
+// distance, so the count here is free.
+// ---------------------------------------------------------------------------
+export const TEAL_FIXTURES: readonly [number, number, number][] = [
+  ...B_TEAL_FIXTURES,
+  ...C_TEAL_FIXTURES,
+  ...D_TEAL_FIXTURES,
+]
+
+export const GOLD_FIXTURES: readonly [number, number, number][] = (() => {
+  const out: [number, number, number][] = []
+  // wall-run slab gold veins (canyon) — one light per slab, off its inner face
+  for (const sl of WALLRUN_SLABS) {
+    const zc = (sl.z0 + sl.z1) / 2
+    const inner = sl.x0 < 0 ? sl.x1 + 0.9 : sl.x0 - 0.9
+    out.push([inner, sl.y0 + (sl.y1 - sl.y0) * 0.55, zc])
+  }
+  // floating megalith under-glow plates
+  for (const m of ARENA_MEGALITHS) {
+    const c = boxCenter(m)
+    out.push([c[0], m.y0 - 0.9, c[2]])
+  }
+  // arena medallion + spawn pod
+  out.push([0, 0.6, 195], [0, 0.9, 9])
+  return out
+})()
+
+// ---------------------------------------------------------------------------
 // ShrineStation — the whole level
 // ---------------------------------------------------------------------------
 export default function ShrineStation() {
@@ -1409,9 +1861,9 @@ export default function ShrineStation() {
       <ZoneE />
       <Instanced geometry={PLANE} material={bannerMaterial()} items={BANNERS} />
       {/* distant monoliths — beveled, trimmed, emissive-striped silhouettes */}
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_BODY} />
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_SECOND} />
-      <Instanced geometry={BOX} material={obsidianMaterial()} items={MONO_PANELS} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_BODY} castShadow />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_SECOND} castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={MONO_PANELS} />
       <Instanced geometry={BOX} material={goldMaterial()} items={MONO_GOLD} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={MONO_TEAL} />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={MONO_GOLDGLOW} />

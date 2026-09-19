@@ -4,6 +4,11 @@
  * switch per zone by tracking the camera's z (the camera follows the player):
  *   A spawn 0.010 #1B2440 | B canyon 0.020 #1B2440→#16224A |
  *   C chamber 0.012 #1E2A4A | D arena 0.012 #1B2440 | E extraction 0.015 #16224A
+ *
+ * R1 (art review): every zone colour is scaled by VALUE_FLOOR and the fog
+ * darkens further as the camera drops below deck level. Exposure came down to
+ * 0.85 to give the level true darks — an unchanged fog colour would have put
+ * that back, lifting every distant recess into the same blue haze.
  */
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
@@ -15,6 +20,11 @@ interface FogZone {
   density: number
   color: THREE.Color
 }
+
+/** global scale on every fog colour — protects the bottom of the histogram */
+const VALUE_FLOOR = 0.72
+/** extra darkening applied as the camera descends into the void */
+const VOID_TINT = new THREE.Color('#080A14')
 
 export default function Fog() {
   const fogRef = useRef<THREE.FogExp2>(null!)
@@ -32,6 +42,11 @@ export default function Fog() {
   )
 
   const targetColor = useMemo(() => new THREE.Color(FOG.color), [])
+
+  // pre-scale every zone colour once (no per-frame allocation)
+  useMemo(() => {
+    for (const z of Object.values(zones)) z.color.multiplyScalar(VALUE_FLOOR)
+  }, [zones])
 
   useFrame((state, dt) => {
     const fog = fogRef.current
@@ -57,6 +72,11 @@ export default function Fog() {
       density = zones.extraction.density
       targetColor.copy(zones.extraction.color)
     }
+
+    // below deck level the fog deepens toward the void value, so falls and
+    // under-structure read as depth instead of a uniform blue wash
+    const below = THREE.MathUtils.clamp(-state.camera.position.y / 12, 0, 1)
+    if (below > 0) targetColor.lerp(VOID_TINT, below * 0.7)
 
     const k = 1 - Math.exp(-2.2 * dt) // smooth zone transitions
     fog.density = THREE.MathUtils.lerp(fog.density, density, k)

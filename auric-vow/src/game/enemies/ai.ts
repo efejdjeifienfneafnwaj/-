@@ -155,3 +155,87 @@ export function turnToward(current: THREE.Vector3, target: THREE.Vector3, maxRad
 }
 
 export { UP }
+
+// ---------------------------------------------------------------------------
+// [enemies-hud R1] Threat channel — the HUD's edge chevrons read this.
+// Enemy components mark themselves while they are *committing* to an attack
+// (burst telegraph, slam/charge windup, melee swing) so the player can be
+// told where the danger is even when it is off screen.
+// ---------------------------------------------------------------------------
+
+export type ThreatKind = 'fire' | 'melee' | 'charge'
+
+export interface ThreatMark {
+  id: number
+  kind: ThreatKind
+  /** live reference to the enemy's own position vector (never cloned) */
+  position: THREE.Vector3
+  /** rAF-clock seconds after which the mark expires */
+  until: number
+}
+
+const threats = new Map<number, ThreatMark>()
+
+/** seconds on the same monotonic clock the HUD uses */
+const threatNow = () => performance.now() / 1000
+
+/** enemy AI: "I am about to hurt the player, from here" */
+export function markThreat(e: EnemyEntity, kind: ThreatKind, seconds: number): void {
+  const existing = threats.get(e.id)
+  const until = threatNow() + seconds
+  if (existing) {
+    existing.kind = kind
+    existing.until = Math.max(existing.until, until)
+    existing.position = e.headPosition
+    return
+  }
+  threats.set(e.id, { id: e.id, kind, position: e.headPosition, until })
+}
+
+/** HUD: live threat marks, expired entries pruned in place */
+export function activeThreats(out: ThreatMark[]): ThreatMark[] {
+  out.length = 0
+  const now = threatNow()
+  for (const m of threats.values()) {
+    if (m.until <= now) threats.delete(m.id)
+    else out.push(m)
+  }
+  return out
+}
+
+export function clearThreat(id: number): void {
+  threats.delete(id)
+}
+
+// ---------------------------------------------------------------------------
+// [enemies-hud R1] N13 — flyers path around cover instead of stalling on it.
+// Three probes (forward + ±45°) plus a ceiling/floor probe; the desired
+// velocity is bent away from whatever is blocked and lifted over low blockers.
+// ---------------------------------------------------------------------------
+const _probe = new THREE.Vector3()
+const _flyDir = new THREE.Vector3()
+
+export function avoidFlying(e: EnemyEntity, desiredVel: THREE.Vector3, lookAhead = 4): THREE.Vector3 {
+  const speed = desiredVel.length()
+  if (speed < 0.01) return desiredVel
+  _flyDir.copy(desiredVel).divideScalar(speed)
+  let bend = 0
+  let lift = 0
+  for (const sign of [-1, 0, 1]) {
+    _probe.copy(_flyDir).applyAxisAngle(UP, (sign * Math.PI) / 4).normalize()
+    const hit = raycastLevel(e.position, _probe, lookAhead, ['wall', 'platform', 'objective'])
+    if (!hit) continue
+    // closer blockers push harder
+    const push = 1 - hit.distance / lookAhead
+    if (sign === 0) {
+      bend += (e.id % 2 === 0 ? 1 : -1) * push
+      lift += push
+    } else {
+      bend -= sign * push
+      lift += push * 0.35
+    }
+  }
+  if (bend !== 0) desiredVel.applyAxisAngle(UP, THREE.MathUtils.clamp(bend, -1, 1) * 1.1)
+  if (lift > 0) desiredVel.y += lift * speed * 0.55
+  return desiredVel
+}

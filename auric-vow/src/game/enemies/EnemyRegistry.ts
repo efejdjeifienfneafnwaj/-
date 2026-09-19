@@ -67,6 +67,16 @@ export interface DamageOpts {
 const entities = new Map<number, EnemyEntity>()
 let nextId = 1
 
+/**
+ * `list()` is read every frame by the HUD, the AI (once per enemy), the
+ * abilities and every weapon trace, so spreading the map on each call churned
+ * a dozen arrays a frame. The snapshot is rebuilt only when MEMBERSHIP
+ * changes — entries are live references, so hp/position edits need no rebuild.
+ * Callers treat the result as read-only.
+ */
+let listCache: EnemyHandle[] = []
+let listDirty = true
+
 const _corePos = new THREE.Vector3()
 
 /** per-type death presentation tuning (enemies-mission.md §6) */
@@ -79,7 +89,11 @@ const DEATH_FX: Record<EnemyType, { count: number; speed: number; size: number; 
 export const EnemyRegistry = {
   /** live handles for every registered enemy (check `alive` before use) */
   list(): EnemyHandle[] {
-    return [...entities.values()]
+    if (listDirty) {
+      listCache = [...entities.values()]
+      listDirty = false
+    }
+    return listCache
   },
 
   /** internal: full entity for AI components / manager */
@@ -191,15 +205,17 @@ export function registerEnemy(init: {
     dissolveSec: init.dissolveSec ?? 0.6,
   }
   entities.set(id, e)
+  listDirty = true
   return e
 }
 
 export function unregisterEnemy(id: number) {
-  entities.delete(id)
+  if (entities.delete(id)) listDirty = true
 }
 
 export function clearEnemies() {
   entities.clear()
+  listDirty = true
 }
 
 /** alert broadcast — enemies within `radius` of `pos` become alerted */

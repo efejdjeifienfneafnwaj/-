@@ -1,22 +1,34 @@
 /**
  * AURIC VOW — hud.css
- * DOM HUD styling (vfx-hud.md §2). Scale reference 1920×1080; sizes use
- * clamp()/vmin where growth matters. 1px gold hairlines (#C9A24B @60%),
- * corner-cut panels, Vellum text on obsidian backings.
+ * DOM HUD styling (vfx-hud.md §2), rebuilt for the R1 art review.
+ *
+ * Vocabulary rules (no web-app chrome anywhere):
+ *   · no border-radius — every plate is a clip-path chamfer or a diamond
+ *   · 1 px gold hairlines (#C9A24B @ 55–60%) over near-transparent obsidian
+ *   · type is Rajdhani for data, Cinzel for ceremony; numerals tabular
+ *   · three anchors only: bottom-left L-cluster (vitals + energy + tray),
+ *     bottom-right weapon, top-centre mission plate. Radar is diegetic and
+ *     sits top-left in its own gold ring.
+ * Scale reference 1920×1080.
  */
 
 #hud {
   --gold: #C9A24B;
-  --gold-line: rgba(201, 162, 75, 0.6);
+  --gold-line: rgba(201, 162, 75, 0.55);
+  --gold-faint: rgba(201, 162, 75, 0.22);
   --aureate: #FFB835;
   --solar: #FFF3D6;
   --halo: #BFE8FF;
   --teal: #19E3D6;
   --viridian: #4DFF9A;
   --ember: #FF4B3E;
+  --hostile: #FF5A66;
   --vellum: #F4EFE3;
   --ash: #8A8FA3;
-  --relic-70: rgba(18, 20, 26, 0.7);
+  --relic: rgba(11, 13, 18, 0.62);
+  --relic-solid: rgba(9, 10, 14, 0.88);
+  --chamfer: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
+  --chamfer-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 
   position: fixed;
   inset: 0;
@@ -26,6 +38,7 @@
   color: var(--vellum);
   opacity: 1;
   transition: opacity 0.4s ease;
+  font-variant-numeric: tabular-nums;
 }
 #hud.hud-hidden {
   opacity: 0;
@@ -37,9 +50,9 @@
 .hud-cluster {
   animation: hud-in 0.4s ease-out both;
 }
-.vitals.hud-cluster { animation-delay: 0s; }
-.combat.hud-cluster { animation-delay: 0.05s; }
-.objective.hud-cluster { animation-delay: 0.1s; }
+.leftcluster.hud-cluster { animation-delay: 0s; }
+.weaponcluster.hud-cluster { animation-delay: 0.05s; }
+.radar.hud-cluster { animation-delay: 0.12s; }
 @keyframes hud-in {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -52,13 +65,28 @@
   position: absolute;
   inset: 0;
   opacity: 0;
-  box-shadow: inset 0 0 120px 30px rgba(77, 255, 154, 0.55);
+  box-shadow: inset 0 0 120px 26px rgba(255, 75, 62, 0.45);
 }
 .hud-dmgvig.flash {
   animation: dmg-flash 0.4s ease-out both;
 }
 @keyframes dmg-flash {
-  0% { opacity: 0.8; }
+  0% { opacity: 0.75; }
+  100% { opacity: 0; }
+}
+/* 60 ms 6% white radial punch on a crit — reads as impact, not as a filter */
+.hud-critvig {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0) 45%, rgba(255, 255, 255, 0.06) 100%);
+}
+.hud-critvig.flash {
+  animation: crit-flash 0.09s ease-out both;
+}
+@keyframes crit-flash {
+  0% { opacity: 1; }
+  66% { opacity: 1; }
   100% { opacity: 0; }
 }
 .hud-lowhp {
@@ -75,48 +103,105 @@
   50% { opacity: 0.55; }
 }
 
-/* ------------------------------------------------------------------ */
-/* bottom-left — vitals cluster (§2.1)                                  */
-/* ------------------------------------------------------------------ */
-.vitals {
+/* directional damage arcs (H3) — one wedge per source bearing */
+.hitdir-layer {
   position: absolute;
-  left: 24px;
+  inset: 0;
+}
+.hitdir {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.hitdir i {
+  position: absolute;
+  left: -190px;
+  top: -34vmin;
+  width: 380px;
+  height: 128px;
+  display: block;
+  background: radial-gradient(ellipse 190px 128px at 50% 100%, rgba(255, 75, 62, 0.85) 0%, rgba(255, 75, 62, 0.22) 46%, transparent 72%);
+  -webkit-mask-image: radial-gradient(ellipse 190px 128px at 50% 100%, #000 40%, transparent 78%);
+  mask-image: radial-gradient(ellipse 190px 128px at 50% 100%, #000 40%, transparent 78%);
+}
+
+/* ------------------------------------------------------------------ */
+/* bottom-left — the L-cluster: vitals over energy over ability tray     */
+/* ------------------------------------------------------------------ */
+.leftcluster {
+  position: absolute;
+  left: 26px;
   bottom: 24px;
-  width: 320px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--relic-70);
-  border: 1px solid var(--gold-line);
-  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
-  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.08);
-}
-.vitals-glyph {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  transform: rotate(45deg);
-  border: 1px solid var(--gold);
-  background: rgba(201, 162, 75, 0.25);
-}
-.vitals-bars {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  align-items: flex-start;
+  gap: 9px;
 }
+.vitals {
+  width: 340px;
+  padding: 9px 13px 10px;
+  background: var(--relic);
+  border: 1px solid var(--gold-line);
+  clip-path: var(--chamfer);
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.05);
+}
+.v-grid {
+  display: grid;
+  grid-template-columns: 15px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
+}
+.v-glyph {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke-width: 1.5;
+}
+.v-glyph.shield { stroke: var(--halo); }
+.v-glyph.vitae { stroke: var(--aureate); }
+.v-os { grid-column: 2 / 4; }
+.v-rule {
+  grid-column: 1 / 4;
+  height: 1px;
+  background: var(--gold-line);
+  margin: 1px 0;
+}
+.v-num {
+  grid-column: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  padding-left: 9px;
+  line-height: 1;
+}
+.v-num .n {
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--vellum);
+  letter-spacing: 0.02em;
+}
+.v-num .d {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+}
+#hud.low-hp .v-num .n { color: var(--ember); }
+
 .bar {
   position: relative;
-  background: rgba(18, 20, 26, 0.7);
+  background: rgba(6, 7, 10, 0.86);
   border: 1px solid var(--gold-line);
   overflow: hidden;
-  /* fix2: 1px inner shadow + angled cut (chamfered) ends */
   box-shadow:
-    inset 0 1px 0 rgba(0, 0, 0, 0.85),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 0 6px rgba(0, 0, 0, 0.45);
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+    inset 0 1px 0 rgba(0, 0, 0, 0.9),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 6px rgba(0, 0, 0, 0.5);
+  clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
 }
 .bar-fill {
   position: absolute;
@@ -125,53 +210,91 @@
   transform: scaleX(1);
   will-change: transform;
 }
-.os-bar { height: 4px; border-color: rgba(255, 184, 53, 0.45); }
+.os-bar { height: 5px; border-color: rgba(255, 184, 53, 0.4); }
 .bar-fill.os { background: var(--aureate); transform: scaleX(0); }
-.shield-bar { height: 8px; }
+.shield-bar { height: 12px; }
 .bar-fill.shield {
-  background: linear-gradient(180deg, #eaf7ff 0%, var(--halo) 45%, #7fb8dd 100%);
+  background: linear-gradient(180deg, #eaf7ff 0%, var(--halo) 45%, #6aa6cf 100%);
 }
-.hp-bar { height: 14px; }
+.hp-bar { height: 20px; }
 .bar-fill.hp {
-  background: linear-gradient(90deg, var(--vellum) 0%, var(--aureate) 100%);
+  background: linear-gradient(180deg, #fff7e4 0%, var(--aureate) 55%, #c07d18 100%);
 }
 .bar-fill.hp.low {
-  background: var(--ember);
+  background: linear-gradient(180deg, #ff9d94 0%, var(--ember) 60%, #8e1d15 100%);
   animation: hp-pulse 1s ease-in-out infinite;
 }
 @keyframes hp-pulse {
   0%, 100% { filter: brightness(0.85); }
   50% { filter: brightness(1.35); }
 }
-.bar-num {
+/* segment ticks etched into the health track so length reads as quantity */
+.hp-bar::after,
+.shield-bar::after {
+  content: '';
   position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-weight: 700;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--vellum);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
-  font-variant-numeric: tabular-nums;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0 24px, rgba(6, 7, 10, 0.55) 24px 25px);
 }
 
-/* ------------------------------------------------------------------ */
-/* bottom-right — abilities + energy + weapon (§2.2)                    */
-/* ------------------------------------------------------------------ */
-.combat {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
+/* ---- energy row: bar + 20 px numeric readout, directly above the tray -- */
+.energy-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
+  width: 340px;
+  padding: 0 1px;
 }
+.energy-bar {
+  flex: 1;
+  height: 11px;
+}
+.bar-fill.energy {
+  background: linear-gradient(180deg, var(--solar) 0%, var(--aureate) 55%, #a86c12 100%);
+}
+.bar-fill.energy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.45) 50%, transparent 80%);
+  background-size: 200% 100%;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -100% 0; }
+}
+.notch {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: rgba(6, 7, 10, 0.8);
+}
+.energy-num {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  line-height: 1;
+}
+.energy-num .n {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--aureate);
+}
+.energy-num .u {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--ash);
+}
+
+/* ---- ability tray ---------------------------------------------------- */
 .abilities {
   display: flex;
-  gap: 14px;
-  padding: 4px 6px;
+  gap: 16px;
+  padding: 17px 2px 15px;
 }
 .ability {
   position: relative;
@@ -188,31 +311,32 @@
 .ab-face {
   position: absolute;
   inset: 0;
-  background: var(--relic-70);
-  border: 2px solid var(--gold-line);
+  background: var(--relic-solid);
+  border: 1px solid var(--gold-line);
   overflow: hidden;
-  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.06);
   transition: border-color 0.15s ease, filter 0.15s ease, opacity 0.15s ease;
 }
 .ab-glyph {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 26px;
-  height: 26px;
+  width: 25px;
+  height: 25px;
   transform: rotate(-45deg);
   stroke: var(--aureate);
+  stroke-width: 2;
+  stroke-linejoin: miter;
   fill: none;
-  color: var(--aureate); /* currentColor for filled glyph silhouettes (fix2) */
+  color: var(--aureate);
   shape-rendering: geometricPrecision;
-  filter: drop-shadow(0 0 2px rgba(255, 184, 53, 0.35));
 }
-/* thin outer gold filigree frame around each ability diamond (fix2) */
+/* thin outer gold filigree frame around each ability diamond */
 .ab-frame {
   position: absolute;
   inset: -5px;
   transform: rotate(45deg);
-  border: 1px solid rgba(201, 162, 75, 0.45);
+  border: 1px solid var(--gold-faint);
   pointer-events: none;
 }
 .ab-frame::before,
@@ -221,20 +345,22 @@
   position: absolute;
   width: 4px;
   height: 4px;
-  transform: rotate(0deg) translate(-50%, -50%);
+  transform: translate(-50%, -50%);
   background: var(--gold);
 }
 .ab-frame::before { left: 0; top: 0; }
 .ab-frame::after { left: 100%; top: 100%; }
 .ab-key {
   position: absolute;
-  top: 1px;
+  top: -13px;
   left: 50%;
-  transform: translateX(-50%) rotate(-45deg);
-  transform-origin: center;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ash);
+  transform: translateX(-50%);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--vellum);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   z-index: 3;
 }
 .ab-sweep {
@@ -243,129 +369,223 @@
   z-index: 2;
   background: none;
 }
+/* bright leading edge riding the cooldown sweep */
+.ab-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background: conic-gradient(from 0deg, rgba(255, 243, 214, 0.9) 0deg, transparent 12deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+  mask: radial-gradient(farthest-side, transparent 58%, #000 60%);
+}
 .ab-active {
   position: absolute;
   inset: 0;
   z-index: 1;
-  opacity: 0.35;
+  opacity: 0.3;
   background: none;
 }
-.ability.poor .ab-face {
-  filter: grayscale(0.9) brightness(0.65);
+/* cost tab — chamfered plate hanging under the diamond */
+.ab-cost {
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 26px;
+  padding: 1px 6px 2px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--aureate);
+  background: var(--relic-solid);
+  border: 1px solid var(--gold-faint);
+  border-top-color: var(--gold-line);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 5px 100%, 0 calc(100% - 5px));
 }
+/* unaffordable: the whole face goes quiet — no red number shouting */
+.ability.poor .ab-face { filter: grayscale(0.85) brightness(0.6); opacity: 0.35; }
+.ability.poor .ab-glyph { opacity: 0.35; }
+.ability.poor .ab-cost { color: var(--ash); opacity: 0.55; }
+.ability.poor .ab-key { color: var(--ash); opacity: 0.6; }
+/* 150 ms flash-to-white when the sweep completes */
 .ability.ready .ab-face {
-  animation: ab-ping 0.25s ease-out;
+  animation: ab-ready 0.15s ease-out;
 }
-@keyframes ab-ping {
-  0% { transform: scale(1); border-color: var(--solar); }
-  50% { transform: scale(1.25); border-color: var(--solar); }
-  100% { transform: scale(1); border-color: var(--gold-line); }
+@keyframes ab-ready {
+  0% { background: rgba(255, 243, 214, 0.95); border-color: var(--solar); }
+  100% { background: var(--relic-solid); border-color: var(--gold-line); }
 }
 .ability.on .ab-rot::after {
   content: '';
   position: absolute;
   inset: -5px;
-  border: 2px dashed var(--aureate);
+  border: 1px solid var(--aureate);
   animation: ab-spin 4s linear infinite;
 }
 @keyframes ab-spin {
   to { transform: rotate(360deg); }
 }
-.ab-cost {
-  position: absolute;
-  bottom: -14px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--ash);
-}
-.ability.poor .ab-cost { color: var(--ember); }
 
-.energy-row {
+/* ------------------------------------------------------------------ */
+/* bottom-right — weapon only                                           */
+/* ------------------------------------------------------------------ */
+.weaponcluster {
+  position: absolute;
+  right: 26px;
+  bottom: 24px;
   display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.energy-bar {
-  width: 260px;
-  height: 10px;
-}
-.bar-fill.energy {
-  background: linear-gradient(90deg, #b97f1d 0%, var(--aureate) 60%, var(--solar) 100%);
-}
-.bar-fill.energy::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.5) 50%, transparent 80%);
-  background-size: 200% 100%;
-  animation: shimmer 2s linear infinite;
-}
-@keyframes shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -100% 0; }
-}
-.notch {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 1px;
-  background: var(--gold-line);
+  align-items: flex-end;
+  gap: 12px;
 }
 .weapon {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: var(--relic-70);
-  border: 1px solid var(--gold-line);
-  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  gap: 12px;
+  padding: 6px 4px 7px;
+  border-bottom: 1px solid var(--gold-line);
 }
 .weapon-glyph {
-  width: 30px;
+  width: 32px;
   height: 14px;
   stroke: var(--gold);
+  fill: none;
+  opacity: 0.85;
 }
 .weapon-glyph.katana {
   width: 12px;
   height: 26px;
+  opacity: 0.5;
 }
 .ammo-box {
+  position: relative;
   display: flex;
   align-items: baseline;
-  gap: 4px;
-  position: relative;
+  gap: 5px;
 }
 .ammo {
-  font-size: 28px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
   color: var(--vellum);
-  font-variant-numeric: tabular-nums;
 }
 .ammo.hide { visibility: hidden; }
-.ammo-reserve {
-  font-size: 14px;
+.ammo-name {
+  font-size: 10px;
   font-weight: 600;
+  letter-spacing: 0.22em;
   color: var(--ash);
 }
 .reload-arc {
   position: absolute;
-  left: -4px;
+  left: -5px;
   top: 50%;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   transform: translateY(-50%);
   border-radius: 50%;
   display: none;
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
 }
 .reload-arc.show { display: block; }
 
 /* ------------------------------------------------------------------ */
-/* center — reticle + hitmarker (§2.3)                                  */
+/* top-left — diegetic radar (gold ring, yaw-oriented hostile chevrons)  */
+/* ------------------------------------------------------------------ */
+.radar {
+  position: absolute;
+  left: 26px;
+  top: 24px;
+  width: 140px;
+  height: 140px;
+  /* ring radius the cardinal ticks ride on — kept in sync with the size */
+  --rtick: -66px;
+}
+.radar canvas {
+  position: absolute;
+  inset: 0;
+  width: 140px;
+  height: 140px;
+}
+.radar-plate {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, rgba(18, 22, 30, 0.55) 0%, rgba(7, 8, 12, 0.72) 70%, rgba(7, 8, 12, 0.8) 100%);
+  border: 1px solid var(--gold-line);
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.7), 0 0 0 4px rgba(201, 162, 75, 0.08);
+}
+.radar-plate::after {
+  content: '';
+  position: absolute;
+  inset: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--gold-faint);
+}
+/* four cardinal tick diamonds on the ring */
+.radar-tick {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  background: var(--gold);
+  opacity: 0.8;
+  transform-origin: 50% 50%;
+}
+.radar-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -15px;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: #A7ACBD;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+/* ------------------------------------------------------------------ */
+/* off-screen threat chevrons                                           */
+/* ------------------------------------------------------------------ */
+.threat-layer {
+  position: absolute;
+  inset: 0;
+}
+.threat {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+.threat i {
+  position: absolute;
+  left: -11px;
+  top: -8px;
+  width: 22px;
+  height: 16px;
+  display: block;
+  background: var(--hostile);
+  clip-path: polygon(50% 0, 100% 100%, 50% 74%, 0 100%);
+  filter: drop-shadow(0 0 4px rgba(255, 90, 102, 0.6)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+  animation: threat-beat 0.5s ease-in-out infinite;
+}
+@keyframes threat-beat {
+  0%, 100% { opacity: 0.6; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+/* ------------------------------------------------------------------ */
+/* center — reticle + hitmarker                                          */
 /* ------------------------------------------------------------------ */
 .reticle {
   position: absolute;
@@ -375,108 +595,127 @@
   height: 0;
   --spread: 8px;
 }
-.ret-dot {
+.ret-svg {
   position: absolute;
-  left: -1.5px;
-  top: -1.5px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--vellum);
-  transition: background 0.12s ease;
+  left: -32px;
+  top: -32px;
+  width: 64px;
+  height: 64px;
+  overflow: visible;
 }
-.reticle.aim .ret-dot { background: var(--aureate); }
-.ret-tick {
-  position: absolute;
-  background: var(--vellum);
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+.ret-svg .stroke {
+  stroke: rgba(4, 5, 8, 0.92);
+  stroke-width: 3.6;
+  fill: none;
+  stroke-linecap: butt;
 }
-.t-n, .t-s { width: 2px; height: 7px; left: -1px; }
-.t-w, .t-e { width: 7px; height: 2px; top: -1px; }
-.t-n { top: calc(-12px - var(--spread)); }
-.t-s { top: calc(5px + var(--spread)); }
-.t-w { left: calc(-12px - var(--spread)); }
-.t-e { left: calc(5px + var(--spread)); }
+.ret-svg .core {
+  stroke: var(--vellum);
+  stroke-width: 1.6;
+  fill: none;
+  stroke-linecap: butt;
+  transition: stroke 0.12s ease;
+}
+.reticle.aim .ret-svg .core { stroke: var(--aureate); }
+.ret-svg .dot-stroke { fill: rgba(4, 5, 8, 0.92); stroke: none; }
+.ret-svg .dot { fill: var(--vellum); stroke: none; transition: fill 0.12s ease; }
+.reticle.aim .ret-svg .dot { fill: var(--aureate); }
 
 .hitmarker {
   position: absolute;
   left: 0;
   top: 0;
-  opacity: 0;
+  opacity: 1;
 }
 .hitmarker i {
   position: absolute;
-  width: 2px;
-  height: 8px;
-  background: #fff;
+  left: -7px;
+  top: -7px;
+  width: 14px;
+  height: 14px;
   opacity: 0;
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 46%, 100% 100%, 50% 46%, 0 100%, 0 46%);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85));
 }
-.hm-a { transform: translate(-8px, -12px) rotate(-45deg); }
-.hm-b { transform: translate(6px, -12px) rotate(45deg); }
-.hm-c { transform: translate(-8px, 4px) rotate(45deg); }
-.hm-d { transform: translate(6px, 4px) rotate(-45deg); }
-/* extra outward kill ticks */
-.hm-x1 { transform: translate(-16px, -16px) rotate(-45deg); }
-.hm-x2 { transform: translate(14px, -16px) rotate(45deg); }
-.hm-x3 { transform: translate(-16px, 10px) rotate(45deg); }
-.hm-x4 { transform: translate(14px, 10px) rotate(-45deg); }
-.hitmarker.hm-hit i:not(.hm-x1):not(.hm-x2):not(.hm-x3):not(.hm-x4) {
-  animation: hm 0.23s ease-out both;
+.hm-a { --dx: -0.7; --dy: -0.7; --rot: -45deg; }
+.hm-b { --dx: 0.7; --dy: -0.7; --rot: 45deg; }
+.hm-c { --dx: -0.7; --dy: 0.7; --rot: -135deg; }
+.hm-d { --dx: 0.7; --dy: 0.7; --rot: 135deg; }
+.hm-x1 { --dx: 0; --dy: -1; --rot: 0deg; }
+.hm-x2 { --dx: 1; --dy: 0; --rot: 90deg; }
+.hm-x3 { --dx: 0; --dy: 1; --rot: 180deg; }
+.hm-x4 { --dx: -1; --dy: 0; --rot: 270deg; }
+@keyframes hm-expand {
+  0% {
+    opacity: 0;
+    transform: translate(calc(var(--dx) * 6px), calc(var(--dy) * 6px)) rotate(var(--rot)) scale(0.7);
+  }
+  20% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--dx) * 18px), calc(var(--dy) * 18px)) rotate(var(--rot)) scale(1);
+  }
 }
-.hitmarker.hm-crit i:not(.hm-x1):not(.hm-x2):not(.hm-x3):not(.hm-x4) {
+.hitmarker.hm-hit .hm-a,
+.hitmarker.hm-hit .hm-b,
+.hitmarker.hm-hit .hm-c,
+.hitmarker.hm-hit .hm-d {
+  animation: hm-expand 0.13s ease-out both;
+}
+.hitmarker.hm-crit .hm-a,
+.hitmarker.hm-crit .hm-b,
+.hitmarker.hm-crit .hm-c,
+.hitmarker.hm-crit .hm-d {
   background: var(--aureate);
-  height: 10px;
-  animation: hm 0.23s ease-out both;
+  animation: hm-expand 0.15s ease-out both;
 }
 .hitmarker.hm-kill i {
   background: var(--aureate);
-  animation: hm 0.23s ease-out both;
+  animation: hm-expand 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
-@keyframes hm {
-  0% { opacity: 1; scale: 1; }
-  35% { opacity: 1; scale: 1.3; }
-  100% { opacity: 0; scale: 1.3; }
+.hitmarker.hm-kill .hm-x1,
+.hitmarker.hm-kill .hm-x2,
+.hitmarker.hm-kill .hm-x3,
+.hitmarker.hm-kill .hm-x4 {
+  background: var(--solar);
+  animation-delay: 0.02s;
 }
 
 /* ------------------------------------------------------------------ */
-/* top-center — phase banner / wave chip / channel ring (§2.4)          */
+/* top-centre — phase banner + one mission plate (objective + wave)      */
 /* ------------------------------------------------------------------ */
 .topcenter {
   position: absolute;
-  top: 28px;
+  top: 26px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 .phase-banner {
   position: relative;
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 4px 0; /* room for the line-end diamonds under the shimmer overlay */
+  padding: 4px 0;
   overflow: hidden;
   animation: pb-in 0.6s ease-out both, pb-out 0.5s ease-in 2.8s forwards;
 }
-/* fix2: scanlines + traveling edge shimmer over the banner */
 .phase-banner::after {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.055) 0 1px, transparent 1px 3px),
-    linear-gradient(100deg, transparent 25%, rgba(255, 243, 214, 0.22) 50%, transparent 75%);
-  background-size:
-    100% 100%,
-    250% 100%;
+  background: linear-gradient(100deg, transparent 25%, rgba(255, 243, 214, 0.18) 50%, transparent 75%);
+  background-size: 250% 100%;
   animation: pb-sheen 2.1s linear infinite;
 }
 @keyframes pb-sheen {
-  from { background-position: 0 0, 200% 0; }
-  to { background-position: 0 0, -100% 0; }
+  from { background-position: 200% 0; }
+  to { background-position: -100% 0; }
 }
 .pb-text {
   font-family: 'Cinzel', serif;
@@ -514,128 +753,231 @@
 @keyframes pb-out {
   to { opacity: 0; }
 }
-.wave-chip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 14px;
-  background: var(--relic-70);
-  border: 1px solid var(--gold-line);
-  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
-}
-.wc-label {
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.12em;
-}
-.wc-pips { display: flex; gap: 6px; }
-.pip {
-  width: 9px;
-  height: 9px;
-  transform: rotate(45deg);
-  border: 1px solid var(--gold-line);
-}
-.pip.done { background: var(--aureate); border-color: var(--aureate); }
-.wc-alive {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 700;
-  font-size: 16px;
-  color: var(--teal);
-  font-variant-numeric: tabular-nums;
-  pointer-events: auto; /* allow the HOSTILES tooltip despite HUD pointer-events:none (fix2) */
-  cursor: default;
-}
-.wc-glyph {
-  width: 15px;
-  height: 15px;
-  stroke: var(--teal);
-  fill: none;
-  flex: 0 0 auto;
-}
-.wc-count {
-  line-height: 1;
-}
-.channel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-.ch-ring {
-  position: relative;
-  width: 54px;
-  height: 54px;
-  border-radius: 50%;
-}
-.ch-fill {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: conic-gradient(var(--aureate) 0deg, rgba(138, 143, 163, 0.2) 0deg);
-}
-.ch-hole {
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: rgba(18, 20, 26, 0.85);
-  border: 1px solid var(--gold-line);
-}
-.ch-label {
-  font-family: 'Cinzel', serif;
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.3em;
-  color: var(--aureate);
-}
 
-/* ------------------------------------------------------------------ */
-/* top-right — objective (§2.5)                                         */
-/* ------------------------------------------------------------------ */
-.objective {
-  position: absolute;
-  top: 24px;
-  right: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  max-width: 380px;
-  padding: 10px 14px;
-  background: var(--relic-70);
+/* ---- the single mission plate (objective toast merged into the chip) -- */
+.mission-plate {
+  position: relative;
+  min-width: 420px;
+  padding: 7px 14px 8px;
+  /* denser than the other plates: it sits over bright ivory architecture */
+  background: rgba(7, 9, 13, 0.78);
   border: 1px solid var(--gold-line);
-  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  clip-path: var(--chamfer);
+  box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.04);
+  /* no fill-mode and no base animation: the plate's resting state is simply
+     visible, so a state-change animation can never leave it stuck at 0 */
+  opacity: 1;
 }
-.obj-line {
+.mission-plate.changed { animation: mp-change 0.25s ease-out; }
+/* slide + gold flash only — deliberately never animates opacity, so no
+   animation state can ever leave the mission plate invisible */
+@keyframes mp-change {
+  0% { transform: translateY(-9px); background: rgba(201, 162, 75, 0.38); }
+  55% { background: rgba(201, 162, 75, 0.18); }
+  100% { transform: translateY(0); background: rgba(7, 9, 13, 0.78); }
+}
+.mp-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--vellum);
+  gap: 9px;
+  line-height: 1.15;
 }
-.obj-diamond {
+.mp-diamond {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   transform: rotate(45deg);
   background: var(--aureate);
+  box-shadow: 0 0 7px rgba(255, 184, 53, 0.6);
 }
-.obj-dist { color: var(--ash); margin-left: 4px; font-variant-numeric: tabular-nums; }
-.extract-timer {
-  font-size: 26px;
+.mp-verb {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--vellum);
+  white-space: nowrap;
+}
+.mp-dist {
+  padding-left: 12px;
+  border-left: 1px solid var(--gold-line);
+  font-size: 15px;
   font-weight: 700;
+  color: var(--ash);
+  min-width: 62px;
+  text-align: right;
+}
+.mp-rule {
+  height: 1px;
+  margin: 6px 0 5px;
+  background: linear-gradient(90deg, var(--gold-line), rgba(201, 162, 75, 0.08));
+}
+.mp-row2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 17px;
+}
+.wc-label {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--ash);
+}
+.wc-pips { display: flex; gap: 6px; }
+.pip {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border: 1px solid var(--gold-line);
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+.pip.done { background: var(--aureate); border-color: var(--aureate); }
+.pip.fill { animation: pip-fill 0.45s ease-out both; }
+@keyframes pip-fill {
+  0% { transform: rotate(45deg) scale(2.1); background: var(--solar); border-color: var(--solar); }
+  100% { transform: rotate(45deg) scale(1); background: var(--aureate); border-color: var(--aureate); }
+}
+.wc-alive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--hostile);
+}
+.wc-glyph {
+  width: 14px;
+  height: 14px;
+  stroke: var(--hostile);
+  fill: none;
+  flex: 0 0 auto;
+}
+.extract-timer {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
   color: var(--aureate);
-  font-variant-numeric: tabular-nums;
 }
 .extract-timer.urgent {
   color: var(--ember);
   animation: hp-pulse 1s ease-in-out infinite;
 }
 
+/* ---- boss bar (a Heavy is on the field) ------------------------------ */
+.bossbar {
+  width: 420px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.bossbar.show { opacity: 1; }
+.bb-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 2px 3px;
+}
+.bb-name {
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  color: var(--hostile);
+}
+.bb-sub {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--ash);
+}
+.bb-track {
+  position: relative;
+  height: 9px;
+  background: rgba(6, 7, 10, 0.86);
+  border: 1px solid rgba(255, 90, 102, 0.45);
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  overflow: hidden;
+}
+.bb-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(180deg, #ff9aa2 0%, var(--hostile) 55%, #7c1620 100%);
+}
+.bb-stagger {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  transform-origin: left center;
+  background: var(--solar);
+  opacity: 0.9;
+}
+
+/* ---- channel arc, anchored to the Reliquary in world space ----------- */
+.channel-anchor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
+  transition: opacity 0.2s ease;
+}
+.ch-leader {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 34px;
+  background: linear-gradient(180deg, var(--gold-line), transparent);
+}
+.ch-plate {
+  position: absolute;
+  left: -43px;
+  top: -86px;
+  width: 86px;
+  padding: 7px 0 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: var(--relic-solid);
+  border: 1px solid var(--gold-line);
+  clip-path: var(--chamfer-sm);
+}
+.ch-svg { width: 54px; height: 54px; }
+.ch-track { fill: none; stroke: rgba(138, 143, 163, 0.28); stroke-width: 4; }
+.ch-arc {
+  fill: none;
+  stroke: var(--aureate);
+  stroke-width: 4;
+  stroke-linecap: butt;
+  filter: drop-shadow(0 0 3px rgba(255, 184, 53, 0.7));
+}
+.ch-tick { stroke: rgba(201, 162, 75, 0.75); stroke-width: 1.4; }
+.ch-dot { fill: var(--solar); }
+.ch-pct {
+  font-size: 16px;
+  font-weight: 700;
+  fill: var(--vellum);
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.ch-label {
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  color: var(--aureate);
+}
+
 /* ------------------------------------------------------------------ */
-/* world-space objective marker (§2.6)                                  */
+/* world-space objective marker                                         */
 /* ------------------------------------------------------------------ */
 .obj-marker {
   position: absolute;
@@ -653,9 +995,9 @@
   width: 18px;
   height: 18px;
   transform: rotate(45deg);
-  border: 2px solid var(--aureate);
-  background: rgba(255, 184, 53, 0.25);
-  box-shadow: 0 0 12px rgba(255, 184, 53, 0.6);
+  border: 1px solid var(--aureate);
+  background: rgba(255, 184, 53, 0.18);
+  box-shadow: 0 0 12px rgba(255, 184, 53, 0.5);
 }
 .om-ring {
   position: absolute;
@@ -665,75 +1007,89 @@
   height: 32px;
   transform: rotate(45deg);
   border: 1px solid var(--aureate);
-  animation: om-pulse 1.2s ease-out infinite;
+  animation: om-pulse 1.4s ease-out infinite;
 }
 @keyframes om-pulse {
   from { scale: 0.6; opacity: 0.9; }
   to { scale: 1.5; opacity: 0; }
 }
-.obj-marker.edge .om-diamond::after {
-  content: '';
+.om-arrow {
   position: absolute;
-  left: 50%;
-  top: -14px;
-  transform: translateX(-50%) rotate(-45deg);
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-bottom: 8px solid var(--aureate);
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  opacity: 0;
 }
+.om-arrow i {
+  position: absolute;
+  left: -8px;
+  top: -26px;
+  width: 16px;
+  height: 12px;
+  display: block;
+  background: var(--aureate);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.obj-marker.edge .om-arrow { opacity: 1; }
+.obj-marker.edge .om-ring { display: none; }
 
 /* ------------------------------------------------------------------ */
-/* dropship skip hint (§2.9)                                            */
+/* dropship skip hint                                                    */
 /* ------------------------------------------------------------------ */
 .skip-hint {
-  position: absolute;
-  bottom: 36px;
+  position: fixed;
+  z-index: 12;
+  bottom: 40px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.25em;
+  letter-spacing: 0.3em;
   color: var(--ash);
   animation: hp-pulse 1.6s ease-in-out infinite;
 }
 
 /* ------------------------------------------------------------------ */
-/* damage numbers (§2.7)                                                */
+/* damage numbers                                                        */
 /* ------------------------------------------------------------------ */
 .dmg-layer {
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 11;
+  font-family: 'Rajdhani', sans-serif;
 }
 .dmg {
   position: absolute;
   left: 0;
   top: 0;
   opacity: 0;
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--vellum, #F4EFE3);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+  color: #F4EFE3;
+  -webkit-text-stroke: 2px rgba(3, 4, 6, 0.92);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   will-change: transform, opacity;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .dmg-headshot,
 .dmg-ability {
-  font-weight: 700;
-  font-size: 20px;
+  font-size: 34px;
   color: #FFB835;
-  text-shadow: 0 0 10px rgba(255, 184, 53, 0.8), 0 1px 3px rgba(0, 0, 0, 0.9);
+  text-shadow: 0 0 12px rgba(255, 184, 53, 0.55);
 }
 .dmg-player {
-  font-size: 16px;
-  color: #4DFF9A;
-  text-shadow: 0 0 8px rgba(77, 255, 154, 0.7), 0 1px 3px rgba(0, 0, 0, 0.9);
+  font-size: 24px;
+  color: #FF6A60;
+  text-shadow: 0 0 10px rgba(255, 75, 62, 0.5);
 }
 
 /* ------------------------------------------------------------------ */
-/* reduced flash fallback (§2.9)                                        */
+/* reduced flash fallback                                                */
 /* ------------------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
   #hud.low-hp .hud-lowhp,
@@ -741,8 +1097,261 @@
   .extract-timer.urgent,
   .skip-hint,
   .om-ring,
+  .threat i,
   .bar-fill.energy::after,
   .phase-banner::after {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* narrow / short viewports — the HUD is not a fixed-px web page         */
+/* ------------------------------------------------------------------ */
+@media (max-width: 1280px), (max-height: 760px) {
+  .vitals, .energy-row { width: 292px; }
+  .mission-plate { min-width: 356px; }
+  .bossbar { width: 356px; }
+  .radar { width: 112px; height: 112px; --rtick: -52px; }
+  .radar canvas { width: 112px; height: 112px; }
+  .ability { width: 40px; height: 40px; }
+  .abilities { gap: 13px; }
+  .v-num .n { font-size: 19px; }
+}
+
+/* ================================================================== */
+/* SCREENS — title / pause / results share the HUD's vocabulary        */
+/* (imported by src/screens/*, which render outside #hud)              */
+/* ================================================================== */
+.avs {
+  --gold: #C9A24B;
+  --gold-line: rgba(201, 162, 75, 0.55);
+  --aureate: #FFB835;
+  --solar: #FFF3D6;
+  --vellum: #F4EFE3;
+  --ash: #8A8FA3;
+  --ember: #FF4B3E;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  font-family: 'Rajdhani', sans-serif;
+  color: var(--vellum);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+}
+/* a gradient scrim that reserves a quiet band for the wordmark */
+.avs-scrim {
+  position: absolute;
+  inset: 0;
+  /* the quiet band: 24–58% of the frame is pushed dark so the wordmark has
+     somewhere to sit, while the top and lower-third keep the backdrop */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(5, 6, 13, 0.92) 0%,
+      rgba(5, 6, 13, 0.46) 15%,
+      rgba(4, 5, 11, 0.84) 26%,
+      rgba(4, 5, 11, 0.88) 52%,
+      rgba(5, 6, 13, 0.52) 64%,
+      rgba(5, 6, 13, 0.88) 84%,
+      rgba(3, 4, 9, 0.97) 100%
+    ),
+    radial-gradient(ellipse 80% 55% at 50% 58%, rgba(27, 36, 64, 0.3), transparent 70%);
+}
+.avs-vig {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 220px 60px rgba(3, 4, 9, 0.85);
+}
+.avs-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+}
+.avs-eyebrow {
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.52em;
+  color: #B9BDCC;
+  text-indent: 0.52em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+/* layered wordmark plate: bevel rule, filigree diamonds, engraved type */
+.avs-wordmark {
+  position: relative;
+  margin: 18px 0 10px;
+  padding: 16px 54px 18px;
+}
+.avs-wordmark::before,
+.avs-wordmark::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+.avs-wordmark::before { top: 0; }
+.avs-wordmark::after { bottom: 0; }
+.avs-fil {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  transform: rotate(45deg);
+  border: 1px solid var(--gold);
+  background: rgba(201, 162, 75, 0.25);
+}
+.avs-fil.tl { left: -5px; top: -5px; }
+.avs-fil.tr { right: -5px; top: -5px; }
+.avs-fil.bl { left: -5px; bottom: -5px; }
+.avs-fil.br { right: -5px; bottom: -5px; }
+.avs-title {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: clamp(46px, 8.4vmin, 104px);
+  line-height: 0.98;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  margin: 0;
+  background: linear-gradient(178deg, #FFFDF6 0%, var(--aureate) 44%, #8A6414 78%, #D9AE5A 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)) drop-shadow(0 0 26px rgba(255, 184, 53, 0.18));
+}
+.avs-sub {
+  font-family: 'Cinzel', serif;
+  font-size: clamp(12px, 1.5vmin, 17px);
+  font-weight: 600;
+  letter-spacing: 0.56em;
+  text-indent: 0.56em;
+  color: #B9BDCC;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.avs-menu {
+  margin-top: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.avs-btn {
+  position: relative;
+  min-width: 268px;
+  padding: 11px 34px;
+  font-family: 'Cinzel', serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  color: var(--aureate);
+  background: rgba(201, 162, 75, 0.07);
+  border: 1px solid var(--gold-line);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, letter-spacing 0.18s ease;
+}
+.avs-btn:hover {
+  background: rgba(201, 162, 75, 0.2);
+  color: var(--solar);
+}
+.avs-btn.ghost {
+  color: var(--ash);
+  border-color: rgba(138, 143, 163, 0.35);
+  background: transparent;
+  min-width: 214px;
+  font-size: 13px;
+}
+.avs-btn.ghost:hover { color: var(--vellum); background: rgba(138, 143, 163, 0.1); }
+.avs-hints {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 26px;
+  display: flex;
+  justify-content: center;
+  gap: 26px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  color: var(--ash);
+  opacity: 0.72;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.avs-hints b { color: var(--vellum); font-weight: 700; opacity: 0.8; }
+.avs-rule-b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+/* ---- results (win / lose): staged reveal ---------------------------- */
+.avs-reveal { animation: avs-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes avs-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.avs-grade {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  margin: 26px 0 10px;
+  display: grid;
+  place-items: center;
+  transform: rotate(45deg);
+  border: 1px solid currentColor;
+  box-shadow: 0 0 34px -6px currentColor, inset 0 0 26px -10px currentColor;
+}
+.avs-grade.stamp { animation: avs-stamp 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes avs-stamp {
+  0% { opacity: 0; transform: rotate(45deg) scale(2.4); }
+  70% { opacity: 1; transform: rotate(45deg) scale(0.94); }
+  100% { opacity: 1; transform: rotate(45deg) scale(1); }
+}
+.avs-grade span {
+  font-family: 'Cinzel', serif;
+  font-size: 60px;
+  font-weight: 700;
+  line-height: 1;
+  transform: rotate(-45deg);
+}
+.avs-grade::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 1px solid currentColor;
+  opacity: 0.35;
+}
+.avs-rows {
+  margin-top: 26px;
+  width: min(460px, 82vw);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.avs-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 15px;
+  letter-spacing: 0.18em;
+}
+.avs-row .k { color: var(--ash); font-weight: 600; }
+.avs-row .dots {
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(90deg, rgba(201, 162, 75, 0.45) 0 2px, transparent 2px 6px);
+  transform: translateY(-3px);
+}
+.avs-row .v { font-weight: 700; color: var(--vellum); }
+.avs-row.total { font-size: 19px; }
+.avs-row.total .v { color: var(--aureate); }
+.avs-actions { margin-top: 34px; display: flex; gap: 16px; }

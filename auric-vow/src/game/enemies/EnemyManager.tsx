@@ -16,9 +16,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '@/game/store'
-import { MISSION, COLORS, type WaveSpec } from '@/game/config'
+import { MISSION, ENEMY_LOOK, ENEMY_SPAWN, type WaveSpec } from '@/game/config'
 import { VFX } from '@/game/vfx/VFXBus'
 import { ZONES } from '@/game/mission/zones'
+import { PlayerRef } from '@/game/player/PlayerRef'
+import { raycastLevel } from '@/game/world/Colliders'
+import { hasLineOfSight, clearThreat } from './ai'
+import { updateOutlineScale } from './dissolve'
 import {
   EnemyRegistry,
   registerEnemy,
@@ -35,6 +39,52 @@ import { EnemyBoltPool } from './EnemyProjectiles'
 const MAX_ALIVE = 12
 const SPAWN_GAP = 0.5
 const _spawnVfx = new THREE.Vector3()
+const _ring = new THREE.Vector3()
+const _framed = new THREE.Vector3()
+const _down = new THREE.Vector3(0, -1, 0)
+const _eye = new THREE.Vector3()
+const _out = new THREE.Vector3()
+
+/**
+ * [enemies-hud R1] Reinforcements used to arrive at fixed arena-door anchors
+ * up to 40 m from the player, which is why 21 capture frames contained no
+ * legible enemy. Every combat spawn is now FRAMED: the door direction is
+ * kept (they still come from the doors) but the anchor is pulled along that
+ * bearing into an 11–19 m band around the player, snapped to the floor, and
+ * rejected back to the door anchor if the framed point has no line of sight.
+ */
+function frameSpawn(anchor: THREE.Vector3, flying: boolean, out: THREE.Vector3): THREE.Vector3 {
+  out.copy(anchor)
+  _ring.subVectors(anchor, PlayerRef.position)
+  _ring.y = 0
+  let d = _ring.length()
+  if (d < 0.01) {
+    _ring.set(0, 0, 1)
+    d = 1
+  } else {
+    _ring.divideScalar(d)
+  }
+  const want = Math.max(ENEMY_SPAWN.safeMin, THREE.MathUtils.clamp(d, ENEMY_SPAWN.ringMin, ENEMY_SPAWN.ringMax))
+  if (want >= d - 0.5) return out // already close enough — keep the door anchor
+  _framed.copy(PlayerRef.position).addScaledVector(_ring, want)
+  _framed.y = anchor.y
+
+  if (flying) {
+    _framed.y = Math.max(PlayerRef.position.y + 2.5, anchor.y)
+  } else {
+    // drop onto the floor under the framed point
+    _spawnVfx.copy(_framed).setY(PlayerRef.position.y + 6)
+    const hit = raycastLevel(_spawnVfx, _down, 14, ['floor', 'platform', 'wall', 'objective'])
+    if (!hit) return out // no ground there — fall back to the authored anchor
+    _framed.y = hit.point.y + 0.02
+  }
+
+  // must be visible from the player's chest, or the entrance is pointless
+  _eye.copy(PlayerRef.position).setY(PlayerRef.position.y + PlayerRef.height * 0.6)
+  _spawnVfx.copy(_framed).setY(_framed.y + 1.2)
+  if (!hasLineOfSight(_eye, _spawnVfx)) return out
+  return out.copy(_framed)
+}
 
 /** polled by MissionDirector (module-level, mutable, no React state) */
 export const SpawnStatus = {
@@ -96,10 +146,13 @@ export function EnemyManager() {
   const queue = useRef<QueueItem[]>([])
   const queueClock = useRef(0)
   const sinceSpawn = useRef(SPAWN_GAP)
+  /** spawns whose entrance telegraph is playing but whose body has not landed */
+  const landing = useRef<{ t: number; item: QueueItem }[]>([])
 
   // ---- phase-driven spawn tables ----
   useEffect(() => {
     queue.current = []
+    landing.current = []
     queueClock.current = 0
     sinceSpawn.current = SPAWN_GAP
     SpawnStatus.pending = 0
@@ -186,35 +239,86 @@ export function EnemyManager() {
   }, [phase, wave])
 
   // ---- queue processing + death/despawn lifecycle ----
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const s = useGameStore.getState()
+    // keep the hostile outline exactly N pixels wide whatever the camera does
+    const cam = state.camera as THREE.PerspectiveCamera
+    if (cam.isPerspectiveCamera) updateOutlineScale(cam.fov, state.size.height)
     if (s.phase === 'WIN' || s.phase === 'LOSE') return
     const dt = Math.min(delta, 0.05) * s.timeScale
 
-    // spawn queue
+    // spawn queue → staged entrance (portal telegraph, then the body)
     if (queue.current.length > 0) {
       queueClock.current += dt
       sinceSpawn.current += dt
       const head = queue.current[0]
-      if (queueClock.current >= head.at && sinceSpawn.current >= SPAWN_GAP && EnemyRegistry.aliveCount() < MAX_ALIVE) {
+      if (
+        queueClock.current >= head.at &&
+        sinceSpawn.current >= SPAWN_GAP &&
+        EnemyRegistry.aliveCount() + landing.current.length < MAX_ALIVE
+      ) {
         queue.current.shift()
-        SpawnStatus.pending = queue.current.length
         sinceSpawn.current = 0
         const spec = ENTITY_SPEC[head.type]
+        const flying = head.type === 'drone'
+        // frame the anchor toward the player so reinforcements arrive ON SCREEN
+        const pos = head.alerted ? frameSpawn(head.pos, flying, _out).clone() : head.pos.clone()
+        // stage 1 — the entrance telegraph: a crimson ground ring + rising motes
+        _spawnVfx.copy(pos).setY(pos.y + 0.05)
+        VFX.ring({
+          position: _spawnVfx,
+          color: ENEMY_LOOK.accent,
+          maxRadius: spec.radius * 3.2,
+          life: ENEMY_SPAWN.telegraphSec + 0.15,
+          width: 0.18,
+        })
+        VFX.burst({
+          position: _spawnVfx,
+          color: ENEMY_LOOK.accent,
+          count: 8,
+          speed: 2.2,
+          life: ENEMY_SPAWN.telegraphSec + 0.2,
+          size: 0.05,
+          gravity: 3,
+        })
+        landing.current.push({ t: ENEMY_SPAWN.telegraphSec, item: { ...head, pos } })
+        // a body still mid-entrance counts as pending, or MissionDirector can
+        // see 0 queued / 0 alive during the telegraph and clear the wave early
+        SpawnStatus.pending = queue.current.length + landing.current.length
+      }
+    }
+
+    // staged entrance: the body arrives after the telegraph has been read
+    if (landing.current.length > 0) {
+      for (let i = landing.current.length - 1; i >= 0; i--) {
+        const l = landing.current[i]
+        l.t -= dt
+        if (l.t > 0) continue
+        landing.current.splice(i, 1)
+        SpawnStatus.pending = queue.current.length + landing.current.length
+        const spec = ENTITY_SPEC[l.item.type]
         const e = registerEnemy({
-          type: head.type,
-          position: head.pos,
+          type: l.item.type,
+          position: l.item.pos,
           hp: spec.hp,
           radius: spec.radius,
           height: spec.height,
-          alerted: head.alerted,
-          waypoints: head.waypoints,
+          alerted: l.item.alerted,
+          waypoints: l.item.waypoints,
           dissolveSec: spec.dissolveSec,
         })
-        // spawn FX — enemy steps out of teal light
-        _spawnVfx.copy(head.pos).setY(head.pos.y + spec.height * 0.5)
-        VFX.burst({ position: _spawnVfx, color: COLORS.cadenceTeal, count: 8, speed: 3, life: 0.5, size: 0.06 })
-        VFX.flash({ position: _spawnVfx, color: COLORS.cadenceTeal, intensity: 6, distance: 8, life: 0.35 })
+        // stage 2 — arrival: hard flash + impact burst at chest height
+        _spawnVfx.copy(l.item.pos).setY(l.item.pos.y + spec.height * 0.5)
+        VFX.burst({
+          position: _spawnVfx,
+          color: ENEMY_LOOK.accentHot,
+          count: 12,
+          speed: 4.5,
+          life: 0.45,
+          size: 0.06,
+          gravity: -3,
+        })
+        VFX.flash({ position: _spawnVfx, color: ENEMY_LOOK.accentHot, intensity: 8, distance: 9, life: 0.28 })
         setEnemies((list) => [...list, e])
       }
     }
@@ -227,6 +331,7 @@ export function EnemyManager() {
       if (!ent) continue
       ent.deathTimer += dt
       if (ent.deathTimer > ent.dissolveSec + 0.1) {
+        clearThreat(ent.id)
         unregisterEnemy(ent.id)
         removed = true
       }

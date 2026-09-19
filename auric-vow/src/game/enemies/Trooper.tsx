@@ -1,12 +1,20 @@
 /**
  * AURIC VOW — enemies/Trooper.tsx
  * "VOTARY" Trooper — core infantry (enemies-mission.md §2).
- * Procedural build: angular white plate torso stack, wedge head with vertical
- * teal eye-slit (crit), gunmetal capsule limbs, teal chest-core (crit ×2),
- * obsidian pulse carbine. Stiff procedural walk cycle, 12° torso hunch.
- * AI: GUARD → ALERT (0.5s weapon raise) → ATTACK (8–18 m band strafe, LOS
- * burst-fire with 0.35s eye-flare telegraph, melee shove < 1.5 m) / RUSH
- * variant → STAGGER (kneel 1.2s) → dissolve death.
+ *
+ * R1 art pass: the trooper used to be an ivory box stack wearing the same
+ * palette as the architecture, with one sine per limb. It is now a DARK
+ * carapace with crimson energy, a broad angular pauldron deck (~0.92 m span)
+ * and a crested helmet, so its silhouette reads as "infantry" at 40 m and
+ * never as level dressing. Locomotion has thigh/shin/foot chains, a counter-
+ * rotating spine, a blended in/out locomotion weight and an additive aim
+ * layer. Every attack telegraphs: burst fire flares the visor 0.35 s early,
+ * melee has a 0.42 s raised-blade windup before it can damage anything.
+ *
+ * AI: GUARD → ALERT (0.5 s weapon raise) → ATTACK (8–18 m band strafe, LOS
+ * burst-fire with eye-flare telegraph, wound-up melee < 2 m) / RUSH variant
+ * (a fixed minority of the squad, not "everyone whenever 3 are alive")
+ * → STAGGER (kneel 1.2 s) → dissolve death.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -14,18 +22,21 @@ import * as THREE from 'three'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { useGameStore } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
-import { COLORS, PLAYER } from '@/game/config'
-import { broadcastAlert, EnemyRegistry, type EnemyEntity } from './EnemyRegistry'
+import { VFX } from '@/game/vfx/VFXBus'
+import { ENEMY_LOOK, ENEMY_SPAWN, PLAYER } from '@/game/config'
+import { broadcastAlert, type EnemyEntity } from './EnemyRegistry'
 import {
   canSeePlayer,
   hasLineOfSight,
   integrateGround,
+  markThreat,
+  clearThreat,
   separationForce,
   turnToward,
   whiskerSteer,
   PERCEPTION_INTERVAL,
 } from './ai'
-import { patchDissolve } from './dissolve'
+import { patchDissolve, makeOutlineMaterial } from './dissolve'
 import { fireEnemyBolt } from './EnemyProjectiles'
 
 const SPEED_PATROL = 2
@@ -42,52 +53,88 @@ const BURST_SHOTS = 3
 const BURST_GAP = 0.1
 const BOLT_SPEED = 30
 const BOLT_DAMAGE = 5
-const MELEE_RANGE = 1.5
+const MELEE_RANGE = 2.0
+const MELEE_WINDUP = 0.42
+const MELEE_STRIKE = 0.12
 const MELEE_DAMAGE = 10
-const MELEE_COOLDOWN = 1.0
+const MELEE_COOLDOWN = 1.4
 const LOS_GRACE = 2.5
+const STRIDE_HZ = 1.05 // strides per metre travelled → ~1.9 m steps
 
 const _v = new THREE.Vector3()
 const _desired = new THREE.Vector3()
 const _sep = new THREE.Vector3()
 const _aimAt = new THREE.Vector3()
-const EYE_DIM = new THREE.Color('#0B5A55')
-const EYE_FULL = new THREE.Color(COLORS.cadenceTeal)
+const _fx = new THREE.Vector3()
+const _tmp = new THREE.Vector3()
+const EYE_DIM = new THREE.Color(ENEMY_LOOK.accent).multiplyScalar(0.45)
+const EYE_FULL = new THREE.Color(ENEMY_LOOK.accent)
+const EYE_HOT = new THREE.Color(ENEMY_LOOK.accentHot)
 
 export function Trooper({ entity }: { entity: EnemyEntity }) {
   const group = useRef<THREE.Group>(null)
-  const bodyGroup = useRef<THREE.Group>(null) // hunch + kneel
-  const legL = useRef<THREE.Group>(null)
-  const legR = useRef<THREE.Group>(null)
+  const bodyGroup = useRef<THREE.Group>(null) // hunch + kneel + death fall
+  const spine = useRef<THREE.Group>(null) // counter-rotation + aim layer
+  const hipL = useRef<THREE.Group>(null)
+  const hipR = useRef<THREE.Group>(null)
+  const kneeL = useRef<THREE.Group>(null)
+  const kneeR = useRef<THREE.Group>(null)
   const armL = useRef<THREE.Group>(null)
   const armR = useRef<THREE.Group>(null)
+  const elbowR = useRef<THREE.Group>(null)
   const gun = useRef<THREE.Group>(null)
 
   const facing = useRef(new THREE.Vector3(0, 0, 1))
   const walkPhase = useRef(Math.random() * Math.PI * 2)
   const strafeDir = useRef(Math.random() < 0.5 ? 1 : -1)
+  const locoW = useRef(0) // 0..1 locomotion blend weight (kills the snap)
+  const idleClock = useRef(entity.id * 0.73) // always-running clock for the breath (per-unit phase)
+  const flinch = useRef(0)
+  const flinchYaw = useRef(0)
+  const prevFlash = useRef(0)
+  const shadowsOff = useRef(false)
+  /** fixed per-soldier trait — a minority rush, the rest hold the fire band */
+  const isRusher = useRef(Math.random() < ENEMY_SPAWN.rushShare)
 
   const mats = useMemo(() => {
-    const plate = new THREE.MeshStandardMaterial({ color: '#DDD6C4', metalness: 0.5, roughness: 0.4 })
-    const gunmetal = new THREE.MeshStandardMaterial({ color: '#3A3F4A', metalness: 0.85, roughness: 0.3 })
-    const obsidian = new THREE.MeshStandardMaterial({ color: COLORS.deepRelic, metalness: 0.6, roughness: 0.15 })
-    const eye = new THREE.MeshBasicMaterial({ color: COLORS.cadenceTeal, toneMapped: false })
-    const core = new THREE.MeshBasicMaterial({ color: COLORS.cadenceTeal, toneMapped: false, transparent: true })
-    const barrel = new THREE.MeshBasicMaterial({ color: COLORS.viridianFlare, toneMapped: false })
+    const plate = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.shellLit,
+      metalness: 0.45,
+      roughness: 0.52,
+    })
+    const shell = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.shell,
+      metalness: 0.35,
+      roughness: 0.62,
+    })
+    const gunmetal = new THREE.MeshStandardMaterial({
+      color: ENEMY_LOOK.joint,
+      metalness: 0.9,
+      roughness: 0.34,
+    })
+    const eye = new THREE.MeshBasicMaterial({ color: ENEMY_LOOK.accent, toneMapped: false })
+    const core = new THREE.MeshBasicMaterial({
+      color: ENEMY_LOOK.accent,
+      toneMapped: false,
+      transparent: true,
+    })
+    const barrel = new THREE.MeshBasicMaterial({ color: ENEMY_LOOK.accentHot, toneMapped: false })
     const dPlate = patchDissolve(plate)
-    const dGun = patchDissolve(gunmetal)
-    const dObs = patchDissolve(obsidian)
-    return { plate, gunmetal, obsidian, eye, core, barrel, dPlate, dGun, dObs }
+    const dShell = patchDissolve(shell)
+    const dGun = patchDissolve(gunmetal, { rimStrength: ENEMY_LOOK.rimStrength * 0.5 })
+    const outline = makeOutlineMaterial()
+    return { plate, shell, gunmetal, eye, core, barrel, dPlate, dShell, dGun, outline }
   }, [])
 
   useEffect(() => {
     return () => {
       mats.plate.dispose()
+      mats.shell.dispose()
       mats.gunmetal.dispose()
-      mats.obsidian.dispose()
       mats.eye.dispose()
       mats.core.dispose()
       mats.barrel.dispose()
+      mats.outline.dispose()
     }
   }, [mats])
 
@@ -99,37 +146,82 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
     if (!g) return
 
     const e = entity
+    // new-hit edge detect → flinch impulse + directional spark (N5)
+    if (e.hitFlash > prevFlash.current + 0.001 && e.alive) {
+      flinch.current = 1
+      _v.subVectors(PlayerRef.position, e.position).setY(0)
+      flinchYaw.current = Math.atan2(_v.x, _v.z)
+      _fx.copy(e.position).setY(e.position.y + 1.2).addScaledVector(_v.normalize(), 0.3)
+      VFX.burst({
+        position: _fx,
+        color: ENEMY_LOOK.accentHot,
+        count: 4,
+        speed: 4,
+        life: 0.22,
+        size: 0.04,
+        gravity: -3,
+      })
+    }
+    prevFlash.current = e.hitFlash
     e.hitFlash = Math.max(0, e.hitFlash - dt)
+    flinch.current = Math.max(0, flinch.current - dt * 5)
 
     if (!e.alive) {
+      // corpses must not cast a solid shadow while their shell erodes (N4)
+      if (!shadowsOff.current) {
+        shadowsOff.current = true
+        clearThreat(e.id)
+        g.traverse((o) => {
+          const m = o as THREE.Mesh
+          if (m.isMesh) m.castShadow = false
+        })
+      }
       const t = Math.min(1, e.deathTimer / e.dissolveSec)
       mats.dPlate.uniform.value = t
+      mats.dShell.uniform.value = t
       mats.dGun.uniform.value = t
-      mats.dObs.uniform.value = t
+      mats.outline.setOpacity(ENEMY_LOOK.outline.opacity * Math.max(0, 1 - t * 2.2))
       mats.core.opacity = Math.max(0, 1 - t * 4)
       mats.eye.color.copy(EYE_FULL).multiplyScalar(Math.max(0, 1 - t * 3))
       g.position.copy(e.position)
-      // crumple forward as the shell dissolves
-      g.rotation.x = Math.min(0.9, g.rotation.x + dt * 1.2)
+      // ragdoll-ish collapse: fold at the hips, buckle the knees, fall away
+      const fall = Math.min(1, e.deathTimer / 0.45)
+      const ease = fall * fall * (3 - 2 * fall)
+      g.rotation.x = ease * 1.25
+      if (bodyGroup.current) {
+        bodyGroup.current.position.y = -0.34 * ease
+        bodyGroup.current.rotation.x = 0.55 * ease
+        bodyGroup.current.rotation.z = flinchYaw.current * 0.1
+      }
+      if (kneeL.current) kneeL.current.rotation.x = 1.5 * ease
+      if (kneeR.current) kneeR.current.rotation.x = 1.1 * ease
+      if (hipL.current) hipL.current.rotation.x = -0.6 * ease
+      if (hipR.current) hipR.current.rotation.x = -0.35 * ease
+      if (armL.current) armL.current.rotation.x = -0.9 * ease
+      if (armR.current) armR.current.rotation.x = 0.7 * ease
       return
     }
 
     const playerDist = e.position.distanceTo(PlayerRef.position)
 
-    // --- stagger: kneel, eye flickers ---
+    // --- stagger: kneel, visor flickers ---
     if (e.staggerTimer > 0) {
       e.staggerTimer -= dt
       e.velocity.x = 0
       e.velocity.z = 0
       integrateGround(e, dt)
       g.position.copy(e.position)
+      const kneel = Math.min(1, 8 * dt)
       if (bodyGroup.current) {
-        bodyGroup.current.position.y = THREE.MathUtils.lerp(bodyGroup.current.position.y, -0.4, Math.min(1, 8 * dt))
-        bodyGroup.current.rotation.x = 0.5
+        bodyGroup.current.position.y = THREE.MathUtils.lerp(bodyGroup.current.position.y, -0.42, kneel)
+        bodyGroup.current.rotation.x = THREE.MathUtils.lerp(bodyGroup.current.rotation.x, 0.5, kneel)
       }
-      mats.eye.color.copy(EYE_FULL).multiplyScalar(Math.random() > 0.4 ? 1 : 0.15)
+      if (kneeL.current) kneeL.current.rotation.x = THREE.MathUtils.lerp(kneeL.current.rotation.x, 1.35, kneel)
+      if (hipR.current) hipR.current.rotation.x = THREE.MathUtils.lerp(hipR.current.rotation.x, -0.5, kneel)
+      if (armR.current) armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, 0.2, kneel)
+      mats.eye.color.copy(EYE_HOT).multiplyScalar(Math.random() > 0.4 ? 1 : 0.15)
       if (e.staggerTimer <= 0) e.state = 'attack'
-      e.headPosition.copy(e.position).setY(e.position.y + 1.45)
+      e.headPosition.copy(e.position).setY(e.position.y + 1.5)
       return
     }
     if (bodyGroup.current) {
@@ -152,8 +244,9 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
     e.ai.stateT = (e.ai.stateT ?? 0) + dt
     e.ai.meleeT = Math.max(0, (e.ai.meleeT ?? 0) - dt)
 
-    // RUSH variant: player weak or we outnumber them 3:1
-    const rush = e.alerted && (s.hp < PLAYER.maxHealth * 0.4 || EnemyRegistry.aliveCount() >= 3)
+    // RUSH is a per-soldier trait; desperation only turns the squad's
+    // riflemen aggressive once the player is nearly down.
+    const rush = e.alerted && (isRusher.current || s.hp < PLAYER.maxHealth * 0.25)
 
     let moveSpeed = 0
     _desired.set(0, 0, 0)
@@ -191,6 +284,53 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           e.state = 'attack'
           e.ai.stateT = 0
           e.ai.burstT = BURST_INTERVAL * 0.5
+        }
+        break
+      }
+
+      // ---- wound-up melee (N2): raise → strike → recover ------------------
+      case 'meleeWindup': {
+        e.velocity.x = 0
+        e.velocity.z = 0
+        _v.subVectors(PlayerRef.position, e.position).setY(0).normalize()
+        turnToward(facing.current, _v, 6 * dt)
+        markThreat(e, 'melee', 0.2)
+        if (e.ai.stateT >= MELEE_WINDUP) {
+          e.state = 'meleeStrike'
+          e.ai.stateT = 0
+          e.ai.struck = 0
+          AudioBus.playEnemyChirp()
+        }
+        break
+      }
+
+      case 'meleeStrike': {
+        e.velocity.x = 0
+        e.velocity.z = 0
+        if (e.ai.struck !== 1 && e.ai.stateT >= MELEE_STRIKE * 0.5) {
+          e.ai.struck = 1
+          _v.subVectors(PlayerRef.position, e.position).setY(0)
+          const facingDot = facing.current.dot(_tmp.copy(_v).normalize())
+          if (playerDist < MELEE_RANGE + PlayerRef.radius && facingDot > 0.25) {
+            s.damagePlayer(MELEE_DAMAGE)
+            s.pushDamageEvent({ position: PlayerRef.position.clone(), amount: MELEE_DAMAGE, kind: 'player' })
+            AudioBus.playHurt()
+          }
+          _fx.copy(e.position).setY(e.position.y + 1.25).addScaledVector(facing.current, 0.75)
+          VFX.burst({
+            position: _fx,
+            color: ENEMY_LOOK.accentHot,
+            count: 6,
+            speed: 5,
+            life: 0.22,
+            size: 0.05,
+            gravity: -4,
+          })
+        }
+        if (e.ai.stateT >= MELEE_STRIKE + 0.24) {
+          e.state = 'attack'
+          e.ai.stateT = 0
+          e.ai.meleeT = MELEE_COOLDOWN
         }
         break
       }
@@ -235,9 +375,12 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           // burst fire — only with LOS
           e.ai.burstT = (e.ai.burstT ?? BURST_INTERVAL) - dt
           const telegraphing = e.ai.burstT <= BURST_TELEGRAPH && e.ai.burstT > 0
-          if (telegraphing && e.ai.glinted !== 1) {
-            e.ai.glinted = 1
-            AudioBus.playEnemyChirp()
+          if (telegraphing) {
+            markThreat(e, 'fire', 0.3)
+            if (e.ai.glinted !== 1) {
+              e.ai.glinted = 1
+              AudioBus.playEnemyChirp()
+            }
           }
           if (e.ai.burstT <= 0 && (e.ai.shotsLeft ?? 0) <= 0 && los) {
             e.ai.shotsLeft = BURST_SHOTS
@@ -247,12 +390,12 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           }
         }
 
-        // melee shove
+        // melee: commit to a wind-up instead of damaging on contact
         if (playerDist < MELEE_RANGE && e.ai.meleeT <= 0) {
-          e.ai.meleeT = MELEE_COOLDOWN
-          s.damagePlayer(MELEE_DAMAGE)
-          s.pushDamageEvent({ position: PlayerRef.position.clone(), amount: MELEE_DAMAGE, kind: 'player' })
-          AudioBus.playHurt()
+          e.state = 'meleeWindup'
+          e.ai.stateT = 0
+          e.ai.shotsLeft = 0
+          AudioBus.playEnemyChirp()
         }
         break
       }
@@ -270,13 +413,16 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       if (e.ai.shotT <= 0) {
         e.ai.shotT = BURST_GAP
         e.ai.shotsLeft -= 1
+        markThreat(e, 'fire', 0.5)
         _aimAt.copy(PlayerRef.position).setY(PlayerRef.position.y + PlayerRef.height * 0.45)
         _v.subVectors(_aimAt, e.headPosition)
         if (hasLineOfSight(e.headPosition, _aimAt)) {
           fireEnemyBolt(e.headPosition, _v, BOLT_SPEED, BOLT_DAMAGE)
+          e.ai.muzzle = 0.06
         }
       }
     }
+    e.ai.muzzle = Math.max(0, (e.ai.muzzle ?? 0) - dt)
 
     // --- movement ---
     if (moveSpeed > 0) {
@@ -297,95 +443,274 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
     g.position.copy(e.position)
     g.rotation.y = Math.atan2(facing.current.x, facing.current.z)
 
-    const moving = moveSpeed > 0.1
-    walkPhase.current += dt * (moving ? moveSpeed * 2.4 : 0)
-    const swing = Math.sin(walkPhase.current) * 0.55 * 0.7 // stiff: amplitude ×0.7
-    if (legL.current) legL.current.rotation.x = moving ? swing : 0
-    if (legR.current) legR.current.rotation.x = moving ? -swing : 0
-    if (armL.current) armL.current.rotation.x = moving ? -swing * 0.8 : 0
-    // right arm holds the carbine up when alerted
+    // locomotion: distance-locked stride, blended in and out (N8)
+    const groundSpeed = Math.hypot(e.velocity.x, e.velocity.z)
+    const moving = groundSpeed > 0.35
+    locoW.current += ((moving ? 1 : 0) - locoW.current) * Math.min(1, dt * 7)
+    walkPhase.current += dt * groundSpeed * STRIDE_HZ * Math.PI
+    const w = locoW.current
+    const ph = walkPhase.current
+    idleClock.current += dt
+    const swing = Math.sin(ph) * 0.62 * w
+    const lift = Math.max(0, Math.sin(ph)) // 0..1 per leg, offset below
+    const liftOpp = Math.max(0, Math.sin(ph + Math.PI))
+    // 0.4 Hz breath on its own clock — the stride phase freezes when idle
+    const idleBob = Math.sin(idleClock.current * Math.PI * 0.8) * 0.014 * (1 - w)
+
+    if (hipL.current) hipL.current.rotation.x = swing
+    if (hipR.current) hipR.current.rotation.x = -swing
+    // knees only bend on the recovery half of each stride
+    if (kneeL.current) kneeL.current.rotation.x = (0.12 + liftOpp * 1.15) * w
+    if (kneeR.current) kneeR.current.rotation.x = (0.12 + lift * 1.15) * w
+    // pelvis rise/fall with the stride + idle breath
+    if (bodyGroup.current && e.staggerTimer <= 0) {
+      const bounce = Math.abs(Math.sin(ph)) * 0.045 * w
+      bodyGroup.current.position.y = bounce + idleBob
+    }
+
+    // arms: counter-swing when idle-walking, carbine up when alerted
+    const meleeing = e.state === 'meleeWindup' || e.state === 'meleeStrike'
+    const meleeK = meleeing
+      ? e.state === 'meleeWindup'
+        ? Math.min(1, (e.ai.stateT ?? 0) / MELEE_WINDUP)
+        : 1 - Math.min(1, (e.ai.stateT ?? 0) / (MELEE_STRIKE + 0.24))
+      : 0
+    const lerpK = Math.min(1, 10 * dt)
+    if (armL.current) {
+      const target = meleeing ? -0.5 - meleeK * 0.6 : e.alerted ? -1.15 : -swing * 0.75
+      armL.current.rotation.x = THREE.MathUtils.lerp(armL.current.rotation.x, target, lerpK)
+    }
     if (armR.current) {
-      const raise = e.alerted ? -1.1 : moving ? swing * 0.8 : 0
-      armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, raise, Math.min(1, 8 * dt))
+      const raise = meleeing ? -2.5 * meleeK + 0.9 * (1 - meleeK) : e.alerted ? -1.25 : swing * 0.75
+      armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, raise, lerpK)
+      armR.current.rotation.z = THREE.MathUtils.lerp(armR.current.rotation.z, e.alerted && !meleeing ? -0.32 : 0, lerpK)
+    }
+    if (elbowR.current) {
+      elbowR.current.rotation.x = THREE.MathUtils.lerp(
+        elbowR.current.rotation.x,
+        meleeing ? -0.2 : e.alerted ? -0.85 : -0.15,
+        lerpK,
+      )
+    }
+
+    // spine: forward hunch, counter-rotation against the stride, flinch recoil
+    if (spine.current) {
+      const hunch = THREE.MathUtils.degToRad(9) + (rush && e.state === 'attack' ? 0.16 : 0)
+      const fl = flinch.current * flinch.current
+      spine.current.rotation.x =
+        hunch + Math.sin(ph * 2) * 0.03 * w + Math.sin(idleClock.current * Math.PI * 0.8) * 0.02 * (1 - w) - fl * 0.28
+      spine.current.rotation.y = -Math.sin(ph) * 0.14 * w
+      spine.current.rotation.z = Math.sin(ph + 1.2) * 0.05 * w + fl * 0.12
     }
     if (gun.current) gun.current.visible = true
 
-    // torso hunch 12° (more when rushing)
-    if (bodyGroup.current && e.staggerTimer <= 0) {
-      bodyGroup.current.rotation.x = THREE.MathUtils.degToRad(12) + (rush && e.state === 'attack' ? 0.15 : 0)
-    }
-
-    // eye: dim normally, flared in combat, hot during telegraph
-    const telegraphing = e.state === 'attack' && (e.ai.burstT ?? 1) <= BURST_TELEGRAPH && (e.ai.shotsLeft ?? 0) <= 0
+    // visor / core: dim idle, lit in combat, white-hot on telegraph & hits
+    const telegraphing =
+      (e.state === 'attack' && (e.ai.burstT ?? 1) <= BURST_TELEGRAPH && (e.ai.shotsLeft ?? 0) <= 0) ||
+      e.state === 'meleeWindup'
     if (e.hitFlash > 0) {
       mats.eye.color.set('#FFFFFF')
-      mats.plate.emissive.setScalar(0.9)
+      mats.plate.emissive.setScalar(0.85)
+      mats.shell.emissive.setScalar(0.7)
     } else {
       mats.plate.emissive.setScalar(0)
-      if (telegraphing) mats.eye.color.copy(EYE_FULL).multiplyScalar(2.2)
-      else mats.eye.color.lerpColors(EYE_DIM, EYE_FULL, e.alerted ? 1 : 0.4)
+      mats.shell.emissive.setScalar(0)
+      if (telegraphing) mats.eye.color.copy(EYE_HOT).multiplyScalar(2.4)
+      else mats.eye.color.lerpColors(EYE_DIM, EYE_FULL, e.alerted ? 1 : 0.35)
     }
+    mats.core.color.copy(EYE_FULL).multiplyScalar(e.alerted ? 1.25 : 0.6)
+    mats.barrel.color
+      .copy(EYE_HOT)
+      .multiplyScalar((e.ai.muzzle ?? 0) > 0 ? 6 : telegraphing ? 2.2 : 0.7)
   })
+
+  const o = mats.outline.material
 
   return (
     <group ref={group} position={entity.position.toArray()}>
       <group ref={bodyGroup}>
-        {/* torso — angular white plate stack */}
-        <mesh material={mats.plate} position={[0, 1.15, 0]} castShadow>
-          <boxGeometry args={[0.52, 0.5, 0.3]} />
+        {/* ---- pelvis ---- */}
+        <mesh material={mats.shell} position={[0, 0.94, 0]} castShadow>
+          <boxGeometry args={[0.36, 0.24, 0.26]} />
         </mesh>
-        <mesh material={mats.plate} position={[0, 0.88, 0]} castShadow>
-          <boxGeometry args={[0.4, 0.22, 0.26]} />
+        <mesh material={o} position={[0, 0.94, 0]}>
+          <boxGeometry args={[0.36, 0.24, 0.26]} />
         </mesh>
-        {/* shoulder plates — slight Cadence asymmetry */}
-        <mesh material={mats.plate} position={[-0.34, 1.36, 0]} rotation-z={0.25} castShadow>
-          <boxGeometry args={[0.22, 0.14, 0.3]} />
-        </mesh>
-        <mesh material={mats.plate} position={[0.36, 1.33, 0]} rotation-z={-0.15} castShadow>
-          <boxGeometry args={[0.16, 0.12, 0.26]} />
-        </mesh>
-        {/* teal chest core (weakpoint) */}
-        <mesh material={mats.core} position={[0, 1.18, 0.17]}>
-          <sphereGeometry args={[0.07, 10, 8]} />
-        </mesh>
-        {/* wedge head with vertical teal eye-slit */}
-        <mesh material={mats.plate} position={[0, 1.56, 0]} rotation-y={Math.PI / 4} castShadow>
-          <boxGeometry args={[0.22, 0.26, 0.22]} />
-        </mesh>
-        <mesh material={mats.eye} position={[0, 1.58, 0.14]}>
-          <boxGeometry args={[0.03, 0.16, 0.04]} />
-        </mesh>
-        {/* arms — gunmetal capsules */}
-        <group ref={armL} position={[-0.34, 1.32, 0]}>
-          <mesh material={mats.gunmetal} position={[0, -0.3, 0]} castShadow>
-            <capsuleGeometry args={[0.07, 0.5, 4, 8]} />
+
+        <group ref={spine} position={[0, 1.04, 0]}>
+          {/* ---- torso: tapered chest, raised crest, back reactor ---- */}
+          <mesh material={mats.shell} position={[0, 0.22, 0]} castShadow>
+            <boxGeometry args={[0.46, 0.44, 0.3]} />
           </mesh>
-        </group>
-        <group ref={armR} position={[0.34, 1.32, 0]}>
-          <mesh material={mats.gunmetal} position={[0, -0.3, 0]} castShadow>
-            <capsuleGeometry args={[0.07, 0.5, 4, 8]} />
+          <mesh material={o} position={[0, 0.22, 0]}>
+            <boxGeometry args={[0.46, 0.44, 0.3]} />
           </mesh>
-          {/* pulse carbine: obsidian box + teal barrel glow */}
-          <group ref={gun} position={[0, -0.55, 0.18]}>
-            <mesh material={mats.obsidian} castShadow>
-              <boxGeometry args={[0.09, 0.12, 0.55]} />
+          {/* chest deck plate — catches the key, reads as armour not a box */}
+          <mesh material={mats.plate} position={[0, 0.3, 0.155]} rotation-x={-0.22} castShadow>
+            <boxGeometry args={[0.38, 0.3, 0.07]} />
+          </mesh>
+          <mesh material={mats.plate} position={[0, 0.06, 0.13]} rotation-x={0.3} castShadow>
+            <boxGeometry args={[0.3, 0.2, 0.06]} />
+          </mesh>
+          {/* crimson chest core (weakpoint) in a recessed collar */}
+          <mesh material={mats.gunmetal} position={[0, 0.2, 0.17]}>
+            <cylinderGeometry args={[0.075, 0.09, 0.06, 10]} />
+          </mesh>
+          <mesh material={mats.core} position={[0, 0.2, 0.2]}>
+            <sphereGeometry args={[0.055, 10, 8]} />
+          </mesh>
+          {/* back pack / power cell */}
+          <mesh material={mats.gunmetal} position={[0, 0.2, -0.2]} castShadow>
+            <boxGeometry args={[0.3, 0.38, 0.14]} />
+          </mesh>
+          <mesh material={mats.core} position={[0, 0.06, -0.28]}>
+            <boxGeometry args={[0.18, 0.04, 0.02]} />
+          </mesh>
+
+          {/* ---- pauldron deck: broad, layered, asymmetric (~0.92 m span) ---- */}
+          {[-1, 1].map((side) => (
+            <group key={side} position={[side * 0.3, 0.4, 0]}>
+              <mesh
+                material={mats.plate}
+                position={[side * 0.08, 0.02, 0]}
+                rotation-z={side * 0.34}
+                castShadow
+              >
+                <boxGeometry args={[0.3, 0.16, 0.34]} />
+              </mesh>
+              <mesh
+                material={mats.shell}
+                position={[side * 0.15, -0.08, 0]}
+                rotation-z={side * 0.5}
+                castShadow
+              >
+                <boxGeometry args={[0.22, 0.13, 0.3]} />
+              </mesh>
+              {/* outer spur — the wide read at distance */}
+              <mesh
+                material={mats.plate}
+                position={[side * (side < 0 ? 0.2 : 0.17), 0.08, -0.02]}
+                rotation-z={side * 0.18}
+                castShadow
+              >
+                <boxGeometry args={[0.13, 0.1, 0.24]} />
+              </mesh>
+              <mesh material={o} position={[side * 0.08, 0.02, 0]} rotation-z={side * 0.34}>
+                <boxGeometry args={[0.3, 0.16, 0.34]} />
+              </mesh>
+            </group>
+          ))}
+
+          {/* ---- armoured collar + crested helmet ---- */}
+          <mesh material={mats.gunmetal} position={[0, 0.46, 0]} castShadow>
+            <cylinderGeometry args={[0.1, 0.14, 0.1, 8]} />
+          </mesh>
+          <mesh material={mats.shell} position={[0, 0.58, -0.01]} castShadow>
+            <boxGeometry args={[0.23, 0.24, 0.26]} />
+          </mesh>
+          <mesh material={o} position={[0, 0.58, -0.01]}>
+            <boxGeometry args={[0.23, 0.24, 0.26]} />
+          </mesh>
+          {/* muzzle-shaped faceplate wedge */}
+          <mesh material={mats.plate} position={[0, 0.55, 0.13]} rotation-x={0.22} castShadow>
+            <boxGeometry args={[0.19, 0.16, 0.08]} />
+          </mesh>
+          {/* crest fin — silhouette signature of the VOTARY */}
+          <mesh material={mats.plate} position={[0, 0.72, -0.02]} castShadow>
+            <boxGeometry args={[0.035, 0.14, 0.26]} />
+          </mesh>
+          <mesh material={mats.plate} position={[0, 0.66, -0.15]} rotation-x={0.5} castShadow>
+            <boxGeometry args={[0.035, 0.12, 0.16]} />
+          </mesh>
+          {/* horizontal visor slit */}
+          <mesh material={mats.eye} position={[0, 0.58, 0.165]}>
+            <boxGeometry args={[0.16, 0.032, 0.03]} />
+          </mesh>
+
+          {/* ---- arms ---- */}
+          <group ref={armL} position={[-0.3, 0.32, 0]}>
+            <mesh material={mats.plate} position={[0, -0.06, 0]} castShadow>
+              <boxGeometry args={[0.14, 0.14, 0.16]} />
             </mesh>
-            <mesh material={mats.barrel} position={[0, 0, 0.3]}>
-              <boxGeometry args={[0.03, 0.03, 0.12]} />
+            <mesh material={mats.gunmetal} position={[0, -0.28, 0]} castShadow>
+              <capsuleGeometry args={[0.062, 0.34, 4, 8]} />
+            </mesh>
+            <mesh material={mats.shell} position={[0, -0.52, 0.04]} castShadow>
+              <boxGeometry args={[0.12, 0.26, 0.13]} />
+            </mesh>
+          </group>
+          <group ref={armR} position={[0.3, 0.32, 0]}>
+            <mesh material={mats.plate} position={[0, -0.06, 0]} castShadow>
+              <boxGeometry args={[0.14, 0.14, 0.16]} />
+            </mesh>
+            <mesh material={mats.gunmetal} position={[0, -0.26, 0]} castShadow>
+              <capsuleGeometry args={[0.062, 0.3, 4, 8]} />
+            </mesh>
+            <group ref={elbowR} position={[0, -0.42, 0]}>
+              <mesh material={mats.shell} position={[0, -0.12, 0.03]} castShadow>
+                <boxGeometry args={[0.12, 0.26, 0.13]} />
+              </mesh>
+              {/* pulse carbine: dark receiver, crimson heat sink */}
+              <group ref={gun} position={[-0.14, -0.2, 0.2]} rotation-y={0.18}>
+                <mesh material={mats.gunmetal} castShadow>
+                  <boxGeometry args={[0.075, 0.1, 0.5]} />
+                </mesh>
+                <mesh material={mats.shell} position={[0, 0.08, -0.08]} castShadow>
+                  <boxGeometry args={[0.06, 0.07, 0.22]} />
+                </mesh>
+                <mesh material={mats.gunmetal} position={[0, -0.09, -0.12]} rotation-x={-0.28} castShadow>
+                  <boxGeometry args={[0.05, 0.16, 0.06]} />
+                </mesh>
+                <mesh material={mats.barrel} position={[0, 0.0, 0.29]}>
+                  <boxGeometry args={[0.022, 0.022, 0.16]} />
+                </mesh>
+                <mesh material={mats.core} position={[0, 0.045, 0.08]}>
+                  <boxGeometry args={[0.03, 0.012, 0.16]} />
+                </mesh>
+              </group>
+            </group>
+          </group>
+        </group>
+
+        {/* ---- legs: thigh → shin → wedge boot ---- */}
+        <group ref={hipL} position={[-0.14, 0.9, 0]}>
+          <mesh material={mats.shell} position={[0, -0.2, 0]} castShadow>
+            <capsuleGeometry args={[0.085, 0.26, 4, 8]} />
+          </mesh>
+          <mesh material={mats.plate} position={[-0.03, -0.18, 0.02]} rotation-z={0.12} castShadow>
+            <boxGeometry args={[0.1, 0.24, 0.16]} />
+          </mesh>
+          <group ref={kneeL} position={[0, -0.4, 0]}>
+            <mesh material={mats.gunmetal} position={[0, -0.18, 0]} castShadow>
+              <capsuleGeometry args={[0.065, 0.28, 4, 8]} />
+            </mesh>
+            <mesh material={mats.plate} position={[0, -0.14, 0.05]} castShadow>
+              <boxGeometry args={[0.1, 0.2, 0.08]} />
+            </mesh>
+            <mesh material={mats.shell} position={[0, -0.445, 0.045]} castShadow>
+              <boxGeometry args={[0.12, 0.09, 0.24]} />
             </mesh>
           </group>
         </group>
-      </group>
-      {/* legs */}
-      <group ref={legL} position={[-0.15, 0.82, 0]}>
-        <mesh material={mats.gunmetal} position={[0, -0.4, 0]} castShadow>
-          <capsuleGeometry args={[0.09, 0.66, 4, 8]} />
-        </mesh>
-      </group>
-      <group ref={legR} position={[0.15, 0.82, 0]}>
-        <mesh material={mats.gunmetal} position={[0, -0.4, 0]} castShadow>
-          <capsuleGeometry args={[0.09, 0.66, 4, 8]} />
-        </mesh>
+        <group ref={hipR} position={[0.14, 0.9, 0]}>
+          <mesh material={mats.shell} position={[0, -0.2, 0]} castShadow>
+            <capsuleGeometry args={[0.085, 0.26, 4, 8]} />
+          </mesh>
+          <mesh material={mats.plate} position={[0.03, -0.18, 0.02]} rotation-z={-0.12} castShadow>
+            <boxGeometry args={[0.1, 0.24, 0.16]} />
+          </mesh>
+          <group ref={kneeR} position={[0, -0.4, 0]}>
+            <mesh material={mats.gunmetal} position={[0, -0.18, 0]} castShadow>
+              <capsuleGeometry args={[0.065, 0.28, 4, 8]} />
+            </mesh>
+            <mesh material={mats.plate} position={[0, -0.14, 0.05]} castShadow>
+              <boxGeometry args={[0.1, 0.2, 0.08]} />
+            </mesh>
+            <mesh material={mats.shell} position={[0, -0.445, 0.045]} castShadow>
+              <boxGeometry args={[0.12, 0.09, 0.24]} />
+            </mesh>
+          </group>
+        </group>
       </group>
     </group>
   )

@@ -38,6 +38,56 @@ const _rayDir = new THREE.Vector3()
 const _prevVel = new THREE.Vector3()
 const _lookDir = new THREE.Vector3()
 const _downhill = new THREE.Vector3()
+const _probeOrigin = new THREE.Vector3()
+
+// ---------------------------------------------------------------------------
+// Ground probe (weakness: a SINGLE centre ray reported "air" on the spawn dais
+// and the chamber floor whenever it grazed a box edge, because boxNormalAt()
+// tests the X faces first and hands an edge hit a (±1,0,0) wall normal).
+//
+// Five samples — capsule axis plus four rim points — and any hit that lands on
+// a collider's TOP face is forced to the floor normal. Closest walkable hit
+// wins, so a foot half over a ledge still reports grounded.
+// ---------------------------------------------------------------------------
+const PROBE_OFFSETS: readonly (readonly [number, number])[] = [
+  [0, 0],
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+]
+
+const _ground = { found: false, distance: 0, nx: 0, ny: 1, nz: 0 }
+
+function probeGround(pos: THREE.Vector3, radius: number, height: number) {
+  const far = height * 0.5 + MOVE.groundSnap
+  const r = radius * 0.62
+  _ground.found = false
+  _ground.distance = Infinity
+  for (const [ox, oz] of PROBE_OFFSETS) {
+    _probeOrigin.set(pos.x + ox * r, pos.y + height * 0.5, pos.z + oz * r)
+    const hit = raycastLevel(_probeOrigin, DOWN, far)
+    if (!hit) continue
+    let nx = hit.normal.x
+    let ny = hit.normal.y
+    let nz = hit.normal.z
+    // a downward ray that lands within 2 cm of the box top IS standing on it
+    if (Math.abs(hit.point.y - hit.collider.box.max.y) < 0.02) {
+      nx = 0
+      ny = 1
+      nz = 0
+    }
+    if (ny < WALKABLE_NY) continue
+    if (hit.distance < _ground.distance) {
+      _ground.found = true
+      _ground.distance = hit.distance
+      _ground.nx = nx
+      _ground.ny = ny
+      _ground.nz = nz
+    }
+  }
+  return _ground
+}
 
 interface Sim {
   grounded: boolean
@@ -418,13 +468,19 @@ export default function PlayerController() {
     }
     P.height = m.curHeight
 
-    // -- grounding probe (raycast down from capsule center) ----------------------------
+    // -- grounding probe (5-sample capsule sweep, see probeGround) ---------------------
     _center.copy(P.position)
     _center.y += m.curHeight * 0.5
-    const groundHit = raycastLevel(_center, DOWN, m.curHeight * 0.5 + MOVE.groundSnap)
-    const rayGrounded = !!groundHit && groundHit.normal.y >= WALKABLE_NY && v.y <= 0.01
+    const gp = probeGround(P.position, P.radius, m.curHeight)
+    const rayGrounded = gp.found && v.y <= 0.01
     m.grounded = rayGrounded
-    if (rayGrounded && groundHit) m.groundNormal.copy(groundHit.normal)
+    if (rayGrounded) {
+      m.groundNormal.set(gp.nx, gp.ny, gp.nz)
+      // settle the feet onto the surface instead of hovering on the snap slack
+      const surfaceY = P.position.y + m.curHeight * 0.5 - gp.distance
+      const gap = P.position.y - surfaceY
+      if (gap > 1e-4 && gap <= MOVE.groundSnap) P.position.y = surfaceY
+    }
     if (m.grounded) {
       m.coyote = MOVE.coyoteTime
       m.jumpsLeft = 1

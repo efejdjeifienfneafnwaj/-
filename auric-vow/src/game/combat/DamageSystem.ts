@@ -6,6 +6,14 @@
  *
  * Global crit rule: headshot/weakpoint ×2.0. Ability kills grant bonus score
  * and +10 energy (handled by store.registerKill).
+ *
+ * [combat-feel R1] This file also owns `ImpactFx` — the pooled, velocity-
+ * aligned *stretched* spark system every impact in the game sprays. The VFX
+ * bus only knows one round soft blob (weakness V3), which reads as fog at
+ * 30 m; a hit needs streaks that point away from the surface so the eye can
+ * tell what was hit and from where. One InstancedMesh of crossed quads,
+ * per-instance colour for the fade, zero runtime allocation. `WeaponSystems`
+ * mounts `ImpactFx.object` once and ticks `ImpactFx.update(dt)`.
  */
 import * as THREE from 'three'
 import { EnemyRegistry, type EnemyHandle } from '@/game/enemies/EnemyRegistry'
@@ -24,6 +32,12 @@ export interface ResolveHitOpts {
   /** stagger meter add (combat.md §6: katana 30, dash 25, javelin 15, requiem 100, aegis 40) */
   stagger?: number
   knockback?: THREE.Vector3
+  /**
+   * [combat-feel R1] Direction the damage travelled in (unit, optional).
+   * Spark ejecta is sprayed back along it so the streaks read as material
+   * thrown off the surface rather than a symmetric puff.
+   */
+  dir?: THREE.Vector3
 }
 
 export interface ResolvedHit {
@@ -65,19 +79,40 @@ export function resolveEnemyHit(
     kind,
   })
 
-  // on-flesh impact: teal sparks + faint viridian glow flash (combat.md §1.1)
+  // ---- on-flesh impact ------------------------------------------------
+  // [combat-feel R1] Three layers, all with life >= 0.08 s so a 33 ms capture
+  // step can never land between them (work order combat-feel #2):
+  //   1. stretched ejecta streaks sprayed back along the incoming direction
+  //   2. the bus' soft teal bleed blob underneath, for volume
+  //   3. a short impact light so the hit actually relights the enemy plates
+  _ejecta.set(0, 0, 0)
+  if (opts.dir) _ejecta.copy(opts.dir).multiplyScalar(-1)
+  else _ejecta.copy(opts.point).sub(enemy.position).setY(0.35)
+  if (_ejecta.lengthSq() < 1e-6) _ejecta.set(0, 1, 0)
+  _ejecta.normalize()
+  ImpactFx.sparks(opts.point, _ejecta, crit ? 10 : 6, {
+    speed: crit ? 9 : 6.5,
+    spread: 0.62,
+    color: crit ? COLORS.solarWhite : COLORS.aureate,
+    life: 0.26,
+    width: crit ? 0.026 : 0.02,
+  })
   VFX.burst({
     position: opts.point,
     color: COLORS.cadenceTeal,
-    count: crit ? 10 : 6,
+    count: crit ? 8 : 5,
     speed: 4,
     life: 0.25,
     size: 0.05,
     gravity: 4,
   })
-  if (crit) {
-    VFX.flash({ position: opts.point, color: COLORS.viridianFlare, intensity: 6, distance: 3, life: 0.08 })
-  }
+  VFX.flash({
+    position: opts.point,
+    color: crit ? COLORS.solarWhite : COLORS.aureate,
+    intensity: crit ? 9 : 5,
+    distance: crit ? 4 : 3,
+    life: 0.09,
+  })
 
   AudioBus.playHit()
 
@@ -102,7 +137,17 @@ export function resolveEnemyHit(
       size: 0.06,
       gravity: 3,
     })
-    VFX.flash({ position: opts.point, color: COLORS.aureate, intensity: 8, distance: 5, life: 0.1 })
+    // [combat-feel R1] a kill throws a full sphere of long streaks, so death
+    // reads differently from a body hit even with the numbers turned off
+    ImpactFx.sparks(opts.point, _ejecta, 16, {
+      speed: 11,
+      spread: 1.35,
+      color: COLORS.aureate,
+      life: 0.42,
+      width: 0.028,
+      gravity: 7,
+    })
+    VFX.flash({ position: opts.point, color: COLORS.aureate, intensity: 8, distance: 5, life: 0.12 })
   }
 
   return { applied: true, killed, amount, crit }
@@ -194,3 +239,211 @@ export function raycastEnemies(
 }
 
 const _bodyC = new THREE.Vector3()
+
+
+// ---------------------------------------------------------------------------
+// [combat-feel R1] ImpactFx — pooled velocity-aligned spark ejecta
+//
+// One InstancedMesh of crossed quads (so a streak never vanishes edge-on),
+// +Y = travel direction, vertex alpha ramping 0 at the tail to 1 at the head,
+// per-instance colour carrying the life fade. Additive, toneMapped:false,
+// depthWrite:false. Nothing is allocated after module load.
+// ---------------------------------------------------------------------------
+
+const SPARK_COUNT = 192
+
+interface Spark {
+  active: boolean
+  age: number
+  life: number
+  width: number
+  gravity: number
+  drag: number
+  pos: THREE.Vector3
+  vel: THREE.Vector3
+  color: THREE.Color
+}
+
+/** crossed-quad streak: pivot at the tail, unit length along +Y */
+function makeStreakGeometry(): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry()
+  // two perpendicular quads sharing the same axis
+  const pos = new Float32Array([
+    // XY quad (normal ±Z)
+    -0.5, 0, 0, 0.5, 0, 0, 0.5, 1, 0, -0.5, 1, 0,
+    // ZY quad (normal ±X)
+    0, 0, -0.5, 0, 0, 0.5, 0, 1, 0.5, 0, 1, -0.5,
+  ])
+  // RGBA: tail transparent, head opaque — the streak fades along its length
+  const col = new Float32Array([
+    1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, //
+    1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1,
+  ])
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+  g.setAttribute('color', new THREE.BufferAttribute(col, 4))
+  g.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7])
+  return g
+}
+
+const _sparkDummy = new THREE.Object3D()
+const _sparkColor = new THREE.Color()
+const _sparkUp = new THREE.Vector3(0, 1, 0)
+const _sparkDir = new THREE.Vector3()
+const _sparkJitter = new THREE.Vector3()
+const _ejecta = new THREE.Vector3()
+
+function makeImpactFx() {
+  const geo = makeStreakGeometry()
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  })
+  const mesh = new THREE.InstancedMesh(geo, mat, SPARK_COUNT)
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+  mesh.frustumCulled = false
+  mesh.renderOrder = 20
+  const group = new THREE.Group()
+  group.add(mesh)
+
+  const pool: Spark[] = Array.from({ length: SPARK_COUNT }, () => ({
+    active: false,
+    age: 0,
+    life: 0,
+    width: 0.02,
+    gravity: 6,
+    drag: 3,
+    pos: new THREE.Vector3(),
+    vel: new THREE.Vector3(),
+    color: new THREE.Color(),
+  }))
+
+  // park every instance and prime the per-instance colour buffer
+  for (let i = 0; i < SPARK_COUNT; i++) {
+    _sparkDummy.position.set(0, -1000, 0)
+    _sparkDummy.quaternion.identity()
+    _sparkDummy.scale.setScalar(0.00001)
+    _sparkDummy.updateMatrix()
+    mesh.setMatrixAt(i, _sparkDummy.matrix)
+    mesh.setColorAt(i, _sparkColor.setRGB(0, 0, 0))
+  }
+  mesh.instanceMatrix.needsUpdate = true
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+
+  let cursor = 0
+  let live = 0
+
+  return {
+    /** mount this once inside the Canvas (WeaponSystems does it) */
+    object: group as THREE.Object3D,
+
+    /**
+     * Spray `count` stretched sparks from `point`, centred on `dir`.
+     * `spread` is the cone half-angle factor (0 = a needle, 1.4 ≈ a sphere).
+     */
+    sparks(
+      point: THREE.Vector3,
+      dir: THREE.Vector3,
+      count: number,
+      opts?: {
+        speed?: number
+        spread?: number
+        color?: number | string
+        life?: number
+        width?: number
+        gravity?: number
+      },
+    ): void {
+      const speed = opts?.speed ?? 7
+      const spread = opts?.spread ?? 0.6
+      const life = Math.max(0.09, opts?.life ?? 0.25)
+      const width = opts?.width ?? 0.02
+      const gravity = opts?.gravity ?? 6
+      _sparkColor.set((opts?.color ?? COLORS.aureate) as never)
+      for (let n = 0; n < count; n++) {
+        // round-robin over the pool: a burst never starves behind stale sparks
+        const s = pool[cursor % SPARK_COUNT]!
+        cursor++
+        if (!s.active) live++
+        s.active = true
+        s.age = 0
+        s.life = life * (0.72 + Math.random() * 0.56)
+        s.width = width * (0.7 + Math.random() * 0.7)
+        s.gravity = gravity
+        s.drag = 2.4 + Math.random() * 2
+        s.pos.copy(point)
+        _sparkJitter
+          .set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5)
+          .multiplyScalar(spread * 2)
+        _sparkDir.copy(dir).add(_sparkJitter)
+        if (_sparkDir.lengthSq() < 1e-6) _sparkDir.set(0, 1, 0)
+        _sparkDir.normalize()
+        s.vel.copy(_sparkDir).multiplyScalar(speed * (0.45 + Math.random() * 0.9))
+        s.color.copy(_sparkColor)
+      }
+    },
+
+    /** advance the pool; call once per frame with the scaled combat dt */
+    update(dt: number): void {
+      if (live === 0) return
+      let dirty = false
+      for (let i = 0; i < SPARK_COUNT; i++) {
+        const s = pool[i]!
+        if (!s.active) continue
+        dirty = true
+        s.age += dt
+        if (s.age >= s.life) {
+          s.active = false
+          live--
+          _sparkDummy.position.set(0, -1000, 0)
+          _sparkDummy.quaternion.identity()
+          _sparkDummy.scale.setScalar(0.00001)
+          _sparkDummy.updateMatrix()
+          mesh.setMatrixAt(i, _sparkDummy.matrix)
+          continue
+        }
+        // integrate: gravity + air drag, so streaks arc and shorten as they die
+        s.vel.y -= s.gravity * dt
+        s.vel.multiplyScalar(Math.max(0, 1 - s.drag * dt))
+        s.pos.addScaledVector(s.vel, dt)
+        const speed = s.vel.length()
+        if (speed > 1e-4) {
+          _sparkDir.copy(s.vel).divideScalar(speed)
+          _sparkDummy.quaternion.setFromUnitVectors(_sparkUp.set(0, 1, 0), _sparkDir)
+        }
+        const t = s.age / s.life
+        const fade = (1 - t) * (1 - t * 0.35)
+        // length tracks speed: fast sparks are long needles, dying ones are dots
+        const len = THREE.MathUtils.clamp(speed * 0.045, 0.05, 0.55)
+        _sparkDummy.position.copy(s.pos)
+        _sparkDummy.scale.set(s.width, len, s.width)
+        _sparkDummy.updateMatrix()
+        mesh.setMatrixAt(i, _sparkDummy.matrix)
+        mesh.setColorAt(i, _sparkColor.copy(s.color).multiplyScalar(fade))
+      }
+      if (dirty) {
+        mesh.instanceMatrix.needsUpdate = true
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      }
+    },
+
+    /** run restart: drop every live streak */
+    clear(): void {
+      for (let i = 0; i < SPARK_COUNT; i++) {
+        pool[i]!.active = false
+        _sparkDummy.position.set(0, -1000, 0)
+        _sparkDummy.scale.setScalar(0.00001)
+        _sparkDummy.updateMatrix()
+        mesh.setMatrixAt(i, _sparkDummy.matrix)
+      }
+      live = 0
+      mesh.instanceMatrix.needsUpdate = true
+    },
+  }
+}
+
+export const ImpactFx = makeImpactFx()

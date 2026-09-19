@@ -24,7 +24,7 @@ export function CombatSystems() {
 }
 
 export { WeaponViewModel } from './ViewModel'
-export { resolveEnemyHit, raycastEnemies, rifleFalloff } from './DamageSystem'
+export { resolveEnemyHit, raycastEnemies, rifleFalloff, ImpactFx } from './DamageSystem'
 export { CombatState, getCombatHudSnapshot, onCombatEvent, canFight, resetCombat } from './state'
 export type { CombatEvent, CombatHudSnapshot, AbilityHudInfo, AbilityId } from './state'
 export { getMuzzleWorld } from './Weapons'
