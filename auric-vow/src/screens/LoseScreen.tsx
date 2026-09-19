@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from 'react'
 import { COLORS } from '@/game/config'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore, selectTallies } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
 import '@/game/hud/hud.css'
@@ -26,7 +27,7 @@ function useStage(count: number, step = 150, delay = 300): number {
 }
 
 export default function LoseScreen({ onRetry, onTitle }: Props) {
-  const { kills, score } = useGameStore(selectTallies)
+  const { kills, score } = useGameStore(useShallow(selectTallies))
   const stage = useStage(4)
 
   const rows: [string, string][] = [

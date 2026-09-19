@@ -98,8 +98,28 @@ const VOLLEY_SPAWN_INTERVAL = 0.03
 const JAVELIN_FORWARD = 1.6
 const JAVELIN_LATERAL = 0.45
 /** windup emissive ceiling — seven full-brightness cores wash the frame */
-const JAVELIN_WINDUP_MIN = 0.12
-const JAVELIN_WINDUP_MAX = 0.55
+/**
+ * [vfx R3] 0.12/0.55 -> 0.45/1.15. Those numbers were chosen in R2 to stop a
+ * spear that was drawn at CONSTANT alpha across its whole cone from blowing
+ * the frame out. Now that every layer's alpha comes from how much of the
+ * volume the eye is looking through, the visible area of a spear is roughly
+ * halved and its silhouette goes to zero — so the same numbers made the
+ * javelins disappear entirely (measured: B2_volley_flight, the fan is not
+ * legible at 11 m). The shape is doing the exposure control now, so the
+ * energy can go back up.
+ */
+const JAVELIN_WINDUP_MIN = 0.2
+const JAVELIN_WINDUP_MAX = 0.7
+/**
+ * Master gain on a javelin in flight. MEASURED CEILING: `uIntensity` scales
+ * the colour AND the alpha, so it is quadratic in emitted energy. At 1.55 with
+ * the windup range at 0.45–1.15, seven spears × three layers × two faces of
+ * HDR gold pinned the entire bloom pyramid and the capture came back as a
+ * uniformly white frame (V1_volley_flight). 1.0 with the volumetric falloff
+ * emits materially LESS than the round 2 constant-alpha spear did, so this is
+ * the safe side of the number that was already shipping.
+ */
+const JAVELIN_FLIGHT_GAIN = 1.0
 
 // ---- A3 Aegis Halo (§3.3) ----
 const AEGIS_DURATION = 5
@@ -155,7 +175,6 @@ let dashLight: TrackedLightHandle | null = null
 /** [vfx R2] spark-shedder clock for the Requiem pillars (module scope: one ult) */
 let pillarSparkClock = 0
 /** [vfx R2] shared spark-shedder clock for javelins in flight */
-let javelinSparkClock = 0
 /** [vfx R2] the Aegis barrier's own leased light — a shell that lights nothing
  *  is a decal painted on the air (work order item 8: one light per cluster) */
 let aegisLight: TrackedLightHandle | null = null
@@ -178,6 +197,50 @@ function tryCast(id: AbilityId): boolean {
   emitCombat({ type: 'cast', id })
   return true
 }
+
+// ---------------------------------------------------------------------------
+// [vfx R3] Dash afterimage material (C6)
+//
+// The ghosts were solid additive capsules at 0.9 opacity: three filled gold
+// pills standing behind the player. An afterimage is not a copy of the body,
+// it is the EDGE the body left behind — so this draws rim only, with a scan
+// climbing the silhouette and a vertical dissolve that eats the ghost from
+// the feet up as it ages.
+// ---------------------------------------------------------------------------
+
+const GHOST_VERT = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vLocal;
+void main() {
+  vLocal = position;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vN = normalize(mat3(modelMatrix) * normal);
+  vV = cameraPosition - wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`
+
+const GHOST_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform float uTime;
+uniform float uAge;
+varying vec3 vN;
+varying vec3 vV;
+varying vec3 vLocal;
+void main() {
+  float ndv = clamp(abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0);
+  float rim = pow(1.0 - ndv, 2.1);
+  // energy scan travelling up the silhouette
+  float scan = 0.55 + 0.45 * sin(vLocal.y * 23.0 - uTime * 11.0);
+  // dissolve from the feet up as the afterimage ages
+  float diss = smoothstep(uAge * 1.6 - 0.35, uAge * 1.6 + 0.25, vLocal.y + 0.6);
+  float a = rim * mix(0.55, 1.0, scan) * diss * uOpacity;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uColor * (0.7 + rim * 2.1), a);
+}
+`
 
 // ---------------------------------------------------------------------------
 // A1 — Gilt Dash
@@ -218,6 +281,9 @@ function castDash(camera: THREE.Camera) {
   VFX.burst({ position: _pt, color: COLORS.aureate, count: 44, speed: 3, life: 0.4, size: 0.07, gravity: -1.5, stretch: 0.85 })
   VFX.burst({ position: _pt, color: COLORS.aureate, count: 30, speed: 2, life: 0.7, size: 0.09, gravity: -0.5, shape: 'ember' })
   VFX.burst({ position: _pt, color: COLORS.aureate, count: 6, speed: 2.2, life: 0.8, size: 0.09, gravity: -0.2, shape: 'smoke' })
+  // [vfx R3] the launch displaces the air behind the player: a short, sharp
+  // refraction pop that bends the deck and the wall the dash left from
+  VFX.distort({ position: _pt, maxRadius: 3.2, life: 0.26, strength: 0.02, compress: 0.15, tint: COLORS.aureate })
   // the dash carries its own light for its whole 0.45 s (V17), so the walls
   // the player blinks past actually register the pass
   dashLight?.release()
@@ -232,7 +298,7 @@ function castDash(camera: THREE.Camera) {
 
 function updateDash(
   ghostRefs: (THREE.Group | null)[],
-  ghostMats: THREE.MeshBasicMaterial[][],
+  ghostMats: THREE.ShaderMaterial[][],
   ghostSpawnAt: number[],
 ) {
   const cs = CombatState
@@ -290,7 +356,7 @@ function updateDash(
 
 function updateGhosts(
   ghostRefs: (THREE.Group | null)[],
-  ghostMats: THREE.MeshBasicMaterial[][],
+  ghostMats: THREE.ShaderMaterial[][],
   ghostSpawnAt: number[],
 ) {
   const cs = CombatState
@@ -302,8 +368,15 @@ function updateGhosts(
       g.visible = false
       continue
     }
-    const o = 0.9 * (1 - age / GHOST_FADE) // brighter afterimages (fix1)
-    for (const m of ghostMats[i]) m.opacity = o
+    const t = age / GHOST_FADE
+    // attack far faster than the decay: the afterimage is at full strength
+    // for the first fifth of its life and then falls on a cubic
+    const o = 1.15 * (1 - t) * (1 - t) * (1 - t * 0.3)
+    for (const m of ghostMats[i]) {
+      m.uniforms.uOpacity!.value = o
+      m.uniforms.uTime!.value = cs.clock
+      m.uniforms.uAge!.value = t
+    }
   }
 }
 
@@ -313,12 +386,15 @@ function updateGhosts(
 
 function castVolley() {
   const cs = CombatState
+  // seven spears are about to own a chunk of the frame in additive gold. Tell
+  // the bloom governor, or the pyramid is pinned by the fan and every other
+  // discrete source in the frame dissolves into milk.
+  addBloomLoad(0.7)
   cs.volleyActive = true
   cs.volleyWindupUntil = cs.clock + VOLLEY_WINDUP
   cs.volleyNextSpawnAt = cs.clock
   cs.volleySpawned = 0
   cs.volleyLaunched = false
-  javelinSparkClock = 0
   AudioBus.playAbility()
 }
 
@@ -361,6 +437,9 @@ function javelinBurst(pos: THREE.Vector3, normal?: THREE.Vector3) {
   VFX.burst({ position: pos, color: COLORS.aureate, count: 5, speed: 1.6, life: 0.7, size: 0.1, gravity: -0.5, shape: 'smoke' })
   VFX.ring({ position: pos, color: COLORS.aureate, maxRadius: 1.6, life: 0.3, width: 0.16, normal })
   VFX.flash({ position: pos, color: COLORS.solarWhite, intensity: 32, distance: 15, life: 0.12 })
+  // [vfx R3] the air in front of the impact is displaced for a sixth of a
+  // second — the pressure element every AAA impact has and this had none of
+  VFX.distort({ position: pos, maxRadius: 1.7, life: 0.2, strength: 0.013, compress: 0.16, tint: COLORS.aureate })
   // [vfx R2] the spear leaves a mark: a hot energy burn that cools to soot
   VFX.decal({ position: pos, normal, color: COLORS.aureate, size: 1.5, life: 8, energy: 0.8 })
   addTrauma(0.1)
@@ -382,6 +461,8 @@ export interface JavelinVisual {
   bornT: number
   /** seconds remaining of the post-impact dissolve (0 = not dissolving) */
   dissolve: number
+  /** [vfx R3] seconds until this spear sheds its next ember off the shaft */
+  shedAt: number
 }
 
 /**
@@ -546,24 +627,11 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
       vis.trail?.push(j.pos)
       vis.shell.driveLight(j.pos.x, j.pos.y, j.pos.z, 16)
     }
-    // [vfx R2] SPARK SHEDDER (work order item 8). A beam that sheds nothing
-    // is a painted object; a beam that throws embers off its own length is
-    // burning. Throttled across the whole volley, not per javelin, so seven
-    // spears in flight cost one small burst every 70 ms.
-    javelinSparkClock -= dt
-    if (javelinSparkClock <= 0) {
-      javelinSparkClock = 0.07
-      VFX.burst({
-        position: j.pos,
-        color: COLORS.aureate,
-        count: 2,
-        speed: 2.2,
-        life: 0.45,
-        size: 0.045,
-        gravity: 2.5,
-        shape: 'ember',
-      })
-    }
+    // [vfx R3] the spark shedder moved into the mesh sync below, where it runs
+    // PER JAVELIN off each spear's own timer instead of once for the whole
+    // volley. Seven spears each laying their own ember wake is a field of
+    // cooling motes across the arena; one shared 70 ms throttle was a dotted
+    // line following whichever spear happened to tick.
 
     // wall burst
     const wall = raycastLevel(_prev, _dir, stepLen + 0.05)
@@ -608,6 +676,11 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
     0,
     1,
   )
+  // hold the governor up for as long as spears are in the air: addBloomLoad
+  // bleeds off over about half a second, so a per-frame top-up is what keeps
+  // the load roughly constant across a three-second flight.
+  addBloomLoad(dt * 1.6)
+
   const B = VFXENERGY.beam
   for (let i = 0; i < JAVELIN_COUNT; i++) {
     const v = visuals[i]
@@ -636,13 +709,40 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
       1,
     )
 
+    // the erosion field on the mid layer has to move or it reads as a texture
+    v.shell.setTime(cs.clock + v.roll)
+
     if (j.flying) {
       _pt.copy(j.pos).add(j.vel)
       g.lookAt(_pt)
-      v.shell.setIntensity(nearFade)
+      v.shell.setIntensity(JAVELIN_FLIGHT_GAIN * nearFade)
       // roll the spear about its own axis so the fan reads as seven objects
       g.rotateZ(cs.clock * 6 + v.roll)
       g.scale.setScalar(1)
+      // [vfx R3] SECONDARY MOTION. A spear in flight sheds material: two
+      // embers every ~50 ms off the shaft, left behind in world space with
+      // their own drag and turbulence. Seven of them lay a field of cooling
+      // motes across the arena that persists after the spears are gone, which
+      // is the difference between "a projectile" and "a projectile that is
+      // burning". Suppressed while the shell is near-plane faded so the
+      // camera is never inside a cloud it cannot see past.
+      if (nearFade > 0.35) {
+        v.shedAt -= dt
+        if (v.shedAt <= 0) {
+          v.shedAt = 0.055 + Math.random() * 0.04
+          _pt2.copy(j.pos).addScaledVector(j.vel, -0.012)
+          VFX.burst({
+            position: _pt2,
+            color: COLORS.aureate,
+            count: 2,
+            speed: 1.7,
+            life: 0.45,
+            size: 0.05,
+            gravity: 1.1,
+            shape: 'ember',
+          })
+        }
+      }
     } else {
       camera.getWorldDirection(_dir)
       _pt.copy(j.pos).add(_dir)
@@ -731,7 +831,7 @@ function castAegis() {
 export interface AegisVisual {
   shell: EnergyShell
   ground: THREE.Mesh
-  groundMat: THREE.MeshBasicMaterial
+  groundMat: THREE.ShaderMaterial
 }
 
 function updateAegis(
@@ -750,7 +850,12 @@ function updateAegis(
     _pt.y += 1.2
     // shard burst — 40 gold glass shards + big flash (§3.3, buffed fix1)
     VFX.burst({ position: _pt, color: COLORS.solarWhite, count: 40, speed: 8, life: 0.4, size: 0.08, gravity: 6 })
+    // [vfx R3] shards + a dark mass so the break has debris and not only light
+    VFX.burst({ position: _pt, color: COLORS.aureate, count: 16, speed: 6, life: 0.85, size: 0.1, gravity: 8, shape: 'debris' })
+    VFX.burst({ position: _pt, color: COLORS.aureate, count: 8, speed: 2.4, life: 1.1, size: 0.11, gravity: -0.4, shape: 'smoke' })
     VFX.flash({ position: _pt, color: COLORS.solarWhite, intensity: 30, distance: 15, life: 0.14 })
+    // the shell collapsing inward snaps the air with it
+    VFX.distort({ position: _pt, maxRadius: 3.4, life: 0.3, strength: 0.026, compress: 0.16, tint: COLORS.solarWhite })
     AudioBus.playShieldBreak()
     emitCombat({ type: 'overshield-break' })
   }
@@ -802,13 +907,15 @@ function updateAegis(
   aegis.shell.group.position.copy(PlayerRef.position)
   aegis.shell.group.position.y += 0.95
   aegis.shell.setScroll(cs.clock * 0.12)
+  aegis.shell.setTime(cs.clock)
   aegis.shell.setIntensity(breathe * failing)
   aegis.ground.visible = true
   aegis.ground.position.copy(PlayerRef.position)
   aegis.ground.position.y += 0.05
   const gs = 1.05 + 0.05 * Math.sin(cs.clock * 3.1)
   aegis.ground.scale.set(gs, gs, 1)
-  aegis.groundMat.opacity = 0.34 * breathe * failing
+  aegis.groundMat.uniforms.uOpacity!.value = 0.62 * breathe * failing
+  aegis.groundMat.uniforms.uTime!.value = cs.clock
   // the barrier is a light source: it has to put gold on the player's plates
   // and a pool on the deck, or it reads as a painted sphere
   if (!aegisLight?.live()) aegisLight = acquireLight(COLORS.aureate, 7, 2, LIGHT_PRIORITY.ability)
@@ -852,7 +959,7 @@ interface RequiemFx {
   decalMat: THREE.MeshBasicMaterial
   /** aftermath: persistent faint ring at the blast edge (3s) */
   faintRing: THREE.Mesh
-  faintRingMat: THREE.MeshBasicMaterial
+  faintRingMat: THREE.ShaderMaterial
 }
 
 function castRequiem(fx: RequiemFx) {
@@ -964,6 +1071,16 @@ function detonateRequiem(fx: RequiemFx) {
   // (d) AFTERMATH — 40 lingering embers drifting up over the scorched decal
   VFX.burst({ position: _pt, color: COLORS.solarWhite, count: 40, speed: 1.2, life: 2.6, size: 0.07, gravity: -0.4, swirl: 2.5, shape: 'ember' })
 
+  // [vfx R3] THE PRESSURE FRONT. Three nested refraction shells expanding at
+  // different rates: a violent near-field bend that is gone in a fifth of a
+  // second, the main front travelling with the rings, and a slow wide sigh
+  // behind it. This is the element the work order called "a distortion or
+  // pressure element" — the architecture itself visibly warps and the frame
+  // stops reading as decals composited over a static building.
+  VFX.distort({ position: _pt, maxRadius: 5, life: 0.2, strength: 0.05, compress: 0.22, tint: COLORS.solarWhite })
+  VFX.distort({ position: _pt, maxRadius: REQUIEM_WAVE_RADIUS * 0.7, life: REQUIEM_SHOCKWAVE_DUR, strength: 0.03, compress: 0.18, tint: COLORS.aureate })
+  VFX.distort({ position: _pt, maxRadius: REQUIEM_WAVE_RADIUS, life: REQUIEM_SHOCKWAVE_DUR * 1.6, strength: 0.014, compress: 0.12, tint: COLORS.aureate })
+
   // one CA shock on the detonation frame (0.12 s ease-out), not a plateau
   caImpulse(1)
   // the charge grade ends HERE: the nova has to land on a dark frame, and the
@@ -1034,7 +1151,7 @@ function detonateRequiem(fx: RequiemFx) {
   fx.faintRing.visible = true
   fx.faintRing.position.copy(origin)
   fx.faintRing.position.y += 0.09
-  fx.faintRingMat.opacity = 0.4
+  fx.faintRingMat.uniforms.uOpacity!.value = 0.4
   // (a) full-screen white-gold flash — 0.85 → 0 over 0.14 s (≤0.15 s, fix2)
   fx.screenFlash.visible = true
   fx.screenFlashMat.opacity = 0.7
@@ -1067,7 +1184,7 @@ function updateRequiem(
     }
     if (fx.faintRing.visible) {
       fx.faintRing.visible = false
-      fx.faintRingMat.opacity = 0
+      fx.faintRingMat.uniforms.uOpacity!.value = 0
     }
     if (fx.shell.visible) fx.shell.visible = false
     return
@@ -1263,7 +1380,7 @@ function updateRequiem(
     }
     if (fx.faintRing.visible) {
       const fade = Math.max(0, 1 - t / REQUIEM_AFTERGLOW)
-      fx.faintRingMat.opacity = 0.4 * fade
+      fx.faintRingMat.uniforms.uOpacity!.value = 0.4 * fade
       if (fade <= 0) fx.faintRing.visible = false
     }
 
@@ -1510,6 +1627,88 @@ void main() {
 // billboarded plane reads as a volume of light.
 // ---------------------------------------------------------------------------
 
+/**
+ * [vfx R3] Aftermath edge ring (work order: "no untextured quad anywhere").
+ * This was a bare `RingGeometry` under an unmapped MeshBasicMaterial — a
+ * 24 m gold annulus at constant alpha with two hard edges, sitting on the
+ * deck for three seconds after every ultimate. It is now an analytic band:
+ * radius is measured per fragment, so the ring has a gaussian cross-section
+ * with a hot filament and no edge at all, at any radius, with no texture and
+ * no UV problem.
+ */
+/**
+ * [vfx R3] Aegis floor contact.
+ *
+ * The barrier's ground plate was a 2.6 m soft-glow sprite lying flat on the
+ * deck at 0.34 additive gold — a textbook flat single-layer additive shape,
+ * and one seen almost edge-on from a third-person camera, so its radial
+ * gradient never reaches the viewer at all.
+ *
+ * A barrier does not put a disc on the floor. It INTERSECTS the floor, in a
+ * ring. This draws that intersection analytically: a hot gaussian band at the
+ * shell's own radius, a dim pooled fill inside it, nothing outside.
+ */
+const AEGISFLOOR_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+
+const AEGISFLOOR_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uCore;
+uniform float uOpacity;
+uniform float uTime;
+varying vec2 vUv;
+void main() {
+  vec2 c = vUv * 2.0 - 1.0;
+  float r = length(c);
+  if (r > 1.0) discard;
+  float ang = atan(c.y, c.x);
+  // the intersection is not a perfect circle: the shell breathes and the
+  // deck is not flat, so the band wanders a little around the ring
+  float wob = 0.012 * sin(ang * 7.0 + uTime * 1.8) + 0.008 * sin(ang * 13.0 - uTime * 2.7);
+  float x = (r - (0.80 + wob)) / 0.10;
+  float ring = exp(-x * x * 2.0);
+  float fil = exp(-x * x * 9.0);
+  // dim pool of bounced light inside the barrier's footprint
+  float pool = pow(max(0.0, 1.0 - r), 2.4) * 0.30;
+  float a = (ring * 0.9 + pool) * uOpacity;
+  if (a < 0.004) discard;
+  vec3 col = mix(uColor, uCore, fil * 0.8);
+  gl_FragColor = vec4(col * (0.8 + fil * 1.7), a);
+}
+`
+
+const EDGERING_VERT = /* glsl */ `
+varying vec2 vL;
+void main() {
+  vL = position.xy;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+
+const EDGERING_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uCore;
+uniform float uOpacity;
+uniform float uRadius;
+uniform float uWidth;
+varying vec2 vL;
+void main() {
+  float r = length(vL);
+  float x = (r - uRadius) / max(1e-4, uWidth);
+  float band = exp(-x * x * 2.3);
+  float fil = exp(-x * x * 11.0);
+  float a = band * uOpacity;
+  if (a < 0.004) discard;
+  vec3 col = mix(uColor, uCore, fil * 0.7);
+  gl_FragColor = vec4(col * (0.75 + fil * 1.7), a);
+}
+`
+
 const PILLAR_VERT = /* glsl */ `
 uniform float uTip;
 varying vec2 vUv;
@@ -1530,6 +1729,14 @@ uniform vec3 uCore;
 uniform float uOpacity;
 uniform float uTime;
 varying vec2 vUv;
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x),
+             mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 void main() {
   // vertical: feathered at BOTH ends, brightest where it meets the ground
   float h = vUv.y;
@@ -1541,7 +1748,16 @@ void main() {
   float core = exp(-x * x * 26.0);
   // slow vertical drift so the shaft is never a static card
   float drift = 0.9 + 0.1 * sin(h * 9.0 - uTime * 1.6);
-  float a = (body * 0.45 + core * 0.85 + ground * body) * ends * drift * uOpacity;
+  // [vfx R3] two octaves of value noise racing UP the shaft. A smooth
+  // gradient plane is still a plane; a shaft of light rising out of a
+  // detonation is torn up by the air and the debris in it, and the eye reads
+  // that broken internal structure as volume. The noise bites the BODY only —
+  // the filament stays continuous so the pillar keeps a clean spine.
+  float n1 = vnoise(vec2(vUv.x * 5.0, h * 4.0 - uTime * 1.15));
+  float n2 = vnoise(vec2(vUv.x * 13.0 + 7.0, h * 11.0 - uTime * 2.4));
+  float n = 0.6 * n1 + 0.4 * n2;
+  float bodyN = body * mix(0.35, 1.25, n);
+  float a = (bodyN * 0.45 + core * 0.85 + ground * bodyN) * ends * drift * uOpacity;
   if (a < 0.004) discard;
   vec3 col = mix(uColor, uCore, core);
   gl_FragColor = vec4(col * (0.85 + core * 1.9), a);
@@ -1575,24 +1791,26 @@ export function AbilitySystems() {
 
   const ghostMats = useMemo(
     () =>
-      Array.from({ length: GHOST_COUNT }, () => [
-        new THREE.MeshBasicMaterial({
-          color: COLORS.aureate,
-          transparent: true,
-          opacity: 0,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          toneMapped: false, // fix1: keep ghosts hot through tone mapping
-        }),
-        new THREE.MeshBasicMaterial({
-          color: COLORS.solarWhite,
-          transparent: true,
-          opacity: 0,
-          blending: THREE.AdditiveBlending,
-          depthWrite: false,
-          toneMapped: false,
-        }),
-      ]),
+      Array.from({ length: GHOST_COUNT }, () =>
+        [COLORS.aureate, COLORS.solarWhite].map(
+          (hex) =>
+            new THREE.ShaderMaterial({
+              vertexShader: GHOST_VERT,
+              fragmentShader: GHOST_FRAG,
+              uniforms: {
+                uColor: { value: new THREE.Color(hex).multiplyScalar(1.6) },
+                uOpacity: { value: 0 },
+                uTime: { value: 0 },
+                uAge: { value: 0 },
+              },
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              side: THREE.DoubleSide,
+              toneMapped: false,
+            }),
+        ),
+      ),
     [],
   )
 
@@ -1622,12 +1840,6 @@ export function AbilitySystems() {
   )
 
   const glyphTex = useMemo(() => getGlyphSpriteTexture(), [])
-  /** HDR halo tints — the core is the only part above the bloom knee */
-  const haloCoreColor = useMemo(
-    () => new THREE.Color(COLORS.solarWhite).multiplyScalar(2.4),
-    [],
-  )
-  const haloMidColor = useMemo(() => new THREE.Color(COLORS.aureate).multiplyScalar(1.25), [])
 
   /**
    * [vfx R1] Seven javelins, each a three-layer energy shell: a tapered white
@@ -1641,8 +1853,17 @@ export function AbilitySystems() {
     return Array.from({ length: JAVELIN_COUNT }, () => {
       const shell = createEnergyShell({
         geometry: geo,
-        mid: { scale: 1 },
-        outer: { scale: 1, opacity: 0.2, power: 2.0 },
+        // [vfx R3] THE FLAT-BAR FIX. Every layer here used to be authored at
+        // CONSTANT alpha across the cone, so a javelin rasterised as a solid
+        // yellow plank with a hard polygonal outline — the single tell the
+        // blind test named first. All three layers now derive alpha from
+        // |N·V|, i.e. from how much of the spear the eye is looking THROUGH,
+        // which takes the alpha to zero exactly at the silhouette. A spear has
+        // no edge any more; it has a thickness.
+        shape: { taper: 'axis', tail: 0.58, nearFade: 1.6 },
+        core: { scale: 1, profile: 'volume', power: 1.1, hot: 1, hotPow: 1.5, erode: 0.16, erodeScale: 5 },
+        mid: { scale: 1, profile: 'volume', power: 0.52, hot: 0.55, hotPow: 3.0, erode: 0.34, erodeScale: 9 },
+        outer: { scale: 1, opacity: 0.17, profile: 'volume', power: 0.26, erode: 0 },
         renderOrder: 21,
         side: THREE.DoubleSide,
       })
@@ -1652,7 +1873,7 @@ export function AbilitySystems() {
       const head = new THREE.Sprite(
         new THREE.SpriteMaterial({
           map: getGlowTexture(),
-          color: new THREE.Color(COLORS.solarWhite).multiplyScalar(2.2),
+          color: new THREE.Color(COLORS.solarWhite).multiplyScalar(3.1),
           transparent: true,
           opacity: 0.95,
           blending: THREE.AdditiveBlending,
@@ -1660,12 +1881,39 @@ export function AbilitySystems() {
           toneMapped: false,
         }),
       )
-      head.position.set(0, 0, 0.45)
-      head.scale.set(0.75, 0.75, 1)
+      head.position.set(0, 0, 0.44)
+      head.scale.set(1.05, 1.05, 1)
       shell.group.add(head)
       shell.group.visible = false
-      return { shell, trail: null, roll: 0, bornT: 0, dissolve: 0 }
+      return { shell, trail: null, roll: 0, bornT: 0, dissolve: 0, shedAt: 0 }
     })
+  }, [])
+
+  /**
+   * [vfx R3] The halo ring, rebuilt as a real energy volume.
+   *
+   * A torus read through the |N·V| thickness term is bright along the centre
+   * line of its tube and zero at the tube's silhouette, which is precisely
+   * the cross-section a glowing ring of energy has. Three nested tori give
+   * the filament / body / veil stack; the mid layer carries the Orokin fret
+   * band so the ring has surface detail at close range.
+   */
+  const haloShell = useMemo(() => {
+    const geo = new THREE.TorusGeometry(0.72, 0.05, 12, 72)
+    geo.rotateX(Math.PI / 2) // lie flat above the head
+    const sh = createEnergyShell({
+      geometry: geo,
+      shape: { nearFade: 0.9 },
+      core: { color: COLORS.solarWhite, boost: 2.4, scale: 0.96, profile: 'volume', power: 1.5, hot: 1, hotPow: 1.3 },
+      mid: { color: COLORS.aureate, boost: 1.35, scale: 1.0, profile: 'volume', power: 0.55, hot: 0.5, erode: 0.26, erodeScale: 10 },
+      outer: { color: COLORS.aureate, boost: 1.0, scale: 1.3, opacity: 0.13, profile: 'volume', power: 0.24 },
+      glyph: true,
+      glyphRepeat: 9,
+      renderOrder: 21,
+      side: THREE.DoubleSide,
+    })
+    sh.group.visible = true
+    return sh
   }, [])
 
   /** [vfx R1] Aegis: a Fresnel sphere + scrolling fret band + ground ellipse */
@@ -1673,9 +1921,19 @@ export function AbilitySystems() {
     const shell = createEnergyShell({
       geometry: new THREE.SphereGeometry(1, 28, 20),
       // inner layer is solarWhite, mid is aureate — the width-wise ramp
-      core: { color: COLORS.solarWhite, boost: 1.5, scale: 0.97 },
-      mid: { color: COLORS.aureate, boost: 1.15, scale: 1.0 },
-      outer: { color: COLORS.aureate, boost: 1.0, scale: 1.07, opacity: 0.3, power: 3.0 },
+      // [vfx R3] explicitly 'rim' on every layer. The shell defaults are now
+      // volumetric (right for beams and novas); a BARRIER is the one energy
+      // element that must stay a surface, near-transparent face-on and hot
+      // only where it is seen edge-on.
+      shape: { profile: 'rim', nearFade: 1.5 },
+      core: { color: COLORS.solarWhite, boost: 1.5, scale: 0.97, profile: 'rim', power: 3.0, hot: 0 },
+      mid: { color: COLORS.aureate, boost: 1.15, scale: 1.0, profile: 'rim', power: 2.0, hot: 0, erode: 0 },
+      // [vfx R3] the outer veil moves out to 1.18x on a MUCH softer rim
+      // exponent. The R2 barrier ended on a hard bright circle because all
+      // three layers peaked at the same silhouette and then stopped; a wide,
+      // low-exponent halo sitting outside that ring is what bleeds the edge
+      // into the frame instead of cutting it.
+      outer: { color: COLORS.aureate, boost: 1.0, scale: 1.18, opacity: 0.16, power: 1.15, profile: 'rim' },
       glyph: true,
       glyphRepeat: 5,
       renderOrder: 20,
@@ -1691,11 +1949,16 @@ export function AbilitySystems() {
     shell.midMat.uniforms.uOpacity!.value = 0.5
     shell.group.scale.setScalar(1.05)
 
-    const groundMat = new THREE.MeshBasicMaterial({
-      map: getSoftGlowTexture(),
-      color: new THREE.Color(COLORS.aureate),
+    const groundMat = new THREE.ShaderMaterial({
+      vertexShader: AEGISFLOOR_VERT,
+      fragmentShader: AEGISFLOOR_FRAG,
+      uniforms: {
+        uColor: { value: new THREE.Color(COLORS.aureate) },
+        uCore: { value: new THREE.Color(COLORS.solarWhite) },
+        uOpacity: { value: 0 },
+        uTime: { value: 0 },
+      },
       transparent: true,
-      opacity: 0,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       toneMapped: false,
@@ -1832,17 +2095,26 @@ export function AbilitySystems() {
     decal.renderOrder = 18
 
     // persistent faint ring at the blast edge (3 s fade)
-    const faintRingMat = new THREE.MeshBasicMaterial({
-      color: COLORS.aureate,
+    const faintRingMat = new THREE.ShaderMaterial({
+      vertexShader: EDGERING_VERT,
+      fragmentShader: EDGERING_FRAG,
+      uniforms: {
+        uColor: { value: new THREE.Color(COLORS.aureate) },
+        uCore: { value: new THREE.Color(COLORS.solarWhite) },
+        uOpacity: { value: 0 },
+        uRadius: { value: REQUIEM_RADIUS * 0.98 },
+        uWidth: { value: REQUIEM_RADIUS * 0.055 },
+      },
       transparent: true,
-      opacity: 0,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: false,
     })
+    // the annulus is widened well past the visible band so the gaussian has
+    // room to reach zero inside the geometry — the band never meets an edge
     const faintRing = new THREE.Mesh(
-      new THREE.RingGeometry(REQUIEM_RADIUS * 0.96, REQUIEM_RADIUS, 96),
+      new THREE.RingGeometry(REQUIEM_RADIUS * 0.82, REQUIEM_RADIUS * 1.14, 128),
       faintRingMat,
     )
     faintRing.rotation.x = -Math.PI / 2
@@ -1924,6 +2196,12 @@ export function AbilitySystems() {
     updateDash(ghostRefs.current, ghostMats, ghostSpawnAt.current)
     updateVolley(state.camera, dt, javelinVisuals)
     updateAegis(dt, haloRef.current, glyphRefs.current, aegisVisual)
+    // the halo's erosion and fret band scroll on the combat clock; the ring
+    // counter-scrolls against the group's own spin so the runes travel
+    haloShell.setTime(cs.clock * 0.9)
+    haloShell.setScroll(-cs.clock * 0.07)
+    // the ring is the whole halo now that the flat plane is gone
+    haloShell.setIntensity(1.2 + 0.14 * Math.sin(cs.clock * 3.1))
     updateRequiem(dt, state.camera, requiemFx, pillarRefs.current, pillarMats)
 
     // keep the HUD overshield bar in sync (the damage intercept in state.ts
@@ -1964,44 +2242,22 @@ export function AbilitySystems() {
            single-layer gold outline that never bloomed. ---- */}
       <group ref={haloRef} visible={false}>
         {/* (1) wide soft outer falloff — sits UNDER the knee, gives the halo air */}
-        <mesh rotation-x={-Math.PI / 2} scale={[2.6, 2.6, 1]}>
-          <planeGeometry args={[1, 1]} />
-          <meshBasicMaterial
-            map={getSoftGlowTexture()}
-            color={COLORS.aureate}
-            transparent
-            opacity={0.3}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-            side={THREE.DoubleSide}
-            toneMapped={false}
-          />
-        </mesh>
-        {/* (2) saturated mid ring */}
-        <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[0.8, 0.026, 8, 40]} />
-          <meshBasicMaterial
-            color={haloMidColor}
-            transparent
-            opacity={0.8}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </mesh>
-        {/* (3) hot white core ring, authored above the 0.85 knee so the halo
-             blooms as a thin bright circle rather than a flat gold band */}
-        <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[0.62, 0.02, 8, 40]} />
-          <meshBasicMaterial
-            color={haloCoreColor}
-            transparent
-            opacity={0.95}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-            toneMapped={false}
-          />
-        </mesh>
+        {/* [vfx R3] The wide soft-falloff plane is GONE. It was a 2.6 m
+            additive gold disc lying flat above the character's head, i.e.
+            exactly the flat single-layer additive primitive the blind test
+            names first, and from a third-person camera it is seen almost
+            edge-on so none of its radial gradient is visible anyway. The
+            volumetric torus below is the whole element now: its outer layer
+            at 1.3x with a 0.24 thickness exponent IS a wide soft falloff,
+            and unlike a plane it falls off in every direction. */}
+        {/* (2+3) [vfx R3] the two rings were flat `MeshBasicMaterial` tori —
+             constant alpha right to the polygonal silhouette, which is the
+             "flat single-layer additive shape" the blind test names first.
+             They are now one volumetric EnergyShell on a torus: a hot
+             filament down the middle of the tube fading to nothing at the
+             tube's own outline, a saturated body, a wide veil, and a
+             scrolling erosion field so the ring is never a static decal. */}
+        <primitive object={haloShell.group} />
         {Array.from({ length: 6 }, (_, i) => (
           <mesh
             key={`glyph-${i}`}

@@ -184,6 +184,46 @@ export const MONOLITHS: MonolithSpec[] = [
   { p: [62, -30, 262], yaw: 0.62, s: [12, 36, 12] },
 ]
 
+/**
+ * R3 — enclosure tables. VISUAL ONLY: nothing below is read by
+ * `buildLevelColliders`, and every piece placed from it sits above or outside
+ * the play volume. The level had no ceiling anywhere, which is the single
+ * loudest "this is a blockout" signal in a wide shot; these tables drive the
+ * coffered vaults, the canyon gantries and the portal reveals that close it.
+ */
+
+/** z centres of the six 10 m coffered bays that roof the arena (z 165..225). */
+export const ARENA_VAULT_BAYS: number[] = [170, 180, 190, 200, 210, 220]
+/** which of those bays leave the ridge open as an oculus slot. */
+export const ARENA_VAULT_OCULUS_BAYS: number[] = [190, 200]
+
+/** z centres of the 7 m vault bays over the extraction bridge (z 225..253). */
+export const BRIDGE_VAULT_BAYS: number[] = [228.5, 235.5, 242.5, 249.5]
+
+/**
+ * Canyon overhead gantries. Each is a deep girder with a coffered soffit
+ * carried on a transverse arch, spanning the ravine between the two outer
+ * wall cornices (west x −9.5 / y 17.2, east x +14.1 / y 19.2). They cross the
+ * top of frame as the player runs beneath, which is the near-camera framing
+ * the composition has never had. `lamps` are the x offsets of the pendants
+ * hung from each one.
+ */
+export const CANYON_GANTRIES: number[] = [28, 50, 72, 94, 116]
+export const CANYON_GANTRY_SPAN: [number, number] = [-9.5, 14.1]
+export const CANYON_GANTRY_Y = 16.4
+export const CANYON_PENDANT_X: number[] = [-3.2, 3.4]
+
+/**
+ * Deep portal reveals at every zone threshold: [z of the wall face, half
+ * opening width, head height, +1 if the room is on the +z side].
+ * These sit in the existing wall openings — no collider is added or moved.
+ */
+export const PORTALS: [number, number, number, number][] = [
+  [135, 3, 8, 1], // canyon → chamber (petal gate)
+  [165, 3, 8, 1], // chamber → arena (south gate)
+  [225, 4, 8, 1], // arena → extraction bridge
+]
+
 // ---------------------------------------------------------------------------
 // Static collider build
 // ---------------------------------------------------------------------------

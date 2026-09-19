@@ -19,6 +19,11 @@ import {
   getCofferAlphaTexture,
   getFretBandTexture,
   getStripFalloffTexture,
+  getOrokinAlbedoTexture,
+  getMacroVariationTexture,
+  getMacroMean,
+  getGoldAlbedoTexture,
+  getGoldORMTexture,
 } from '../textures'
 
 let ivory: THREE.MeshStandardMaterial | null = null
@@ -77,6 +82,37 @@ export const TRIM_TILE_M = 2.0
  */
 export const DETAIL_TILE_M = 0.25
 
+/**
+ * Metres covered by one tile of the MACRO variation layer.
+ *
+ * R3. This is the layer that separates a shipped surface from a tiled one.
+ * Whatever the trim sheet does, it repeats every TRIM_TILE_M; across a 260 m
+ * level the eye finds that period in about a second and the wall collapses
+ * into "one texture". A second map an order of magnitude larger — ~6.5 trim
+ * periods — modulating albedo value and roughness makes one bay of wall
+ * measurably different from the next, which is how real cast panelling
+ * weathers, and it buries the trim period underneath itself.
+ */
+export const MACRO_TILE_M = 13.0
+
+type SurfaceOpts = {
+  /** albedo value modulation from the macro layer (0 = off) */
+  macro?: number
+  /** roughness modulation from the same macro sample */
+  macroRough?: number
+  /** dust deposited on up-facing surfaces (lighter, matter) */
+  dust?: number
+  /** soot collecting under soffits and downward faces (darker) */
+  soot?: number
+}
+
+const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
+  macro: 0.34,
+  macroRough: 0.18,
+  dust: 0.3,
+  soot: 0.42,
+}
+
 function worldUvChunk(uvScale: number): string {
   const k = uvScale.toFixed(5)
   return /* glsl */ `
@@ -95,6 +131,9 @@ function worldUvChunk(uvScale: number): string {
           ? avWp.xz
           : ( avA.x > avA.z ? avWp.zy : avWp.xy );
         avUv *= ${k};
+        vAvUv = avUv;
+        vAvN = avN;
+        vAvW = avWp.xyz;
         #ifdef USE_MAP
           vMapUv = avUv;
         #endif
@@ -114,6 +153,12 @@ function worldUvChunk(uvScale: number): string {
       `
 }
 
+const AV_VARYINGS = /* glsl */ `
+varying vec2 vAvUv;
+varying vec3 vAvN;
+varying vec3 vAvW;
+`
+
 /**
  * Wire a standard material to the world-space trim-sheet projection.
  *
@@ -123,6 +168,9 @@ function worldUvChunk(uvScale: number): string {
  * `detail`  strength of the ~0.25 m micro-detail normal layer blended on top
  *           of the panel normal (0 = off). One extra texture fetch; it is what
  *           keeps a wall from going flat as the player walks up to it.
+ * `opts`    macro variation and deposition — see SURFACE_DEFAULTS. These are
+ *           ON by default for every world surface; a material opts out by
+ *           passing 0, not by omitting them.
  */
 function applyWorldSurface(
   mat: THREE.MeshStandardMaterial,
@@ -130,11 +178,55 @@ function applyWorldSurface(
   uvScale: number,
   aoBite = 0,
   detail = 0,
+  opts: SurfaceOpts = {},
 ) {
+  const o = { ...SURFACE_DEFAULTS, ...opts }
   const chunk = worldUvChunk(uvScale)
   const detailRepeat = (uvScale > 0 ? 1 / DETAIL_TILE_M / uvScale : 0).toFixed(5)
+  const macroRepeat = (uvScale > 0 ? 1 / MACRO_TILE_M / uvScale : 0).toFixed(6)
+  const useMacro = o.macro > 0 || o.macroRough > 0
+  const macroMean = getMacroMean().toFixed(4)
   mat.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace('#include <uv_vertex>', chunk)
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${AV_VARYINGS}`)
+      .replace('#include <uv_vertex>', chunk)
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <common>',
+      `#include <common>\n${AV_VARYINGS}`,
+    )
+
+    // --- macro variation + deposition, injected right after the albedo read ---
+    if (useMacro || o.dust > 0 || o.soot > 0) {
+      shader.uniforms.avMacroMap = { value: getMacroVariationTexture() }
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>\n' + AV_VARYINGS,
+          '#include <common>\n' + AV_VARYINGS + '\nuniform sampler2D avMacroMap;',
+        )
+        .replace(
+          '#include <map_fragment>',
+          /* glsl */ `
+        #include <map_fragment>
+        float avMacro = texture2D( avMacroMap, vAvUv * ${macroRepeat} ).r - ${macroMean};
+        diffuseColor.rgb *= 1.0 + avMacro * ${o.macro.toFixed(3)};
+        float avUp = clamp( vAvN.y, -1.0, 1.0 );
+        float avDust = max( 0.0, avUp ) * ${o.dust.toFixed(3)};
+        float avSoot = max( 0.0, -avUp ) * ${o.soot.toFixed(3)};
+        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.11, 1.06, 0.97 ), avDust );
+        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.50, 0.49, 0.50 ), avSoot );
+        `,
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          /* glsl */ `
+        #include <roughnessmap_fragment>
+        roughnessFactor = clamp(
+          roughnessFactor + avMacro * ${o.macroRough.toFixed(3)} + avDust * 0.20,
+          0.035, 1.0 );
+        `,
+        )
+    }
+
     if (aoBite > 0) {
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <map_fragment>',
@@ -160,7 +252,7 @@ function applyWorldSurface(
         #include <normal_fragment_maps>
         #if defined( USE_NORMALMAP_TANGENTSPACE )
           {
-            vec3 avDn = texture2D( avDetailMap, vNormalMapUv * ${detailRepeat} ).xyz * 2.0 - 1.0;
+            vec3 avDn = texture2D( avDetailMap, vAvUv * ${detailRepeat} ).xyz * 2.0 - 1.0;
             normal = normalize( normal + tbn * vec3( avDn.xy * ${detail.toFixed(3)}, 0.0 ) );
           }
         #endif
@@ -177,6 +269,7 @@ function trimMaps() {
   const ao = getOrokinAOTexture()
   ao.channel = 0
   return {
+    map: getOrokinAlbedoTexture(),
     normalMap: getOrokinNormalTexture(),
     roughnessMap: getOrokinRoughnessTexture(),
     aoMap: ao,
@@ -193,17 +286,33 @@ export function ivoryMaterial(): THREE.MeshStandardMaterial {
   const t = trimMaps()
   ivory = new THREE.MeshStandardMaterial({
     color: COLORS.shrineIvoryDeep,
+    // R3: the albedo MAP is the change that matters. Until now this material
+    // was one RGB constant plus shading, which is the literal definition of
+    // the "untextured blockout" the panel failed twice — relief that only
+    // exists in the normal disappears the moment a surface faces the key.
+    // The map carries grime in the seam trenches, crowns rubbed clean,
+    // per-plate casting drift and drawn stain runs, none of which depend on
+    // the light, so the wall still has structure in a blown highlight.
+    map: t.map,
     roughness: 0.82,
     metalness: 0.04,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
     aoMap: t.aoMap,
     aoMapIntensity: 1.35,
+    // ceramic is a dielectric, not a matte card: a little environment keeps
+    // the unlit side off dead flat and gives chamfers a grazing sheen
+    envMapIntensity: 0.85,
   })
   // R2: 0.5 → 1.8. At 0.5 the relief was gone by 3 m; the review's single
   // loudest tell was "untextured primitive architecture".
   ivory.normalScale.set(1.8, 1.8)
-  applyWorldSurface(ivory, 'av-ivory', 1 / TRIM_TILE_M, 0.6, 0.32)
+  // aoBite 0.6 → 0.42: the albedo map now carries its own cavity grime, and
+  // at 0.6 on top of it the seams crushed to black.
+  applyWorldSurface(ivory, 'av-ivory', 1 / TRIM_TILE_M, 0.36, 0.32, {
+    macro: 0.28,
+    macroRough: 0.16,
+  })
   return ivory
 }
 
@@ -218,16 +327,21 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
   const t = trimMaps()
   ivoryContact = new THREE.MeshStandardMaterial({
     color: COLORS.shrineIvoryDeep,
+    map: t.map,
     roughness: 0.82,
     metalness: 0.04,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
     aoMap: t.aoMap,
     aoMapIntensity: 1.35,
+    envMapIntensity: 0.85,
     vertexColors: true,
   })
   ivoryContact.normalScale.set(1.8, 1.8)
-  applyWorldSurface(ivoryContact, 'av-ivory-contact', 1 / TRIM_TILE_M, 0.6, 0.32)
+  applyWorldSurface(ivoryContact, 'av-ivory-contact', 1 / TRIM_TILE_M, 0.36, 0.32, {
+    macro: 0.28,
+    macroRough: 0.16,
+  })
   return ivoryContact
 }
 
@@ -246,7 +360,9 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
  */
 export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
   if (goldPolished) return goldPolished
-  goldPolished = new THREE.MeshStandardMaterial({
+  const orm = getGoldORMTexture()
+  orm.channel = 0
+  goldPolished = new THREE.MeshPhysicalMaterial({
     // R2b: #8C6B2A was the value the review asked for, and in isolation it is
     // right — but a metal takes essentially ALL of its colour from what it
     // reflects, and this probe is deliberately almost black. At that albedo
@@ -255,16 +371,44 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
     // The fix is to pay for the contrast with envMapIntensity (which only
     // scales a METAL's reflection, so it does not lift the ivory) rather than
     // with albedo. Landed at #AE8438 with a 3.4 env gain.
+    //
+    // R3 adds the two things that were still missing for this to BE metal
+    // rather than a gold-coloured dielectric:
+    //
+    //  * a real anisotropic lobe. Brushed and cast gold stretches its
+    //    highlight ALONG the grain; a round isotropic dot is the single most
+    //    reliable "untextured primitive" tell on a metal. three's
+    //    MeshPhysicalMaterial does this properly, and the tangent frame it
+    //    derives comes from the same world-projected UV as the brush normal,
+    //    so the lobe and the ridges agree by construction.
+    //  * a packed ORM, so wear drives albedo, roughness AND metalness from one
+    //    field. Real gilding is not uniformly metal: where it has dulled the
+    //    metalness falls, the roughness climbs and the colour goes redder,
+    //    all together. A constant metalness of 1.0 across every gold surface
+    //    in a level is a material-authoring tell, not a look.
     color: '#AE8438',
+    map: getGoldAlbedoTexture(),
     metalness: 1.0,
+    metalnessMap: orm,
     // the map is authored at the final 0.14–0.5 band, so the multiplier is 1
     roughness: 1.0,
-    roughnessMap: getBrushedGoldRoughnessTexture(),
+    roughnessMap: orm,
+    aoMap: orm,
+    aoMapIntensity: 1.0,
     normalMap: getBrushedGoldNormalTexture(),
     envMapIntensity: 3.4,
+    anisotropy: 0.85,
+    anisotropyRotation: 0,
   })
   goldPolished.normalScale.set(0.5, 0.5)
-  applyWorldSurface(goldPolished, 'av-gold-polished', 1 / 0.6)
+  applyWorldSurface(goldPolished, 'av-gold-polished', 1 / 0.6, 0.3, 0, {
+    // metal gets only a whisper of macro — the layer exists to break a tiling
+    // period on stone, and on a reflective surface it reads as paint
+    macro: 0.1,
+    macroRough: 0.08,
+    dust: 0.16,
+    soot: 0.3,
+  })
   return goldPolished
 }
 
@@ -275,16 +419,29 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
  */
 export function goldCastMaterial(): THREE.MeshStandardMaterial {
   if (goldCast) return goldCast
-  goldCast = new THREE.MeshStandardMaterial({
+  const orm = getGoldORMTexture()
+  orm.channel = 0
+  goldCast = new THREE.MeshPhysicalMaterial({
     color: '#8E6C2C',
+    map: getGoldAlbedoTexture(),
     metalness: 0.98,
+    metalnessMap: orm,
     roughness: 1.3,
-    roughnessMap: getBrushedGoldRoughnessTexture(),
+    roughnessMap: orm,
+    aoMap: orm,
+    aoMapIntensity: 1.0,
     normalMap: getBrushedGoldNormalTexture(),
     envMapIntensity: 2.8,
+    // broader runs of cast metal, so a slightly softer lobe than the polished
+    anisotropy: 0.6,
   })
   goldCast.normalScale.set(0.6, 0.6)
-  applyWorldSurface(goldCast, 'av-gold-cast', 1 / 0.9)
+  applyWorldSurface(goldCast, 'av-gold-cast', 1 / 0.9, 0.3, 0, {
+    macro: 0.13,
+    macroRough: 0.1,
+    dust: 0.2,
+    soot: 0.34,
+  })
   return goldCast
 }
 
@@ -309,6 +466,19 @@ export function recessMaterial(): THREE.MeshStandardMaterial {
     // specular sheen, which is exactly how a "true black" stops being one.
     metalness: 0.0,
     envMapIntensity: 0.08,
+    // R3: even the true black gets relief. A recess is a cast channel, not a
+    // painted stripe, and at a grazing angle the key has to find SOMETHING on
+    // it — a perfectly smooth black plane in an otherwise machined level is a
+    // tell on its own.
+    normalMap: getDetailNormalTexture(),
+    roughnessMap: getOrokinRoughnessTexture(),
+  })
+  recess.normalScale.set(0.75, 0.75)
+  applyWorldSurface(recess, 'av-recess', 1 / 0.7, 0, 0, {
+    macro: 0.1,
+    macroRough: 0.06,
+    dust: 0.12,
+    soot: 0.0,
   })
   return recess
 }
@@ -322,14 +492,16 @@ export function umberMaterial(): THREE.MeshStandardMaterial {
   const t = trimMaps()
   umber = new THREE.MeshStandardMaterial({
     color: COLORS.umberDeep,
+    map: t.map,
     roughness: 0.78,
     metalness: 0.25,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
     aoMap: t.aoMap,
+    envMapIntensity: 1.2,
   })
   umber.normalScale.set(1.35, 1.35)
-  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.55, 0.28)
+  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.4, 0.28)
   return umber
 }
 
@@ -342,8 +514,14 @@ export function umberMaterial(): THREE.MeshStandardMaterial {
 export function screenMaterial(): THREE.MeshStandardMaterial {
   if (screen) return screen
   const tex = getPiercedScreenTexture()
+  const sao = getOrokinAOTexture()
+  sao.channel = 0
   screen = new THREE.MeshStandardMaterial({
     color: COLORS.shrineIvoryDeep,
+    // R3: a screen is the same carved stone as the wall behind it, so it gets
+    // the same albedo, cavity and macro treatment. Only the alphaMap stays on
+    // the mesh's own UVs — the holes have to land where the geometry says.
+    map: getOrokinAlbedoTexture(),
     roughness: 0.8,
     metalness: 0.05,
     alphaMap: tex,
@@ -352,8 +530,12 @@ export function screenMaterial(): THREE.MeshStandardMaterial {
     side: THREE.DoubleSide,
     normalMap: getOrokinNormalTexture(),
     roughnessMap: getOrokinRoughnessTexture(),
+    aoMap: sao,
+    aoMapIntensity: 1.2,
+    envMapIntensity: 0.85,
   })
-  screen.normalScale.set(1.2, 1.2)
+  screen.normalScale.set(1.4, 1.4)
+  applyWorldSurface(screen, 'av-screen', 1 / TRIM_TILE_M, 0.34, 0.3, { macro: 0.28 })
   return screen
 }
 
@@ -365,8 +547,11 @@ export function screenMaterial(): THREE.MeshStandardMaterial {
  */
 export function cofferMaterial(): THREE.MeshStandardMaterial {
   if (coffer) return coffer
+  const cao = getOrokinAOTexture()
+  cao.channel = 0
   coffer = new THREE.MeshStandardMaterial({
     color: COLORS.shrineIvoryDeep,
+    map: getOrokinAlbedoTexture(),
     roughness: 0.84,
     metalness: 0.05,
     alphaMap: getCofferAlphaTexture(),
@@ -374,8 +559,12 @@ export function cofferMaterial(): THREE.MeshStandardMaterial {
     side: THREE.DoubleSide,
     normalMap: getOrokinNormalTexture(),
     roughnessMap: getOrokinRoughnessTexture(),
+    aoMap: cao,
+    aoMapIntensity: 1.2,
+    envMapIntensity: 0.85,
   })
-  coffer.normalScale.set(1.1, 1.1)
+  coffer.normalScale.set(1.3, 1.3)
+  applyWorldSurface(coffer, 'av-coffer', 1 / TRIM_TILE_M, 0.34, 0.3, { macro: 0.28 })
   return coffer
 }
 
@@ -386,20 +575,25 @@ export function cofferMaterial(): THREE.MeshStandardMaterial {
 export function fretTrimMaterial(): THREE.MeshStandardMaterial {
   if (fretTrim) return fretTrim
   const tex = getFretBandTexture()
-  fretTrim = new THREE.MeshStandardMaterial({
+  fretTrim = new THREE.MeshPhysicalMaterial({
     // matched to goldPolished: a filigree band is the same metal as the trim
     // it runs beside, and at #D8B25C it was reading as a painted stripe
     color: '#AE8438',
     metalness: 1.0,
     roughness: 0.85,
     roughnessMap: getBrushedGoldRoughnessTexture(),
+    normalMap: getBrushedGoldNormalTexture(),
     envMapIntensity: 3.0,
+    // a filigree run is a long thin metal element: the highlight has to travel
+    // along it, not sit as a dot in the middle of every cell
+    anisotropy: 0.8,
     map: tex,
     alphaMap: tex,
     transparent: true,
     alphaTest: 0.35,
     side: THREE.DoubleSide,
   })
+  fretTrim.normalScale.set(0.4, 0.4)
   return fretTrim
 }
 
@@ -410,14 +604,18 @@ export function obsidianMaterial(): THREE.MeshStandardMaterial {
   const t = trimMaps()
   obsidian = new THREE.MeshStandardMaterial({
     color: m.color,
+    map: t.map,
     metalness: m.metalness,
     roughness: 0.34,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
     aoMap: t.aoMap,
+    // a polished dark stone is READ through its reflection; without this it is
+    // just a dark grey card
+    envMapIntensity: 2.0,
   })
   obsidian.normalScale.set(1.15, 1.15)
-  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.45, 0.3)
+  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.35, 0.3)
   return obsidian
 }
 
@@ -468,13 +666,32 @@ function getRockVeinTexture(): THREE.CanvasTexture {
 /** Dark asteroid rock with gold vein emissive flecks (debris field). */
 export function rockMaterial(): THREE.MeshStandardMaterial {
   if (rock) return rock
+  const rao = getOrokinAOTexture()
+  rao.channel = 0
   rock = new THREE.MeshStandardMaterial({
     color: '#22242C',
     roughness: 0.92,
     metalness: 0.18,
+    // R3: debris rock had no surface maps at all — a smooth shaded blob is
+    // read as a primitive from a thumbnail. The detail normal at a 1.2 m tile
+    // gives it chipping and tool-free fracture grain, the cavity map darkens
+    // its own crevices, and the macro layer keeps one boulder from looking
+    // like the next.
+    normalMap: getDetailNormalTexture(),
+    roughnessMap: getOrokinRoughnessTexture(),
+    aoMap: rao,
+    aoMapIntensity: 1.25,
+    envMapIntensity: 0.55,
     emissive: boosted(COLORS.aureate, 0.9),
     emissiveMap: getRockVeinTexture(),
     emissiveIntensity: 1.1,
+  })
+  rock.normalScale.set(1.5, 1.5)
+  applyWorldSurface(rock, 'av-rock', 1 / 1.2, 0.45, 0, {
+    macro: 0.42,
+    macroRough: 0.14,
+    dust: 0.34,
+    soot: 0.3,
   })
   return rock
 }
@@ -639,6 +856,7 @@ let floor: THREE.MeshStandardMaterial | null = null
 let floorMapTex: THREE.CanvasTexture | null = null
 let floorRoughTex: THREE.CanvasTexture | null = null
 let floorNormalTex: THREE.CanvasTexture | null = null
+let floorAoTex: THREE.CanvasTexture | null = null
 let goldEdge: THREE.MeshStandardMaterial | null = null
 let grooveTex: THREE.CanvasTexture | null = null
 let groove: THREE.MeshBasicMaterial | null = null
@@ -773,22 +991,38 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     // relief straight off the albedo's own value structure: seams become
     // grooves, grate bars become ribs, bolts become domes
     floorNormalTex = normalFromLuminance(alb, 2.6)
+    // and a cavity map off the same value structure, so panel seams and grate
+    // wells darken under the key instead of only shading
+    floorAoTex = cavityFromLuminance(alb, 5, 2.8)
   }
   const m = MATERIALS.deepRelic
+  if (floorAoTex) floorAoTex.channel = 0
   floor = new THREE.MeshStandardMaterial({
     color: '#9E9EA6', // albedo comes from the map; pulled down for value depth
     map: floorMapTex,
     roughnessMap: floorRoughTex,
     normalMap: floorNormalTex ?? undefined,
+    aoMap: floorAoTex ?? undefined,
+    aoMapIntensity: 1.3,
     roughness: 0.9, // × map (~0.45–0.88) → matte panels, glossier grate bars
     metalness: m.metalness * 0.6,
+    // the deck is 30–40 % of most frames and it is a polished dark stone: the
+    // environment is most of what it should be showing
+    envMapIntensity: 1.6,
   })
   // R2: 0.7 → 1.6. The floor is 30–40 % of most frames; its seams and grate
   // bars have to model under the key, not just tint.
   floor.normalScale.set(1.6, 1.6)
   // 1 tile = 3 m, world-space projection (same helper as the stone surfaces),
   // plus the 0.25 m detail layer so the deck under the player is not flat
-  applyWorldSurface(floor, 'av-floor', 1 / 3, 0, 0.3)
+  applyWorldSurface(floor, 'av-floor', 1 / 3, 0.35, 0.3, {
+    // the deck reads at a grazing angle across a long run, which is where a
+    // repeating tile is most obvious — so the macro layer works hardest here
+    macro: 0.44,
+    macroRough: 0.22,
+    dust: 0.26,
+    soot: 0.0,
+  })
   return floor
 }
 
@@ -833,21 +1067,87 @@ function normalFromLuminance(src: HTMLCanvasElement, strength: number): THREE.Ca
 }
 
 /**
+ * Cavity/AO from a canvas' luminance: a texel darker than its neighbourhood is
+ * in a crevice. Same principle as the trim sheet's bake, run on an authored
+ * albedo whose value structure IS its relief.
+ */
+function cavityFromLuminance(
+  src: HTMLCanvasElement,
+  radius: number,
+  gain: number,
+): THREE.CanvasTexture {
+  const size = src.width
+  const d = src.getContext('2d')!.getImageData(0, 0, size, size).data
+  const h = new Float32Array(size * size)
+  for (let i = 0; i < h.length; i++) {
+    h[i] = (d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114) / 255
+  }
+  const at = (x: number, y: number) =>
+    h[(((y % size) + size) % size) * size + (((x % size) + size) % size)]
+  const out = document.createElement('canvas')
+  out.width = out.height = size
+  const octx = out.getContext('2d')!
+  const img = octx.createImageData(size, size)
+  const step = Math.max(1, Math.round(radius / 2))
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let sum = 0
+      let n = 0
+      for (let oy = -radius; oy <= radius; oy += step) {
+        for (let ox = -radius; ox <= radius; ox += step) {
+          sum += at(x + ox, y + oy)
+          n++
+        }
+      }
+      const cav = h[y * size + x] - sum / n
+      const ao = Math.min(1, Math.max(0.2, 1 + cav * gain))
+      const i = (y * size + x) * 4
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = ao * 255
+      img.data[i + 3] = 255
+    }
+  }
+  octx.putImageData(img, 0, 0)
+  const t = new THREE.CanvasTexture(out)
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.colorSpace = THREE.NoColorSpace
+  t.anisotropy = 4
+  return t
+}
+
+/**
  * Bright gold edge-highlight for raised floor trims — lighter than regalGold,
  * non-emissive so it catches the key light without crossing the bloom
  * threshold.
  */
 export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
   if (goldEdge) return goldEdge
-  goldEdge = new THREE.MeshStandardMaterial({
+  const orm = getGoldORMTexture()
+  orm.channel = 0
+  goldEdge = new THREE.MeshPhysicalMaterial({
     // still the brightest gold in the level, but no longer near-white: these
     // are 3.5 cm lips seen edge-on, and at #EFCF8E they were a solid pale
     // line that flattened every nosing into a sticker
     color: '#C79A45',
+    map: getGoldAlbedoTexture(),
     metalness: 1.0,
+    metalnessMap: orm,
     roughness: 0.62, // × 0.14–0.5 map ⇒ ~0.09–0.31, the narrowest ramp here
-    roughnessMap: getBrushedGoldRoughnessTexture(),
+    roughnessMap: orm,
+    normalMap: getBrushedGoldNormalTexture(),
     envMapIntensity: 3.6,
+    // the strongest lobe in the level: a nosing is a 3.5 cm lip seen nearly
+    // edge-on, and an anisotropic streak running ALONG it is exactly the
+    // read that makes a metal edge legible at 20 m
+    anisotropy: 0.72,
+  })
+  goldEdge.normalScale.set(0.28, 0.28)
+  // a 0.5 m tile, so the brush is fine enough to sit on a 3.5 cm lip without
+  // the 256² brush map beating against itself into a visible weave
+  applyWorldSurface(goldEdge, 'av-gold-edge', 1 / 0.5, 0, 0, {
+    macro: 0.09,
+    macroRough: 0.06,
+    dust: 0.14,
+    soot: 0.26,
   })
   return goldEdge
 }

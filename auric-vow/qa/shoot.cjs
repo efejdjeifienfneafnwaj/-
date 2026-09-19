@@ -13,7 +13,31 @@
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
-const { chromium } = require('playwright')
+/**
+ * Resolve Playwright and a browser binary that actually exists on disk.
+ * A project-local Playwright may be a different version from the one whose
+ * browsers are installed under /opt/pw-browsers, in which case it looks for a
+ * revision that was never downloaded. Prefer the global install, and pin the
+ * executable path as a second line of defence.
+ */
+function resolvePlaywright() {
+  const candidates = ['/opt/node22/lib/node_modules/playwright', 'playwright']
+  for (const c of candidates) {
+    try {
+      return require(c)
+    } catch (e) {
+      /* try the next one */
+    }
+  }
+  throw new Error('playwright not found')
+}
+const { chromium } = resolvePlaywright()
+const fsx = require('fs')
+const CHROME_CANDIDATES = [
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  '/opt/pw-browsers/chromium/chrome-linux/chrome',
+]
+const CHROME = CHROME_CANDIDATES.find((p) => fsx.existsSync(p))
 
 const OUT = path.resolve(process.argv[2] || 'qa/shots')
 const PORT = Number(process.argv[3] || 8137)
@@ -44,6 +68,7 @@ async function main() {
   fs.mkdirSync(OUT, { recursive: true })
   const srv = await serve()
   const browser = await chromium.launch({
+    ...(CHROME ? { executablePath: CHROME } : {}),
     args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--no-sandbox', '--disable-dev-shm-usage', '--autoplay-policy=no-user-gesture-required'],
   })
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })

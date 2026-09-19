@@ -3,6 +3,14 @@
  * R3F canvas host. Renderer config per design.md §2.3/§7.
  * Scene composition per design.md §1.2: world → player → combat → enemies →
  * mission → vfx, then the frame-end GameTick orchestrator.
+ *
+ * R3 (light-transport) — the renderer contract changed in one consequential
+ * way, documented at length next to AURIC_SHADOW_TYPE below: the canvas was
+ * asking for `PCFSoftShadowMap`, which three r185 no longer implements. Every
+ * shadow in the game was a single unfiltered depth tap. It is now a real
+ * percentage-closer-soft-shadow filter (blocker search → contact hardening →
+ * 12-tap Vogel PCF), which is the difference between a stair-stepped hard
+ * edge and a penumbra that tightens where a boot meets the deck.
  */
 import { useEffect, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
@@ -28,6 +36,107 @@ import { EnemyManager, EnemyRegistry } from './enemies'
 import { MissionDirector, ObjectiveMarker } from './mission'
 import { VFXSystems, resetVfx } from './vfx'
 import { setEnemiesAlive } from './hud'
+
+// ---------------------------------------------------------------------------
+// PCSS — percentage-closer soft shadows
+//
+// WHY THIS EXISTS, because it is the single largest light-transport defect in
+// the build and it was invisible in code review:
+//
+//   three r185 maps ONLY `PCFShadowMap` → SHADOWMAP_TYPE_PCF and
+//   `VSMShadowMap` → SHADOWMAP_TYPE_VSM. Anything else — including the
+//   `PCFSoftShadowMap` constant this canvas was passing — falls through
+//   `generateShadowMapTypeDefine()` to SHADOWMAP_TYPE_BASIC, whose getShadow()
+//   is ONE unfiltered `texture2D` tap and a `step()`. So every shadow in the
+//   game was a hard, aliased, per-texel binary edge: at 2.5 cm/texel that is a
+//   visible staircase on every contact, which is exactly the "light never
+//   interacts with the scene" read the panel gave us.
+//
+// The BASIC path does have one property nothing else has: because
+// `compareFunction` is null, the depth texture is bound as a plain sampler2D
+// and we can read REAL BLOCKER DEPTHS. That is what PCSS needs and what the
+// hardware-PCF (sampler2DShadow) path cannot give. So instead of settling for
+// three's 5-tap Vogel PCF, we stay on BASIC and replace its getShadow with:
+//
+//   1. an 8-tap Vogel blocker search over the light's maximum penumbra,
+//      early-outing to fully lit when nothing occludes (the common case),
+//   2. an average-blocker-depth → receiver separation estimate,
+//   3. a 12-tap Vogel PCF whose radius is lerped from 0.85 texels at contact
+//      to `shadow.radius * 7` texels far from the caster.
+//
+// Contact hardening is the whole point: a character's feet get a shadow that
+// is razor sharp where it touches and opens up under the torso, and a dome
+// throws a soft-edged shadow across the deck 40 m away. Both from one light.
+//
+// The patch is a string surgery on a stock shader chunk, so it verifies
+// itself: if the anchor does not match (three upgraded, chunk reworded) we
+// fall back to `PCFShadowMap`, which at least gets three's own 5-tap filter
+// instead of the 1-tap BASIC path we were silently on.
+// ---------------------------------------------------------------------------
+const PCSS_ANCHOR =
+  /if \( frustumTest \) \{\s*float depth = texture2D\( shadowMap, shadowCoord\.xy \)\.r;[\s\S]*?\n\t{3}\}/
+
+const PCSS_BODY = /* glsl */ `if ( frustumTest ) {
+				float auricTexel = 1.0 / shadowMapSize.x;
+				// interleaved gradient noise rotates the disc per pixel so the
+				// 12 taps read as film grain instead of 12 banded rings
+				float auricPhi = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) * PI2;
+				float auricMaxR = max( shadowRadius, 0.0001 ) * 7.0 * auricTexel;
+				float auricBlockerSum = 0.0;
+				float auricBlockerCount = 0.0;
+				for ( int bi = 0; bi < 8; bi ++ ) {
+					float bf = float( bi );
+					float br = sqrt( ( bf + 0.5 ) * 0.125 );
+					float bt = bf * 2.3999632 + auricPhi;
+					float bd = texture2D( shadowMap, shadowCoord.xy + vec2( cos( bt ), sin( bt ) ) * br * auricMaxR ).r;
+					#ifdef USE_REVERSED_DEPTH_BUFFER
+						if ( bd > shadowCoord.z ) { auricBlockerSum += bd; auricBlockerCount += 1.0; }
+					#else
+						if ( bd < shadowCoord.z ) { auricBlockerSum += bd; auricBlockerCount += 1.0; }
+					#endif
+				}
+				// every tap at the WIDEST radius is a blocker, so no tap inside it
+				// can escape: deep umbra, skip the filter. With the fully-lit
+				// early-out above this keeps the 12-tap filter for penumbra
+				// pixels only, which are a thin band of any frame.
+				if ( auricBlockerCount > 7.5 ) {
+					shadow = 0.0;
+				} else if ( auricBlockerCount > 0.5 ) {
+					float auricSep = abs( shadowCoord.z - auricBlockerSum / auricBlockerCount );
+					float auricPen = clamp( auricSep * 190.0, 0.0, 1.0 );
+					float auricFilterR = mix( 0.85 * auricTexel, auricMaxR, auricPen );
+					float auricSum = 0.0;
+					for ( int fi = 0; fi < 12; fi ++ ) {
+						float ff = float( fi );
+						float fr = sqrt( ( ff + 0.5 ) * 0.0833333 );
+						float ft = ff * 2.3999632 + auricPhi + 1.7;
+						float fd = texture2D( shadowMap, shadowCoord.xy + vec2( cos( ft ), sin( ft ) ) * fr * auricFilterR ).r;
+						#ifdef USE_REVERSED_DEPTH_BUFFER
+							auricSum += step( fd, shadowCoord.z );
+						#else
+							auricSum += step( shadowCoord.z, fd );
+						#endif
+					}
+					shadow = auricSum * 0.0833333;
+				}
+			}`
+
+/** true once the chunk has been rewritten; drives the shadow-map type below */
+const PCSS_INSTALLED = (() => {
+  const src = THREE.ShaderChunk.shadowmap_pars_fragment
+  const next = src.replace(PCSS_ANCHOR, PCSS_BODY)
+  if (next === src) return false
+  THREE.ShaderChunk.shadowmap_pars_fragment = next
+  return true
+})()
+
+/**
+ * BasicShadowMap here does NOT mean "basic shadows" — it means "bind the depth
+ * map as a plain sampler2D", which is the prerequisite for the PCSS filter
+ * installed above. If the patch failed we drop to PCFShadowMap so we still get
+ * three's own filtered path rather than the unfiltered one-tap default.
+ */
+const AURIC_SHADOW_TYPE = PCSS_INSTALLED ? THREE.BasicShadowMap : THREE.PCFShadowMap
 
 /**
  * Frame-end orchestrator (design.md §1.2 loop/GameLoop):
@@ -90,14 +199,38 @@ const FPS_FLOOR = 45
 const FPS_WINDOW_SEC = 5
 const FPS_WARMUP_SEC = 2
 
-function disableKeyShadows(scene: THREE.Scene) {
+/**
+ * Shed shadow cost one rung at a time instead of all at once.
+ *
+ * R3: the old version killed every directional shadow the first time the fps
+ * window missed, which is the one change that guarantees the frame reads as a
+ * greybox — the key stops interacting with anything. Lighting.tsx tags each
+ * caster with `userData.auricShadowTier`, the tier at which it is allowed to
+ * stop casting:
+ *   tier 1 — the far cascade (130 m ortho, 12.7 cm/texel) and the chamber
+ *            spot go; the primary 24 m cascade that carries every shadow the
+ *            player can actually see stays, at half its map size.
+ *   tier 2 — everything stops casting and the ContactBlobs carry grounding.
+ */
+function shedShadows(scene: THREE.Scene, tier: 1 | 2) {
   scene.traverse((o) => {
-    const l = o as THREE.DirectionalLight
-    if (l.isDirectionalLight && l.castShadow) {
-      l.castShadow = false
-      l.shadow.map?.dispose()
-      l.shadow.map = null
+    const l = o as THREE.DirectionalLight | THREE.SpotLight
+    if (!l.castShadow) return
+    const anyLight = l as unknown as { isDirectionalLight?: boolean; isSpotLight?: boolean }
+    if (!anyLight.isDirectionalLight && !anyLight.isSpotLight) return
+    const at = (l.userData.auricShadowTier as number | undefined) ?? 1
+    if (tier < at) {
+      // survives this tier — but halve its map so the pass costs a quarter
+      if (tier === 1 && l.shadow.mapSize.x > 1024) {
+        l.shadow.mapSize.setScalar(Math.max(1024, Math.round(l.shadow.mapSize.x * 0.5)))
+        l.shadow.map?.dispose()
+        l.shadow.map = null
+      }
+      return
     }
+    l.castShadow = false
+    l.shadow.map?.dispose()
+    l.shadow.map = null
   })
 }
 
@@ -132,7 +265,7 @@ function QualityWatcher() {
     store.setQualityTier(next)
     // setDpr applies the pixel ratio AND resizes the drawing buffer
     setDpr(next === 1 ? RENDERER.lowSpecResolutionScale : 0.5)
-    disableKeyShadows(scene)
+    shedShadows(scene, next)
   })
 
   return null
@@ -167,6 +300,8 @@ interface QaWindow extends Window {
     lookAt: (x: number, y: number, z: number) => void
     /** [id, type, alive, [x,y,z]] for every registered enemy (combat evidence) */
     enemyPositions: () => [number, string, boolean, number[]][]
+    /** ?qa=1 only — light-transport measurements (set by QaBridge) */
+    lightReport?: () => unknown
     /** ?qa=1 only — set by QaBridge */
     gl?: THREE.WebGLRenderer
     scene?: THREE.Scene
@@ -203,6 +338,60 @@ function QaBridge() {
       q.camera = camera
       q.setFixedDt = (dt: number | null) => {
         fixed = dt
+      }
+      // light-transport instrumentation. The whole axis is a set of ratios
+      // (key vs fill, casters vs receivers, shadow texel size), so the numbers
+      // that decide whether it worked are read straight off the live graph
+      // rather than eyeballed from a capture.
+      q.lightReport = () => {
+        let meshes = 0
+        let cast = 0
+        let receive = 0
+        const lights: Record<string, unknown>[] = []
+        let keyIntensity = 0
+        let fillSum = 0
+        scene.traverse((o) => {
+          const m = o as THREE.Mesh
+          if (m.isMesh) {
+            meshes++
+            if (m.castShadow) cast++
+            if (m.receiveShadow) receive++
+          }
+          const l = o as THREE.Light & {
+            isLight?: boolean
+            shadow?: THREE.LightShadow
+            distance?: number
+          }
+          if (!l.isLight) return
+          const isKey = l.userData?.auricRole === 'key'
+          if (isKey) keyIntensity += l.intensity
+          else fillSum += l.intensity
+          lights.push({
+            type: l.type,
+            role: l.userData?.auricRole ?? 'other',
+            intensity: +l.intensity.toFixed(3),
+            castShadow: l.castShadow === true,
+            mapSize: l.shadow ? l.shadow.mapSize.x : 0,
+            radius: l.shadow ? l.shadow.radius : 0,
+          })
+        })
+        return {
+          shadowMapEnabled: gl.shadowMap.enabled,
+          shadowMapType: gl.shadowMap.type,
+          pcss: PCSS_INSTALLED,
+          toneMapping: gl.toneMapping,
+          exposure: gl.toneMappingExposure,
+          outputColorSpace: gl.outputColorSpace,
+          meshes,
+          castShadow: cast,
+          receiveShadow: receive,
+          keyIntensity: +keyIntensity.toFixed(3),
+          nonKeyIntensity: +fillSum.toFixed(3),
+          keyOverFill: +(keyIntensity / Math.max(fillSum, 1e-6)).toFixed(3),
+          environmentIntensity: scene.environmentIntensity,
+          hasEnvironment: scene.environment !== null,
+          lights,
+        }
       }
       q.setShadows = (on: boolean) => {
         gl.shadowMap.enabled = on
@@ -269,7 +458,7 @@ export default function GameCanvas() {
       onPointerDown={() => AudioBus.unlock()}
     >
       <Canvas
-        shadows={{ type: THREE.PCFSoftShadowMap }}
+        shadows={{ type: AURIC_SHADOW_TYPE }}
         dpr={[1, 2]}
         gl={{
           antialias: false, // SMAA in the post stack handles AA

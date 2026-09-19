@@ -15,13 +15,20 @@
  * 0.62× radius, HDR-boosted at the core so only the edge crosses the bloom
  * knee. That is the difference between "an expanding white circle" and a
  * pressure wave.
+ *
+ * [vfx R3] This file also owns the PRESSURE SHELL pool (V4): expanding
+ * screen-space refraction spheres that displace the already-rendered frame
+ * behind them. Every ring in the game is now paired with an optional bend, so
+ * a detonation stops being light drawn over static architecture and starts
+ * being an event the architecture is inside of.
  */
 import { useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { getGlyphSpriteTexture } from '../textures'
-import { drainRings, drainDecals, type RingCmd, type DecalCmd } from './VFXBus'
+import { drainRings, drainDecals, drainDistorts, type RingCmd, type DecalCmd, type DistortCmd } from './VFXBus'
+import { RefractionShell } from './EnergyShell'
 
 // 6 → 10: a Sunspike Volley can pop 7 impact rings in one frame on top of
 // the Requiem nova + afterglow rings and Aegis ripples (fix1).
@@ -326,6 +333,81 @@ class Decal {
 const decalGeo = new THREE.PlaneGeometry(1, 1)
 const decalBuffer: DecalCmd[] = []
 
+// ---------------------------------------------------------------------------
+// [vfx R3] PRESSURE SHELLS (V4) — the frame bends
+//
+// Four pooled RefractionShells. Each is an expanding sphere that samples the
+// already-rasterised frame and displaces it along the surface normal, hardest
+// at the silhouette, with a per-channel split and a compression band on the
+// leading face. That is the element the work order calls "a distortion or
+// pressure element", and the build had exactly none of it.
+//
+// The shell expands on an ease-OUT radius (fast front, decelerating) while
+// the displacement falls on an ease-IN curve, so the bend is violent at the
+// instant of the detonation and gone well before the shell reaches its
+// maximum radius — the same asymmetry a real blast front has.
+// ---------------------------------------------------------------------------
+
+const MAX_DISTORTS = 4
+const distortGeo = new THREE.SphereGeometry(1, 32, 20)
+
+class PressureShell {
+  readonly shell: RefractionShell
+  active = false
+  age = 0
+  life = 0.5
+  maxRadius = 6
+  strength = 0.022
+
+  constructor() {
+    this.shell = new RefractionShell({
+      geometry: distortGeo,
+      strength: 0.022,
+      opacity: 1,
+      rimPow: 2.4,
+      compress: 0.35,
+      renderOrder: 17,
+    })
+  }
+
+  spawn(cmd: DistortCmd): void {
+    this.active = true
+    this.age = 0
+    this.life = Math.max(0.08, cmd.life)
+    this.maxRadius = Math.max(0.2, cmd.maxRadius)
+    this.strength = cmd.strength
+    this.shell.mesh.position.set(cmd.x, cmd.y, cmd.z)
+    this.shell.material.uniforms.uCompress!.value = cmd.compress
+    ;(this.shell.material.uniforms.uTint!.value as THREE.Color)
+      .set(cmd.color)
+      .multiplyScalar(0.22)
+    this.shell.mesh.scale.setScalar(0.05 * this.maxRadius)
+    this.shell.setStrength(cmd.strength)
+    this.shell.setOpacity(1)
+    this.shell.setVisible(true)
+  }
+
+  update(dt: number): void {
+    if (!this.active) return
+    this.age += dt
+    const t = this.age / this.life
+    if (t >= 1) {
+      this.active = false
+      this.shell.setVisible(false)
+      return
+    }
+    // radius: ease-out (the front decelerates through the air)
+    const r = this.maxRadius * (0.05 + 0.95 * (1 - (1 - t) * (1 - t) * (1 - t)))
+    this.shell.mesh.scale.setScalar(r)
+    // displacement: hardest at t=0, effectively gone by 60% of the life
+    const k = Math.max(0, 1 - t / 0.62)
+    this.shell.setStrength(this.strength * k * k)
+    this.shell.setOpacity(Math.min(1, k * 1.4))
+  }
+}
+
+const distortBuffer: DistortCmd[] = []
+
 
 
 /** Pooled shockwave rings + persistent surface decals, drained from the bus. */
@@ -338,6 +420,10 @@ export default function Shockwaves() {
     const tex = getScorchTexture()
     return Array.from({ length: MAX_DECALS }, () => new Decal(tex))
   }, [])
+  const pressures = useMemo(
+    () => Array.from({ length: MAX_DISTORTS }, () => new PressureShell()),
+    [],
+  )
 
   useFrame((_, delta) => {
     const ts = useGameStore.getState().timeScale
@@ -365,8 +451,18 @@ export default function Shockwaves() {
     }
     decalBuffer.length = 0
 
+    drainDistorts(distortBuffer)
+    for (let i = 0; i < distortBuffer.length; i++) {
+      const pr =
+        pressures.find((v) => !v.active) ??
+        pressures.reduce((a, b) => (a.age / a.life > b.age / b.life ? a : b))
+      pr.spawn(distortBuffer[i])
+    }
+    distortBuffer.length = 0
+
     for (const w of waves) w.update(dt)
     for (const d of decals) d.update(realDt)
+    for (const pr of pressures) pr.update(dt)
   })
 
   return (
@@ -376,6 +472,9 @@ export default function Shockwaves() {
       ))}
       {decals.map((d, i) => (
         <primitive key={`d${i}`} object={d.mesh} />
+      ))}
+      {pressures.map((p, i) => (
+        <primitive key={`p${i}`} object={p.shell.mesh} />
       ))}
     </group>
   )

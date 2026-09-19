@@ -46,22 +46,45 @@ void main() {
 `
 const PILLAR_FRAG = /* glsl */ `
 uniform vec3 uColor;
+uniform vec3 uCore;
 uniform float uPulse;
 uniform float uStrength;
+uniform float uTime;
 varying vec2 vUv;
 varying vec3 vNormalW;
 varying vec3 vViewW;
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x),
+             mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
 void main() {
   float h = 1.0 - vUv.y;             // bright at base, fading with height
   float a = pow(h, 1.6) * uStrength * uPulse;
+  // [vfx R3] NOISE-MODULATED COLUMN. A smooth additive cylinder is a solid
+  // of revolution and reads as one; a real shaft of light is broken up by the
+  // dust and the gaps in whatever it is shining through. Two octaves scrolling
+  // UP the shaft at different rates give it internal structure and slow
+  // secondary motion, so the beacon is never the same picture twice.
+  float n1 = vnoise(vec2(vUv.x * 7.0, vUv.y * 3.2 - uTime * 0.26));
+  float n2 = vnoise(vec2(vUv.x * 19.0 + 4.0, vUv.y * 8.5 - uTime * 0.55));
+  float n = 0.62 * n1 + 0.38 * n2;
+  a *= 0.42 + 0.95 * n;
   // subtle vertical striations
   a *= 0.85 + 0.15 * sin(vUv.x * 40.0 + vUv.y * 6.0);
   // soft radial gradient: fade toward silhouette edges so the beam reads
   // volumetric instead of a hard thin sheet (fix1)
   float ndv = abs(dot(normalize(vNormalW), normalize(vViewW)));
-  a *= pow(ndv, 0.75);
+  float vol = pow(ndv, 0.75);
+  a *= vol;
   if (a < 0.004) discard;
-  gl_FragColor = vec4(uColor, a);
+  // the densest part of the column — thickest line of sight, brightest noise —
+  // clips toward the hot core colour instead of staying one flat tint
+  vec3 col = mix(uColor, uCore, clamp(vol * n * 1.35, 0.0, 1.0));
+  gl_FragColor = vec4(col, a);
 }
 `
 
@@ -320,6 +343,7 @@ export default function Ambient() {
   const channelCoreMatRef = useRef<THREE.MeshBasicMaterial>(null)
   const ringRefs = useRef<(THREE.Group | null)[]>([])
   const pillarMatRef = useRef<THREE.ShaderMaterial>(null)
+  const pillarCoreMatRef = useRef<THREE.ShaderMaterial>(null)
 
   /** last known objective position — survives objectivePosition → null */
   const lastKnown = useRef(new THREE.Vector3(0, 0, 0))
@@ -405,6 +429,13 @@ export default function Ambient() {
       const pulse = 0.9 + 0.1 * Math.sin(t * Math.PI * 2)
       if (pillarMatRef.current) {
         pillarMatRef.current.uniforms.uPulse!.value = pulse
+        pillarMatRef.current.uniforms.uTime!.value = t
+      }
+      // the core column scrolls its noise at a different rate to the body, so
+      // the two never lock into one moving pattern
+      if (pillarCoreMatRef.current) {
+        pillarCoreMatRef.current.uniforms.uPulse!.value = pulse
+        pillarCoreMatRef.current.uniforms.uTime!.value = t * 1.7 + 11.0
       }
       for (let i = 0; i < RING_RADII.length; i++) {
         const r = ringRefs.current[i]
@@ -483,8 +514,10 @@ export default function Ambient() {
               fragmentShader={PILLAR_FRAG}
               uniforms={{
                 uColor: { value: new THREE.Color(COLORS.aureate) },
+                uCore: { value: new THREE.Color(COLORS.solarWhite) },
                 uPulse: { value: 1 },
                 uStrength: { value: 0.7 },
+                uTime: { value: 0 },
               }}
               transparent
               depthWrite={false}
@@ -495,12 +528,15 @@ export default function Ambient() {
           {/* bright inner core so the beacon never reads as "thin beam" (fix1) */}
           <mesh geometry={coreGeo} position={[0, BEACON_HEIGHT / 2, 0]} renderOrder={18}>
             <shaderMaterial
+              ref={pillarCoreMatRef}
               vertexShader={PILLAR_VERT}
               fragmentShader={PILLAR_FRAG}
               uniforms={{
                 uColor: { value: new THREE.Color(COLORS.solarWhite) },
+                uCore: { value: new THREE.Color('#FFFFFF') },
                 uPulse: { value: 1 },
                 uStrength: { value: 1.1 },
+                uTime: { value: 0 },
               }}
               transparent
               depthWrite={false}

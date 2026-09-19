@@ -115,12 +115,23 @@ export const MATERIALS = {
   regalGold: { color: COLORS.regalGold, metalness: 0.9, roughness: 0.25 },
   deepRelic: { color: COLORS.deepRelic, metalness: 0.6, roughness: 0.15 },
   /**
-   * [vfx R1] 1.2 → 3.0. HDR multiplier for toneMapped:false emissive colors.
-   * The bloom knee moved to 1.0 (lit ivory tops out near 0.85 after ACES), so
-   * ONLY real energy materials — veinTeal, veinGold, medallion, doorGlow,
-   * seal — are authored above white and are the only things that bloom.
+   * HDR multiplier for `toneMapped: false` emissive colours.
+   *
+   * [post-color R3] 3.0 → 7.0, and the reasoning behind the old number is
+   * void. There is no in-material tone mapping in this build (the composer
+   * revokes it — see POSTFX.tone), so a `toneMapped: false` material was never
+   * being treated differently from a lit one: it wrote 3.0 into a half-float
+   * buffer and the final pass clamped it to flat 1.0 white-per-channel. That
+   * is why every emissive in the captures is a solid slab of its own albedo
+   * with no core and no falloff.
+   *
+   * With AgX now owning the display transform, headroom is worth something:
+   * 7.0 × exposure lands a strip a little under the top of the curve, so it
+   * resolves as a WHITE core with a saturated teal/gold rim as the curve
+   * desaturates toward the shoulder, and it sits a full stop and a half over
+   * the 1.8 bloom knee so the halo belongs to the source and to nothing else.
    */
-  emissiveBoost: 3.0,
+  emissiveBoost: 7.0,
   // [env-art R1] 256 → 512: gold needs a sharper strip highlight to read metal
   // [vfx R2] 512 → 1024 at environment-art's request (their item 6). The
   // PMREM is baked once (`frames={1}`), so this is a one-off cost and it is
@@ -133,107 +144,227 @@ export const MATERIALS = {
 // §2.5 — Post-FX stack
 // ---------------------------------------------------------------------------
 export const POSTFX = {
-  // [vfx R1] threshold 0.7 → 1.0, intensity 1.25 → 0.9. Tone mapping runs
-  // in-material, so lit ivory arrives at the composer at ≤~0.85 and can no
-  // longer cross the knee; only HDR-authored energy (emissiveBoost 3.0,
-  // additive VFX written overbright) blooms. `radius` keeps the mip chain
-  // tight so discrete sources stay discrete instead of washing the frame.
-  // [vfx R2] threshold 1.0 → 0.85, smoothing 0.2 → 0.35. At a 1.0 knee with
-  // 0.2 of smoothing NOTHING in the frame crossed it: ACES + exposure 0.85
-  // lands lit ivory at ~0.80 and even the HDR-authored energy only grazed the
-  // ramp, so the game shipped with bloom effectively off. The knee now sits
-  // just above lit ivory and the 0.35 ramp means ivory still contributes
-  // zero (smoothstep(0.85, 1.20, 0.80) = 0) while a core authored at 2.0+
-  // is fully inside. Discrete sources bloom; the frame does not.
-  bloom: { intensity: 0.95, luminanceThreshold: 0.85, luminanceSmoothing: 0.35, mipmapBlur: true, radius: 0.72 },
   /**
-   * [vfx R2] Second, WIDE bloom layer. One tight mip chain gives a hot source
-   * a crisp halo but no atmosphere; a second pass at a higher knee and a much
-   * larger radius lays a dim veil around only the brightest cores, which is
-   * what separates "a glowing object" from "an object with a lamp in it".
-   * Kept at a fifth of the main intensity so it never washes the frame.
+   * ==========================================================================
+   * [post-color R3] THE DISPLAY TRANSFORM
+   * ==========================================================================
+   * The largest single defect on this axis, and it was invisible in code
+   * review because the code that causes it is in node_modules:
+   *
+   *   `@react-three/postprocessing`'s <EffectComposer> takes a guard on the
+   *   renderer and sets `gl.toneMapping = NoToneMapping` for as long as it is
+   *   mounted (dist/index.js: `toneMappingGuard.acquire(gl, NoToneMapping)`).
+   *
+   * GameCanvas asks the Canvas for ACESFilmic + exposure 1.15. The composer
+   * silently revokes it. So this game shipped two rounds with NO TONE CURVE
+   * ANYWHERE: the scene rendered raw linear radiance into the half-float
+   * buffer, and the composer's final pass clamped it to [0,1] and sRGB-encoded
+   * it. Nothing else happened to it.
+   *
+   * That single fact explains the whole panel verdict:
+   *   - linear→sRGB lifts a linear 0.2 to 0.48 display, so every surface in
+   *     the level piles into one milky mid-band with no blacks ("a single
+   *     mid-grey value band");
+   *   - everything above linear 1.0 clips flat, so a gold ring is a solid
+   *     orange slab and a teal strip a solid cyan slab, with no hot core and
+   *     no gradation ("flat single-layer energy VFX", "no controlled
+   *     highlight");
+   *   - the bloom knee of 0.85 sat BELOW lit diffuse in linear HDR, so lit
+   *     ivory bloomed and discrete sources did not stand out from it.
+   *
+   * No amount of lighting, texture or geometry work fixes a frame with no
+   * tone curve on it. The post stack now owns the display transform outright:
+   * AgX (transcribed exactly from three r185's `tonemapping_pars_fragment`)
+   * plus an ASC-style look, run as its own pass before AA.
+   *
+   * AgX rather than ACES because the brief is "a tone curve that holds
+   * highlights instead of clipping them to paper": ACES' RRT/ODT fit runs out
+   * of highlight room about four stops over grey and drives to flat white,
+   * while AgX maps a 16.5-stop log range and desaturates its way up, so a nova
+   * core reads as a hot white centre inside a saturated rim rather than a
+   * white disc with a hard edge.
    */
-  bloomWide: { intensity: 0.26, luminanceThreshold: 1.15, luminanceSmoothing: 0.5, radius: 1.4 },
+  tone: {
+    /**
+     * Linear exposure applied before the curve. This is now the ONLY exposure
+     * control in the build — `LIGHTING.exposure` (0.85) feeds
+     * `gl.toneMappingExposure`, which nothing reads once the renderer's tone
+     * mapping is pinned off.
+     *
+     * MEASURED, via `window.__qa.postReport()` on the round-3 build: the scene
+     * hands the composer a linear frame whose brightest architecture sits
+     * around 0.21 (p95) and whose median is 0.006-0.06 depending on how much
+     * void is in shot. Inverting AgX + the look for a lit face at ~0.72 display
+     * gives exposure 2.9. At 1.15 the whole level came out roughly a stop and a
+     * half under: displayed p50 0.216 and p95 0.44 at the spawn, i.e. no lit
+     * surface anywhere in the frame reached the top half of the range.
+     */
+    exposure: 2.9,
+    /**
+     * Blend toward a smoothstep S-curve in display-linear. AgX's base look is
+     * deliberately flat; this is the "punchy" look on top of it.
+     */
+    contrast: 0.42,
+    /** saturation restored after AgX's inherent desaturation */
+    saturation: 1.18,
+    /**
+     * Black point lifted OFF the bottom: subtract-and-renormalise so the
+     * darkest 1.2% of the curve resolves to a true 0. The panel asked for
+     * >=12% of pixels under 0.08 luma; the curve plus this is what delivers
+     * it, without crushing everything that should still read as shadow detail.
+     */
+    blackPoint: 0.012,
+    /**
+     * The deliberate grade: shadows cool, highlights warm. Both tints are
+     * luminance-normalised in PostFX before they are used, so the split
+     * rotates hue without changing overall exposure.
+     */
+    shadowTint: '#94A8E2',
+    highlightTint: '#FFD9AE',
+    splitStrength: 0.26,
+  },
   /**
-   * [vfx R2] Bloom governor — the luminance-weighted downweight the review
-   * asked for. A single large additive mesh (the ult screen flash, a full
-   * screen katana arc) otherwise pins the whole bloom pyramid and the frame
-   * goes to milk. Effects that cover a lot of screen raise `bloomLoad` on the
-   * VFX bus; the composer divides bloom intensity by (1 + load) and bleeds the
-   * load off over `decaySec`. `maxLoad` caps how far bloom can be pulled down.
+   * [post-color R3] The bloom knee is expressed in LINEAR HDR, because that is
+   * what the composer actually receives (see POSTFX.tone). The number is
+   * MEASURED, not derived: `window.__qa.postReport()` on the round-3 build
+   * reports the scene's linear radiance distribution as
+   *
+   *   spawn   p50 0.088   p95 0.205   p99 0.36
+   *   arena   p50 0.006   p95 0.22    p99 0.59   max 19.6
+   *
+   * so lit diffuse tops out a little under 0.6 and everything above that is a
+   * `toneMapped: false` emissive or an additive VFX layer. A knee of 1.25 with
+   * a 0.6 ramp therefore sits a full stop clear of the brightest lit surface
+   * in the game while catching every authored light source, and the measured
+   * `fracOverBloomKnee` is well under 1% of the frame. Bloom blooms light
+   * sources; it does not lift the frame.
+   */
+  bloom: { intensity: 1.0, luminanceThreshold: 1.25, luminanceSmoothing: 0.6, mipmapBlur: true, radius: 0.7 },
+  /**
+   * Second, WIDE layer. A tight mip chain gives a hot source a crisp halo but
+   * no atmosphere; this one runs a much higher knee (only true cores reach it)
+   * over a quarter-res pyramid, which lays a dim veil several hundred pixels
+   * across around a light and nothing else. Crisp inner halo + wide dim outer
+   * veil is what reads as a lamp rather than a glowing decal.
+   */
+  bloomWide: { intensity: 0.28, luminanceThreshold: 3.0, luminanceSmoothing: 1.0, radius: 0.96, resolutionScale: 0.28 },
+  /**
+   * Bloom governor — one large additive mesh (the ult screen flash, a
+   * frame-filling melee arc) otherwise pins the whole pyramid and every
+   * discrete source in frame dissolves into milk. Effects that are about to
+   * cover a lot of screen raise `VFXBus.addBloomLoad()`; bloom intensity is
+   * divided by (1 + load) down to a floor and the load bleeds off.
    */
   bloomGovernor: { maxLoad: 1.6, decaySec: 0.5, floor: 0.35 },
-  vignette: { offset: 0.25, darkness: 0.65, eskil: false },
-  // [vfx R1] base 0.0006 → 0.0002 and spike 0.004 → 0.0015, radially
-  // modulated so the centre of frame stays clean and only the corners
-  // fringe. Driven by an explicit impulse timestamp (VFXBus.caImpulse) on a
-  // 0.12 s ease-out — never by a sustained `timeScale < 1` plateau.
+  /**
+   * [post-color R3] Vignette is now part of the film pass, not a library
+   * effect: it darkens AND cools the corners (a real lens loses the warm end
+   * first), is slightly anamorphic so it does not read as a circle on a 16:9
+   * frame, and starts far enough out that you have to look for it.
+   */
+  vignette: { offset: 0.72, darkness: 0.42, tint: '#2A3350', aspect: 1.07 },
+  /**
+   * [post-color R3] Velocity radial blur. A shipped action game at 30 m/s does
+   * not hand you a perfectly sharp frame; this is the one thing on this axis
+   * the build had NONE of (weakness register V13: "No motion blur of any kind
+   * behind a 30 m/s dash"). Six taps scaled toward the centre of frame, gated
+   * by a smoothstep on radius so the middle of the screen — where the reticle
+   * and the thing you are aiming at live — stays perfectly sharp and only the
+   * outer field streaks. Driven by `PlayerAnim.speed` plus a kick on every CA
+   * impulse, so a hit and a dash both push the frame.
+   */
+  radialBlur: {
+    /** m/s at which streaking starts and at which it is fully open */
+    startSpeed: 13,
+    fullSpeed: 34,
+    /** peak blur (fraction of the radius the taps sweep) */
+    strength: 0.62,
+    /** extra blur added by a CA impulse (hitstop, nova) */
+    impulse: 0.5,
+    /** normalised radius² inside which the frame stays sharp */
+    centreClear: 0.055,
+  },
+  /**
+   * [post-color R3] Post-AA unsharp mask. SMAA softens, a half-res AO buffer
+   * softens, and a bloom veil softens; a shipped frame gets that acutance back
+   * with a contrast-adaptive sharpen at the very end. 4 taps, applied before
+   * grain so it does not amplify the noise.
+   */
+  sharpen: 0.42,
+  /**
+   * [post-color R3] baseOffset 0.0002 -> 0. The brief is explicit: chromatic
+   * aberration is an impulse, never a constant. It now sits at exactly zero
+   * until `VFXBus.caImpulse()` fires, then eases out over 0.12 s, and it is
+   * radially modulated so the centre of frame never fringes at all.
+   */
   chromaticAberration: {
-    baseOffset: 0.0002,
-    spikeOffset: 0.0015,
+    baseOffset: 0,
+    spikeOffset: 0.0024,
     radialModulation: true,
-    modulationOffset: 0.25,
+    modulationOffset: 0.2,
     impulseSec: 0.12,
   },
-  // [vfx R2] 0.05 → 0.02 and premultiplied, so grain is weighted by the
-  // luminance underneath it: it lives in the mids and dies in the blacks
-  // instead of sitting as a uniform veil over the level's true darks.
-  // `titleOpacity` is what the front end gets — the title art is a still and
-  // any grain on it reads as compression noise.
-  noise: { opacity: 0.02, titleOpacity: 0 },
   /**
-   * [vfx R1] SSAO contact pass — first in the stack, before Bloom. Gated to
-   * qualityTier 0 (it costs an extra NormalPass), half-res with depth-aware
-   * upsampling. `radius` is resolution-relative (≈0.6 m at gameplay depth).
+   * [post-color R3] Grain is luminance-weighted by `4L(1-L)`: it peaks in the
+   * mids and goes to zero in both the true blacks and the blown highlights,
+   * which is how film actually behaves and is why it does not read as a veil.
+   * `opacity` is the peak multiplicative swing, so 0.034 is +/-1.7%.
    */
-  // [vfx R2] AO retune requested by environment-art (their work-order item 3
-  // lands in POSTFX, which this stream owns). `luminanceInfluence` 0.6 was
-  // cancelling the pass on exactly the bright ivory that needed the cavity
-  // read, and a 0.09 radius only ever occluded a few centimetres. 0.12 / 0.26
-  // makes AO a structural term instead of a contact hint.
-  ao: {
-    intensity: 2.3,
-    radius: 0.26,
-    samples: 9,
-    rings: 5,
-    bias: 0.01,
-    fade: 0.02,
-    luminanceInfluence: 0.12,
-    resolutionScale: 0.5,
-    worldDistanceThreshold: 24,
-    worldDistanceFalloff: 6,
-    worldProximityThreshold: 0.6,
-    worldProximityFalloff: 0.3,
-  },
-  hueSaturationPulse: 8, // during ability bursts
-  brightnessContrastHitstop: -0.05, // during hitstop frames
+  noise: { opacity: 0.034, titleOpacity: 0 },
   /**
-   * [vfx R1] grade response. `hitstop` is the short desaturating dip on a
-   * katana connect; `ult` is the 1.2 s Auric Requiem window — richer and a
-   * touch brighter so the nova reads as a light event, not a white hole.
+   * [post-color R3] AO moved from postprocessing's SSAO to **N8AO**, which is
+   * already installed (`n8ao` is a dependency of @react-three/postprocessing
+   * and `N8AO` is exported from it) — no new dependency.
+   *
+   * Why: SSAO's `luminanceInfluence` fades the pass out on bright pixels. The
+   * brief for this axis is AO "tuned so it bites on bright surfaces rather
+   * than being cancelled there", and a shrine made of ivory is nothing BUT
+   * bright surfaces, so the one control the old pass had was working directly
+   * against the one thing it needed to do. N8AO has no such term: it is a
+   * horizon-based pass with a bilateral denoiser and a world-space radius, it
+   * darkens by multiplying radiance, and it bites exactly as hard on lit ivory
+   * as on shadow.
+   *
+   * `color` is a very dark indigo rather than black — occlusion in a real
+   * room is filled by sky bounce, so cavities go cool, not neutral.
+   */
+  ao: {
+    /** world-space metres — cavity scale, not a contact hint */
+    radius: 1.15,
+    distanceFalloff: 0.7,
+    intensity: 3.4,
+    samples: 16,
+    denoiseSamples: 4,
+    denoiseRadius: 12,
+    color: '#0A0F1E',
+    /** quality tier 1: half-res, fewer samples, same look */
+    lowSamples: 8,
+    lowDenoiseSamples: 2,
+  },
+  /**
+   * [post-color R3] Grade response, rewritten against the new uniforms. The
+   * ultimate is three pictures and they are now made with EXPOSURE, not a
+   * brightness offset: the charge stops the camera down two thirds of a stop
+   * and desaturates, the nova opens it back up past neutral. A brightness add
+   * lifts the blacks and reads as fog; an exposure change reads as a camera.
    */
   grade: {
-    hitstopSaturation: -0.12,
-    ultSaturation: 0.22,
-    ultBrightness: 0.035,
-    ultContrast: 0.09,
+    /** multipliers on `tone.saturation` / additions to `tone.contrast` */
+    hitstopSaturation: 0.84,
+    hitstopContrast: -0.06,
+    hitstopExposure: 0.94,
+    ultSaturation: 1.32,
+    ultContrast: 0.12,
+    ultExposure: 1.24,
+    ultVignette: 0.2,
     /** seconds to ease the ult grade in and back out */
     ultEase: 0.18,
-    /**
-     * [vfx R2] The ultimate's CHARGE is a different picture from its peak:
-     * the world dims and desaturates around the rooted player while the motes
-     * converge, then the nova punches through it. Raised by the ability via
-     * `VFXBus.ultChargeWindow`.
-     */
-    chargeSaturation: -0.3,
-    chargeBrightness: -0.09,
-    chargeContrast: 0.06,
-    /** vignette darkness added while the ult grade is held (base is 0.65) */
-    ultVignette: 0.28,
-    /** vignette darkness added during the charge — the world closes in */
-    chargeVignette: 0.42,
+    chargeSaturation: 0.6,
+    chargeContrast: 0.04,
+    chargeExposure: 0.62,
+    chargeVignette: 0.34,
   },
-  /** [vfx R1] screen-space sun flare (streak + ghosts), gated off at tier 2 */
+  /** screen-space sun flare (streak + ghosts), gated off at tier 2 */
   lensFlare: { streakWidth: 0.55, opacity: 0.55 },
 } as const
 

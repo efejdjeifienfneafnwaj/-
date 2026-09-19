@@ -33,6 +33,14 @@ import {
   ARENA_MEGALITHS,
   SPAWN_GATES,
   MONOLITHS,
+  ARENA_VAULT_BAYS,
+  ARENA_VAULT_OCULUS_BAYS,
+  BRIDGE_VAULT_BAYS,
+  CANYON_GANTRIES,
+  CANYON_GANTRY_SPAN,
+  CANYON_GANTRY_Y,
+  CANYON_PENDANT_X,
+  PORTALS,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -42,6 +50,7 @@ import {
   goldMaterial,
   goldPolishedMaterial,
   goldEdgeMaterial,
+  goldCastMaterial,
   recessMaterial,
   umberMaterial,
   fretTrimMaterial,
@@ -367,6 +376,241 @@ function repeatUv(g: THREE.BufferGeometry, ru: number, rv = 1): THREE.BufferGeom
   return g
 }
 
+/**
+ * R3 — ENCLOSURE. The single largest remaining blockout tell in this level is
+ * that it has no ceiling: the canyon, the arena and the bridge are walled pits
+ * open to the skybox, so the top third of every wide frame is flat purple sky
+ * with a few smooth tubes crossing it. No shipped interior looks like that.
+ *
+ * `vaultShell` builds an inward-facing COFFERED barrel vault as real geometry:
+ * a grid of sunken coffer wells, each with a recessed pan, four side reveals
+ * and a picture-frame band of soffit left between them. Every well is a cavity
+ * the key light cannot reach, so the ceiling carries its own value structure
+ * (frame band bright, reveal mid, pan dark) before a single shadow is cast —
+ * and the vertex-colour AO is baked in per face, so it survives with SSAO off.
+ *
+ * Faces are NOT welded: each quad carries its own four vertices, which is what
+ * gives a machined coffer its hard arris instead of a smeared gradient.
+ *
+ * Cost: one geometry, instanced across every bay of a room. An arena bay is
+ * ~1.9k triangles and the whole 60 m vault is six instances of it.
+ */
+interface VaultOpts {
+  /** vault radius about the +Z axis (matches the sweepArc ribs' XY plane) */
+  radius: number
+  /** springing angle and crown-side limit, radians from +X */
+  a0: number
+  a1: number
+  /** bay length along Z (geometry is centred on z = 0) */
+  len: number
+  /** coffer cells around / along */
+  nU: number
+  nV: number
+  /** how far each coffer pan is sunk away from the room */
+  depth: number
+  /** soffit band left between adjacent coffers, in metres at the surface */
+  frame: number
+  /** vertex-colour multiplier at the sunken pan (1 = no darkening) */
+  panShade?: number
+  /** vertex-colour multiplier on the coffer reveals */
+  revealShade?: number
+  /** omit cells whose centre lies within this many radians of the crown */
+  openCrown?: number
+}
+
+function vaultShell(o: VaultOpts): THREE.BufferGeometry {
+  const { radius: R, a0, a1, len, nU, nV, depth, frame } = o
+  const panShade = o.panShade ?? 0.34
+  const revealShade = o.revealShade ?? 0.66
+  const pos: number[] = []
+  const uvs: number[] = []
+  const cols: number[] = []
+  const idx: number[] = []
+  const A = new THREE.Vector3()
+  const B = new THREE.Vector3()
+  const C = new THREE.Vector3()
+  const D = new THREE.Vector3()
+  const e1 = new THREE.Vector3()
+  const e2 = new THREE.Vector3()
+  const nrm = new THREE.Vector3()
+  const want = new THREE.Vector3()
+
+  const at = (a: number, r: number, z: number, out: THREE.Vector3) =>
+    out.set(Math.cos(a) * r, Math.sin(a) * r, z)
+
+  /** emit one quad with the winding that makes its normal face `want` */
+  function quad(shade: number) {
+    e1.subVectors(B, A)
+    e2.subVectors(C, A)
+    nrm.crossVectors(e1, e2)
+    const flip = nrm.dot(want) < 0
+    const order = flip ? [A, D, C, B] : [A, B, C, D]
+    const base = pos.length / 3
+    for (const p of order) {
+      pos.push(p.x, p.y, p.z)
+      // arc-length / axial UVs so a trim sheet keeps its texel density
+      uvs.push(Math.atan2(p.y, p.x) * R * 0.5, p.z * 0.5)
+      cols.push(shade, shade, shade)
+    }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+  }
+
+  const du = (a1 - a0) / nU
+  const dz = len / nV
+  // convert the metric frame width into angular / axial half-insets
+  const fa = Math.min(frame / R, du * 0.45)
+  const fz = Math.min(frame, dz * 0.9)
+  const z0 = -len / 2
+
+  for (let i = 0; i < nU; i++) {
+    const au0 = a0 + i * du
+    const au1 = au0 + du
+    const ac = (au0 + au1) / 2
+    const skip = o.openCrown !== undefined && Math.abs(ac - Math.PI / 2) < o.openCrown
+    const ai0 = au0 + fa / 2
+    const ai1 = au1 - fa / 2
+    for (let j = 0; j < nV; j++) {
+      const zu0 = z0 + j * dz
+      const zu1 = zu0 + dz
+      const zi0 = zu0 + fz / 2
+      const zi1 = zu1 - fz / 2
+
+      if (skip) continue
+
+      // --- soffit picture frame at radius R (four strips around the well)
+      want.set(-Math.cos(ac), -Math.sin(ac), 0)
+      at(au0, R, zu0, A); at(au1, R, zu0, B); at(au1, R, zi0, C); at(au0, R, zi0, D)
+      quad(1)
+      at(au0, R, zi1, A); at(au1, R, zi1, B); at(au1, R, zu1, C); at(au0, R, zu1, D)
+      quad(1)
+      at(au0, R, zi0, A); at(ai0, R, zi0, B); at(ai0, R, zi1, C); at(au0, R, zi1, D)
+      quad(1)
+      at(ai1, R, zi0, A); at(au1, R, zi0, B); at(au1, R, zi1, C); at(ai1, R, zi1, D)
+      quad(1)
+
+      // --- sunken pan
+      at(ai0, R + depth, zi0, A); at(ai1, R + depth, zi0, B)
+      at(ai1, R + depth, zi1, C); at(ai0, R + depth, zi1, D)
+      quad(panShade)
+
+      // --- four reveals, each facing into the well
+      want.set(-Math.sin(ai0), Math.cos(ai0), 0)
+      at(ai0, R, zi0, A); at(ai0, R + depth, zi0, B)
+      at(ai0, R + depth, zi1, C); at(ai0, R, zi1, D)
+      quad(revealShade)
+      want.set(Math.sin(ai1), -Math.cos(ai1), 0)
+      at(ai1, R, zi0, A); at(ai1, R + depth, zi0, B)
+      at(ai1, R + depth, zi1, C); at(ai1, R, zi1, D)
+      quad(revealShade)
+      want.set(0, 0, 1)
+      at(ai0, R, zi0, A); at(ai1, R, zi0, B)
+      at(ai1, R + depth, zi0, C); at(ai0, R + depth, zi0, D)
+      quad(revealShade * 0.92)
+      want.set(0, 0, -1)
+      at(ai0, R, zi1, A); at(ai1, R, zi1, B)
+      at(ai1, R + depth, zi1, C); at(ai0, R + depth, zi1, D)
+      quad(revealShade * 0.92)
+    }
+  }
+
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  const uvAttr = new THREE.Float32BufferAttribute(uvs, 2)
+  g.setAttribute('uv', uvAttr)
+  g.setAttribute('uv1', uvAttr)
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * The gold boss / rosette positions where a vault's soffit bands cross. Real
+ * vaults put a cast boss on every intersection; that is the ornament that
+ * tells you a ceiling is built rather than extruded.
+ */
+function vaultBosses(o: VaultOpts, everyU: number, everyV: number, r: number): InstItem[] {
+  const out: InstItem[] = []
+  const du = (o.a1 - o.a0) / o.nU
+  const dz = o.len / o.nV
+  for (let i = 0; i <= o.nU; i += everyU) {
+    const a = o.a0 + i * du
+    if (o.openCrown !== undefined && Math.abs(a - Math.PI / 2) < o.openCrown) continue
+    for (let j = 0; j <= o.nV; j += everyV) {
+      const z = -o.len / 2 + j * dz
+      out.push({
+        p: [Math.cos(a) * (o.radius - 0.02), Math.sin(a) * (o.radius - 0.02), z],
+        r: [0, 0, a],
+        s: [r * 0.5, r, r],
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * Coffered soffit for a FLAT overhead span (the canyon gantries, the portal
+ * reveals): the same sunken-well construction as the vault, in the XZ plane,
+ * facing down. Unit square in X/Z so a single geometry serves every span.
+ */
+function cofferSoffit(nx: number, nz: number, depth: number, frameFrac: number, panShade = 0.32): THREE.BufferGeometry {
+  const pos: number[] = []
+  const uvs: number[] = []
+  const cols: number[] = []
+  const idx: number[] = []
+  const P = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+  const push = (q: THREE.Vector3[], shade: number, flipped: boolean) => {
+    const base = pos.length / 3
+    const order = flipped ? [q[0], q[3], q[2], q[1]] : q
+    for (const p of order) {
+      pos.push(p.x, p.y, p.z)
+      uvs.push(p.x + 0.5, p.z + 0.5)
+      cols.push(shade, shade, shade)
+    }
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
+  }
+  const dx = 1 / nx
+  const dz = 1 / nz
+  // the tile is instanced onto spans of very different sizes, so the soffit
+  // band has to be a fraction of the CELL, not an absolute figure — an
+  // absolute one inverts the coffer the moment a span is scaled up.
+  const fx = dx * Math.min(0.48, frameFrac)
+  const fz = dz * Math.min(0.48, frameFrac)
+  for (let i = 0; i < nx; i++) {
+    const x0 = -0.5 + i * dx
+    const x1 = x0 + dx
+    const xi0 = x0 + fx / 2
+    const xi1 = x1 - fx / 2
+    for (let j = 0; j < nz; j++) {
+      const z0 = -0.5 + j * dz
+      const z1 = z0 + dz
+      const zi0 = z0 + fz / 2
+      const zi1 = z1 - fz / 2
+      // soffit frame at y = 0, facing down (-Y)
+      push([P(x0, 0, z0), P(x1, 0, z0), P(x1, 0, zi0), P(x0, 0, zi0)], 1, true)
+      push([P(x0, 0, zi1), P(x1, 0, zi1), P(x1, 0, z1), P(x0, 0, z1)], 1, true)
+      push([P(x0, 0, zi0), P(xi0, 0, zi0), P(xi0, 0, zi1), P(x0, 0, zi1)], 1, true)
+      push([P(xi1, 0, zi0), P(x1, 0, zi0), P(x1, 0, zi1), P(xi1, 0, zi1)], 1, true)
+      // sunken pan
+      push([P(xi0, depth, zi0), P(xi1, depth, zi0), P(xi1, depth, zi1), P(xi0, depth, zi1)], panShade, true)
+      // reveals
+      push([P(xi0, 0, zi0), P(xi0, depth, zi0), P(xi0, depth, zi1), P(xi0, 0, zi1)], 0.62, false)
+      push([P(xi1, 0, zi0), P(xi1, depth, zi0), P(xi1, depth, zi1), P(xi1, 0, zi1)], 0.62, true)
+      push([P(xi0, 0, zi0), P(xi1, 0, zi0), P(xi1, depth, zi0), P(xi0, depth, zi0)], 0.58, false)
+      push([P(xi0, 0, zi1), P(xi1, 0, zi1), P(xi1, depth, zi1), P(xi0, depth, zi1)], 0.58, true)
+    }
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  const uvAttr = new THREE.Float32BufferAttribute(uvs, 2)
+  g.setAttribute('uv', uvAttr)
+  g.setAttribute('uv1', uvAttr)
+  g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
 // --- shared ornament geometries -------------------------------------------
 /** stepped trim run, unit length along Z (scale Z) */
 const TRIM_RUN = sweepLine(TRIM_PROFILE)
@@ -405,6 +649,16 @@ const COLUMN_PROFILE: [number, number][] = (() => {
   return rows
 })()
 const COLUMN_GEO = flutedColumn(COLUMN_PROFILE, 18, 0.07, [-3.9, 3.3], 54)
+/**
+ * R3 — engaged (three-quarter) column for wall bays. Same lathed profile as
+ * the free-standing order — base torus, entasis on the shaft, flared capital,
+ * real angular fluting — at half the radial tessellation, because two thirds
+ * of it is buried in the wall. The arena and the chamber had NO columns at
+ * all: every vertical on a 60 m wall was a flat gold stripe applied to a flat
+ * plane, which is the definition of ornament that is painted on rather than
+ * bought with geometry.
+ */
+const COLUMN_ENGAGED = flutedColumn(COLUMN_PROFILE, 16, 0.08, [-3.9, 3.3], 30)
 /** flat fret course for wall panels (unit square, scaled per run) */
 const FRET_PANEL = repeatUv(new THREE.PlaneGeometry(1, 1), 6)
 
@@ -453,6 +707,98 @@ const RIB_BRIDGE_AO = bakeContactAO(RIB_BRIDGE, 0, 1.4, 0.42)
 const WALL_ARCH_AO = bakeContactAO(WALL_ARCH, 0, 0.9, 0.46)
 const WALL_ARCH_B_AO = bakeContactAO(WALL_ARCH_B, 0, 0.7, 0.46)
 const WALL_ARCH_C_AO = bakeContactAO(WALL_ARCH_C, 0, 1.1, 0.46)
+
+// --- R3 enclosure geometries ----------------------------------------------
+/**
+ * Arena vault. Springs from y = 11 (just above the 10 m cornice) on both long
+ * walls and crowns 30 m over the deck, so the whole upper half of every arena
+ * frame becomes coffered architecture instead of flat sky. The two middle bays
+ * use the `openCrown` variant, which leaves a 12 m oculus slot along the ridge
+ * — the room still reads as open to the void, but through a framed opening
+ * rather than because nothing was built.
+ *
+ * The vault deliberately does NOT cast: its job is to occlude the eye, not the
+ * key light. Letting a closed 60 m shell into the shadow pass would put the
+ * entire arena floor in permanent shadow and throw away the round-2 shadow fix.
+ */
+const ARENA_VAULT_A0 = Math.asin(11 / 30)
+const ARENA_VAULT_OPTS: VaultOpts = {
+  radius: 30,
+  a0: ARENA_VAULT_A0,
+  a1: Math.PI - ARENA_VAULT_A0,
+  len: 10,
+  nU: 18,
+  nV: 3,
+  depth: 0.9,
+  frame: 0.62,
+  panShade: 0.3,
+  revealShade: 0.62,
+}
+const VAULT_ARENA = vaultShell(ARENA_VAULT_OPTS)
+const VAULT_ARENA_OPEN = vaultShell({ ...ARENA_VAULT_OPTS, openCrown: 0.2 })
+const VAULT_ARENA_BOSS = vaultBosses(ARENA_VAULT_OPTS, 3, 3, 0.62)
+/** gold transverse band lying ON the vault surface, between the structural
+ *  ribs — the ceiling keeps a bright line every 5 m even in full shade */
+const VAULT_ARENA_BAND = sweepArc(TRIM_PROFILE, 29.72, Math.PI, 72)
+
+/** extraction-bridge vault: a tight ribbed tunnel with a continuous ridge slot */
+const BRIDGE_VAULT_A0 = Math.asin(2 / 7.5)
+const BRIDGE_VAULT_OPTS: VaultOpts = {
+  radius: 7.5,
+  a0: BRIDGE_VAULT_A0,
+  a1: Math.PI - BRIDGE_VAULT_A0,
+  len: 7,
+  nU: 12,
+  nV: 2,
+  depth: 0.42,
+  frame: 0.3,
+  panShade: 0.32,
+  revealShade: 0.64,
+  openCrown: 0.24,
+}
+const VAULT_BRIDGE = vaultShell(BRIDGE_VAULT_OPTS)
+
+/** spawn baldachin: a coffered saucer dome on the eight dais columns */
+const BALDACHIN_SHELL = DOME_GEO.clone()
+const BALDACHIN_AO = bakeContactAO(BALDACHIN_SHELL, 0.4, 9, 0.38)
+const RIB_BALDACHIN = sweepArc(ribSection(0.4), 5.75, Math.PI, 26)
+const RIB_BALDACHIN_AO = bakeContactAO(RIB_BALDACHIN, 0, 1.6, 0.44)
+const BALDACHIN_BAND = new THREE.TorusGeometry(5.32, 0.15, 4, 64)
+
+/** coffered soffit tile for flat overhead spans (gantries, portal reveals) */
+const SOFFIT_WIDE = cofferSoffit(8, 2, 0.24, 0.34)
+const SOFFIT_CEIL = cofferSoffit(3, 8, 0.3, 0.32)
+const SOFFIT_PORTAL = cofferSoffit(3, 2, 0.2, 0.36)
+
+/** the canyon's high transverse arch — spans the whole ravine well above the
+ *  play volume, so the player runs under real structure rather than open sky */
+const GANTRY_ARCH = sweepArc(ribSection(1.3), 13.2, Math.PI, 34)
+const GANTRY_ARCH_AO = bakeContactAO(GANTRY_ARCH, 0, 5, 0.42)
+const GANTRY_ARCH_TRIM = sweepArc(TRIM_PROFILE, 12.6, Math.PI, 34)
+
+/** pendant lamp kit — rod, flared hood, gold collar, recessed lens */
+const PENDANT_ROD = new THREE.CylinderGeometry(0.085, 0.085, 1, 8)
+const PENDANT_HOOD = new THREE.CylinderGeometry(0.62, 0.17, 0.62, 16)
+const PENDANT_COLLAR = new THREE.CylinderGeometry(0.2, 0.26, 0.16, 16)
+const PENDANT_LENS = new THREE.SphereGeometry(0.3, 14, 10)
+
+/** dome coffering: square-section ring bands (4 radial segments = hard arris,
+ *  unlike the smooth tori that could not self-shadow) */
+function domeBandRadius(y: number): number {
+  return Math.sqrt(Math.max(0.01, 14 * 14 - y * y))
+}
+function domeBand(y: number, tube: number): THREE.BufferGeometry {
+  // 4 radial segments = a square section rotated 45 deg: hard arrises that
+  // catch the key on one face and go dark on the next. A round tube (what the
+  // level used everywhere) is the one section that cannot self-shadow.
+  return new THREE.TorusGeometry(domeBandRadius(y) - tube * 0.8, tube, 4, 80)
+}
+const DOME_BAND_Y = [3.5, 7.2, 10.2, 12.4]
+const DOME_BANDS = DOME_BAND_Y.map((y, i) => domeBand(y, 0.2 - i * 0.022))
+
+/** secondary (half-step) chamber meridians, so the dome reads 16-ribbed */
+const RIB_CHAMBER_FINE = sweepArc(ribSection(0.55), 14, Math.PI, 30)
+const RIB_CHAMBER_FINE_AO = bakeContactAO(RIB_CHAMBER_FINE, 0, 2.6, 0.42)
 
 // ---------------------------------------------------------------------------
 // Instancing helper
@@ -634,7 +980,38 @@ const A_DAIS_UMBER: InstItem[] = [
 const A_POD_PETALS = rosette(0, 0.55, 9, 1.15, 8, -1.0, [0.7, 1, 0.7])
 const A_POD_PETALS_GOLD = rosette(0, 0.35, 9, 0.75, 8, -0.6, [0.45, 0.8, 0.45])
 
+/**
+ * R3 — the spawn dais gets a baldachin. This is the establishing shot of the
+ * whole mission and it was eight columns holding up nothing under open sky.
+ * Now they carry an architrave ring, a coffered saucer dome on a sixteen-rib
+ * cage, a gold oculus and a pendant on the axis — a canopy, which is what a
+ * ring of columns is FOR.
+ */
+const A_BALDACHIN_RIBS: InstItem[] = []
+for (let i = 0; i < 8; i++)
+  A_BALDACHIN_RIBS.push({ p: [0, 9.35, 7.5], r: [0, (i / 8) * Math.PI, 0], s: [1, 0.735, 1] })
+const A_ARCHITRAVE: InstItem[] = [
+  { p: [0, 9.5, 7.5], r: [-Math.PI / 2, 0, Math.PI / 4], s: [1.06, 1.06, 1.06] },
+  { p: [0, 12.6, 7.5], r: [-Math.PI / 2, 0, Math.PI / 4], s: [0.64, 0.64, 0.9] },
+]
+const A_BALDACHIN_BOSS: InstItem[] = []
+for (let k = 0; k < 16; k++) {
+  const a = (k / 16) * Math.PI * 2
+  A_BALDACHIN_BOSS.push({
+    p: [Math.cos(a) * 5.45, 9.62, 7.5 + Math.sin(a) * 5.45],
+    r: [0, Math.PI / 2 - a, 0],
+    s: [0.26, 0.36, 0.2],
+  })
+}
+
 function ZoneA() {
+  // BackSide contact-ivory for the baldachin shell (same trick as the chamber
+  // dome: a clone preserves onBeforeCompile so it keeps its world-space trim)
+  const baldachinMat = useMemo(() => {
+    const m = ivoryContactMaterial().clone()
+    m.side = THREE.BackSide
+    return m
+  }, [])
   return (
     <group>
       {/* textured obsidian dais + ivory under-skirt */}
@@ -658,6 +1035,32 @@ function ZoneA() {
       <Instanced geometry={COLUMN_COLLAR_HI} material={goldPolishedMaterial()} items={A_PILLAR_BAND_HI} />
       <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={A_PILLAR_PLINTHS} castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={A_CAPITALS} castShadow />
+      {/* R3 baldachin — coffered saucer dome on the dais colonnade */}
+      <mesh
+        geometry={BALDACHIN_AO}
+        material={baldachinMat}
+        position={[0, 9.4, 7.5]}
+        scale={[0.335, 0.235, 0.335]}
+        receiveShadow
+      />
+      <Instanced
+        geometry={RIB_BALDACHIN_AO}
+        material={ivoryContactMaterial()}
+        items={A_BALDACHIN_RIBS}
+        castShadow
+      />
+      <Instanced geometry={BALDACHIN_BAND} material={goldMaterial()} items={A_ARCHITRAVE} />
+      <Instanced geometry={OCTA} material={goldPolishedMaterial()} items={A_BALDACHIN_BOSS} />
+      <mesh
+        geometry={RING_GEO}
+        material={goldPolishedMaterial()}
+        position={[0, 13.5, 7.5]}
+        rotation={[Math.PI / 2, 0, 0]}
+        scale={[1.5, 1.5, 12]}
+      />
+      <mesh geometry={PENDANT_ROD} material={goldMaterial()} position={[0, 11.4, 7.5]} scale={[1.2, 3.6, 1.2]} castShadow />
+      <mesh geometry={PENDANT_HOOD} material={goldCastMaterial()} position={[0, 9.4, 7.5]} scale={[1.5, 1.5, 1.5]} castShadow />
+      <mesh geometry={PENDANT_LENS} material={veinGoldMaterial()} position={[0, 8.85, 7.5]} scale={[1.3, 0.95, 1.3]} />
       {/* insertion pod — opened petal flower, still glowing gold */}
       <Instanced geometry={PETAL} material={ivoryMaterial()} items={A_POD_PETALS} />
       <Instanced geometry={PETAL} material={goldMaterial()} items={A_POD_PETALS_GOLD} />
@@ -723,6 +1126,14 @@ for (let z = 44; z <= 132; z += 8) {
   if (((z - 44) / 8) % 2 === 0) {
     B_WEST_VEINS.push({ p: [-5.68, 3, z + 4], s: [0.06, 4.5, 0.3] })
     B_WEST_VEIN_CHANNEL.push({ p: [-5.76, 3, z + 4], s: [0.08, 5.2, 0.66] })
+  }
+}
+
+// R3 — shadow gaps flanking every west-wall pilaster (see D_PILASTER_FLANK)
+const B_PILASTER_FLANK: InstItem[] = []
+for (let z = 44; z <= 132; z += 8) {
+  for (const dz of [-0.42, 0.42]) {
+    B_PILASTER_FLANK.push({ p: [-5.79, 4.5, z + dz], s: [0.12, 8.6, 0.13] })
   }
 }
 
@@ -920,6 +1331,111 @@ for (const s of B_LEDGE_STEPS) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// R3 — canyon overhead structure.
+//
+// The canyon is 120 m of running with nothing at all above head height: the
+// top of the frame is sky for the entire traversal. Five gantries now cross
+// the ravine between the two outer cornices — a deep girder with a coffered
+// soffit carried on a 26 m transverse arch, with pendant lamps hung under it.
+// They are ~13 m up, clear of every jump and wall-run line, and because the
+// player runs directly beneath them they sweep through the upper third of the
+// frame as near-camera framing, which no shot in this level has ever had.
+// Corbel arms along both walls do the same job at a smaller scale every 8 m.
+// ---------------------------------------------------------------------------
+const GANTRY_CX = (CANYON_GANTRY_SPAN[0] + CANYON_GANTRY_SPAN[1]) / 2
+const GANTRY_W = CANYON_GANTRY_SPAN[1] - CANYON_GANTRY_SPAN[0]
+const B_GANTRY_ARCH: InstItem[] = []
+const B_GANTRY_GIRDER: InstItem[] = []
+const B_GANTRY_SOFFIT: InstItem[] = []
+const B_GANTRY_RAIL: InstItem[] = []
+const B_GANTRY_CAP: InstItem[] = []
+const B_GANTRY_SHOE: InstItem[] = []
+for (const z of CANYON_GANTRIES) {
+  B_GANTRY_ARCH.push({ p: [GANTRY_CX, 2.6, z] })
+  B_GANTRY_GIRDER.push({ p: [GANTRY_CX, CANYON_GANTRY_Y, z], s: [GANTRY_W, 1.6, 2.6] })
+  B_GANTRY_SOFFIT.push({ p: [GANTRY_CX, CANYON_GANTRY_Y - 0.79, z], s: [GANTRY_W - 0.1, 1, 2.5] })
+  B_GANTRY_CAP.push({ p: [GANTRY_CX, CANYON_GANTRY_Y + 0.92, z], s: [GANTRY_W + 0.7, 0.26, 3.1] })
+  for (const dz of [-1.32, 1.32]) {
+    B_GANTRY_RAIL.push({ p: [GANTRY_CX, CANYON_GANTRY_Y - 0.72, z + dz], s: [GANTRY_W + 0.1, 0.2, 0.16] })
+  }
+  // the shoes where the arch lands on each outer wall
+  for (const sx of [0, 1]) {
+    const x = CANYON_GANTRY_SPAN[sx] + (sx === 0 ? 1.1 : -1.1)
+    B_GANTRY_SHOE.push({ p: [x, 3.1, z], s: [3.0, 2.6, 3.0] })
+  }
+}
+/**
+ * R3 — the canyon gets a ceiling. Not a barrel vault: a barrel would have
+ * swallowed the gantries and the outer-wall colonnade that give the ravine its
+ * depth. Instead the span between the two outer cornices is closed by coffered
+ * slabs at 17.5 m, left open along a 6 m ridge slot so the void, the god rays
+ * and the parallax monoliths still come down the axis. Everything below stays
+ * exactly as it was; the difference is that the top of the frame is now dark
+ * ornament with an intentional bright slot in it, instead of flat skybox.
+ */
+const B_CEIL_Y = 17.5
+const B_CEIL_PANEL: InstItem[] = []
+const B_CEIL_BEAM: InstItem[] = []
+const B_CEIL_KERB: InstItem[] = []
+{
+  const edges = [17, ...CANYON_GANTRIES, 134]
+  for (let i = 0; i < edges.length - 1; i++) {
+    const z0 = edges[i] + (i === 0 ? 0 : 1.5)
+    const z1 = edges[i + 1] - (i === edges.length - 2 ? 0 : 1.5)
+    const zc = (z0 + z1) / 2
+    const len = z1 - z0
+    if (len < 1) continue
+    // two coffered leaves, leaving the ridge slot (x −2 .. 4) open to space
+    B_CEIL_PANEL.push({ p: [-5.75, B_CEIL_Y, zc], s: [7.5, 1, len] })
+    B_CEIL_PANEL.push({ p: [9.05, B_CEIL_Y, zc], s: [10.1, 1, len] })
+    B_CEIL_BEAM.push({ p: [-5.75, B_CEIL_Y + 0.42, zc], s: [7.6, 0.85, len] })
+    B_CEIL_BEAM.push({ p: [9.05, B_CEIL_Y + 0.42, zc], s: [10.2, 0.85, len] })
+  }
+  // gold kerbs down both lips of the ridge slot
+  B_CEIL_KERB.push({ p: [-1.9, B_CEIL_Y + 0.1, 75.5], s: [0.34, 0.5, 117] })
+  B_CEIL_KERB.push({ p: [4.1, B_CEIL_Y + 0.1, 75.5], s: [0.34, 0.5, 117] })
+}
+
+/** pendant lamps under each gantry */
+const B_PENDANT_POS: [number, number, number][] = []
+for (const z of CANYON_GANTRIES) {
+  for (const x of CANYON_PENDANT_X) B_PENDANT_POS.push([x, 11.2, z])
+}
+/** wall corbel arms — small overhead mass every 8 m down both canyon walls,
+ *  every other one carrying a lamp at camera height */
+const B_CORBEL_ARM: InstItem[] = []
+const B_CORBEL_PLATE: InstItem[] = []
+for (let z = 20, k = 0; z <= 132; z += 8, k++) {
+  B_CORBEL_ARM.push({ p: [-5.35, 8.7, z], s: [1.7, 0.68, 0.95] })
+  B_CORBEL_ARM.push({ p: [5.45, 8.7, z], s: [1.7, 0.68, 0.95] })
+  B_CORBEL_PLATE.push({ p: [-5.05, 9.12, z], s: [1.9, 0.12, 1.1] })
+  B_CORBEL_PLATE.push({ p: [5.15, 9.12, z], s: [1.9, 0.12, 1.1] })
+  if (k % 2 === 1 && z > 40) B_PENDANT_POS.push([-4.5, 7.5, z])
+}
+const B_PENDANT_ROD: InstItem[] = B_PENDANT_POS.map(([x, y, z]) => {
+  const top = y > 9 ? CANYON_GANTRY_Y - 0.85 : 8.45
+  const len = Math.max(0.4, top - y)
+  return { p: [x, y + len / 2, z] as [number, number, number], s: [1, len, 1] as [number, number, number] }
+})
+const B_PENDANT_HOOD: InstItem[] = B_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y, z] as [number, number, number],
+  s: [1.1, 1.1, 1.1] as [number, number, number],
+}))
+const B_PENDANT_COLLAR: InstItem[] = B_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y + 0.36, z] as [number, number, number],
+  s: [1.05, 1.05, 1.05] as [number, number, number],
+}))
+const B_PENDANT_LENS: InstItem[] = B_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y - 0.34, z] as [number, number, number],
+  s: [0.9, 0.7, 0.9] as [number, number, number],
+}))
+const B_PENDANT_RING: InstItem[] = B_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y - 0.3, z] as [number, number, number],
+  r: [Math.PI / 2, 0, 0] as [number, number, number],
+  s: [0.6, 0.6, 9] as [number, number, number],
+}))
+
 function ZoneB() {
   return (
     <group>
@@ -943,6 +1459,7 @@ function ZoneB() {
         material={ivoryContactMaterial()}
         castShadow
       />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_PILASTER_FLANK} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WEST_PILASTERS} />
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_SCREEN_BACK} />
       <Instanced
@@ -995,6 +1512,30 @@ function ZoneB() {
       />
       {/* corbel brackets under the cornice — upper-corner framing mass */}
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_WALL_CORBEL} />
+      {/* R3 — coffered ceiling slabs between the outer cornices, split by a
+          6 m ridge slot. They do not cast: the key must still reach the deck. */}
+      <Instanced geometry={SOFFIT_CEIL} material={ivoryContactMaterial()} items={B_CEIL_PANEL} />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={B_CEIL_BEAM} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={B_CEIL_KERB} />
+
+      {/* R3 — overhead gantries: transverse arch, deep girder, coffered
+          soffit, pendant lamps. The canyon finally has a top to its frame. */}
+      <Instanced geometry={GANTRY_ARCH_AO} material={ivoryContactMaterial()} items={B_GANTRY_ARCH} castShadow />
+      <Instanced geometry={GANTRY_ARCH_TRIM} material={goldMaterial()} items={B_GANTRY_ARCH} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_GANTRY_SHOE} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={B_GANTRY_GIRDER} castShadow />
+      <Instanced geometry={SOFFIT_WIDE} material={ivoryContactMaterial()} items={B_GANTRY_SOFFIT} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={B_GANTRY_RAIL} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={B_GANTRY_CAP} />
+      {/* corbel arms + their pendants */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_CORBEL_ARM} castShadow />
+      <Instanced geometry={BOX} material={goldMaterial()} items={B_CORBEL_PLATE} />
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={B_PENDANT_ROD} castShadow />
+      <Instanced geometry={PENDANT_HOOD} material={goldCastMaterial()} items={B_PENDANT_HOOD} castShadow />
+      <Instanced geometry={PENDANT_COLLAR} material={goldPolishedMaterial()} items={B_PENDANT_COLLAR} />
+      <Instanced geometry={PENDANT_LENS} material={veinGoldMaterial()} items={B_PENDANT_LENS} />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={B_PENDANT_RING} />
+
       {/* cornice beams crowning the outer walls */}
       <mesh geometry={BOX} material={goldMaterial()} position={[-9.5, 17.2, 75]} scale={[0.7, 0.5, 115]} />
       <mesh geometry={BOX} material={goldMaterial()} position={[14.1, 19.2, 75]} scale={[0.7, 0.5, 115]} />
@@ -1340,6 +1881,43 @@ for (const z of [144.5]) {
     C_TEAL_FIXTURES.push([sx * 14.4, 3.4, z + (sx > 0 ? 0 : 11)])
   }
 }
+// R3 — engaged fluted colonnade on the chamber walls (see D_COLUMN)
+const C_COLUMN: InstItem[] = []
+const C_COLUMN_PLINTH: InstItem[] = []
+const C_COLUMN_CAP: InstItem[] = []
+const C_COLUMN_NECK: InstItem[] = []
+for (const x of [-9, 9]) {
+  for (const [zc, face] of [[135.55, 1], [164.45, -1]] as [number, number][]) {
+    C_COLUMN.push({ p: [x, 5, zc], s: [0.58, 1.05, 0.58] })
+    C_COLUMN_PLINTH.push({ p: [x, 0.42, zc - face * 0.15], s: [1.45, 0.84, 1.4] })
+    C_COLUMN_CAP.push({ p: [x, 9.72, zc - face * 0.15], s: [1.5, 0.42, 1.4] })
+    C_COLUMN_NECK.push({ p: [x, 8.62, zc - face * 0.05], s: [1.16, 0.16, 1.1] })
+  }
+}
+for (const z of [141, 147.5, 152.5, 159]) {
+  for (const sx of [1, -1]) {
+    C_COLUMN.push({ p: [sx * 14.45, 5, z], s: [0.58, 1.05, 0.58] })
+    C_COLUMN_PLINTH.push({ p: [sx * 14.6, 0.42, z], s: [1.4, 0.84, 1.45] })
+    C_COLUMN_CAP.push({ p: [sx * 14.6, 9.72, z], s: [1.4, 0.42, 1.5] })
+    C_COLUMN_NECK.push({ p: [sx * 14.5, 8.62, z], s: [1.1, 0.16, 1.16] })
+  }
+}
+
+// R3 — shadow gaps flanking every chamber pilaster (see D_PILASTER_FLANK)
+const C_PILASTER_FLANK: InstItem[] = []
+for (const x of [-9, 9]) {
+  for (const dx of [-0.36, 0.36]) {
+    C_PILASTER_FLANK.push({ p: [x + dx, 5, 135.16], s: [0.12, 9.6, 0.14] })
+    C_PILASTER_FLANK.push({ p: [x + dx, 5, 164.84], s: [0.12, 9.6, 0.14] })
+  }
+}
+for (const z of [141, 147.5, 152.5, 159]) {
+  for (const dz of [-0.36, 0.36]) {
+    C_PILASTER_FLANK.push({ p: [14.84, 5, z + dz], s: [0.14, 9.6, 0.12] })
+    C_PILASTER_FLANK.push({ p: [-14.84, 5, z + dz], s: [0.14, 9.6, 0.12] })
+  }
+}
+
 // filigree course running the length of both long walls
 for (const sx of [1, -1]) {
   C_WALL_FRET.push({ p: [sx * 14.86, 5.6, 150], r: [0, sx * Math.PI / 2, 0], s: [28, 0.55, 1] })
@@ -1493,6 +2071,56 @@ function Planter({ x, z, purify }: { x: number; z: number; purify?: boolean }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// R3 — the chamber dome is coffered.
+//
+// It was a bare 18 m BackSide hemisphere crossed by 8 smooth meridians: a
+// single soft gradient over a third of the frame. The cage is now 16 ribs
+// (8 heavy + 8 half-step slender) tied by four square-section ring bands with
+// a cast gold boss at every crossing — the ornament grid that makes a dome
+// read as built. Square section matters: it is the only one that self-shadows.
+// ---------------------------------------------------------------------------
+const C_RIBS_FINE: InstItem[] = []
+for (let i = 0; i < 8; i++) C_RIBS_FINE.push({ p: [0, 0, 150], r: [0, ((i + 0.5) / 8) * Math.PI, 0] })
+const C_DOME_BOSS: InstItem[][] = DOME_BAND_Y.map((y) => {
+  const out: InstItem[] = []
+  const r = domeBandRadius(y) - 0.12
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2
+    out.push({
+      p: [Math.cos(a) * r, y, 150 + Math.sin(a) * r],
+      r: [0, Math.PI / 2 - a, 0],
+      s: [0.3, 0.42, 0.22],
+    })
+  }
+  return out
+})
+const C_DOME_BOSS_ALL: InstItem[] = C_DOME_BOSS.flat()
+/** chamber pendants, hung off the rib cage at the four quarter points */
+const C_PENDANT_POS: [number, number, number][] = [
+  [-9.5, 7.2, 143],
+  [9.5, 7.2, 143],
+  [-9.5, 7.2, 157],
+  [9.5, 7.2, 157],
+]
+const C_PENDANT_ROD: InstItem[] = C_PENDANT_POS.map(([x, y, z]) => {
+  const top = Math.sqrt(Math.max(1, 14 * 14 - x * x - (z - 150) * (z - 150)))
+  const len = Math.max(0.5, top - y)
+  return { p: [x, y + len / 2, z] as [number, number, number], s: [1, len, 1] as [number, number, number] }
+})
+const C_PENDANT_HOOD: InstItem[] = C_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y, z] as [number, number, number],
+  s: [1.25, 1.25, 1.25] as [number, number, number],
+}))
+const C_PENDANT_COLLAR: InstItem[] = C_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y + 0.4, z] as [number, number, number],
+  s: [1.2, 1.2, 1.2] as [number, number, number],
+}))
+const C_PENDANT_LENS: InstItem[] = C_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y - 0.38, z] as [number, number, number],
+  s: [1, 0.75, 1] as [number, number, number],
+}))
+
 function ZoneC() {
   // BackSide clone of the CONTACT ivory: the dome carries a baked springing
   // gradient (DOME_AO) so the vault has a dark ring where it meets the walls.
@@ -1529,6 +2157,31 @@ function ZoneC() {
         castShadow
       />
       <Instanced geometry={ARCH_TRIM_CHAMBER} material={goldMaterial()} items={C_RIBS} />
+      {/* R3 — half-step meridians + square-section ring bands + gold bosses:
+          a 16-rib coffering grid over the whole vault */}
+      <Instanced
+        geometry={RIB_CHAMBER_FINE_AO}
+        material={ivoryContactMaterial()}
+        items={C_RIBS_FINE}
+        castShadow
+      />
+      {DOME_BANDS.map((g, i) => (
+        <mesh
+          key={i}
+          geometry={g}
+          material={ivoryMaterial()}
+          position={[0, DOME_BAND_Y[i], 150]}
+          rotation={[-Math.PI / 2, 0, Math.PI / 4]}
+          castShadow
+          receiveShadow
+        />
+      ))}
+      <Instanced geometry={OCTA} material={goldPolishedMaterial()} items={C_DOME_BOSS_ALL} />
+      {/* pendant lamps off the rib cage */}
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={C_PENDANT_ROD} castShadow />
+      <Instanced geometry={PENDANT_HOOD} material={goldCastMaterial()} items={C_PENDANT_HOOD} castShadow />
+      <Instanced geometry={PENDANT_COLLAR} material={goldPolishedMaterial()} items={C_PENDANT_COLLAR} />
+      <Instanced geometry={PENDANT_LENS} material={veinGoldMaterial()} items={C_PENDANT_LENS} />
 
       {/* perimeter walls + trim + panel detail. R2: the walls are drawn with
           the subdivided PANEL_BOX and the contact-AO ivory, so a 10 m wall has
@@ -1550,6 +2203,12 @@ function ZoneC() {
       <Instanced geometry={BOX} material={goldMaterial()} items={C_PILASTER_NOSING} />
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={C_PILASTER_NOSING_LIP} />
       <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_BANDS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_PILASTER_FLANK} />
+      {/* engaged fluted colonnade */}
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={C_COLUMN_PLINTH} castShadow />
+      <Instanced geometry={COLUMN_ENGAGED} material={ivoryMaterial()} items={C_COLUMN} castShadow />
+      <Instanced geometry={TRIM_RUN_FINE} material={goldPolishedMaterial()} items={C_COLUMN_NECK} />
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={C_COLUMN_CAP} castShadow />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={C_WALL_FRET} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={C_FRET_PLINTH} />
       <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_CHANNEL} />
@@ -1733,6 +2392,57 @@ for (const sz of [1, -1]) {
     D_SCONCE_FIXTURES.push([x, 6.0, wz + face * 1.3])
   }
 }
+/** R3 — engaged fluted colonnade on the arena's four walls. Column axis y 0.5
+ *  to 9.5, so the capitals land under the cornice and the shafts carry the
+ *  vault's springing corbels visually down to the deck. */
+const D_COLUMN: InstItem[] = []
+const D_COLUMN_PLINTH: InstItem[] = []
+const D_COLUMN_CAP: InstItem[] = []
+const D_COLUMN_NECK: InstItem[] = []
+for (const sx of [1, -1]) {
+  for (let z = 171; z <= 219; z += 6) {
+    D_COLUMN.push({ p: [sx * 29.45, 5, z], s: [0.62, 1.05, 0.62] })
+    D_COLUMN_PLINTH.push({ p: [sx * 29.6, 0.42, z], s: [1.5, 0.84, 1.55] })
+    D_COLUMN_CAP.push({ p: [sx * 29.6, 9.72, z], s: [1.5, 0.42, 1.6] })
+    D_COLUMN_NECK.push({ p: [sx * 29.5, 8.62, z], s: [1.18, 0.16, 1.24] })
+  }
+}
+for (const sz of [1, -1]) {
+  const wz = sz > 0 ? 225 : 165
+  const face = sz > 0 ? -1 : 1
+  for (const x of [-24, -18, -12, 12, 18, 24]) {
+    D_COLUMN.push({ p: [x, 5, wz + face * 0.55], s: [0.62, 1.05, 0.62] })
+    D_COLUMN_PLINTH.push({ p: [x, 0.42, wz + face * 0.4], s: [1.55, 0.84, 1.5] })
+    D_COLUMN_CAP.push({ p: [x, 9.72, wz + face * 0.4], s: [1.6, 0.42, 1.5] })
+    D_COLUMN_NECK.push({ p: [x, 8.62, wz + face * 0.5], s: [1.24, 0.16, 1.18] })
+  }
+}
+
+/**
+ * R3 — every pilaster gets a shadow gap. A pilaster applied flat onto a flat
+ * wall is a stripe; a pilaster standing between two 6 cm channels is a column,
+ * because the two dark lines beside it are what the eye reads as depth. This
+ * is the cheapest ornament in the level (two instanced boxes per pilaster) and
+ * one of the most legible at gameplay distance.
+ */
+const D_PILASTER_FLANK: InstItem[] = []
+for (const sx of [1, -1]) {
+  for (let z = 171; z <= 219; z += 6) {
+    for (const dz of [-0.36, 0.36]) {
+      D_PILASTER_FLANK.push({ p: [sx * 29.82, 5, z + dz], s: [0.14, 9.6, 0.12] })
+    }
+  }
+}
+for (const sz of [1, -1]) {
+  const wz = sz > 0 ? 225 : 165
+  const face = sz > 0 ? -1 : 1
+  for (const x of [-24, -18, -12, 12, 18, 24]) {
+    for (const dx of [-0.36, 0.36]) {
+      D_PILASTER_FLANK.push({ p: [x + dx, 5, wz + face * 0.24], s: [0.12, 9.6, 0.14] })
+    }
+  }
+}
+
 /** gold L-angle around the whole arena floor/wall joint */
 const D_LTRIM: InstItem[] = [
   { p: [-29.98, 0.005, 195], r: [0, 0, 0], s: [1, 1, 59.6] },
@@ -1916,6 +2626,254 @@ for (const [gx, gz, faceDeg] of SPAWN_GATES) {
   D_GATE_GLOWS.push({ p: [gx, 2.2, gz], r: [0, yaw, 0], s: [2.9, 2.9, 4] })
 }
 
+// ---------------------------------------------------------------------------
+// R3 — the arena gets a roof.
+//
+// Everything above the 10 m cornice was open sky: in a wide shot the upper
+// HALF of the frame was flat skybox crossed by a few smooth ribs, which is
+// what an unfinished blockout looks like and nothing else. The vault closes
+// it with real coffered geometry — 18 wells around by 3 along per 10 m bay,
+// each sunk 0.9 m with its own reveals and baked cavity AO — springing off a
+// corbel course at the cornice, crossed by gold bosses where its soffit bands
+// meet, and left open along the ridge over the middle of the room so light
+// and sky still come down the axis through a framed oculus.
+// ---------------------------------------------------------------------------
+const D_VAULT_BAYS: InstItem[] = ARENA_VAULT_BAYS.filter(
+  (z) => !ARENA_VAULT_OCULUS_BAYS.includes(z),
+).map((z) => ({ p: [0, 0, z] as [number, number, number] }))
+const D_VAULT_OPEN_BAYS: InstItem[] = ARENA_VAULT_OCULUS_BAYS.map((z) => ({
+  p: [0, 0, z] as [number, number, number],
+}))
+/** gold bosses at the soffit-band crossings, repeated per bay */
+const D_VAULT_BOSSES: InstItem[] = []
+for (const bz of ARENA_VAULT_BAYS) {
+  const open = ARENA_VAULT_OCULUS_BAYS.includes(bz)
+  for (const b of VAULT_ARENA_BOSS) {
+    if (open && Math.abs(Math.atan2(b.p[1], b.p[0]) - Math.PI / 2) < 0.24) continue
+    D_VAULT_BOSSES.push({ p: [b.p[0], b.p[1], b.p[2] + bz], r: b.r, s: b.s })
+  }
+}
+/** intermediate gold bands, offset half a bay from the structural ribs */
+const D_VAULT_BAND: InstItem[] = [165, 175, 185, 195, 205, 215, 225].map((z) => ({
+  p: [0, 0, z] as [number, number, number],
+}))
+/** springing course: a corbel block every 5 m carrying the vault off the wall */
+const D_VAULT_CORBEL: InstItem[] = []
+const D_VAULT_SPRINGER: InstItem[] = []
+{
+  const sx = 30 * Math.cos(ARENA_VAULT_A0)
+  const sy = 30 * Math.sin(ARENA_VAULT_A0)
+  for (let z = 167.5; z <= 222.5; z += 5) {
+    D_VAULT_CORBEL.push({ p: [sx + 0.55, sy - 0.75, z], s: [1.9, 1.5, 1.7] })
+    D_VAULT_CORBEL.push({ p: [-sx - 0.55, sy - 0.75, z], s: [1.9, 1.5, 1.7] })
+  }
+  D_VAULT_SPRINGER.push({ p: [sx - 0.1, sy, 195], r: [0, 0, ARENA_VAULT_A0], s: [1, 1, 60] })
+  D_VAULT_SPRINGER.push({
+    p: [-sx + 0.1, sy, 195],
+    r: [0, 0, Math.PI - ARENA_VAULT_A0],
+    s: [1, 1, 60],
+  })
+}
+/**
+ * Tympana and haunch — the two pieces a barrel vault cannot be built without.
+ *
+ * The vault springs at x ±27.9 / y 11 while the walls stop at y 10, so without
+ * a haunch course there is a sliver of open sky running the whole length of
+ * both long walls; and a barrel is open at BOTH ENDS, so without a tympanum
+ * there is a 56 m wide, 19 m tall hole above each end wall. Both are sealed
+ * here: a continuous haunch fillet on all four sides, and a gable wall at each
+ * end carrying a recessed rose with a gold ring — the part of each rectangle
+ * that falls outside the cylinder is simply hidden behind the vault.
+ */
+const D_VAULT_HAUNCH: InstItem[] = [
+  { p: [28.85, 10.35, 195], s: [2.5, 1.9, 60] },
+  { p: [-28.85, 10.35, 195], s: [2.5, 1.9, 60] },
+  { p: [0, 10.35, 165.9], s: [60, 1.9, 2.5] },
+  { p: [0, 10.35, 224.1], s: [60, 1.9, 2.5] },
+]
+const D_TYMPANUM: InstItem[] = [
+  { p: [0, 20.4, 165.3], s: [60, 21, 0.7] },
+  { p: [0, 20.4, 224.7], s: [60, 21, 0.7] },
+]
+const D_TYMPANUM_ROSE: InstItem[] = []
+const D_TYMPANUM_RING: InstItem[] = []
+const D_TYMPANUM_SPOKE: InstItem[] = []
+for (const [tz, face] of [[165.3, 1], [224.7, -1]] as [number, number][]) {
+  D_TYMPANUM_ROSE.push({
+    p: [0, 18.5, tz + face * 0.38],
+    r: [0, face > 0 ? 0 : Math.PI, 0],
+    s: [11.5, 11.5, 1],
+  })
+  for (const r of [5.9, 4.2, 2.4]) {
+    D_TYMPANUM_RING.push({
+      p: [0, 18.5, tz + face * 0.52],
+      r: [0, face > 0 ? 0 : Math.PI, 0],
+      s: [r, r, 14],
+    })
+  }
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2
+    D_TYMPANUM_SPOKE.push({
+      p: [Math.cos(a) * 4.1, 18.5 + Math.sin(a) * 4.1, tz + face * 0.5],
+      r: [0, 0, a],
+      s: [3.6, 0.22, 0.16],
+    })
+  }
+}
+
+/** gold kerb framing the ridge oculus (z 185..205, x ±7.9) */
+const D_OCULUS_FRAME: InstItem[] = [
+  { p: [7.9, 28.75, 195], s: [0.5, 0.75, 20.6] },
+  { p: [-7.9, 28.75, 195], s: [0.5, 0.75, 20.6] },
+  { p: [0, 28.75, 185.1], s: [16.3, 0.75, 0.5] },
+  { p: [0, 28.75, 204.9], s: [16.3, 0.75, 0.5] },
+]
+
+/**
+ * R3 — the arena's silhouette landmark, suspended.
+ *
+ * The round-2 landmark was seated on the west cornice, which is outside the
+ * new vault and therefore no longer in the room. The arena's read now comes
+ * from a hanging reliquary armature: three stacked gold rings around an ivory
+ * core, a long inverted spire and a lit socket, slung on four cables from the
+ * ridge just off the oculus axis. It is the one object in the level that is
+ * big, off-centre, lit from behind by the oculus and impossible to confuse
+ * with anything else — which is the entire job of a landmark.
+ */
+const ARENA_HANG: [number, number, number] = [-7.2, 0, 193]
+const D_HANG_CABLE: InstItem[] = []
+for (let i = 0; i < 4; i++) {
+  const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+  const ox = Math.cos(a) * 2.6
+  const oz = Math.sin(a) * 2.6
+  const topY = Math.sqrt(Math.max(1, 30 * 30 - (ARENA_HANG[0] + ox) * (ARENA_HANG[0] + ox)))
+  const len = topY - 19.6
+  D_HANG_CABLE.push({
+    p: [ARENA_HANG[0] + ox, 19.6 + len / 2, ARENA_HANG[2] + oz],
+    s: [0.55, len, 0.55],
+  })
+}
+const D_HANG_RINGS: InstItem[] = [
+  { p: [ARENA_HANG[0], 19.2, ARENA_HANG[2]], r: [Math.PI / 2, 0, 0], s: [5.2, 5.2, 28] },
+  { p: [ARENA_HANG[0], 17.4, ARENA_HANG[2]], r: [Math.PI / 2, 0.45, 0.2], s: [4.1, 4.1, 24] },
+  { p: [ARENA_HANG[0], 15.6, ARENA_HANG[2]], r: [Math.PI / 2, -0.3, -0.16], s: [2.9, 2.9, 20] },
+]
+const D_HANG_CORE: InstItem[] = [
+  { p: [ARENA_HANG[0], 18.4, ARENA_HANG[2]], s: [3.0, 2.4, 3.0] },
+  { p: [ARENA_HANG[0], 20.0, ARENA_HANG[2]], s: [3.9, 1.0, 3.9] },
+]
+const D_HANG_FIN: InstItem[] = []
+for (let i = 0; i < 8; i++) {
+  const a = (i / 8) * Math.PI * 2
+  D_HANG_FIN.push({
+    p: [ARENA_HANG[0] + Math.cos(a) * 1.9, 18.6, ARENA_HANG[2] + Math.sin(a) * 1.9],
+    r: [0, Math.PI / 2 - a, 0],
+    s: [0.24, 3.4, 1.1],
+  })
+}
+
+/**
+ * R3 — coffered soffits under both arena galleries. A 5 m deep overhang with a
+ * flat underside is a shelf; with sunken coffers and a gold edge it is a
+ * loggia, and the dark band it throws is the strongest horizontal in the room.
+ */
+const D_GALLERY_SOFFIT: InstItem[] = ARENA_GALLERIES.map((g) => {
+  const c = boxCenter(g)
+  return {
+    p: [c[0], g.y0 - 0.02, c[2]] as [number, number, number],
+    s: [g.x1 - g.x0 - 0.2, 1, g.z1 - g.z0 - 0.15] as [number, number, number],
+  }
+})
+const D_GALLERY_FASCIA: InstItem[] = ARENA_GALLERIES.map((g) => {
+  const c = boxCenter(g)
+  const inner = g.z0 < 195 ? g.z1 + 0.06 : g.z0 - 0.06
+  return {
+    p: [c[0], g.y0 + 0.35, inner] as [number, number, number],
+    s: [g.x1 - g.x0, 1.5, 0.28] as [number, number, number],
+  }
+})
+
+/**
+ * Pendant lamp assemblies hung from the vault on long rods. They are the one
+ * piece of ornament that lives in the MIDDLE of the frame at eye-line depth,
+ * so a wide arena shot has foreground, midground and a lit ceiling instead of
+ * a floor and a wall. Each one is a source for a pooled gold practical.
+ */
+const D_PENDANT_POS: [number, number, number][] = []
+for (const z of [178, 195, 212]) {
+  for (const x of [-13, 13]) D_PENDANT_POS.push([x, 12.6, z])
+}
+D_PENDANT_POS.push([0, 14.5, 174], [0, 14.5, 216])
+const D_PENDANT_ROD: InstItem[] = D_PENDANT_POS.map(([x, y, z]) => {
+  // the rod reaches the vault soffit directly above, so nothing hangs from air
+  const top = Math.sqrt(Math.max(1, 30 * 30 - x * x))
+  const len = top - y
+  return { p: [x, y + len / 2, z] as [number, number, number], s: [1, len, 1] as [number, number, number] }
+})
+const D_PENDANT_HOOD: InstItem[] = D_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y, z] as [number, number, number],
+  s: [1.35, 1.35, 1.35] as [number, number, number],
+}))
+const D_PENDANT_COLLAR: InstItem[] = D_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y + 0.42, z] as [number, number, number],
+  s: [1.3, 1.3, 1.3] as [number, number, number],
+}))
+const D_PENDANT_LENS: InstItem[] = D_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y - 0.42, z] as [number, number, number],
+  s: [1.1, 0.8, 1.1] as [number, number, number],
+}))
+const D_PENDANT_RING: InstItem[] = D_PENDANT_POS.map(([x, y, z]) => ({
+  p: [x, y - 0.34, z] as [number, number, number],
+  r: [Math.PI / 2, 0, 0] as [number, number, number],
+  s: [0.72, 0.72, 10] as [number, number, number],
+}))
+
+/**
+ * Deep portal reveals. Every threshold in the level was a hole in a 1 m wall:
+ * no jamb, no soffit, no archivolt — a doorway cut in cardboard. Each gets a
+ * pair of stepped jambs, a coffered head reveal, a gold archivolt and a
+ * keystone, all sitting inside the existing opening so no collider moves.
+ */
+const PORTAL_JAMB: InstItem[] = []
+const PORTAL_JAMB_STEP: InstItem[] = []
+const PORTAL_HEAD: InstItem[] = []
+const PORTAL_SOFFIT: InstItem[] = []
+const PORTAL_ARCHIVOLT: InstItem[] = []
+const PORTAL_KEYSTONE: InstItem[] = []
+for (const [pz, hw, hh, _dir] of PORTALS) {
+  void _dir
+  for (const sx of [1, -1]) {
+    PORTAL_JAMB.push({ p: [sx * (hw + 0.62), hh / 2, pz], s: [1.24, hh + 1.5, 2.6] })
+    PORTAL_JAMB_STEP.push({ p: [sx * (hw + 0.2), hh / 2 - 0.2, pz], s: [0.42, hh, 3.0] })
+    PORTAL_ARCHIVOLT.push({
+      p: [sx * (hw + 0.08), hh / 2, pz + 1.45],
+      r: [Math.PI / 2, 0, 0],
+      s: [1, 1, hh + 1.1],
+    })
+  }
+  PORTAL_HEAD.push({ p: [0, hh + 1.0, pz], s: [2 * hw + 2.9, 1.5, 2.6] })
+  PORTAL_SOFFIT.push({ p: [0, hh + 0.02, pz], s: [2 * hw - 0.1, 1, 2.4] })
+  PORTAL_ARCHIVOLT.push({
+    p: [0, hh + 0.12, pz + 1.45],
+    r: [0, Math.PI / 2, 0],
+    s: [1, 1, 2 * hw + 0.3],
+  })
+  PORTAL_KEYSTONE.push({ p: [0, hh + 0.75, pz + 1.4], s: [0.85, 1.25, 0.85] })
+}
+
+function PortalReveals() {
+  return (
+    <group>
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={PORTAL_JAMB} castShadow />
+      <Instanced geometry={RBOX} material={umberMaterial()} items={PORTAL_JAMB_STEP} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={PORTAL_HEAD} castShadow />
+      <Instanced geometry={SOFFIT_PORTAL} material={ivoryContactMaterial()} items={PORTAL_SOFFIT} />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={PORTAL_ARCHIVOLT} />
+      <Instanced geometry={OCTA} material={goldPolishedMaterial()} items={PORTAL_KEYSTONE} castShadow />
+    </group>
+  )
+}
+
 function ZoneD() {
   return (
     <group>
@@ -1962,6 +2920,13 @@ function ZoneD() {
       <Instanced geometry={BOX} material={goldMaterial()} items={D_PILASTER_NOSING} />
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_PILASTER_NOSING_LIP} />
       <Instanced geometry={BOX} material={recessMaterial()} items={D_WALL_BANDS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_PILASTER_FLANK} />
+      {/* engaged fluted colonnade: lathed shafts, plinths, gold neckings and
+          capitals — ornament bought with geometry, not painted stripes */}
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={D_COLUMN_PLINTH} castShadow />
+      <Instanced geometry={COLUMN_ENGAGED} material={ivoryMaterial()} items={D_COLUMN} castShadow />
+      <Instanced geometry={TRIM_RUN_FINE} material={goldPolishedMaterial()} items={D_COLUMN_NECK} />
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={D_COLUMN_CAP} castShadow />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_WALL_FRET} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_FRET_PLINTH} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_FRET_HEAD} />
@@ -2020,6 +2985,56 @@ function ZoneD() {
       />
       <Instanced geometry={ARCH_TRIM_ARENA} material={goldMaterial()} items={D_RIBS} />
       <Instanced geometry={ARCH_TRIM_ARENA_IN} material={goldPolishedMaterial()} items={D_RIBS} />
+
+      {/* R3 — the coffered vault. It receives (the ribs and the landmark throw
+          across it) but deliberately does NOT cast: a closed 60 m shell in the
+          shadow pass would put the whole arena floor in permanent shade and
+          undo the round-2 shadow fix. */}
+      <Instanced geometry={VAULT_ARENA} material={ivoryContactMaterial()} items={D_VAULT_BAYS} />
+      <Instanced geometry={VAULT_ARENA_OPEN} material={ivoryContactMaterial()} items={D_VAULT_OPEN_BAYS} />
+      <Instanced geometry={VAULT_ARENA_BAND} material={goldMaterial()} items={D_VAULT_BAND} />
+      <Instanced geometry={OCTA} material={goldPolishedMaterial()} items={D_VAULT_BOSSES} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_VAULT_CORBEL} castShadow />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={D_VAULT_SPRINGER} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_OCULUS_FRAME} />
+      {/* haunch course + end tympana with a recessed gold rose */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_VAULT_HAUNCH} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_TYMPANUM} />
+      <Instanced geometry={CIRCLE} material={recessMaterial()} items={D_TYMPANUM_ROSE} />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_TYMPANUM_RING} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_TYMPANUM_SPOKE} />
+
+      {/* pendant lamps on long rods — midground ornament at eye line */}
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={D_PENDANT_ROD} castShadow />
+      <Instanced geometry={PENDANT_HOOD} material={goldCastMaterial()} items={D_PENDANT_HOOD} castShadow />
+      <Instanced geometry={PENDANT_COLLAR} material={goldPolishedMaterial()} items={D_PENDANT_COLLAR} />
+      <Instanced geometry={PENDANT_LENS} material={veinGoldMaterial()} items={D_PENDANT_LENS} />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_PENDANT_RING} />
+
+      {/* the suspended reliquary landmark under the ridge oculus */}
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={D_HANG_CABLE} castShadow />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_HANG_RINGS} castShadow />
+      <Instanced geometry={ICOSA} material={ivoryMaterial()} items={D_HANG_CORE} castShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={D_HANG_FIN} castShadow />
+      <mesh
+        geometry={OCTA}
+        material={goldCastMaterial()}
+        position={[ARENA_HANG[0], 15.0, ARENA_HANG[2]]}
+        scale={[1.5, 4.6, 1.5]}
+        castShadow
+      />
+      <mesh
+        geometry={PENDANT_LENS}
+        material={veinGoldMaterial()}
+        position={[ARENA_HANG[0], 17.4, ARENA_HANG[2]]}
+        scale={[2.6, 2.6, 2.6]}
+      />
+
+      {/* coffered gallery soffits + fascia */}
+      <Instanced geometry={SOFFIT_WIDE} material={ivoryContactMaterial()} items={D_GALLERY_SOFFIT} />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_GALLERY_FASCIA} castShadow />
+
+      <PortalReveals />
 
       {/* upper galleries */}
       {ARENA_GALLERIES.map((g, i) => (
@@ -2170,6 +3185,56 @@ function Beacon() {
   )
 }
 
+/**
+ * R3 — extraction canopy. The final frame of the mission was a flat ivory
+ * disc in a void with a light column on it. Four raking struts (planted off
+ * the pad edge, where nothing walks, so no collider changes) carry a double
+ * gold ring, a finial and four pendants over it: the pad now reads as a
+ * consecrated berth rather than a placeholder cylinder.
+ */
+const E_CANOPY_STRUT: InstItem[] = [
+  { p: [5.15, 4.2, 258], r: [0, 0, 0.35], s: [0.42, 10.4, 0.5] },
+  { p: [-5.15, 4.2, 258], r: [0, 0, -0.35], s: [0.42, 10.4, 0.5] },
+  { p: [0, 4.2, 263.15], r: [-0.35, 0, 0], s: [0.5, 10.4, 0.42] },
+  { p: [0, 4.2, 252.85], r: [0.35, 0, 0], s: [0.5, 10.4, 0.42] },
+]
+const E_CANOPY_FOOT: InstItem[] = [
+  { p: [6.6, -0.35, 258], s: [1.5, 1.1, 1.7] },
+  { p: [-6.6, -0.35, 258], s: [1.5, 1.1, 1.7] },
+  { p: [0, -0.35, 264.6], s: [1.7, 1.1, 1.5] },
+  { p: [0, -0.35, 251.4], s: [1.7, 1.1, 1.5] },
+]
+const E_CANOPY_RING: InstItem[] = [
+  { p: [0, 9.0, 258], r: [Math.PI / 2, 0, 0], s: [3.7, 3.7, 22] },
+  { p: [0, 10.3, 258], r: [Math.PI / 2, 0, 0], s: [2.2, 2.2, 16] },
+]
+const E_CANOPY_PENDANT: [number, number, number][] = []
+for (let i = 0; i < 4; i++) {
+  const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+  E_CANOPY_PENDANT.push([Math.cos(a) * 2.9, 7.0, 258 + Math.sin(a) * 2.9])
+}
+const E_PENDANT_ROD: InstItem[] = E_CANOPY_PENDANT.map(([x, y, z]) => ({
+  p: [x, (y + 9.0) / 2, z] as [number, number, number],
+  s: [1, 9.0 - y, 1] as [number, number, number],
+}))
+const E_PENDANT_HOOD: InstItem[] = E_CANOPY_PENDANT.map(([x, y, z]) => ({
+  p: [x, y, z] as [number, number, number],
+  s: [1.1, 1.1, 1.1] as [number, number, number],
+}))
+const E_PENDANT_LENS: InstItem[] = E_CANOPY_PENDANT.map(([x, y, z]) => ({
+  p: [x, y - 0.34, z] as [number, number, number],
+  s: [0.9, 0.7, 0.9] as [number, number, number],
+}))
+
+/** R3 — the extraction bridge gets a ribbed tunnel vault with a continuous
+ *  ridge slot, so the last 30 m of the mission is architecture rather than a
+ *  plank over a void. Open along the crown, so the sky still reads. */
+const E_VAULT: InstItem[] = BRIDGE_VAULT_BAYS.map((z) => ({ p: [0, 0, z] as [number, number, number] }))
+const E_VAULT_KERB: InstItem[] = [
+  { p: [1.78, 7.22, 239], s: [0.26, 0.4, 28] },
+  { p: [-1.78, 7.22, 239], s: [0.26, 0.4, 28] },
+]
+
 function ZoneE() {
   return (
     <group>
@@ -2195,6 +3260,16 @@ function ZoneE() {
         castShadow
       />
       <Instanced geometry={ARCH_TRIM_BRIDGE} material={goldMaterial()} items={E_RIBS} />
+      <Instanced geometry={VAULT_BRIDGE} material={ivoryContactMaterial()} items={E_VAULT} />
+      {/* extraction canopy over the pad */}
+      <Instanced geometry={RBOX} material={umberMaterial()} items={E_CANOPY_FOOT} castShadow />
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={E_CANOPY_STRUT} castShadow />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={E_CANOPY_RING} castShadow />
+      <mesh geometry={OCTA} material={goldPolishedMaterial()} position={[0, 11.3, 258]} scale={[0.9, 1.5, 0.9]} castShadow />
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={E_PENDANT_ROD} castShadow />
+      <Instanced geometry={PENDANT_HOOD} material={goldCastMaterial()} items={E_PENDANT_HOOD} castShadow />
+      <Instanced geometry={PENDANT_LENS} material={veinGoldMaterial()} items={E_PENDANT_LENS} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={E_VAULT_KERB} />
       {/* pad: ivory disc + gold ring + beacon socket */}
       <mesh geometry={CYL} material={ivoryMaterial()} position={[0, -0.5, 258]} scale={[6, 1, 6]} receiveShadow />
       <mesh geometry={RING_GEO} material={goldMaterial()} position={[0, 0.04, 258]} rotation={[Math.PI / 2, 0, 0]} scale={[5.4, 5.4, 10]} />
@@ -2320,6 +3395,14 @@ export const GOLD_FIXTURES: readonly [number, number, number][] = (() => {
   }
   // arena medallion + spawn pod
   out.push([0, 0.6, 195], [0, 0.9, 9])
+  // R3 — pendant lamps. Every hood added this round is a modelled fixture with
+  // a recessed lens, so each one publishes its position here and the pooled
+  // gold practicals ride them: light in this level now always has a source in
+  // frame above it, which is most of what separates a lit room from a blockout.
+  for (const [x, y, z] of B_PENDANT_POS) out.push([x, y - 0.45, z])
+  for (const [x, y, z] of C_PENDANT_POS) out.push([x, y - 0.5, z])
+  for (const [x, y, z] of D_PENDANT_POS) out.push([x, y - 0.6, z])
+  for (const [x, y, z] of E_CANOPY_PENDANT) out.push([x, y - 0.45, z])
   return out
 })()
 

@@ -13,13 +13,19 @@
  *         owns for its whole lifetime and moves every frame.
  *   Transient survival — every flash gets a minimum 0.08 s lifetime so it
  *         cannot fall entirely between two 33 ms capture steps.
+ *
+ * [vfx R3] A flash is now FOUR cards, not two: the star, a second smaller star
+ * at its own roll, the soft halo, and an anamorphic bar that snaps to full
+ * width on frame one and collapses vertically as it dies. The bar is the
+ * element a viewer reads as "that source is far brighter than the display can
+ * show" — without it a flash is a white shape, with it it is a lens response.
  */
 import { useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { drainFlashes, trackedLightSlots, type FlashCmd } from './VFXBus'
-import { getSoftGlowTexture } from './vfxTextures'
+import { getSoftGlowTexture, getStreakTexture } from './vfxTextures'
 
 const MAX_LIGHTS = 6 // one-shot flash lights; overflow steals the dimmest
 const MAX_QUADS = 16 // 12 → 16: volley 7-hit frames + muzzle stream (fix1)
@@ -96,14 +102,22 @@ interface QuadSlot {
   /** billboard root — carries position and camera-facing orientation */
   group: THREE.Group
   star: THREE.Mesh
+  /** second star card at its own roll — breaks the 8-point symmetry */
+  star2: THREE.Mesh
   halo: THREE.Mesh
+  /** anamorphic bar: the lens artefact every AAA muzzle/impact flash has */
+  streak: THREE.Mesh
   starMat: THREE.MeshBasicMaterial
+  star2Mat: THREE.MeshBasicMaterial
   haloMat: THREE.MeshBasicMaterial
+  streakMat: THREE.MeshBasicMaterial
   active: boolean
   age: number
   life: number
   baseScale: number
   roll: number
+  roll2: number
+  streakRoll: number
   aspect: number
 }
 
@@ -159,27 +173,55 @@ export default function Flashes() {
           toneMapped: false,
           side: THREE.DoubleSide,
         })
+        // [vfx R3] a second star card and an anamorphic streak. One star quad
+        // is a sticker; two cards at different rolls and scales plus a wide
+        // horizontal bar is a LENS response, and the streak in particular is
+        // what a viewer reads as "that light source is far brighter than the
+        // display can show" rather than "that is a white shape".
+        const star2Mat = starMat.clone()
+        const streakMat = new THREE.MeshBasicMaterial({
+          map: getStreakTexture(),
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+          side: THREE.DoubleSide,
+        })
         const star = new THREE.Mesh(quadGeo, starMat)
+        const star2 = new THREE.Mesh(quadGeo, star2Mat)
         const halo = new THREE.Mesh(quadGeo, haloMat)
+        const streak = new THREE.Mesh(quadGeo, streakMat)
         halo.scale.setScalar(2.6)
         halo.renderOrder = 21
+        streak.renderOrder = 21
+        star2.renderOrder = 22
         star.renderOrder = 22
         const group = new THREE.Group()
         group.add(halo)
+        group.add(streak)
+        group.add(star2)
         group.add(star)
         group.visible = false
         group.frustumCulled = false
         return {
           group,
           star,
+          star2,
           halo,
+          streak,
           starMat,
+          star2Mat,
           haloMat,
+          streakMat,
           active: false,
           age: 0,
           life: 0.1,
           baseScale: 0.3,
           roll: 0,
+          roll2: 0,
+          streakRoll: 0,
           aspect: 1,
         }
       }),
@@ -214,12 +256,19 @@ export default function Flashes() {
       q.baseScale = THREE.MathUtils.clamp(cmd.intensity / 30, 0.2, 2.6)
       // randomised roll + aspect: no two flashes are the same shape (V12)
       q.roll = Math.random() * Math.PI * 2
+      q.roll2 = q.roll + 0.5 + Math.random() * 1.2
+      // the anamorphic bar stays near horizontal, as a real lens element does
+      q.streakRoll = (Math.random() - 0.5) * 0.5
       q.aspect = 0.72 + Math.random() * 0.62
       _c.set(cmd.color)
       // the star core is authored above the bloom knee, the halo below it, so
       // a flash blooms as a point rather than a disc
       q.starMat.color.setRGB(_c.r * 2.4, _c.g * 2.4, _c.b * 2.4)
+      q.star2Mat.color.setRGB(_c.r * 1.5, _c.g * 1.5, _c.b * 1.5)
       q.haloMat.color.copy(_c)
+      // the streak is tinted warmer and dimmer than the core: it is scattered
+      // light inside the lens, not the source
+      q.streakMat.color.setRGB(_c.r * 1.25, _c.g * 1.1, _c.b * 0.85)
       q.group.position.set(cmd.x, cmd.y, cmd.z)
       q.group.visible = true
     }
@@ -273,11 +322,21 @@ export default function Flashes() {
       q.group.rotateZ(q.roll) // random roll about the view axis
       // the core snaps out fast; the halo lingers and keeps expanding
       const s = q.baseScale * (0.55 + 1.25 * t)
+      q.star.rotation.z = 0
       q.star.scale.set(s * q.aspect, s / q.aspect, 1)
+      q.star2.rotation.z = q.roll2 - q.roll
+      q.star2.scale.set(s * 0.62 / q.aspect, s * 0.62 * q.aspect, 1)
       q.halo.scale.setScalar(s * (2.1 + 1.4 * t))
+      // the bar snaps to full width instantly and collapses vertically first:
+      // an attack far faster than the decay, authored on the shape as well as
+      // on the brightness
+      q.streak.rotation.z = q.streakRoll - q.roll
+      q.streak.scale.set(s * (5.4 + 3.2 * t), s * 0.30 * (1 - t * 0.7), 1)
       const k = 1 - t
       q.starMat.opacity = k * k * k
+      q.star2Mat.opacity = k * k * k * k * 0.8
       q.haloMat.opacity = k * k * 0.5
+      q.streakMat.opacity = k * k * k * k * 0.85
     }
   })
 

@@ -8,6 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 import { COLORS } from '@/game/config'
+import { useShallow } from 'zustand/react/shallow'
 import { useGameStore, gradeForScore, selectTallies } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
 import '@/game/hud/hud.css'
@@ -59,7 +60,7 @@ function useStage(count: number, step = 140, delay = 260): number {
 }
 
 export default function WinScreen({ onRestart }: Props) {
-  const { kills, headshots, abilityKills, score } = useGameStore(selectTallies)
+  const { kills, headshots, abilityKills, score } = useGameStore(useShallow(selectTallies))
   const grade = gradeForScore(score)
   const stage = useStage(6)
   const shownScore = useCountUp(score, 900)

@@ -482,9 +482,43 @@ function makeCrestGeometry(): THREE.BufferGeometry {
   return geo
 }
 
+/**
+ * [character-art R3] Dome shell WITH THICKNESS.
+ *
+ * Every chest, back and pauldron plate used to be an open `SphereGeometry`
+ * cap: a zero-thickness sheet whose rim is a mathematical edge. That is the
+ * single loudest blockout tell on a character, because a real armour plate
+ * rolls over its rim and the roll is what catches the key. This lathes the
+ * outer dome, rolls it over the rim, and returns up an inner wall, so the
+ * plate has a visible ~10% lip everywhere the silhouette crosses it.
+ */
+function makeDomeShell(r: number, thetaLen: number, thick: number, seg = 26): THREE.BufferGeometry {
+  const N = 14
+  const pts: THREE.Vector2[] = []
+  const ax = (v: number) => Math.max(0.0009, v)
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * thetaLen
+    pts.push(new THREE.Vector2(ax(r * Math.sin(a)), r * Math.cos(a)))
+  }
+  // the rim roll — two short steps over the edge and back under
+  const sT = Math.sin(thetaLen)
+  const cT = Math.cos(thetaLen)
+  pts.push(new THREE.Vector2(ax(r * sT * 1.014), r * cT - thick * 0.42))
+  pts.push(new THREE.Vector2(ax(r * sT - thick * 0.34), r * cT - thick * 0.6))
+  // inner wall, back up to the pole
+  const ri = r - thick
+  for (let i = N; i >= 0; i--) {
+    const a = (i / N) * thetaLen
+    pts.push(new THREE.Vector2(ax(ri * Math.sin(a)), ri * Math.cos(a) - thick * 0.08))
+  }
+  const geo = new THREE.LatheGeometry(pts, seg)
+  geo.computeVertexNormals()
+  return geo
+}
+
 /** Chest / back shell plate: flattened dome, bulge toward +Z, opening downward. */
 function makeShellPlate(r: number, flat = 0.5): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(r, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.56)
+  const geo = makeDomeShell(r, Math.PI * 0.56, r * 0.1)
   geo.rotateX(Math.PI / 2)
   geo.scale(1.08, 0.92, flat)
   return geo
@@ -492,7 +526,7 @@ function makeShellPlate(r: number, flat = 0.5): THREE.BufferGeometry {
 
 /** Pauldron lame: wide flattened dome segment (stacks into a layered pauldron). */
 function makeLame(r: number, flat = 0.62): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(r, 20, 10, 0, Math.PI * 2, 0, Math.PI * 0.52)
+  const geo = makeDomeShell(r, Math.PI * 0.52, r * 0.13, 24)
   geo.scale(1.18, flat, 1.12)
   return geo
 }
@@ -503,7 +537,8 @@ function makeLame(r: number, flat = 0.62): THREE.BufferGeometry {
  * with the lower rim flared so it hangs over the deltoid instead of capping it.
  */
 function makeCowlGeometry(): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.175, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.62)
+  // [character-art R3] lathed with a rolled rim so the cowl has thickness
+  const geo = makeDomeShell(0.175, Math.PI * 0.62, 0.021, 24)
   const pos = geo.attributes.position as THREE.BufferAttribute
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i)
@@ -565,11 +600,6 @@ function makeJointCowl(r: number): THREE.BufferGeometry {
   geo.scale(0.94, 1.0, 1.1)
   geo.rotateX(Math.PI * 0.08)
   return geo
-}
-
-/** Tapered limb shell — the armour plate that sits OVER an undersuit segment. */
-function makeLimbPlate(rTop: number, rBot: number, h: number, seg = 14): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, false)
 }
 
 /**
@@ -686,11 +716,230 @@ function makeGorgetGeometry(): THREE.BufferGeometry {
   return geo
 }
 
+// ---------------------------------------------------------------------------
+// [character-art R3] SCULPTED SHELLS, HARD POINTS AND SWEPT ENERGY ROUTES
+//
+// The round-2 panel failed the frame as "a stack of separate primitives".
+// The cause was that every load-bearing volume under the plates was still a
+// CYLINDER FRUSTUM: a straight taper, a circular section, a hard square rim.
+// A shipped frame's armour is a LOFTED SHELL — a non-circular section with a
+// machined lateral keel, a rim that flares out and then folds back under
+// itself (so the plate has visible thickness), and hard points that break the
+// outline. Everything below builds that, procedurally, once at boot.
+// ---------------------------------------------------------------------------
+
+/**
+ * Lofted limb shell — the drop-in replacement for `makeLimbPlate`.
+ *
+ *  - section is a flattened superellipse with a lateral KEEL ridge, so the
+ *    outline of a limb is a machined edge catching the key rather than a tube;
+ *  - the profile FLARES at both rims, so the shell closes over the joint it
+ *    covers instead of ending in mid-air;
+ *  - each rim folds back under itself by `lip`, giving the plate real,
+ *    silhouette-visible THICKNESS (the work order's "0.008 m edge lip");
+ *  - eight shallow flutes keep a flat span from ever being featureless.
+ */
+function makeLimbShell(
+  rTop: number,
+  rBot: number,
+  h: number,
+  o: {
+    keel?: number
+    flare?: number
+    flat?: number
+    prow?: number
+    lip?: number
+    rings?: number
+    seg?: number
+  } = {},
+): THREE.BufferGeometry {
+  const seg = o.seg ?? 26
+  const rings = o.rings ?? 13
+  const keel = o.keel ?? 0.15
+  const flare = o.flare ?? 0.18
+  const flat = o.flat ?? 0.9
+  const prow = o.prow ?? 0
+  const lip = o.lip ?? 0.016
+  const ringVerts = seg + 1
+  const pos: number[] = []
+  const uvs: number[] = []
+  const idx: number[] = []
+
+  // ring plan: folded lip, the lofted body, folded lip
+  const plan: { t: number; dy: number; k: number }[] = [{ t: 0, dy: -lip, k: 0.78 }]
+  for (let r = 0; r < rings; r++) plan.push({ t: r / (rings - 1), dy: 0, k: 1 })
+  plan.push({ t: 1, dy: lip, k: 0.78 })
+
+  for (const p of plan) {
+    const t = p.t
+    const y = h * (0.5 - t) + p.dy
+    const base = THREE.MathUtils.lerp(rTop, rBot, t)
+    // cuff flare — both rims roll outward over the joint they cover
+    const endT = Math.min(t, 1 - t)
+    const cuff = 1 + flare * Math.pow(Math.max(0, 1 - endT / 0.2), 1.7)
+    // a shallow waist so the segment tapers like a limb, not a pipe
+    const waist = 1 - 0.05 * Math.sin(Math.PI * t)
+    const rad = base * cuff * waist * p.k
+    for (let s = 0; s <= seg; s++) {
+      const a = (s / seg) * Math.PI * 2
+      const ca = Math.cos(a)
+      const sa = Math.sin(a)
+      const ridge = 1 + keel * Math.pow(Math.abs(ca), 6) // lateral machined keel
+      const flute = 1 - 0.016 * Math.cos(a * 8)
+      const rr = rad * ridge * flute
+      let z = rr * sa * flat
+      z += prow * Math.max(0, sa) * (1 - t) * base // greave prow carries forward
+      pos.push(rr * ca, y, z)
+      uvs.push(s / seg, 1 - t)
+    }
+  }
+  for (let r = 0; r < plan.length - 1; r++) {
+    for (let s = 0; s < seg; s++) {
+      const a0 = r * ringVerts + s
+      const b0 = a0 + ringVerts
+      idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0)
+    }
+  }
+  // close both ends so the shell is watertight from every angle
+  const capTop = pos.length / 3
+  pos.push(0, h * 0.5 - lip * 1.2, 0)
+  uvs.push(0.5, 1)
+  const capBot = pos.length / 3
+  pos.push(0, -h * 0.5 + lip * 1.2, 0)
+  uvs.push(0.5, 0)
+  const lastRing = (plan.length - 1) * ringVerts
+  for (let s = 0; s < seg; s++) {
+    idx.push(capTop, s + 1, s)
+    idx.push(capBot, lastRing + s, lastRing + s + 1)
+  }
+
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * Hard point — the tapering swept blade that breaks a silhouette. Knee spurs,
+ * heel spurs, calf fins, elbow spurs, pauldron wings and hip blades are all
+ * this one loft at different scales. Extruded from a swept side profile, then
+ * THINNED toward the tip so it is a blade and not a slab.
+ *
+ * Local axes: +X is the length (root at 0), Y the width, Z the thickness.
+ */
+function makeBlade(
+  L: number,
+  wRoot: number,
+  wTip: number,
+  thick: number,
+  curve: number,
+): THREE.BufferGeometry {
+  const s = new THREE.Shape()
+  s.moveTo(0, -wRoot * 0.5)
+  s.lineTo(L * 0.42, -wTip * 0.62 - curve * 0.45)
+  s.lineTo(L * 0.86, -wTip * 0.5 - curve * 0.92)
+  s.lineTo(L, -wTip * 0.06 - curve)
+  s.lineTo(L * 0.8, wTip * 0.52 - curve * 0.92)
+  s.lineTo(L * 0.4, wRoot * 0.34 - curve * 0.4)
+  s.lineTo(0, wRoot * 0.5)
+  s.closePath()
+  const g = new THREE.ExtrudeGeometry(s, {
+    depth: thick,
+    bevelEnabled: true,
+    bevelSize: thick * 0.3,
+    bevelThickness: thick * 0.3,
+    bevelSegments: 2,
+  })
+  g.translate(0, 0, -thick * 0.5)
+  const p = g.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < p.count; i++) {
+    const k = THREE.MathUtils.clamp(1 - p.getX(i) / L, 0, 1)
+    p.setZ(i, p.getZ(i) * (0.3 + 0.7 * k * k))
+  }
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * Overlapping cuff lame — a short flared band that sits OVER the rim of the
+ * segment below it. Stacking these is what makes plating read as lamellar
+ * armour with dark under-suit in the gaps rather than one extruded tube.
+ */
+function makeCuffLame(r: number, h: number, flare = 0.3): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(r, r * (1 + flare), h, 24, 1, true)
+  const p = g.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i)
+    const z = p.getZ(i)
+    const a = Math.atan2(z, x)
+    const k = 1 + 0.1 * Math.pow(Math.abs(Math.cos(a)), 6)
+    p.setXYZ(i, x * k, p.getY(i), z * k * 0.9)
+  }
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * Swept energy route. The panel's note was that the emissive reads as isolated
+ * glowing pips; a shipped frame runs ONE continuous line that describes the
+ * form. This lofts a tube along a Catmull-Rom spine so the route curves with
+ * the back instead of being a stack of boxes.
+ */
+function makeRoute(pts: readonly [number, number, number][], r: number, seg = 40): THREE.BufferGeometry {
+  const curve = new THREE.CatmullRomCurve3(pts.map((p) => new THREE.Vector3(p[0], p[1], p[2])))
+  return new THREE.TubeGeometry(curve, seg, r, 7, false)
+}
+
 /** Wrapped fist volume (replaces the hand box). */
 function makeFistGeometry(): THREE.BufferGeometry {
   const geo = new THREE.SphereGeometry(0.055, 14, 10)
   geo.scale(0.98, 1.25, 0.86)
   return geo
+}
+
+/**
+ * [character-art R3] GRAZING-ANGLE EDGE SHEEN.
+ *
+ * MeshStandardMaterial on its own gives a plate a single Lambert value band,
+ * which is the loudest "untextured blockout" tell there is: a shipped frame's
+ * plate edges pick up the sky at glancing angles and separate from whatever is
+ * behind them. This injects a Fresnel term AFTER the lighting loop (so it is
+ * not eaten by a shadow) and is the cheapest AAA-grade read on the whole rig.
+ *
+ * `customProgramCacheKey` is required — without it three reuses one compiled
+ * program across every material that shares this class.
+ */
+function addEdgeSheen(
+  mat: THREE.MeshStandardMaterial,
+  color: string,
+  power: number,
+  amount: number,
+  key: string,
+): void {
+  const col = new THREE.Color(color)
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uSheenCol = { value: col }
+    shader.uniforms.uSheenPow = { value: power }
+    shader.uniforms.uSheenAmt = { value: amount }
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform vec3 uSheenCol;\nuniform float uSheenPow;\nuniform float uSheenAmt;',
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        [
+          '{',
+          '  float fres = pow( 1.0 - saturate( dot( geometryNormal, geometryViewDir ) ), uSheenPow );',
+          '  outgoingLight += uSheenCol * fres * uSheenAmt;',
+          '}',
+          '#include <opaque_fragment>',
+        ].join('\n'),
+      )
+  }
+  mat.customProgramCacheKey = () => key
 }
 
 // ---------------------------------------------------------------------------
@@ -773,7 +1022,11 @@ class Ribbon {
     this.baseAlpha = new Float32Array(n)
     // cloth root is a dark charcoal so the emissive tip has somewhere to sit
     const root = new THREE.Color('#141318')
-    const mid = new THREE.Color(COLORS.regalGold).multiplyScalar(0.5)
+    // [character-art R3] the r2 mid was regalGold x 0.5, which rendered the
+    // syandana as two tan hoses looping across the frame. A shipped syandana is
+    // DARK cloth whose emissive lives only in the last third; the body has to
+    // sit under the armour in value or it competes with the frame it hangs on.
+    const mid = new THREE.Color(COLORS.regalGold).multiplyScalar(0.14)
     const tip = new THREE.Color(PLAYER_ENERGY.mid).multiplyScalar(ANIM.energy.midBoost * 1.6)
     const c = new THREE.Color()
     const emiStart = Math.max(1, SEGS - ANIM.scarf.emissiveSegments)
@@ -1313,10 +1566,114 @@ export default function PlayerRig() {
       skirtBack: makeSkirtLame(0.13, 0.1, 0.27),
       skirtSide: makeSkirtLame(0.115, 0.085, 0.22),
       skirtFront: makeSkirtLame(0.12, 0.09, 0.2),
-      thighPlate: makeLimbPlate(0.118, 0.1, 0.3),
-      shinPlate: makeLimbPlate(0.102, 0.078, 0.3),
-      upperArmPlate: makeLimbPlate(0.082, 0.068, 0.22),
-      foreArmPlate: makeLimbPlate(0.07, 0.058, 0.2),
+      // [character-art R3] lofted sculpted shells replace the cylinder
+      // frustums: keeled section, flared rims, folded thickness lip.
+      thighPlate: makeLimbShell(0.118, 0.1, 0.3, { keel: 0.17, flare: 0.2, flat: 0.93 }),
+      shinPlate: makeLimbShell(0.102, 0.078, 0.3, {
+        keel: 0.18,
+        flare: 0.21,
+        flat: 0.9,
+        prow: 0.2,
+      }),
+      upperArmPlate: makeLimbShell(0.082, 0.068, 0.22, { keel: 0.15, flare: 0.18, flat: 0.9, lip: 0.012 }),
+      foreArmPlate: makeLimbShell(0.07, 0.058, 0.2, {
+        keel: 0.16,
+        flare: 0.19,
+        flat: 0.9,
+        prow: 0.12,
+        lip: 0.012,
+      }),
+      // [character-art R3] hard points — the outline breakers. A flat-black
+      // render of the r2 rig read as a person-shaped blob because nothing
+      // projected past the limb tubes.
+      kneeSpur: makeBlade(0.16, 0.092, 0.03, 0.052, 0.035),
+      calfFin: makeBlade(0.175, 0.1, 0.028, 0.04, 0.055),
+      heelSpur: makeBlade(0.125, 0.082, 0.024, 0.05, 0.022),
+      elbowSpur: makeBlade(0.135, 0.076, 0.024, 0.042, 0.038),
+      wingL: makeBlade(0.3, 0.145, 0.042, 0.058, 0.075),
+      wingR: makeBlade(0.25, 0.125, 0.036, 0.05, 0.065),
+      hipBlade: makeBlade(0.205, 0.105, 0.03, 0.046, 0.05),
+      toeClaw: makeBlade(0.085, 0.05, 0.016, 0.03, 0.012),
+      // stacked lamellar cuffs — overlap the joint below, dark suit in the gap
+      cuffArm: makeCuffLame(0.072, 0.052, 0.34),
+      cuffLeg: makeCuffLame(0.104, 0.062, 0.32),
+      // [character-art R3] ONE continuous emissive route, lofted as a tube so
+      // it curves with the back instead of being a stack of boxes:
+      // nape -> thoracic -> lumbar -> sacrum.
+      spineRoute: makeRoute(
+        [
+          [0, 0.628, -0.153],
+          [0, 0.552, -0.192],
+          [0, 0.45, -0.213],
+          [0, 0.33, -0.215],
+          [0, 0.21, -0.198],
+          [0, 0.09, -0.163],
+        ],
+        0.0135,
+      ),
+      spineRouteCore: makeRoute(
+        [
+          [0, 0.628, -0.157],
+          [0, 0.552, -0.196],
+          [0, 0.45, -0.217],
+          [0, 0.33, -0.219],
+          [0, 0.21, -0.202],
+          [0, 0.09, -0.167],
+        ],
+        0.0062,
+      ),
+      // the two forks off the thoracic node, out to the pauldron cowls
+      forkL: makeRoute(
+        [
+          [-0.012, 0.552, -0.192],
+          [-0.12, 0.588, -0.148],
+          [-0.235, 0.578, -0.055],
+          [-0.312, 0.558, 0.032],
+        ],
+        0.0082,
+        26,
+      ),
+      forkR: makeRoute(
+        [
+          [0.012, 0.552, -0.192],
+          [0.115, 0.578, -0.148],
+          [0.222, 0.566, -0.055],
+          [0.295, 0.548, 0.03],
+        ],
+        0.0072,
+        26,
+      ),
+      // forearm and shin forks, swept along the limb rather than stuck on it
+      routeForeArm: makeRoute(
+        [
+          [0, 0.01, -0.062],
+          [0, -0.09, -0.078],
+          [0, -0.18, -0.07],
+          [0, -0.245, -0.034],
+        ],
+        0.0072,
+        20,
+      ),
+      routeForeArmCore: makeRoute(
+        [
+          [0, 0.01, -0.0655],
+          [0, -0.09, -0.0815],
+          [0, -0.18, -0.0735],
+          [0, -0.245, -0.0375],
+        ],
+        0.0032,
+        20,
+      ),
+      routeShin: makeRoute(
+        [
+          [0, -0.05, -0.084],
+          [0, -0.17, -0.101],
+          [0, -0.29, -0.086],
+          [0, -0.37, -0.05],
+        ],
+        0.0085,
+        20,
+      ),
       kneeCap: (() => {
         const g = new THREE.SphereGeometry(0.098, 16, 10)
         g.scale(0.92, 0.9, 1.0)
@@ -1373,34 +1730,77 @@ export default function PlayerRig() {
       // rig's geometry only carries uv, so the cavity is multiplied into the
       // albedo at bake time instead (see armourMaps).
     }
-    const plateLight = new THREE.MeshStandardMaterial({
+    // ------------------------------------------------------------------
+    // [character-art R3] MATERIAL RESPONSE.
+    // r2 shipped three MeshStandardMaterials with different roughness, which
+    // is not a material split — it is one shader with three numbers. Warframe
+    // reads as (a) a LACQUERED ceramic plate: a clearcoat layer over a diffuse
+    // body, so the specular is a separate, tighter, whiter lobe than the
+    // diffuse; (b) BRUSHED gold: an anisotropic highlight stretched along the
+    // machining direction; (c) a technical FABRIC under-suit: a sheen lobe, no
+    // specular crown. three r185 has all three natively via MeshPhysical, plus
+    // a Fresnel edge term injected after lighting.
+    // ------------------------------------------------------------------
+    const plateLight = new THREE.MeshPhysicalMaterial({
       color: COLORS.shrineIvory,
-      // [player-frame R2] split responses: plate 0.35/0, gold 0.22/1, suit 0.8
-      roughness: 0.35,
+      roughness: 0.4,
       metalness: 0.0,
-      envMapIntensity: 1.35,
+      envMapIntensity: 1.2,
+      // lacquer coat — a second, tighter specular lobe over the ceramic body.
+      // Kept well under 1: at clearcoat 0.9 / roughness 0.14 the tiled normal
+      // map turned every plate into a circuit board of hot specular lines,
+      // which is noise, not craft.
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.3,
     })
-    dress(plateLight, 2.4, 2.4, 1.6)
-    const plateDark = new THREE.MeshStandardMaterial({
-      color: '#262B33',
+    // texel density is authored so ONE panel-line cell spans ~15 cm of plate.
+    // At the r2 2.4x tiling the cell was ~6 cm and the frame read as fabric
+    // print rather than machined armour.
+    dress(plateLight, 1.15, 1.15, 0.8)
+    // the exponent has to be HIGH: at pow 3.6 the term lit a broad band on
+    // every small convex plate and the frame read as a wireframe. A real edge
+    // highlight is the last few degrees before the silhouette.
+    addEdgeSheen(plateLight, COLORS.paleHalo, 7.0, 0.4, 'av-plate-light')
+    const plateDark = new THREE.MeshPhysicalMaterial({
+      color: '#232A34',
       roughness: 0.38,
       metalness: 0.55,
-      envMapIntensity: 1.5,
+      envMapIntensity: 1.35,
+      clearcoat: 0.38,
+      clearcoatRoughness: 0.34,
     })
-    dress(plateDark, 2.0, 2.0, 1.5)
-    const suit = new THREE.MeshStandardMaterial({
-      color: '#15181E',
-      roughness: 0.8,
-      metalness: 0.12,
-      envMapIntensity: 0.6,
+    dress(plateDark, 1.05, 1.05, 0.75)
+    addEdgeSheen(plateDark, COLORS.paleHalo, 6.0, 0.55, 'av-plate-dark')
+    // the under-suit is CLOTH, not plastic: a sheen lobe and no specular crown,
+    // so every gap the plates leave reads as a different substance
+    const suit = new THREE.MeshPhysicalMaterial({
+      color: '#0E1116',
+      roughness: 0.88,
+      metalness: 0.0,
+      envMapIntensity: 0.45,
+      sheen: 0.7,
+      sheenRoughness: 0.75,
+      sheenColor: new THREE.Color('#5C7690'),
     })
     const ps = tex(panel, 2.6, 2.6)
     if (ps) suit.roughnessMap = ps
-    const trim = new THREE.MeshStandardMaterial({
-      color: COLORS.regalGold,
+    if (maps) {
+      const sn = tex(maps.normal, 2.6, 2.6)
+      if (sn) {
+        suit.normalMap = sn
+        suit.normalScale = new THREE.Vector2(0.3, 0.3)
+      }
+    }
+    addEdgeSheen(suit, '#8FB6D8', 6.5, 0.12, 'av-suit')
+    // brushed gold — circumferential machining, so the highlight stretches
+    // around the band instead of sitting as one round hot dot
+    const trim = new THREE.MeshPhysicalMaterial({
+      color: '#A67C2E',
       metalness: 1.0,
-      roughness: 0.22,
-      envMapIntensity: 1.9,
+      roughness: 0.32,
+      envMapIntensity: 1.5,
+      anisotropy: 0.75,
+      anisotropyRotation: Math.PI / 2,
     })
     const tw = tex(wear, 2, 2)
     if (tw) trim.roughnessMap = tw
@@ -1408,14 +1808,17 @@ export default function PlayerRig() {
       const tn = tex(maps.normal, 3.2, 3.2)
       if (tn) {
         trim.normalMap = tn
-        trim.normalScale = new THREE.Vector2(0.7, 0.7)
+        trim.normalScale = new THREE.Vector2(0.35, 0.35)
       }
     }
-    const trimDark = new THREE.MeshStandardMaterial({
-      color: '#6E5628',
-      metalness: 0.92,
-      roughness: 0.5,
-      envMapIntensity: 1.2,
+    addEdgeSheen(trim, COLORS.aureate, 5.5, 0.35, 'av-trim')
+    const trimDark = new THREE.MeshPhysicalMaterial({
+      color: '#5A4520',
+      metalness: 0.95,
+      roughness: 0.55,
+      envMapIntensity: 1.3,
+      anisotropy: 0.6,
+      anisotropyRotation: Math.PI / 2,
     })
     // ---- three-layer emissive route (bloom knee is 1.0: the core must be
     // authored ABOVE white or nothing on the frame blooms at all) ----
@@ -2303,6 +2706,24 @@ export default function PlayerRig() {
                 />
               </group>
 
+              {/* [character-art R3] hip blades — carry the waist outward so the
+                  pelvis is not the narrowest point of the outline */}
+              <mesh
+                geometry={geos.hipBlade}
+                material={mats.plateLight}
+                position={[-0.198, 0.045, -0.03]}
+                rotation={[0, 2.35, -0.52]}
+                castShadow
+                receiveShadow
+              />
+              <mesh
+                geometry={geos.hipBlade}
+                material={mats.plateLight}
+                position={[0.198, 0.045, -0.03]}
+                rotation={[0, 0.79, -0.52]}
+                castShadow
+                receiveShadow
+              />
               {/* scabbard socket — read by combat/ViewModel.tsx (DO NOT REMOVE) */}
               <group ref={hipSocket} position={[-0.21, -0.03, -0.05]} rotation={[0, 0, 0.3]} />
 
@@ -2420,13 +2841,14 @@ export default function PlayerRig() {
                   rotation={[0.1, Math.PI, 0]}
                   castShadow
                 />
-                {/* spine energy channel inside the keel recess */}
-                <mesh material={mats.glow} position={[0, 0.36, -0.165]}>
-                  <boxGeometry args={[0.03, 0.34, 0.014]} />
-                </mesh>
-                <mesh material={mats.glowCore} position={[0, 0.36, -0.171]}>
-                  <boxGeometry args={[0.014, 0.3, 0.01]} />
-                </mesh>
+                {/* [character-art R3] ONE continuous emissive route, lofted as
+                    a tube down the thoracic/lumbar curve and FORKING to both
+                    pauldron cowls, so the light describes the back's form
+                    instead of being two stacked boxes in a recess. */}
+                <mesh geometry={geos.spineRoute} material={mats.glow} />
+                <mesh geometry={geos.spineRouteCore} material={mats.glowCore} />
+                <mesh geometry={geos.forkL} material={mats.glow} />
+                <mesh geometry={geos.forkR} material={mats.glow} />
                 {/* scapular pauldron backs */}
                 <mesh
                   geometry={geos.lameB}
@@ -2461,8 +2883,8 @@ export default function PlayerRig() {
                 </mesh>
                 {/* [R2] wide soft falloff card behind the spine keel — the third
                     emissive layer, so the channel has a halo and not just a line */}
-                <mesh material={mats.glowSoft} position={[0, 0.42, -0.176]}>
-                  <planeGeometry args={[0.16, 0.62]} />
+                <mesh material={mats.glowSoft} position={[0, 0.4, -0.222]}>
+                  <planeGeometry args={[0.2, 0.68]} />
                 </mesh>
                 {/* [R2] scarf anchors, parented into the torso (weakness P7) */}
                 <group ref={scarfAnchorL} position={[-0.105, 0.565, -0.115]} />
@@ -2529,6 +2951,26 @@ export default function PlayerRig() {
                   receiveShadow
                 />
                 {/* cowl edge trim + leading-edge energy fork of the spine route */}
+                {/* [character-art R3] rear-swept pauldron WING — the single
+                    biggest outline breaker on the frame; the r2 shoulders ended
+                    at the cowl and the silhouette closed back into the torso */}
+                <mesh
+                  geometry={geos.wingL}
+                  material={mats.plateLight}
+                  position={[-0.252, 0.578, -0.028]}
+                  rotation={[0, 2.5, 0.26]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh
+                  geometry={geos.wingL}
+                  material={mats.trim}
+                  position={[-0.252, 0.578, -0.028]}
+                  rotation={[0, 2.5, 0.26]}
+                  scale={[1.0, 0.42, 0.7]}
+                  castShadow
+                  receiveShadow
+                />
                 <mesh material={mats.trim} position={[-0.318, 0.548, 0.0]} rotation={[0, 0, 0.32]} castShadow>
                   <boxGeometry args={[0.034, 0.06, 0.2]} />
                 </mesh>
@@ -2571,6 +3013,14 @@ export default function PlayerRig() {
                   position={[0.244, 0.462, 0.006]}
                   rotation-z={-0.38}
                   scale={[1.1, 1.0, 1.04]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh
+                  geometry={geos.wingR}
+                  material={mats.plateDark}
+                  position={[0.244, 0.568, -0.028]}
+                  rotation={[0, 0.64, 0.24]}
                   castShadow
                   receiveShadow
                 />
@@ -2738,6 +3188,23 @@ export default function PlayerRig() {
                       castShadow
                       receiveShadow
                     />
+                    {/* [character-art R3] elbow spur — reads on every arm swing */}
+                    <mesh
+                      geometry={geos.elbowSpur}
+                      material={mats.plateLight}
+                      position={[0, -0.006, -0.05]}
+                      rotation={[0, Math.PI / 2, -0.42]}
+                      castShadow
+                      receiveShadow
+                    />
+                    {/* lamellar cuff over the forearm rim */}
+                    <mesh
+                      geometry={geos.cuffArm}
+                      material={mats.plateLight}
+                      position={[0, -0.042, 0]}
+                      castShadow
+                      receiveShadow
+                    />
                     <mesh
                       geometry={geos.pistonBand}
                       material={mats.trimDark}
@@ -2761,10 +3228,11 @@ export default function PlayerRig() {
                     <mesh material={mats.trim} position={[-0.062, -0.13, -0.012]} castShadow>
                       <boxGeometry args={[0.024, 0.17, 0.07]} />
                     </mesh>
-                    {/* forearm energy band */}
-                    <mesh material={mats.glow} position={[0, -0.2, 0.06]} rotation-x={0.08}>
-                      <boxGeometry args={[0.07, 0.02, 0.014]} />
-                    </mesh>
+                    {/* [character-art R3] the forearm FORK of the continuous
+                        emissive route, lofted along the limb — the isolated
+                        0.07 m pip it replaces read as a sticker */}
+                    <mesh geometry={geos.routeForeArm} material={mats.glow} />
+                    <mesh geometry={geos.routeForeArmCore} material={mats.glowCore} />
                     {/* ---- wrist pivot + wrapped fist ---- */}
                     <group ref={wristL} position={[0, -0.27, 0]}>
                       {/* [R2] ~0.09 m GAUNTLET — the 0.055 m fist sphere read as
@@ -2858,6 +3326,23 @@ export default function PlayerRig() {
                       castShadow
                       receiveShadow
                     />
+                    {/* [character-art R3] elbow spur — reads on every arm swing */}
+                    <mesh
+                      geometry={geos.elbowSpur}
+                      material={mats.plateLight}
+                      position={[0, -0.006, -0.05]}
+                      rotation={[0, Math.PI / 2, -0.42]}
+                      castShadow
+                      receiveShadow
+                    />
+                    {/* lamellar cuff over the forearm rim */}
+                    <mesh
+                      geometry={geos.cuffArm}
+                      material={mats.plateLight}
+                      position={[0, -0.042, 0]}
+                      castShadow
+                      receiveShadow
+                    />
                     <mesh
                       geometry={geos.pistonBand}
                       material={mats.trimDark}
@@ -2880,9 +3365,8 @@ export default function PlayerRig() {
                     <mesh material={mats.trim} position={[0.062, -0.13, -0.012]} castShadow>
                       <boxGeometry args={[0.024, 0.17, 0.07]} />
                     </mesh>
-                    <mesh material={mats.glow} position={[0, -0.2, 0.06]} rotation-x={0.08}>
-                      <boxGeometry args={[0.07, 0.02, 0.014]} />
-                    </mesh>
+                    <mesh geometry={geos.routeForeArm} material={mats.glow} />
+                    <mesh geometry={geos.routeForeArmCore} material={mats.glowCore} />
                     <group ref={wristR} position={[0, -0.27, 0]}>
                       {/* [R2] ~0.09 m GAUNTLET — the 0.055 m fist sphere read as
                           a stump at any distance. Palm block, four fused finger
@@ -2975,6 +3459,34 @@ export default function PlayerRig() {
                   castShadow
                   receiveShadow
                 />
+                {/* [character-art R3] knee spur + calf fin — the outline
+                    breakers. Without these the leg is a tube and the flat-black
+                    silhouette test returns a person-shaped blob. */}
+                <mesh
+                  geometry={geos.kneeSpur}
+                  material={mats.plateLight}
+                  position={[0, -0.012, 0.062]}
+                  rotation={[0, -Math.PI / 2, -0.52]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh
+                  geometry={geos.calfFin}
+                  material={mats.plateDark}
+                  position={[0, -0.16, -0.062]}
+                  rotation={[0, Math.PI / 2, -0.62]}
+                  castShadow
+                  receiveShadow
+                />
+                {/* stacked lamellar cuff: overlaps the greave rim, dark suit
+                    visible in the gap instead of a butt joint */}
+                <mesh
+                  geometry={geos.cuffLeg}
+                  material={mats.plateDark}
+                  position={[0, -0.062, 0]}
+                  castShadow
+                  receiveShadow
+                />
                 <mesh material={mats.suit} position={[0, -0.2, 0]} scale={[1, 1, 0.84]} castShadow>
                   <capsuleGeometry args={[0.07, 0.24, 4, 10]} />
                 </mesh>
@@ -2994,6 +3506,8 @@ export default function PlayerRig() {
                 <mesh material={mats.glow} position={[-0.101, -0.21, -0.022]}>
                   <boxGeometry args={[0.012, 0.22, 0.014]} />
                 </mesh>
+                {/* [character-art R3] rear shin fork of the continuous route */}
+                <mesh geometry={geos.routeShin} material={mats.glow} />
                 <mesh material={mats.glowCore} position={[-0.105, -0.21, -0.022]}>
                   <boxGeometry args={[0.006, 0.17, 0.008]} />
                 </mesh>
@@ -3006,6 +3520,23 @@ export default function PlayerRig() {
                     geometry={geos.boot}
                     material={mats.plateLight}
                     position={[0, -0.1, -0.03]}
+                    castShadow
+                    receiveShadow
+                  />
+                  {/* [character-art R3] heel spur + toe claw */}
+                  <mesh
+                    geometry={geos.heelSpur}
+                    material={mats.plateDark}
+                    position={[0, -0.072, -0.082]}
+                    rotation={[0, Math.PI / 2, -0.28]}
+                    castShadow
+                    receiveShadow
+                  />
+                  <mesh
+                    geometry={geos.toeClaw}
+                    material={mats.trim}
+                    position={[0, -0.148, 0.115]}
+                    rotation={[0, -Math.PI / 2, -0.22]}
                     castShadow
                     receiveShadow
                   />
@@ -3059,6 +3590,34 @@ export default function PlayerRig() {
                   castShadow
                   receiveShadow
                 />
+                {/* [character-art R3] knee spur + calf fin — the outline
+                    breakers. Without these the leg is a tube and the flat-black
+                    silhouette test returns a person-shaped blob. */}
+                <mesh
+                  geometry={geos.kneeSpur}
+                  material={mats.plateLight}
+                  position={[0, -0.012, 0.062]}
+                  rotation={[0, -Math.PI / 2, -0.52]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh
+                  geometry={geos.calfFin}
+                  material={mats.plateDark}
+                  position={[0, -0.16, -0.062]}
+                  rotation={[0, Math.PI / 2, -0.62]}
+                  castShadow
+                  receiveShadow
+                />
+                {/* stacked lamellar cuff: overlaps the greave rim, dark suit
+                    visible in the gap instead of a butt joint */}
+                <mesh
+                  geometry={geos.cuffLeg}
+                  material={mats.plateDark}
+                  position={[0, -0.062, 0]}
+                  castShadow
+                  receiveShadow
+                />
                 <mesh material={mats.suit} position={[0, -0.2, 0]} scale={[1, 1, 0.84]} castShadow>
                   <capsuleGeometry args={[0.07, 0.24, 4, 10]} />
                 </mesh>
@@ -3076,6 +3635,7 @@ export default function PlayerRig() {
                 <mesh material={mats.glow} position={[0.101, -0.21, -0.022]}>
                   <boxGeometry args={[0.012, 0.22, 0.014]} />
                 </mesh>
+                <mesh geometry={geos.routeShin} material={mats.glow} />
                 <mesh material={mats.glowCore} position={[0.105, -0.21, -0.022]}>
                   <boxGeometry args={[0.006, 0.17, 0.008]} />
                 </mesh>
@@ -3088,6 +3648,23 @@ export default function PlayerRig() {
                     geometry={geos.boot}
                     material={mats.plateLight}
                     position={[0, -0.1, -0.03]}
+                    castShadow
+                    receiveShadow
+                  />
+                  {/* [character-art R3] heel spur + toe claw */}
+                  <mesh
+                    geometry={geos.heelSpur}
+                    material={mats.plateDark}
+                    position={[0, -0.072, -0.082]}
+                    rotation={[0, Math.PI / 2, -0.28]}
+                    castShadow
+                    receiveShadow
+                  />
+                  <mesh
+                    geometry={geos.toeClaw}
+                    material={mats.trim}
+                    position={[0, -0.148, 0.115]}
+                    rotation={[0, -Math.PI / 2, -0.22]}
                     castShadow
                     receiveShadow
                   />

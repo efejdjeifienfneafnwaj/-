@@ -85,6 +85,23 @@ export interface DecalOpts {
   energy?: number
 }
 
+/**
+ * [vfx R3] Pressure / heat distortion (V4). A sphere of screen-space
+ * refraction that expands and fades: what a detonation does to the air in
+ * front of the architecture. Consumed by Shockwaves.tsx.
+ */
+export interface DistortOpts {
+  position: THREE.Vector3
+  /** metres the shell reaches at the end of its life */
+  maxRadius?: number
+  life?: number
+  /** UV-space displacement at the silhouette (0.02 ~ 2% of screen width) */
+  strength?: number
+  /** 0..1 darkening of the compressed band */
+  compress?: number
+  tint?: number | string
+}
+
 export interface TrailHandle {
   push(p: THREE.Vector3): void
   end(): void
@@ -145,6 +162,17 @@ export interface DecalCmd {
   energy: number
 }
 
+export interface DistortCmd {
+  x: number
+  y: number
+  z: number
+  maxRadius: number
+  life: number
+  strength: number
+  compress: number
+  color: number
+}
+
 export interface TrailOp {
   id: string
   end: boolean
@@ -158,6 +186,7 @@ const ringQueue: RingCmd[] = []
 const flashQueue: FlashCmd[] = []
 const trailQueue: TrailOp[] = []
 const decalQueue: DecalCmd[] = []
+const distortQueue: DistortCmd[] = []
 
 const tmpColor = new THREE.Color()
 
@@ -242,6 +271,24 @@ export const VFX = {
   },
 
   /**
+   * [vfx R3] Bend the frame. One expanding refraction shell — the pressure
+   * element every AAA detonation has and this build had none of.
+   */
+  distort(o: DistortOpts): void {
+    if (distortQueue.length > 6) return
+    distortQueue.push({
+      x: o.position.x,
+      y: o.position.y,
+      z: o.position.z,
+      maxRadius: o.maxRadius ?? 6,
+      life: o.life ?? 0.5,
+      strength: o.strength ?? 0.022,
+      compress: o.compress ?? 0.35,
+      color: toHex(o.tint, COLORS.solarWhite),
+    })
+  },
+
+  /**
    * Acquire a ribbon-trail handle. `push()` a head position each frame while
    * the trail lives, then `end()` to release it (0.25s fade-out).
    * Reusing the same `id` after end() starts a fresh ribbon.
@@ -287,6 +334,11 @@ export function drainTrailOps(out: TrailOp[]): void {
 export function drainDecals(out: DecalCmd[]): void {
   for (let i = 0; i < decalQueue.length; i++) out.push(decalQueue[i])
   decalQueue.length = 0
+}
+
+export function drainDistorts(out: DistortCmd[]): void {
+  for (let i = 0; i < distortQueue.length; i++) out.push(distortQueue[i])
+  distortQueue.length = 0
 }
 
 // ---------------------------------------------------------------------------
@@ -503,6 +555,7 @@ export function resetVfx(): void {
   flashQueue.length = 0
   trailQueue.length = 0
   decalQueue.length = 0
+  distortQueue.length = 0
   PostFxSignals.bloomLoad = 0
   for (const slot of lightSlots) {
     slot.leased = false

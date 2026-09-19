@@ -12,6 +12,19 @@
  *   V15 — birth ramp (no pop-in at full size), per-particle flicker, and drag
  *        so sparks decelerate instead of flying dead straight forever.
  *
+ * [vfx R3] Three more, all aimed at the same tell — "these are sprites being
+ * faded out", not material that was heated:
+ *   • BLACKBODY COOLING. Colour is ramped across life, not just brightness:
+ *     born clipped toward white (above the bloom knee, so every spark has a
+ *     hot head), through the family's own hue, dying on a per-family cool
+ *     target — gold cools orange→red, corruption teal cools to blue.
+ *   • POWER-LAW SIZE. `pow(rand, 2.4)` over 0.40–2.45× instead of a flat
+ *     0.7–1.3×, so a burst has a few big hot chunks among many fine motes and
+ *     reads at two scales in one frame.
+ *   • TURBULENT DRIFT. A divergence-free-ish field sampled from the particle's
+ *     own position curls neighbours into filaments instead of letting each fly
+ *     a straight ballistic line.
+ *
  * On top of that, particles stretch along their own SCREEN-SPACE velocity:
  * the sprite is rotated into the direction of travel and squashed across it,
  * with the point size grown to match, so fast ejecta streaks and slow embers
@@ -30,6 +43,18 @@ const POOL_CAP = 1500
 const SMOKE_CAP = 420
 
 type Family = 'gold' | 'teal' | 'red' | 'smoke'
+
+/**
+ * [vfx R3] Where each family's particles LAND when they have cooled. Gold
+ * energy cools like metal (orange → deep red), corruption teal cools into
+ * blue, ember red into a dull coal. Smoke does not cool at all — it is mass.
+ */
+const FAMILY_COOL: Record<Family, [number, number, number]> = {
+  gold: [1.0, 0.34, 0.07],
+  teal: [0.22, 0.72, 1.0],
+  red: [1.0, 0.24, 0.1],
+  smoke: [1, 1, 1],
+}
 
 const FAMILY_BASE: Record<Family, string> = {
   gold: COLORS.aureate,
@@ -61,6 +86,8 @@ uniform float uPixelScale;
 uniform float uAspect;
 uniform float uTime;
 uniform float uBoost;
+uniform vec3 uCoolTint;
+uniform float uCool;
 varying float vAlpha;
 varying vec3 vColor;
 varying float vAngle;
@@ -74,7 +101,17 @@ void main() {
   // per-particle flicker — embers breathe, sparks scintillate
   float flick = 0.80 + 0.20 * sin(uTime * (13.0 + aSeed * 23.0) + aSeed * 37.0);
   vAlpha = t * t * birth * flick;
-  vColor = aColor * (0.55 + 0.45 * t) * uBoost;
+  // [vfx R3] BLACKBODY COOLING. A spark is not a coloured dot that dims: it
+  // is emitted white-hot, passes through its own hue, and dies as a dull
+  // ember. Ramping only brightness is the tell that a particle system was
+  // authored as a sprite fade; ramping COLOUR is what makes a burst look like
+  // material that was heated. Birth clips toward white (so the head of every
+  // spark crosses the bloom knee), death lands on uCoolTint.
+  float heat = pow(t, 0.7);
+  vec3 hotC = mix(aColor, vec3(1.0), 0.88);
+  vec3 coolC = aColor * uCoolTint;
+  vec3 ramped = mix(coolC, hotC, heat) * (0.30 + 1.05 * heat);
+  vColor = mix(aColor * (0.55 + 0.45 * t), ramped, uCool) * uBoost;
   // 2×2 atlas; uv origin is bottom-left (flipY), tile 0 is the canvas top-left
   vTile = vec2(mod(aShape, 2.0), 1.0 - floor(aShape * 0.5));
 
@@ -138,6 +175,7 @@ class ParticlePool {
   private readonly maxLife: Float32Array
   private readonly grav: Float32Array
   private readonly drag: Float32Array
+  private readonly turb: Float32Array
   private readonly shape: Float32Array
   private readonly stretch: Float32Array
   private readonly seed: Float32Array
@@ -169,6 +207,7 @@ class ParticlePool {
     this.maxLife = new Float32Array(cap)
     this.grav = new Float32Array(cap)
     this.drag = new Float32Array(cap)
+    this.turb = new Float32Array(cap)
     this.shape = new Float32Array(cap)
     this.stretch = new Float32Array(cap)
     this.seed = new Float32Array(cap)
@@ -208,6 +247,8 @@ class ParticlePool {
         uAspect: { value: 1.777 },
         uTime: { value: 0 },
         uBoost: { value: isSmoke ? SMOKE_BOOST : ADDITIVE_BOOST },
+        uCoolTint: { value: new THREE.Vector3(...FAMILY_COOL[family]) },
+        uCool: { value: isSmoke ? 0 : 1 },
         uSoft: { value: isSmoke ? 0.55 : 1 },
         uAtlas: { value: getParticleAtlas() },
       },
@@ -297,7 +338,14 @@ class ParticlePool {
       this.col[i3] = color.r
       this.col[i3 + 1] = color.g
       this.col[i3 + 2] = color.b
-      this.size[i] = cmd.size * (0.7 + Math.random() * 0.6) * (isSmoke ? 6.5 : 1)
+      // [vfx R3] POWER-LAW size distribution. A uniform 0.7-1.3x spread gives
+      // every particle in a burst the same visual weight, which is why the old
+      // bursts read as a scatter of identical dots. A power law puts most of
+      // the count in fine motes and a handful of big hot chunks — the size
+      // histogram real ejecta has, and the thing that gives a burst a read at
+      // two different scales in one frame.
+      const sizeRoll = Math.pow(Math.random(), 2.4)
+      this.size[i] = cmd.size * (0.40 + 2.05 * sizeRoll) * (isSmoke ? 6.5 : 1)
       const lf = cmd.life * (0.6 + Math.random() * 0.4)
       this.life[i] = lf
       this.maxLife[i] = lf
@@ -312,6 +360,15 @@ class ParticlePool {
           : cmd.shape === PARTICLE_SHAPE.ember
             ? 0.9
             : 1.6 + Math.random() * 1.2
+      // turbulent drift: smoke rolls, embers wander, sparks hold their line
+      this.turb[i] =
+        cmd.shape === PARTICLE_SHAPE.smoke
+          ? 2.1
+          : cmd.shape === PARTICLE_SHAPE.ember
+            ? 1.25
+            : cmd.shape === PARTICLE_SHAPE.debris
+              ? 0.35
+              : 0.55
     }
     this.colAttr.needsUpdate = true
     this.sizeAttr.needsUpdate = true
@@ -328,7 +385,7 @@ class ParticlePool {
 
   update(dt: number): void {
     if (dt <= 0) return
-    const { pos, vel, life, grav, drag, cap } = this
+    const { pos, vel, life, grav, drag, turb, seed, cap } = this
     let anyAlive = false
     for (let i = 0; i < cap; i++) {
       if (life[i] <= 0) continue
@@ -342,6 +399,19 @@ class ParticlePool {
       vel[i3 + 1] *= k
       vel[i3 + 2] *= k
       vel[i3 + 1] -= grav[i] * dt
+      // [vfx R3] TURBULENT DRIFT (V15). Straight ballistic lines are the
+      // second particle tell after hard-edged sprites: real ejecta is pushed
+      // around by the air it is moving through. This is a divergence-free-ish
+      // field sampled from the particle's own position, so neighbours curl
+      // together into filaments instead of each wandering independently.
+      const tb = turb[i]
+      if (tb > 0.01) {
+        const sd = seed[i] * 6.2831853
+        const a = tb * dt
+        vel[i3] += Math.sin(pos[i3 + 1] * 2.1 + sd) * a
+        vel[i3 + 1] += Math.sin(pos[i3 + 2] * 1.9 + sd * 1.7) * a * 0.55
+        vel[i3 + 2] += Math.cos(pos[i3] * 2.3 + sd * 0.9) * a
+      }
       pos[i3] += vel[i3] * dt
       pos[i3 + 1] += vel[i3 + 1] * dt
       pos[i3 + 2] += vel[i3 + 2] * dt

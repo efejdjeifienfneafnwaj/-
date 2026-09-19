@@ -114,6 +114,10 @@ export function initTextures() {
   getOrokinNormalTexture()
   getOrokinAOTexture()
   getOrokinRoughnessTexture()
+  getOrokinAlbedoTexture()
+  getMacroVariationTexture()
+  getGoldAlbedoTexture()
+  getGoldORMTexture()
   getBrushedGoldRoughnessTexture()
   getBrushedGoldNormalTexture()
   getDetailNormalTexture()
@@ -145,8 +149,22 @@ let cofferAlpha: THREE.CanvasTexture | null = null
 let contactBlob: THREE.CanvasTexture | null = null
 let fretStrip: THREE.CanvasTexture | null = null
 let stripFalloff: THREE.CanvasTexture | null = null
+let orokinAlbedo: THREE.CanvasTexture | null = null
+let orokinAlbedoMean = 1
+let macroVariation: THREE.CanvasTexture | null = null
+let macroMean = 0.6
+let goldAlbedo: THREE.CanvasTexture | null = null
+let goldORM: THREE.CanvasTexture | null = null
 
-const TRIM_SIZE = 512
+/**
+ * Sheet resolution.
+ *
+ * R3: 512 → 1024. One tile is 2 m of wall and now carries FOUR different 1 m
+ * plates (fret / louvre bank / flanged boss / stepped inset) instead of one
+ * stamp repeated four times, and a 1024 sheet puts that at ~2 mm/texel — fine
+ * enough that a bolt head is a bolt head at arm's length instead of a smear.
+ */
+const TRIM_SIZE = 1024
 
 /** value noise with a deterministic hash — stable across reloads */
 function hash2(x: number, y: number): number {
@@ -201,93 +219,219 @@ function buildOrokinHeight(): Float32Array {
   ctx.fillStyle = '#3a3a3a' // seam trench floor — the deepest level of the sheet
   ctx.fillRect(0, 0, size, size)
 
-  const cell = size / 2
+  const cell = size / 2 // one 1 m panel at TRIM_TILE_M = 2
+  const S = size / 512 // authoring unit: every constant below is in 512-px terms
+
   /** crisp axis-aligned bar helper (no AA rounding on the long edges) */
   const bar = (x: number, y: number, w: number, h: number, v: number) => {
     ctx.fillStyle = `rgb(${v},${v},${v})`
     ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h))
   }
+  const disc = (x: number, y: number, r: number, v: number) => {
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  /** bolt: a dark counter-bore with a proud head and a lit crescent */
+  const bolt = (x: number, y: number, r: number) => {
+    disc(x, y, r, 48)
+    disc(x, y, r * 0.66, 238)
+    disc(x - r * 0.12, y - r * 0.12, r * 0.42, 214)
+  }
 
+  const FACE = 186
+  const TRENCH = 46
+  const inset = 18 * S // seam half-width (~3.5 cm of a 1 m panel)
+
+  /**
+   * Seam trench → stepped chamfer → panel face, plus mitred corners.
+   * Few WIDE value steps read as a machined bevel that catches the key light;
+   * many narrow ones just blur back into a fillet.
+   */
+  const panelBase = (x0: number, y0: number) => {
+    const steps = 6
+    for (let s = 0; s < steps; s++) {
+      const t = s / (steps - 1)
+      const k = inset + (1 - t) * 16 * S
+      const v = Math.round(58 + t * (FACE - 58))
+      rr(ctx, x0 + k, y0 + k, cell - k * 2, cell - k * 2, (10 - t * 7) * S)
+      ctx.fillStyle = `rgb(${v},${v},${v})`
+      ctx.fill()
+    }
+    // mitred plate corners — Orokin plating is never square-cornered
+    ctx.fillStyle = `rgb(${TRENCH},${TRENCH},${TRENCH})`
+    const c = 34 * S
+    for (const [sx, sy] of [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+    ]) {
+      const px = x0 + (sx ? cell - inset : inset)
+      const py = y0 + (sy ? cell - inset : inset)
+      ctx.beginPath()
+      ctx.moveTo(px, py)
+      ctx.lineTo(px + (sx ? -c : c), py)
+      ctx.lineTo(px, py + (sy ? -c : c))
+      ctx.closePath()
+      ctx.fill()
+    }
+  }
+
+  // --- panel variant A: fret meander course around a recessed centre field ---
+  const faceFret = (f0: number, g0: number, fw: number) => {
+    const m = 52 * S
+    const fb = 14 * S
+    // The meander runs inside a RECESSED course. A fret drawn proud of the
+    // face at 208 against a 186 face is a 22-level difference — it survives
+    // neither the Sobel nor the cavity bake, which is why the first pass of
+    // this panel read as blank. Sinking the course to 118 first gives every
+    // bar a 90-level step on both sides and a real machined shadow line.
+    bar(f0 + m - 10 * S, g0 + m - 10 * S, fw - m * 2 + 20 * S, fw - m * 2 + 20 * S, 118)
+    bar(f0 + m, g0 + m, fw - m * 2, fb, 226)
+    bar(f0 + m, g0 + fw - m - fb, fw - m * 2, fb, 226)
+    bar(f0 + m, g0 + m, fb, fw - m * 2, 226)
+    bar(f0 + fw - m - fb, g0 + m, fb, fw - m * 2, 226)
+    const teeth = 4
+    const step = (fw - m * 2) / teeth
+    for (let t = 0; t < teeth; t++) {
+      const tx = f0 + m + t * step + step * 0.22
+      bar(tx, g0 + m, fb, step * 0.42, 214)
+      bar(tx, g0 + m + step * 0.42 - fb, step * 0.46, fb, 214)
+      bar(tx + step * 0.46 - fb, g0 + fw - m - step * 0.42, fb, step * 0.42, 214)
+      bar(tx, g0 + fw - m - step * 0.42, step * 0.46, fb, 214)
+    }
+    const cM = m + 40 * S
+    const cw = fw - cM * 2
+    bar(f0 + cM, g0 + cM, cw, cw, 96)
+    bar(f0 + cM, g0 + cM, cw, 4 * S, 230) // top lip catches the key
+    bar(f0 + cM, g0 + cM, 4 * S, cw, 230)
+    bar(f0 + cM, g0 + cM + cw - 4 * S, cw, 4 * S, 60)
+    bar(f0 + cM + cw - 4 * S, g0 + cM, 4 * S, cw, 60)
+    // a shallow cross key inside the recess so it is not a blank hole
+    bar(f0 + cM + cw * 0.5 - 5 * S, g0 + cM + 12 * S, 10 * S, cw - 24 * S, 132)
+    bar(f0 + cM + 12 * S, g0 + cM + cw * 0.5 - 5 * S, cw - 24 * S, 10 * S, 132)
+    for (const [bx, by] of [
+      [f0 + 40 * S, g0 + 40 * S],
+      [f0 + fw - 40 * S, g0 + 40 * S],
+      [f0 + 40 * S, g0 + fw - 40 * S],
+      [f0 + fw - 40 * S, g0 + fw - 40 * S],
+    ]) {
+      bolt(bx, by, 13 * S)
+    }
+  }
+
+  // --- panel variant B: louvre vent bank (7 slots with proud lips) ---
+  const faceLouvre = (f0: number, g0: number, fw: number) => {
+    const m = 44 * S
+    const iw = fw - m * 2
+    // sunken frame field
+    bar(f0 + m, g0 + m, iw, iw, 128)
+    const slots = 7
+    const sh = iw / slots
+    for (let i = 0; i < slots; i++) {
+      const sy = g0 + m + i * sh
+      bar(f0 + m + 8 * S, sy + sh * 0.14, iw - 16 * S, sh * 0.46, 52) // slot trench
+      bar(f0 + m + 8 * S, sy + sh * 0.14, iw - 16 * S, 4 * S, 84) // shadowed upper lip
+      bar(f0 + m + 8 * S, sy + sh * 0.60 - 6 * S, iw - 16 * S, 9 * S, 236) // proud lower lip
+    }
+    // frame rails with a hard outer lip
+    bar(f0 + m - 10 * S, g0 + m - 10 * S, iw + 20 * S, 10 * S, 212)
+    bar(f0 + m - 10 * S, g0 + m + iw, iw + 20 * S, 10 * S, 212)
+    bar(f0 + m - 10 * S, g0 + m - 10 * S, 10 * S, iw + 20 * S, 212)
+    bar(f0 + m + iw, g0 + m - 10 * S, 10 * S, iw + 20 * S, 212)
+    // vertical mullions splitting the bank into three bays
+    bar(f0 + m + iw / 3 - 5 * S, g0 + m, 10 * S, iw, 200)
+    bar(f0 + m + (iw * 2) / 3 - 5 * S, g0 + m, 10 * S, iw, 200)
+    for (const [bx, by] of [
+      [f0 + 34 * S, g0 + 34 * S],
+      [f0 + fw - 34 * S, g0 + 34 * S],
+      [f0 + 34 * S, g0 + fw - 34 * S],
+      [f0 + fw - 34 * S, g0 + fw - 34 * S],
+    ]) {
+      bolt(bx, by, 11 * S)
+    }
+  }
+
+  // --- panel variant C: raised octagonal flange over a recessed ring ---
+  const faceBoss = (f0: number, g0: number, fw: number) => {
+    const cxp = f0 + fw / 2
+    const cyp = g0 + fw / 2
+    disc(cxp, cyp, fw * 0.415, 88) // recessed ring field
+    disc(cxp, cyp, fw * 0.415 - 4 * S, 104)
+    ctx.fillStyle = 'rgb(216,216,216)'
+    ctx.beginPath()
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8
+      const px = cxp + Math.cos(a) * fw * 0.3
+      const py = cyp + Math.sin(a) * fw * 0.3
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+    }
+    ctx.closePath()
+    ctx.fill()
+    disc(cxp, cyp, fw * 0.235, 178) // flange step
+    disc(cxp, cyp, fw * 0.125, 58) // bore
+    disc(cxp, cyp, fw * 0.085, 156) // plug
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2
+      bolt(cxp + Math.cos(a) * fw * 0.185, cyp + Math.sin(a) * fw * 0.185, 10 * S)
+    }
+    // four radial keys tying the flange into the plate corners
+    const kw = fw * 0.15
+    bar(cxp - fw * 0.46, cyp - 9 * S, kw, 18 * S, 200)
+    bar(cxp + fw * 0.46 - kw, cyp - 9 * S, kw, 18 * S, 200)
+    bar(cxp - 9 * S, cyp - fw * 0.46, 18 * S, kw, 200)
+    bar(cxp - 9 * S, cyp + fw * 0.46 - kw, 18 * S, kw, 200)
+    for (const [bx, by] of [
+      [f0 + 36 * S, g0 + 36 * S],
+      [f0 + fw - 36 * S, g0 + fw - 36 * S],
+    ]) {
+      bolt(bx, by, 12 * S)
+    }
+  }
+
+  // --- panel variant D: double-stepped inset with a vertical reveal groove ---
+  const faceStep = (f0: number, g0: number, fw: number) => {
+    const m = 34 * S
+    const w1 = fw - m * 2
+    bar(f0 + m, g0 + m, w1, w1, 150)
+    bar(f0 + m, g0 + m, w1, 4 * S, 228)
+    bar(f0 + m, g0 + m, 4 * S, w1, 228)
+    bar(f0 + m, g0 + m + w1 - 4 * S, w1, 4 * S, 64)
+    bar(f0 + m + w1 - 4 * S, g0 + m, 4 * S, w1, 64)
+    const m2 = m + 44 * S
+    const w2 = fw - m2 * 2
+    bar(f0 + m2, g0 + m2, w2, w2, 100)
+    bar(f0 + m2, g0 + m2, w2, 4 * S, 196)
+    bar(f0 + m2, g0 + m2, 4 * S, w2, 196)
+    // reveal groove down the middle of the inner field
+    bar(f0 + fw * 0.5 - 8 * S, g0 + m2 + 8 * S, 16 * S, w2 - 16 * S, 54)
+    bar(f0 + fw * 0.5 - 8 * S, g0 + m2 + 8 * S, 5 * S, w2 - 16 * S, 182)
+    // bolt row along the top rail, stiffener ribs along the bottom
+    for (let i = 0; i < 5; i++) {
+      bolt(f0 + m + (i + 0.5) * (w1 / 5), g0 + m + 20 * S, 9 * S)
+    }
+    for (let i = 0; i < 7; i++) {
+      bar(f0 + m + 10 * S + i * ((w1 - 20 * S) / 7), g0 + fw - m - 26 * S, 18 * S, 11 * S, 178)
+    }
+  }
+
+  // Four DIFFERENT 1 m plates per 2 m tile. A single repeated stamp is the
+  // clearest "wallpaper" tell there is; four variants read as a plated wall.
+  const variants = [faceFret, faceLouvre, faceBoss, faceStep]
   for (let py = 0; py < 2; py++) {
     for (let px = 0; px < 2; px++) {
       const x0 = px * cell
       const y0 = py * cell
-      const inset = 9 // seam half-width in px (≈3.5 cm trench)
-      // machined chamfer: a stepped ramp from the trench floor up to the face.
-      // Few, WIDE value steps read as a bevel that catches the key light;
-      // many narrow ones just blur back into a fillet.
-      const steps = 5
-      for (let s = 0; s < steps; s++) {
-        const t = s / (steps - 1)
-        const k = inset + (1 - t) * 8
-        const v = Math.round(58 + t * 128) // 0x3a → 0xba
-        rr(ctx, x0 + k, y0 + k, cell - k * 2, cell - k * 2, 5 - t * 3)
-        ctx.fillStyle = `rgb(${v},${v},${v})`
-        ctx.fill()
-      }
-      const f0 = x0 + inset
-      const fw = cell - inset * 2
-      // --- fret meander inside the face: a rectilinear Orokin key run, drawn
-      //     as bars so every edge is axis-aligned and 2-3 texels wide ---
-      const m = 26 // margin from the face edge to the fret run
-      const fb = 7 // fret bar width
-      // continuous outer rails (top/bottom/left/right of the fret course)
-      bar(f0 + m, y0 + inset + m, fw - m * 2, fb, 208)
-      bar(f0 + m, y0 + cell - inset - m - fb, fw - m * 2, fb, 208)
-      bar(f0 + m, y0 + inset + m, fb, fw - m * 2, 208)
-      bar(f0 + cell - inset - m - fb, y0 + inset + m, fb, fw - m * 2, 208)
-      // stepped meander teeth off the top and bottom rails
-      const teeth = 4
-      const step = (fw - m * 2) / teeth
-      for (let t = 0; t < teeth; t++) {
-        const tx = f0 + m + t * step + step * 0.22
-        bar(tx, y0 + inset + m, fb, step * 0.42, 196)
-        bar(tx, y0 + inset + m + step * 0.42 - fb, step * 0.46, fb, 196)
-        bar(
-          tx + step * 0.46 - fb,
-          y0 + cell - inset - m - step * 0.42,
-          fb,
-          step * 0.42,
-          196,
-        )
-        bar(tx, y0 + cell - inset - m - step * 0.42, step * 0.46, fb, 196)
-      }
-      // --- recessed centre field: a flat inset with a hard 2-texel lip. No
-      //     stamped medallion — the sheet tiles 265 m and any bold motif reads
-      //     as wallpaper; ornament density is carried by real geometry. ---
-      const cM = m + 24
-      bar(f0 + cM, y0 + inset + cM, fw - cM * 2, fw - cM * 2, 96)
-      bar(f0 + cM, y0 + inset + cM, fw - cM * 2, 2, 226) // top lip catches light
-      bar(f0 + cM, y0 + inset + cM, 2, fw - cM * 2, 226)
-      bar(f0 + cM, y0 + inset + cM + (fw - cM * 2) - 2, fw - cM * 2, 2, 62)
-      bar(f0 + cM + (fw - cM * 2) - 2, y0 + inset + cM, 2, fw - cM * 2, 62)
-      // --- bolt punches at the panel corners: a dark bore with a proud head ---
-      for (const [bx, by] of [
-        [f0 + 20, y0 + inset + 20],
-        [f0 + fw - 20, y0 + inset + 20],
-        [f0 + 20, y0 + inset + fw - 20],
-        [f0 + fw - 20, y0 + inset + fw - 20],
-      ]) {
-        ctx.fillStyle = 'rgb(54,54,54)'
-        ctx.beginPath()
-        ctx.arc(bx, by, 6.5, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.fillStyle = 'rgb(236,236,236)'
-        ctx.beginPath()
-        ctx.arc(bx, by, 4.2, 0, Math.PI * 2)
-        ctx.fill()
-      }
-      // --- short stepped ribs along the face edges (machined stiffeners) ---
-      for (let i = 0; i < 6; i++) {
-        const rx = f0 + 30 + i * ((fw - 60) / 6)
-        bar(rx, y0 + inset + 8, 12, 6, 176)
-        bar(rx, y0 + cell - inset - 14, 12, 6, 176)
-      }
+      panelBase(x0, y0)
+      variants[py * 2 + px](x0 + inset, y0 + inset, cell - inset * 2)
     }
   }
   // a single sub-texel softening pass: keeps the edges straight (they survive
   // the Sobel as a 2-texel ramp) without turning chamfers back into fillets
-  ctx.filter = 'blur(0.6px)'
+  ctx.filter = `blur(${(0.6 * S).toFixed(2)}px)`
   ctx.drawImage(canvas, 0, 0)
   ctx.filter = 'none'
 
@@ -295,13 +439,51 @@ function buildOrokinHeight(): Float32Array {
   const h = new Float32Array(size * size)
   for (let i = 0; i < h.length; i++) {
     // fine machined grain LAST, on top of the authored relief, at an amplitude
-    // that can never compete with a drawn edge
+    // that can never compete with a drawn edge. Frequencies are divided by S so
+    // the grain stays the same WORLD size as the sheet resolution changes.
     const x = i % size
     const y = (i / size) | 0
-    const grain = (vnoise(x * 0.22, y * 0.22) - 0.5) * 0.04 + (vnoise(x * 0.9, y * 0.9) - 0.5) * 0.018
+    const grain =
+      (vnoise((x * 0.22) / S, (y * 0.22) / S) - 0.5) * 0.04 +
+      (vnoise((x * 0.9) / S, (y * 0.9) / S) - 0.5) * 0.018
     h[i] = Math.min(1, Math.max(0, d[i * 4] / 255 + grain))
   }
   return h
+}
+
+/**
+ * Wrapping separable box blur of the height field.
+ *
+ * The cavity bake needs "height minus its neighbourhood average". Doing that
+ * with a strided 25-tap gather per texel is 26 M samples on a 1024² sheet and
+ * cost ~0.6 s of boot on its own; two separable passes are 2 M, give the FULL
+ * box over the same support instead of a strided approximation, and land the
+ * whole texture set under 0.4 s.
+ */
+function boxBlurWrap(h: Float32Array, size: number, radius: number): Float32Array {
+  const tmp = new Float32Array(size * size)
+  const out = new Float32Array(size * size)
+  const w = radius * 2 + 1
+  for (let y = 0; y < size; y++) {
+    const row = y * size
+    let acc = 0
+    for (let k = -radius; k <= radius; k++) acc += h[row + ((k % size) + size) % size]
+    for (let x = 0; x < size; x++) {
+      tmp[row + x] = acc / w
+      acc -= h[row + ((x - radius) % size + size) % size]
+      acc += h[row + ((x + radius + 1) % size + size) % size]
+    }
+  }
+  for (let x = 0; x < size; x++) {
+    let acc = 0
+    for (let k = -radius; k <= radius; k++) acc += tmp[(((k % size) + size) % size) * size + x]
+    for (let y = 0; y < size; y++) {
+      out[y * size + x] = acc / w
+      acc -= tmp[(((y - radius) % size + size) % size) * size + x]
+      acc += tmp[(((y + radius + 1) % size + size) % size) * size + x]
+    }
+  }
+  return out
 }
 
 function heightSample(h: Float32Array, x: number, y: number): number {
@@ -311,20 +493,41 @@ function heightSample(h: Float32Array, x: number, y: number): number {
   return h[yi * size + xi]
 }
 
+/**
+ * One height field → four agreeing maps: normal, cavity-AO, roughness and
+ * ALBEDO.
+ *
+ * R3: the albedo is the new one and it is the reason this round exists. Up to
+ * now every stone surface in the level was a single RGB constant — the panel
+ * relief only ever showed up as a shading gradient, so from 8 m the walls
+ * flattened back to one value band and read as an untextured blockout. A real
+ * surface carries its history in its diffuse: grime settling in the seam
+ * trenches, crowns rubbed back to clean stone, plate-to-plate value drift from
+ * the casting, broad patina, and dirt running down from every ledge and bolt
+ * bore. None of that depends on the light, so it survives at any distance and
+ * in any exposure.
+ */
 function buildOrokinMaps() {
   const size = TRIM_SIZE
+  const S = size / 512
   const h = buildOrokinHeight()
 
   const [nCanvas, nCtx] = makeCanvas(size)
   const [aCanvas, aCtx] = makeCanvas(size)
   const [rCanvas, rCtx] = makeCanvas(size)
+  const [cCanvas, cCtx] = makeCanvas(size)
   const nImg = nCtx.createImageData(size, size)
   const aImg = aCtx.createImageData(size, size)
   const rImg = rCtx.createImageData(size, size)
+  const cImg = cCtx.createImageData(size, size)
 
-  // R2: 2.1 → 2.8. The sheet is read at 2 m/tile now, so the relief has to
-  // survive gameplay distance as well as a close-up.
-  const strength = 2.8
+  // The Sobel reads neighbours one TEXEL apart, so at double the sheet
+  // resolution the same physical slope produces half the gradient. Scaling by
+  // S keeps the relief identical in world terms as TRIM_SIZE changes.
+  const strength = 2.8 * S
+  const aoR = Math.round(6 * S)
+  const hBlur = boxBlurWrap(h, size, aoR)
+  let albedoSum = 0
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = (y * size + x) * 4
@@ -344,48 +547,100 @@ function buildOrokinMaps() {
       nImg.data[i + 2] = nz * inv * 255
       nImg.data[i + 3] = 255
 
-      // --- cavity AO: height vs a wide neighbourhood average ---
-      let sum = 0
-      let n = 0
-      for (let oy = -6; oy <= 6; oy += 3) {
-        for (let ox = -6; ox <= 6; ox += 3) {
-          sum += heightSample(h, x + ox, y + oy)
-          n++
-        }
-      }
-      const cav = h[y * size + x] - sum / n
-      // R2: floor 0.42 → 0.22 and gain 2.2 → 3.4. Panel seams, bolt bores and
-      // the recessed centre field are supposed to be the darkest values on a
-      // lit wall; at 0.42 they were a grey hint.
-      const ao = Math.min(1, Math.max(0.22, 1 + cav * 3.4))
+      // --- cavity: height vs a wide neighbourhood average ---
+      const hv = h[y * size + x]
+      const cavRaw = hv - hBlur[y * size + x] // <0 concave, >0 convex (crown)
+      // Panel seams, bolt bores and the recessed centre field are supposed to
+      // be the darkest values on a lit wall; at a 0.42 floor they were a hint.
+      const ao = Math.min(1, Math.max(0.22, 1 + cavRaw * 3.4))
       const av = ao * 255
       aImg.data[i] = aImg.data[i + 1] = aImg.data[i + 2] = av
       aImg.data[i + 3] = 255
 
       // --- roughness: raised machined faces polish, cavities stay matte ---
-      const hv = h[y * size + x]
-      let rough = 0.98 - hv * 0.52 + (vnoise(x * 0.5, y * 0.5) - 0.5) * 0.16
-      rough = Math.min(1, Math.max(0.16, rough))
+      let rough = 0.98 - hv * 0.52 + (vnoise((x * 0.5) / S, (y * 0.5) / S) - 0.5) * 0.16
+      // grime in a crevice is dust, not stone: push it fully matte
+      rough = Math.min(1, Math.max(0.16, rough + Math.max(0, -cavRaw) * 0.9))
       const rv = rough * 255
       rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = rv
       rImg.data[i + 3] = 255
+
+      // --- albedo: the map that makes this stop being a flat colour ---
+      // per-plate casting drift (each of the four 1 m plates its own value)
+      const pIdx = (x < size / 2 ? 0 : 1) + (y < size / 2 ? 0 : 2)
+      const jitter = (hash2(pIdx * 13.7 + 0.5, 4.1) - 0.5) * 0.12
+      // broad patina, three octaves, none of them strong enough to be seen as
+      // noise on its own — this is the low-frequency life of the surface
+      const blotch =
+        (vnoise((x * 0.012) / S, (y * 0.012) / S) - 0.5) * 0.15 +
+        (vnoise((x * 0.05) / S, (y * 0.05) / S) - 0.5) * 0.075 +
+        (vnoise((x * 0.21) / S, (y * 0.21) / S) - 0.5) * 0.035
+      // a one-sided darkening octave: a symmetric blotch on a base of ~1.0
+      // clips its bright half against white and only half the patina survives
+      const blotchDown = vnoise((x * 0.026) / S + 31.7, (y * 0.026) / S + 11.3) * 0.14
+      // Local cavity alone only finds EDGES: the middle of a 3.5 cm trench has
+      // neighbours that are also trench, so cavRaw ≈ 0 there and the first
+      // pass left every seam floor as clean as the panel face. Absolute height
+      // is what says "this is the bottom of a channel" — dirt is a function of
+      // where it can settle, not of local curvature. Both terms together fill
+      // the trench AND darken its walls.
+      const lowness = Math.min(1, Math.max(0, (0.5 - hv) / 0.4))
+      // Weighting matters as much as magnitude. The cavity term is FINE detail
+      // — seam floors, bolt bores, the shadow line under a lip — and it can be
+      // strong without the eye reading it as a pattern. The absolute-height
+      // term covers whole recessed fields, so pushed hard it paints the panel
+      // MOTIF into the diffuse and the wall reads as printed wallpaper rather
+      // than as relief. Cavity up, lowness down.
+      const grime = Math.min(1, Math.max(0, -cavRaw) * 2.6 + lowness * 0.5)
+      const crown = Math.min(1, Math.max(0, cavRaw) * 2.0)
+      let lum = 1.0 + jitter + blotch - blotchDown + crown * 0.08 - grime * 0.52
+      lum = Math.min(1, Math.max(0.12, lum))
+      albedoSum += lum
+      // grime is warm and dirty; rubbed crowns stay neutral
+      const warm = grime * 0.55
+      cImg.data[i] = lum * 255
+      cImg.data[i + 1] = lum * (1 - warm * 0.1) * 255
+      cImg.data[i + 2] = lum * (1 - warm * 0.26) * 255
+      cImg.data[i + 3] = 255
     }
   }
   nCtx.putImageData(nImg, 0, 0)
   aCtx.putImageData(aImg, 0, 0)
   rCtx.putImageData(rImg, 0, 0)
+  cCtx.putImageData(cImg, 0, 0)
+  orokinAlbedoMean = albedoSum / (size * size)
 
-  const mk = (c: HTMLCanvasElement) => {
+  // Authored staining on top of the per-texel field: dirt runs DOWN from
+  // ledges and bolt bores in straight-sided streaks. Drawn (not noised) so the
+  // runs have direction, which is what reads as weathering rather than dither.
+  cCtx.globalCompositeOperation = 'multiply'
+  for (let i = 0; i < 52; i++) {
+    const sx = hash2(i * 3.1 + 0.3, 1.7) * size
+    const sy = hash2(i * 7.3 + 0.9, 5.9) * size * 0.72
+    const w = (5 + hash2(i + 0.7, 2.2) * 26) * S
+    const hgt = (40 + hash2(i * 1.9 + 1.3, 8.4) * 170) * S
+    const a = 0.12 + hash2(i * 5.5 + 2.1, 3.3) * 0.2
+    const g = cCtx.createLinearGradient(0, sy, 0, sy + hgt)
+    g.addColorStop(0, `rgba(104,92,74,${a.toFixed(3)})`)
+    g.addColorStop(0.35, `rgba(126,114,96,${(a * 0.6).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    cCtx.fillStyle = g
+    cCtx.fillRect(sx, sy, w, hgt)
+  }
+  cCtx.globalCompositeOperation = 'source-over'
+
+  const mk = (c: HTMLCanvasElement, srgb = false) => {
     const t = new THREE.CanvasTexture(c)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
-    t.colorSpace = THREE.NoColorSpace
-    t.anisotropy = 4
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    t.anisotropy = 8
     t.needsUpdate = true
     return t
   }
   orokinNormal = mk(nCanvas)
   orokinAO = mk(aCanvas)
   orokinRough = mk(rCanvas)
+  orokinAlbedo = mk(cCanvas, true)
 }
 
 /** Tiling Orokin panel normal map (seams, chamfers, fret, cartouche). */
@@ -404,6 +659,212 @@ export function getOrokinAOTexture(): THREE.CanvasTexture {
 export function getOrokinRoughnessTexture(): THREE.CanvasTexture {
   if (!orokinRough) buildOrokinMaps()
   return orokinRough!
+}
+
+/**
+ * Matching ALBEDO for the Orokin sheet — a tint multiplier, mean ≈ 0.93, so a
+ * material keeps its base colour and gains grime, wear, per-plate casting
+ * drift and patina. This is the map that stops carved stone being a flat fill.
+ */
+export function getOrokinAlbedoTexture(): THREE.CanvasTexture {
+  if (!orokinAlbedo) buildOrokinMaps()
+  return orokinAlbedo!
+}
+
+/** Mean luminance of the Orokin albedo map (measured at bake, for tuning). */
+export function getOrokinAlbedoMean(): number {
+  if (!orokinAlbedo) buildOrokinMaps()
+  return orokinAlbedoMean
+}
+
+/** periodic value noise — lattice wraps at `period`, so the tile is seamless */
+function pvnoise(x: number, y: number, period: number): number {
+  const ix = Math.floor(x)
+  const iy = Math.floor(y)
+  const fx = x - ix
+  const fy = y - iy
+  const ux = fx * fx * (3 - 2 * fx)
+  const uy = fy * fy * (3 - 2 * fy)
+  const w = (v: number) => ((v % period) + period) % period
+  const a = hash2(w(ix), w(iy))
+  const b = hash2(w(ix + 1), w(iy))
+  const c = hash2(w(ix), w(iy + 1))
+  const d = hash2(w(ix + 1), w(iy + 1))
+  return (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy
+}
+
+/**
+ * 256² MACRO variation — the layer every shipped game has and a blockout does
+ * not.
+ *
+ * A trim sheet, however well authored, repeats. Tiled at 2 m across a 260 m
+ * level it becomes wallpaper: the eye locks onto the period and the wall reads
+ * as one printed texture rather than as built material. The fix is a second,
+ * very low frequency map (see materials.MACRO_TILE_M — ~13 m per tile, roughly
+ * six times the trim period) that modulates albedo VALUE and roughness. Blocks
+ * of wall then differ from each other at architectural scale, exactly as real
+ * cast panels weather unevenly, and the trim period disappears underneath it.
+ *
+ * Authored with PERIODIC value noise so the 13 m tile itself is seamless —
+ * a hard discontinuity every 13 m would be worse than the tiling it fixes.
+ * Rescaled after generation so the measured mean is 0.6, which the shader maps
+ * back to a multiplier of ~1.0: the layer redistributes value, it does not
+ * darken the level.
+ */
+export function getMacroVariationTexture(): THREE.CanvasTexture {
+  if (macroVariation) return macroVariation
+  const size = 256
+  const [canvas, ctx] = makeCanvas(size)
+  const raw = new Float32Array(size * size)
+  let sum = 0
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size
+      const v = y / size
+      const m =
+        pvnoise(u * 3, v * 3, 3) * 0.5 +
+        pvnoise(u * 7, v * 7, 7) * 0.28 +
+        pvnoise(u * 13, v * 13, 13) * 0.14 +
+        pvnoise(u * 29, v * 29, 29) * 0.08
+      raw[y * size + x] = m
+      sum += m
+    }
+  }
+  const mean = sum / raw.length
+  const img = ctx.createImageData(size, size)
+  let outSum = 0
+  for (let i = 0; i < raw.length; i++) {
+    // recentre on 0.6 and widen the spread so the layer actually does work
+    const v = Math.min(1, Math.max(0, 0.6 + (raw[i] - mean) * 1.75))
+    outSum += v
+    const j = i * 4
+    img.data[j] = img.data[j + 1] = img.data[j + 2] = v * 255
+    img.data[j + 3] = 255
+  }
+  ctx.putImageData(img, 0, 0)
+  macroMean = outSum / raw.length
+  macroVariation = new THREE.CanvasTexture(canvas)
+  macroVariation.wrapS = macroVariation.wrapT = THREE.RepeatWrapping
+  macroVariation.colorSpace = THREE.NoColorSpace
+  macroVariation.anisotropy = 4
+  return macroVariation
+}
+
+/** Measured mean of the macro variation map (the shader's neutral point). */
+export function getMacroMean(): number {
+  getMacroVariationTexture()
+  return macroMean
+}
+
+/**
+ * Gold surface pair: an ALBEDO multiplier and a packed ORM.
+ *
+ * R3. Gold was a single `color` plus a brushed roughness map, so every gold
+ * surface in the level was the same metal at the same wear state — which is
+ * precisely how gilding never looks. Two things are added here.
+ *
+ * 1. Albedo variation: a cast metal has pour mottling, and gilding tarnishes
+ *    unevenly. Tarnish patches go darker and redder; the crowns that hands and
+ *    edges keep polished stay bright.
+ * 2. A packed ORM (R = cavity AO, G = roughness, B = metalness) so the SAME
+ *    wear field drives all three responses and they cannot disagree. Where the
+ *    gilding has dulled, metalness drops toward 0.45 and roughness climbs —
+ *    which is the physical reason a worn gold edge reads differently from a
+ *    polished one, and one texture fetch serves three slots.
+ *
+ * Both are authored with periodic noise so the 0.6 m tile is seamless.
+ */
+function buildGoldMaps() {
+  const size = 256
+  const [cCanvas, cCtx] = makeCanvas(size)
+  const [oCanvas, oCtx] = makeCanvas(size)
+  const cImg = cCtx.createImageData(size, size)
+  const oImg = oCtx.createImageData(size, size)
+  for (let y = 0; y < size; y++) {
+    // per-row streak value: long in U, high frequency in V — matches the
+    // brushed NORMAL map exactly, so the highlight breaks where the ridges are
+    const streak = pvnoise((y * 0.9) / size * 16, 0.31, 16) * 0.55 +
+      pvnoise((y * 3.1) / size * 48, 0.77, 48) * 0.25
+    for (let x = 0; x < size; x++) {
+      const u = x / size
+      const v = y / size
+      const along = pvnoise(u * 5, v * 5, 5) * 0.3
+      const grain = (hash2(x, y) - 0.5) * 0.08
+      const t = Math.min(1, Math.max(0, 0.42 + streak * 0.5 + along - 0.22 + grain))
+      // wear/tarnish field: broad patches at two scales, biased so most of the
+      // surface stays bright metal and only ~25 % is meaningfully dulled
+      // Fine wear, not big islands. At periods 3/9 over a 0.6 m tile the
+      // patches were ~20 cm and the roughness swing between them mirrored the
+      // key bar in one patch and scattered it in the next — which on a probe
+      // cube rendered as tortoiseshell. 7/17 puts the patches at 4–9 cm, the
+      // scale at which uneven polish reads as a surface property.
+      const wearRaw =
+        pvnoise(u * 7, v * 7, 7) * 0.58 + pvnoise(u * 17, v * 17, 17) * 0.42
+      // smoothstep, not a hard ramp: a sharp threshold on a two-octave field
+      // produced high-contrast islands and gold read as leopard print rather
+      // than as unevenly polished metal
+      const wt = Math.min(1, Math.max(0, (wearRaw - 0.44) / 0.34))
+      const wear = wt * wt * (3 - 2 * wt)
+      // sparse casting pits: tiny, dark, fully matte, never metal
+      const pit = hash2(x * 1.7, y * 2.3) > 0.9965 ? 1 : 0
+
+      const i = (y * size + x) * 4
+      // --- albedo multiplier: mean ~0.95 ---
+      // A metal takes nearly all of its colour from what it reflects, so the
+      // albedo map must stay a whisper — 0.16 of value across the whole wear
+      // range. Anything stronger paints a pattern ON the gold instead of
+      // varying the gold.
+      const lum = Math.min(1, Math.max(0.4, 1.0 - wear * 0.11 - pit * 0.35 + (t - 0.5) * 0.04))
+      cImg.data[i] = lum * 255
+      cImg.data[i + 1] = lum * (1 - wear * 0.05) * 255
+      cImg.data[i + 2] = lum * (1 - wear * 0.16 - pit * 0.18) * 255
+      cImg.data[i + 3] = 255
+
+      // --- ORM ---
+      const ao = Math.min(1, Math.max(0.72, 1 - wear * 0.18 - pit * 0.4))
+      const rough = Math.min(
+        1,
+        Math.max(0.05, GOLD_ROUGH_LO + t * (GOLD_ROUGH_HI - GOLD_ROUGH_LO) + wear * 0.13 + pit * 0.35),
+      )
+      // Gilding that has dulled is still metal. Dropping metalness to 0.4 makes
+      // the worn patches DIELECTRIC, and a dielectric at gold albedo renders as
+      // bright ochre paint next to dark polished metal — measured on the probe
+      // cube, that is what turned the gold into leopard print. The wear band is
+      // 1.0 → 0.74: enough that a worn face reflects less crisply, never enough
+      // to stop being metal.
+      const metal = Math.min(1, Math.max(0.74, 1 - wear * 0.2 - pit * 0.26))
+      oImg.data[i] = ao * 255
+      oImg.data[i + 1] = rough * 255
+      oImg.data[i + 2] = metal * 255
+      oImg.data[i + 3] = 255
+    }
+  }
+  cCtx.putImageData(cImg, 0, 0)
+  oCtx.putImageData(oImg, 0, 0)
+  goldAlbedo = new THREE.CanvasTexture(cCanvas)
+  goldAlbedo.wrapS = goldAlbedo.wrapT = THREE.RepeatWrapping
+  goldAlbedo.colorSpace = THREE.SRGBColorSpace
+  goldAlbedo.anisotropy = 8
+  goldORM = new THREE.CanvasTexture(oCanvas)
+  goldORM.wrapS = goldORM.wrapT = THREE.RepeatWrapping
+  goldORM.colorSpace = THREE.NoColorSpace
+  goldORM.anisotropy = 8
+}
+
+/** Gold albedo multiplier — cast mottling, uneven tarnish, polished crowns. */
+export function getGoldAlbedoTexture(): THREE.CanvasTexture {
+  if (!goldAlbedo) buildGoldMaps()
+  return goldAlbedo!
+}
+
+/**
+ * Packed gold ORM — R cavity AO, G roughness, B metalness.
+ * three samples `.g` for roughnessMap and `.b` for metalnessMap, so this one
+ * texture can be bound to roughnessMap, metalnessMap and aoMap at once.
+ */
+export function getGoldORMTexture(): THREE.CanvasTexture {
+  if (!goldORM) buildGoldMaps()
+  return goldORM!
 }
 
 /**

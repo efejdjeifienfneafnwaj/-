@@ -11,6 +11,8 @@
  *   Input.consumeLook()            // {dx, dy} mouse delta since last frame (pixels)
  */
 
+import { KEYS } from './config'
+
 type Action =
   | 'forward'
   | 'back'
@@ -29,25 +31,13 @@ type Action =
   | 'objectiveHint'
   | 'pause'
 
-/** KeyboardEvent.code / Mouse<button> names that map to each action. */
-const BINDINGS: Record<Action, string[]> = {
-  forward: ['KeyW'],
-  back: ['KeyS'],
-  left: ['KeyA'],
-  right: ['KeyD'],
-  fire: ['Mouse0'], // LMB
-  aim: ['Mouse2'], // RMB
-  slash: ['Mouse1', 'KeyF'], // MMB or F
-  sprint: ['ShiftLeft', 'ShiftRight'],
-  crouch: ['ControlLeft', 'ControlRight', 'KeyC'],
-  jump: ['Space'],
-  ability1: ['KeyQ'],
-  ability2: ['KeyE'],
-  ability3: ['Digit1', 'KeyR'],
-  ability4: ['Digit4'],
-  objectiveHint: ['Tab', 'KeyM'],
-  pause: ['Escape'],
-}
+/**
+ * KeyboardEvent.code / Mouse<button> names that map to each action.
+ * Single source of truth: config.ts §3. This file used to carry its own
+ * duplicate table, which had drifted out of sync (Digit1 fired ability3 and
+ * abilities 1/2 had no number key at all, while the HUD labelled them 1-4).
+ */
+const BINDINGS: Record<Action, readonly string[]> = KEYS
 
 class InputManager {
   /** currently held bindings */
