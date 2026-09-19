@@ -75,6 +75,20 @@ const FOG_MAX_MULT = 2.8
 const FOG_INSCATTER = 0.5
 /** forward-scatter sharpness; 6 is a broad glow around the sun, not a disc */
 const FOG_PHASE_POW = 6
+/**
+ * R4 — the veil's value multiplier at zero and full density.
+ *
+ * Below 1.0 near the camera the fog SUBTRACTS value instead of adding it, so
+ * the first few metres of haze deepen a shadow rather than washing it out;
+ * above 1.0 at full density distant geometry sits lighter than anything near.
+ * The gap between the two is the frame's aerial-perspective value range, and
+ * it is what lets a mid-distance column read as darker than the wall behind it
+ * without either of them changing hue.
+ */
+const FOG_NEAR_VALUE = 0.62
+const FOG_FAR_VALUE = 1.28
+/** how far the thickest fog is pushed toward a desaturated cool at distance */
+const FOG_COOL_FAR = 0.45
 /** inscatter colour: the key, dimmed so the haze never out-values the deck */
 const FOG_SUN_COLOR = new THREE.Color(LIGHTING.key.color).multiplyScalar(0.72)
 
@@ -149,6 +163,21 @@ const HEIGHT_FOG_INSTALLED = (() => {
 		vec3 fogTint = mix( fogColor, vec3( ${f(FOG_SUN_COLOR.r)}, ${f(FOG_SUN_COLOR.g)}, ${f(FOG_SUN_COLOR.b)} ), fogSun * ${f(FOG_INSCATTER)} );
 		// and a vertical value ramp, so the veil itself is not one flat band
 		fogTint *= mix( 0.55, 1.0, clamp( ( vFogWorld.y + 6.0 ) / 24.0, 0.0, 1.0 ) );
+
+		// ---- R4: let VALUE carry depth, not hue ----------------------------
+		// A single fog colour is a single value, so it lifts a near recess by
+		// exactly as much as it lifts a far wall — which is the mechanism that
+		// collapsed the outdoor frames to two values. Here the veil's own value
+		// is a function of how much of it there is: thin fog (a near surface,
+		// a shadow 8 m away) is DARKER than the authored colour so it deepens
+		// the darks instead of lifting them, and thick fog (a wall at 60 m) is
+		// lighter, so distance is read off value alone. The same ramp desaturates
+		// toward the zone's blue, so far planes also go cooler — value first,
+		// hue as the second cue, which is the order the eye reads them in.
+		float fogNearLift = clamp( fogFactor, 0.0, 1.0 );
+		fogTint *= mix( ${f(FOG_NEAR_VALUE)}, ${f(FOG_FAR_VALUE)}, fogNearLift * fogNearLift );
+		float fogCool = dot( fogTint, vec3( 0.2126, 0.7152, 0.0722 ) );
+		fogTint = mix( fogTint, vec3( fogCool ) * vec3( 0.72, 0.86, 1.25 ), fogNearLift * ${f(FOG_COOL_FAR)} );
 
 		gl_FragColor.rgb = mix( gl_FragColor.rgb, fogTint, clamp( fogFactor, 0.0, 1.0 ) );
 	#else

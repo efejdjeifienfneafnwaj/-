@@ -155,6 +155,9 @@ let macroVariation: THREE.CanvasTexture | null = null
 let macroMean = 0.6
 let goldAlbedo: THREE.CanvasTexture | null = null
 let goldORM: THREE.CanvasTexture | null = null
+let goldRoughMean = 0.3
+let goldRoughRange: [number, number] = [0.05, 0.9]
+let goldAlbedoMean = 1
 
 /**
  * Sheet resolution.
@@ -633,7 +636,11 @@ function buildOrokinMaps() {
     const t = new THREE.CanvasTexture(c)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
-    t.anisotropy = 8
+    // R4: 8 → 16. Every wall in this level is seen at a grazing angle down a
+    // colonnade or across a 60 m span, which is exactly the case anisotropic
+    // filtering exists for; at 8 the panel seams smeared into a grey band past
+    // ~15 m and took the machined read with them.
+    t.anisotropy = 16
     t.needsUpdate = true
     return t
   }
@@ -757,101 +764,264 @@ export function getMacroMean(): number {
 }
 
 /**
- * Gold surface pair: an ALBEDO multiplier and a packed ORM.
+ * Gold surface set — ONE authored height field → normal, ORM and albedo.
  *
- * R3. Gold was a single `color` plus a brushed roughness map, so every gold
- * surface in the level was the same metal at the same wear state — which is
- * precisely how gilding never looks. Two things are added here.
+ * R4. The previous pass built gold entirely out of value noise: the normal was
+ * three octaves of `vnoise`, the roughness was a noise streak field, and the
+ * albedo was a noise tarnish field. Noise cannot make a straight machined
+ * edge, and without straight edges a metal has nothing for its highlight to
+ * break against — every gold run in the level rendered as one smooth,
+ * uniformly-lit tube, which is exactly why the panel called it "tan rubber
+ * rope" rather than metal.
  *
- * 1. Albedo variation: a cast metal has pour mottling, and gilding tarnishes
- *    unevenly. Tarnish patches go darker and redder; the crowns that hands and
- *    edges keep polished stay bright.
- * 2. A packed ORM (R = cavity AO, G = roughness, B = metalness) so the SAME
- *    wear field drives all three responses and they cannot disagree. Where the
- *    gilding has dulled, metalness drops toward 0.45 and roughness climbs —
- *    which is the physical reason a worn gold edge reads differently from a
- *    polished one, and one texture fetch serves three slots.
+ * What actually reads as gold at 20 m is not the colour, it is a NARROW
+ * specular that runs CONTINUOUSLY along a machined land and stops dead at a
+ * groove. So the sheet is drawn, in this order:
  *
- * Both are authored with periodic noise so the 0.6 m tile is seamless.
+ *   1. reeded moulding — parallel polished lands separated by chamfered
+ *      grooves (three-step chamfers, so the ramp catches the key as a
+ *      distinct value rather than blurring into a fillet)
+ *   2. score lines with a lit lower lip
+ *   3. two cross-straps with proud lips and bolt beads, running perpendicular
+ *      to the reeds so the highlight is interrupted at a hard edge
+ *   4. a sunken fret-meander inlay course
+ *   5. sparse cast pits
+ *   6. ONLY THEN the fine brush striation, as noise at an amplitude that
+ *      cannot compete with any drawn edge
+ *
+ * The roughness map is then a function of the drawn height, so the lands come
+ * out at ~0.06 (a mirror — it will produce a hard specular line from the key
+ * alone, with no dependence on how bright the environment probe happens to
+ * be) and the groove floors at ~0.5. That contrast is the metal read.
  */
+const GOLD_SIZE = 512
+
+/** authored roughness band: polished land → groove floor */
+const GOLD_ROUGH_LO = 0.055
+const GOLD_ROUGH_HI = 0.52
+
+function buildGoldHeight(): Float32Array {
+  const size = GOLD_SIZE
+  const [canvas, ctx] = makeCanvas(size)
+  const G = size / 512 // authoring unit — every constant below is 512-px terms
+
+  const bar = (x: number, y: number, w: number, h: number, v: number) => {
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)))
+  }
+  const disc = (x: number, y: number, r: number, v: number) => {
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  /** bead: counter-sunk ring with a proud dome and a lit crescent */
+  const bead = (x: number, y: number, r: number) => {
+    disc(x, y, r, 62)
+    disc(x, y, r * 0.7, 244)
+    disc(x - r * 0.14, y - r * 0.14, r * 0.44, 224)
+  }
+
+  const LAND = 210
+  const GROOVE = 48
+
+  ctx.fillStyle = `rgb(${LAND},${LAND},${LAND})`
+  ctx.fillRect(0, 0, size, size)
+
+  // --- 1/2: reeded moulding. Lands run along U; grooves cut across V. ---
+  const BAND = 64 * G // 8 reeds per tile
+  for (let b = 0; b < size / BAND; b++) {
+    const y0 = b * BAND
+    // groove with a three-step chamfer on each side
+    const gc = y0 + BAND * 0.68
+    const gw = BAND * 0.085
+    for (let s = 0; s < 4; s++) {
+      const t = s / 3
+      const w = gw * (1 + (1 - t) * 1.15)
+      const v = Math.round(LAND + (GROOVE - LAND) * t)
+      bar(0, gc - w, size, w * 2, v)
+    }
+    // the lit lip on the far side of the groove — a one-texel bright line is
+    // what makes a chamfer read as machined rather than as a soft dent
+    bar(0, gc + gw * 1.0, size, 2 * G, 246)
+    // secondary score line higher up the land
+    bar(0, y0 + BAND * 0.22, size, 3 * G, 92)
+    bar(0, y0 + BAND * 0.22 + 3 * G, size, 2 * G, 238)
+  }
+
+  // --- 3: cross-straps, perpendicular to the reeds ---
+  const strap = (x0: number) => {
+    const w = 30 * G
+    bar(x0 - 5 * G, 0, w + 10 * G, size, 138) // shoulder trench the strap sits in
+    bar(x0, 0, w, size, 228) // strap face
+    bar(x0, 0, 4 * G, size, 252) // lit leading lip
+    bar(x0 + w - 4 * G, 0, 4 * G, size, 118) // shaded trailing lip
+    for (let i = 0; i < 9; i++) bead(x0 + w * 0.5, (i + 0.5) * (size / 9), 8 * G)
+  }
+  strap(46 * G)
+  strap(302 * G)
+
+  // --- 4: sunken fret-meander inlay course ---
+  const yb = 168 * G
+  const hb = 62 * G
+  bar(0, yb - 4 * G, size, hb + 8 * G, 150) // surround
+  bar(0, yb, size, hb, 104) // channel floor
+  bar(0, yb, size, 4 * G, 58) // top shadow line
+  bar(0, yb + hb - 4 * G, size, 4 * G, 240) // bottom lit lip
+  const p = size / 8 // meander period — divides the tile, so it wraps
+  const t = hb * 0.17
+  for (let i = 0; i < 8; i++) {
+    const x0 = i * p
+    bar(x0 + p * 0.08, yb + hb * 0.18, p * 0.62, t, 216)
+    bar(x0 + p * 0.08, yb + hb * 0.18, t, hb * 0.62, 216)
+    bar(x0 + p * 0.08, yb + hb * 0.62, p * 0.46, t, 216)
+    bar(x0 + p * 0.5, yb + hb * 0.34, t, hb * 0.34, 216)
+  }
+
+  // --- 5: sparse cast pits ---
+  for (let i = 0; i < 34; i++) {
+    disc(hash2(i * 2.7, 4.4) * size, hash2(i * 6.1, 9.2) * size, (1.2 + hash2(i, 3.1) * 2.6) * G, 54)
+  }
+
+  // sub-texel softening: keeps the drawn edges as a 2-texel ramp through the
+  // Sobel instead of a 1-texel step that aliases at distance
+  ctx.filter = `blur(${(0.55 * G).toFixed(2)}px)`
+  ctx.drawImage(canvas, 0, 0)
+  ctx.filter = 'none'
+
+  const d = ctx.getImageData(0, 0, size, size).data
+  const h = new Float32Array(size * size)
+  for (let i = 0; i < h.length; i++) {
+    const x = i % size
+    const y = (i / size) | 0
+    // --- 6: brush striation LAST. Long in U, high frequency in V, and small
+    // enough in amplitude that it can only ever modulate a land, never carve
+    // one. This is what smears the specular ALONG the reed.
+    const brush =
+      (vnoise((x * 0.03) / G, (y * 2.6) / G) - 0.5) * 0.042 +
+      (vnoise((x * 0.09) / G, (y * 8.1) / G) - 0.5) * 0.02 +
+      (vnoise((x * 0.02) / G, (y * 23.0) / G) - 0.5) * 0.009
+    h[i] = Math.min(1, Math.max(0, d[i * 4] / 255 + brush))
+  }
+  return h
+}
+
 function buildGoldMaps() {
-  const size = 256
+  const size = GOLD_SIZE
+  const G = size / 512
+  const h = buildGoldHeight()
+  const hBlur = boxBlurWrap(h, size, Math.round(5 * G))
+
+  const [nCanvas, nCtx] = makeCanvas(size)
   const [cCanvas, cCtx] = makeCanvas(size)
   const [oCanvas, oCtx] = makeCanvas(size)
+  const [rCanvas, rCtx] = makeCanvas(size)
+  const nImg = nCtx.createImageData(size, size)
   const cImg = cCtx.createImageData(size, size)
   const oImg = oCtx.createImageData(size, size)
+  const rImg = rCtx.createImageData(size, size)
+
+  const sample = (x: number, y: number) =>
+    h[(((y % size) + size) % size) * size + (((x % size) + size) % size)]
+  const strength = 2.4 * G
+  let roughSum = 0
+  let roughMin = 1
+  let roughMax = 0
+  let albedoSum = 0
+
   for (let y = 0; y < size; y++) {
-    // per-row streak value: long in U, high frequency in V — matches the
-    // brushed NORMAL map exactly, so the highlight breaks where the ridges are
-    const streak = pvnoise((y * 0.9) / size * 16, 0.31, 16) * 0.55 +
-      pvnoise((y * 3.1) / size * 48, 0.77, 48) * 0.25
     for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const hv = h[y * size + x]
+      const cav = hv - hBlur[y * size + x]
+
+      // --- normal ---
+      let nx = (sample(x - 1, y) - sample(x + 1, y)) * strength
+      let ny = (sample(x, y - 1) - sample(x, y + 1)) * strength
+      const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1)
+      nx *= inv
+      ny *= inv
+      nImg.data[i] = (nx * 0.5 + 0.5) * 255
+      nImg.data[i + 1] = (ny * 0.5 + 0.5) * 255
+      nImg.data[i + 2] = inv * 255
+      nImg.data[i + 3] = 255
+
+      // --- wear / tarnish field (still noise, but it only MODULATES; the
+      // structure is all drawn) ---
       const u = x / size
       const v = y / size
-      const along = pvnoise(u * 5, v * 5, 5) * 0.3
-      const grain = (hash2(x, y) - 0.5) * 0.08
-      const t = Math.min(1, Math.max(0, 0.42 + streak * 0.5 + along - 0.22 + grain))
-      // wear/tarnish field: broad patches at two scales, biased so most of the
-      // surface stays bright metal and only ~25 % is meaningfully dulled
-      // Fine wear, not big islands. At periods 3/9 over a 0.6 m tile the
-      // patches were ~20 cm and the roughness swing between them mirrored the
-      // key bar in one patch and scattered it in the next — which on a probe
-      // cube rendered as tortoiseshell. 7/17 puts the patches at 4–9 cm, the
-      // scale at which uneven polish reads as a surface property.
-      const wearRaw =
-        pvnoise(u * 7, v * 7, 7) * 0.58 + pvnoise(u * 17, v * 17, 17) * 0.42
-      // smoothstep, not a hard ramp: a sharp threshold on a two-octave field
-      // produced high-contrast islands and gold read as leopard print rather
-      // than as unevenly polished metal
+      const wearRaw = pvnoise(u * 7, v * 7, 7) * 0.58 + pvnoise(u * 17, v * 17, 17) * 0.42
       const wt = Math.min(1, Math.max(0, (wearRaw - 0.44) / 0.34))
       const wear = wt * wt * (3 - 2 * wt)
-      // sparse casting pits: tiny, dark, fully matte, never metal
       const pit = hash2(x * 1.7, y * 2.3) > 0.9965 ? 1 : 0
 
-      const i = (y * size + x) * 4
-      // --- albedo multiplier: mean ~0.95 ---
-      // A metal takes nearly all of its colour from what it reflects, so the
-      // albedo map must stay a whisper — 0.16 of value across the whole wear
-      // range. Anything stronger paints a pattern ON the gold instead of
-      // varying the gold.
-      const lum = Math.min(1, Math.max(0.4, 1.0 - wear * 0.11 - pit * 0.35 + (t - 0.5) * 0.04))
-      cImg.data[i] = lum * 255
-      cImg.data[i + 1] = lum * (1 - wear * 0.05) * 255
-      cImg.data[i + 2] = lum * (1 - wear * 0.16 - pit * 0.18) * 255
-      cImg.data[i + 3] = 255
+      // --- roughness: driven by the DRAWN height. A polished land lands at
+      // ~0.06 and produces a hard specular line off the key alone; a groove
+      // floor sits at ~0.5 and scatters. That contrast IS the metal read, and
+      // unlike an environment reflection it does not depend on the probe.
+      let rough = GOLD_ROUGH_HI - hv * (GOLD_ROUGH_HI - GOLD_ROUGH_LO)
+      rough += wear * 0.15 + pit * 0.34 + Math.max(0, -cav) * 0.55
+      rough = Math.min(0.92, Math.max(0.045, rough))
+      roughSum += rough
+      if (rough < roughMin) roughMin = rough
+      if (rough > roughMax) roughMax = rough
+      rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = rough * 255
+      rImg.data[i + 3] = 255
 
-      // --- ORM ---
-      const ao = Math.min(1, Math.max(0.72, 1 - wear * 0.18 - pit * 0.4))
-      const rough = Math.min(
-        1,
-        Math.max(0.05, GOLD_ROUGH_LO + t * (GOLD_ROUGH_HI - GOLD_ROUGH_LO) + wear * 0.13 + pit * 0.35),
-      )
-      // Gilding that has dulled is still metal. Dropping metalness to 0.4 makes
-      // the worn patches DIELECTRIC, and a dielectric at gold albedo renders as
-      // bright ochre paint next to dark polished metal — measured on the probe
-      // cube, that is what turned the gold into leopard print. The wear band is
-      // 1.0 → 0.74: enough that a worn face reflects less crisply, never enough
-      // to stop being metal.
-      const metal = Math.min(1, Math.max(0.74, 1 - wear * 0.2 - pit * 0.26))
+      // --- cavity AO: groove floors, bead bores and the inlay channel go
+      // properly dark. The old map floored at 0.72, which is a hint, not an
+      // occlusion — a metal with no dark side is a plastic.
+      const ao = Math.min(1, Math.max(0.34, 1 + cav * 3.2 - pit * 0.3))
+      // --- metalness: worn gilding reflects less crisply but never stops
+      // being metal (a dielectric at gold albedo renders as ochre paint).
+      const metal = Math.min(1, Math.max(0.76, 1 - wear * 0.18 - pit * 0.26))
       oImg.data[i] = ao * 255
       oImg.data[i + 1] = rough * 255
       oImg.data[i + 2] = metal * 255
       oImg.data[i + 3] = 255
+
+      // --- albedo multiplier. A metal takes nearly all its colour from what
+      // it reflects, so this stays a whisper of value — but grime in a groove
+      // and a rubbed-clean land are light-independent, which is what keeps
+      // gold from flattening to one tone in a blown highlight.
+      const grime = Math.min(1, Math.max(0, -cav) * 2.4 + Math.max(0, (0.45 - hv) / 0.4) * 0.45)
+      const crown = Math.min(1, Math.max(0, cav) * 1.8)
+      const lum = Math.min(1, Math.max(0.3, 1.0 - grime * 0.4 - pit * 0.4 + crown * 0.07 - wear * 0.08))
+      albedoSum += lum
+      const warm = grime * 0.5 + wear * 0.3
+      cImg.data[i] = lum * 255
+      cImg.data[i + 1] = lum * (1 - warm * 0.09) * 255
+      cImg.data[i + 2] = lum * (1 - warm * 0.3) * 255
+      cImg.data[i + 3] = 255
     }
   }
+  nCtx.putImageData(nImg, 0, 0)
   cCtx.putImageData(cImg, 0, 0)
   oCtx.putImageData(oImg, 0, 0)
-  goldAlbedo = new THREE.CanvasTexture(cCanvas)
-  goldAlbedo.wrapS = goldAlbedo.wrapT = THREE.RepeatWrapping
-  goldAlbedo.colorSpace = THREE.SRGBColorSpace
-  goldAlbedo.anisotropy = 8
-  goldORM = new THREE.CanvasTexture(oCanvas)
-  goldORM.wrapS = goldORM.wrapT = THREE.RepeatWrapping
-  goldORM.colorSpace = THREE.NoColorSpace
-  goldORM.anisotropy = 8
+  rCtx.putImageData(rImg, 0, 0)
+
+  goldRoughMean = roughSum / (size * size)
+  goldRoughRange = [roughMin, roughMax]
+  goldAlbedoMean = albedoSum / (size * size)
+
+  const mk = (c: HTMLCanvasElement, srgb = false) => {
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    // R4: 8 → 16. Gold trim is almost always seen at a grazing angle along a
+    // long run, which is the exact case anisotropic filtering exists for; at 8
+    // the reed lands smeared into a single band past ~12 m.
+    t.anisotropy = 16
+    t.needsUpdate = true
+    return t
+  }
+  goldNormal = mk(nCanvas)
+  goldAlbedo = mk(cCanvas, true)
+  goldORM = mk(oCanvas)
+  goldRough = mk(rCanvas)
 }
 
-/** Gold albedo multiplier — cast mottling, uneven tarnish, polished crowns. */
+/** Gold albedo multiplier — groove grime, rubbed lands, cast pits, tarnish. */
 export function getGoldAlbedoTexture(): THREE.CanvasTexture {
   if (!goldAlbedo) buildGoldMaps()
   return goldAlbedo!
@@ -867,95 +1037,27 @@ export function getGoldORMTexture(): THREE.CanvasTexture {
   return goldORM!
 }
 
-/**
- * 256² anisotropic brushed-metal roughness for gold: long streaks along U so
- * highlights break up into a ramp instead of a single blown specular dot.
- *
- * R2: the output band is authored directly at 0.12–0.45 (was a ~0.2–0.8
- * spread that the materials then had to scale down), so a gold material can
- * use `roughness: 1.0` and get the specced brushed range. Cast gold
- * multiplies up from the same map.
- */
-// R2b: widened 0.12–0.45 → 0.14–0.50. A very tight lobe put the whole key
-// specular into a handful of pixels; a slightly broader one spreads it into
-// the ramp along a bevel that actually reads as metal at gameplay distance.
-const GOLD_ROUGH_LO = 0.14
-const GOLD_ROUGH_HI = 0.5
-
+/** Greyscale copy of the ORM's roughness channel, for materials that want it alone. */
 export function getBrushedGoldRoughnessTexture(): THREE.CanvasTexture {
-  if (goldRough) return goldRough
-  const size = 256
-  const [canvas, ctx] = makeCanvas(size)
-  const img = ctx.createImageData(size, size)
-  for (let y = 0; y < size; y++) {
-    // per-row streak value: long in U, high frequency in V
-    const streak = vnoise(y * 0.9, 11.3) * 0.55 + vnoise(y * 3.1, 4.7) * 0.25
-    for (let x = 0; x < size; x++) {
-      const along = vnoise(x * 0.06, y * 0.8) * 0.3
-      const grain = (hash2(x, y) - 0.5) * 0.08
-      const t = Math.min(1, Math.max(0, 0.42 + streak * 0.5 + along - 0.22 + grain))
-      const v = GOLD_ROUGH_LO + t * (GOLD_ROUGH_HI - GOLD_ROUGH_LO)
-      const i = (y * size + x) * 4
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = v * 255
-      img.data[i + 3] = 255
-    }
-  }
-  ctx.putImageData(img, 0, 0)
-  goldRough = new THREE.CanvasTexture(canvas)
-  goldRough.wrapS = goldRough.wrapT = THREE.RepeatWrapping
-  goldRough.colorSpace = THREE.NoColorSpace
-  goldRough.anisotropy = 8
-  return goldRough
+  if (!goldRough) buildGoldMaps()
+  return goldRough!
 }
 
-/**
- * Matching 256² brushed NORMAL map for gold.
- *
- * A true anisotropic BRDF lobe is not worth its cost on a software rasteriser,
- * but the thing it buys — a highlight that smears ALONG the brush direction
- * instead of sitting as one round blown dot — can be bought with geometry
- * instead: long shallow ridges running down U. The surface normal wobbles only
- * across the streaks, so the specular reflection stretches perpendicular to
- * them, which is exactly what brushed metal does.
- */
+/** Machined gold normal — reeds, chamfers, straps, beads and fret inlay. */
 export function getBrushedGoldNormalTexture(): THREE.CanvasTexture {
-  if (goldNormal) return goldNormal
-  const size = 256
-  const [canvas, ctx] = makeCanvas(size)
-  const img = ctx.createImageData(size, size)
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      // height varies fast across V, slowly along U → ridges run along U
-      const hHere =
-        vnoise(x * 0.035, y * 2.4) * 0.6 +
-        vnoise(x * 0.11, y * 7.5) * 0.28 +
-        vnoise(x * 0.02, y * 22.0) * 0.12
-      const hUp =
-        vnoise(x * 0.035, (y + 1) * 2.4) * 0.6 +
-        vnoise(x * 0.11, (y + 1) * 7.5) * 0.28 +
-        vnoise(x * 0.02, (y + 1) * 22.0) * 0.12
-      const hRight =
-        vnoise((x + 1) * 0.035, y * 2.4) * 0.6 +
-        vnoise((x + 1) * 0.11, y * 7.5) * 0.28 +
-        vnoise((x + 1) * 0.02, y * 22.0) * 0.12
-      let nx = (hHere - hRight) * 3.2
-      let ny = (hHere - hUp) * 3.2
-      const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1)
-      nx *= inv
-      ny *= inv
-      const i = (y * size + x) * 4
-      img.data[i] = (nx * 0.5 + 0.5) * 255
-      img.data[i + 1] = (ny * 0.5 + 0.5) * 255
-      img.data[i + 2] = inv * 255
-      img.data[i + 3] = 255
-    }
+  if (!goldNormal) buildGoldMaps()
+  return goldNormal!
+}
+
+/** Measured stats from the gold bake (for tuning and QA assertions). */
+export function getGoldStats(): { roughMean: number; roughMin: number; roughMax: number; albedoMean: number } {
+  if (!goldORM) buildGoldMaps()
+  return {
+    roughMean: goldRoughMean,
+    roughMin: goldRoughRange[0],
+    roughMax: goldRoughRange[1],
+    albedoMean: goldAlbedoMean,
   }
-  ctx.putImageData(img, 0, 0)
-  goldNormal = new THREE.CanvasTexture(canvas)
-  goldNormal.wrapS = goldNormal.wrapT = THREE.RepeatWrapping
-  goldNormal.colorSpace = THREE.NoColorSpace
-  goldNormal.anisotropy = 8
-  return goldNormal
 }
 
 /**
@@ -1037,7 +1139,7 @@ export function getDetailNormalTexture(): THREE.CanvasTexture {
   detailNormal = new THREE.CanvasTexture(canvas)
   detailNormal.wrapS = detailNormal.wrapT = THREE.RepeatWrapping
   detailNormal.colorSpace = THREE.NoColorSpace
-  detailNormal.anisotropy = 4
+  detailNormal.anisotropy = 8
   return detailNormal
 }
 

@@ -11,6 +11,29 @@
  * percentage-closer-soft-shadow filter (blocker search → contact hardening →
  * 12-tap Vogel PCF), which is the difference between a stair-stepped hard
  * edge and a penumbra that tightens where a boot meets the deck.
+ *
+ * R4 (light-transport) — two clauses, one small and one large, both measured.
+ *
+ * Small: `ShadowContract` below enforces the cast/receive flags on the live
+ * scene instead of asking ~1300 call sites to remember two booleans. Measured
+ * effect is real but modest — receivers 450 → 499, casters 238 → 422 — because
+ * of the large finding below.
+ *
+ * Large, and the most useful thing this round turned up: of 1328 meshes in the
+ * live scene only 477 are on a LIT material (MeshStandard/MeshPhysical). 749
+ * are `MeshBasicMaterial`, which has no lighting term at all. Most of those
+ * are legitimate — 647 are invisible pooled VFX and 693 are transparent or
+ * additive — but it means the shadow-flag population was never the two-thirds
+ * shortfall it looks like from the raw counts, and the lighting rig only ever
+ * gets to shade 36 % of the scene graph. See the `litMeshes` / `litReceive`
+ * fields in `lightReport` below, which are the honest denominators.
+ *
+ * Also settled this round: `PCSS_INSTALLED` was re-verified against the
+ * installed r185 `shadowmap_pars_fragment` — the regex matches, the patch is
+ * live, `shadowMapType` reads 0 (Basic, as intended for the PCSS path). The
+ * standing theory that the patch had silently stopped matching is disproved,
+ * and so is the theory that shadows were not rendering: see Lighting.tsx for
+ * the shadows-on/shadows-off control capture that settled it.
  */
 import { useEffect, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
@@ -234,6 +257,126 @@ function shedShadows(scene: THREE.Scene, tier: 1 | 2) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Shadow participation pass (R4, light-transport)
+//
+// MEASURED, not assumed. `window.__qa.lightReport()` on the R3 build reports
+//
+//     meshes 1328   castShadow 238   receiveShadow 450
+//
+// and a material census of the same scene reports that only 477 of those 1328
+// are on a lit material at all (199 MeshStandard + 278 MeshPhysical); 749 are
+// MeshBasicMaterial and 100 are ShaderMaterial. So the honest statement is not
+// "878 meshes cannot be shadowed" — most of those are invisible pooled VFX —
+// it is "of the 477 meshes the light rig can actually shade, a meaningful
+// fraction were opted out of shadowing by omission". No amount of bias tuning
+// or filter work can put a shadow on a surface whose `receiveShadow` is false;
+// the fragment never samples the map. And it is a renderer-contract problem
+// rather than an authoring one: every stream adds meshes and each one has to
+// remember two booleans, so the flags drift out of date the moment anybody
+// adds a prop.
+//
+// So the contract is enforced here instead of being asked for 1300 times.
+// The pass opts a mesh IN by default and opts it OUT only for the cases where
+// shadowing is wrong rather than merely absent:
+//
+//   - additive / non-normal blending, or a transparent material that does not
+//     write depth — VFX cards, energy shells, god-ray cones, the skybox. An
+//     additive card that receives a shadow goes *dark* where it should be
+//     bright, and one that casts throws a solid black rectangle.
+//   - unlit materials (MeshBasicMaterial and friends have no lighting term, so
+//     receiving does nothing, and an emissive fixture casting a shadow of
+//     itself is a bug).
+//   - Sprites, Points and Lines, which have no shadow path at all.
+//   - anything explicitly marked `userData.auricNoShadow`, which is the
+//     escape hatch for other streams: set it and this pass leaves the object
+//     alone in both directions.
+//
+// Two properties make this cheap enough to run on a live scene:
+//   - in three r185 `receiveShadow` is a plain uniform (WebGLRenderer.js:2687),
+//     not a program define, so flipping it recompiles nothing. Making it
+//     UNIFORM across a shared material can only reduce the program count,
+//     never raise it.
+//   - a WeakSet remembers every object already decided, so the steady-state
+//     cost is one `has()` per object and the pass only does real work for
+//     meshes that streamed in since the last sweep.
+//
+// It re-sweeps on an interval rather than once at mount because the level,
+// the enemies and the pooled VFX all appear after the first frame.
+// ---------------------------------------------------------------------------
+const SHADOW_SWEEP_SEC = 0.75
+/** world-space bounding radius below which a mesh is not promoted to a caster */
+const CASTER_MIN_RADIUS = 0.34
+
+function opaqueLit(m: THREE.Material): boolean {
+  const any = m as THREE.Material & {
+    isMeshBasicMaterial?: boolean
+    isPointsMaterial?: boolean
+    isSpriteMaterial?: boolean
+    isLineBasicMaterial?: boolean
+    isShaderMaterial?: boolean
+    isRawShaderMaterial?: boolean
+  }
+  // unlit: nothing to shade, and a glowing fixture must not throw a shadow
+  if (any.isMeshBasicMaterial || any.isPointsMaterial || any.isSpriteMaterial) return false
+  if (any.isLineBasicMaterial) return false
+  // hand-written shaders do their own lighting (or none) — leave them alone
+  if (any.isShaderMaterial || any.isRawShaderMaterial) return false
+  if (m.blending !== THREE.NormalBlending) return false
+  if (m.transparent && m.depthWrite === false) return false
+  return true
+}
+
+function sweepShadowFlags(scene: THREE.Scene, seen: WeakSet<THREE.Object3D>) {
+  scene.traverse((o) => {
+    if (seen.has(o)) return
+    const mesh = o as THREE.Mesh & { isMesh?: boolean; isSkinnedMesh?: boolean }
+    if (!mesh.isMesh) return
+    seen.add(o)
+    if (o.userData?.auricNoShadow) return
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    let ok = mats.length > 0
+    for (const m of mats) {
+      if (!m || !opaqueLit(m)) {
+        ok = false
+        break
+      }
+    }
+    if (!ok) return
+    // RECEIVING is free — it is one uniform and one extra texture fetch on a
+    // fragment that is already being shaded, so every opaque lit surface in
+    // the game gets it unconditionally. This is the half of the fix that
+    // actually makes shadows appear.
+    mesh.receiveShadow = true
+    // CASTING is not free: it is a whole extra draw per shadow map, and a
+    // 3 cm trim bead is a caster that costs a draw call to contribute a
+    // sub-texel smudge and some acne. So casting is promoted only for
+    // geometry big enough to throw a shadow a player can point at — columns,
+    // ribs, pendants, planters — measured off the geometry's own bounding
+    // sphere, scaled into world units.
+    if (!mesh.castShadow) {
+      const g = mesh.geometry
+      if (!g) return
+      if (g.boundingSphere === null) g.computeBoundingSphere()
+      const r = g.boundingSphere?.radius ?? 0
+      const s = mesh.matrixWorld.getMaxScaleOnAxis()
+      if (r * s >= CASTER_MIN_RADIUS) mesh.castShadow = true
+    }
+  })
+}
+
+function ShadowContract() {
+  const seen = useRef<WeakSet<THREE.Object3D>>(new WeakSet())
+  const acc = useRef(SHADOW_SWEEP_SEC)
+  useFrame(({ scene }, delta) => {
+    acc.current += delta
+    if (acc.current < SHADOW_SWEEP_SEC) return
+    acc.current = 0
+    sweepShadowFlags(scene, seen.current)
+  })
+  return null
+}
+
 /** QA capture mode (?qa=1): pin quality tier 0 so screenshots show the real
  * art direction even on software renderers that never reach 45 fps. */
 const QA_CAPTURE =
@@ -350,12 +493,28 @@ function QaBridge() {
         const lights: Record<string, unknown>[] = []
         let keyIntensity = 0
         let fillSum = 0
+        let apertureIrradiance = 0
+        let apertureCount = 0
+        let shadowCasters = 0
+        // the denominators that matter: an unlit material has no lighting term,
+        // so counting it in a shadow-participation ratio flatters the number
+        let litMeshes = 0
+        let litReceive = 0
+        let litCast = 0
+        let unlitMeshes = 0
         scene.traverse((o) => {
           const m = o as THREE.Mesh
           if (m.isMesh) {
             meshes++
             if (m.castShadow) cast++
             if (m.receiveShadow) receive++
+            const mm = Array.isArray(m.material) ? m.material[0] : m.material
+            const lit = !!mm && !!(mm as THREE.MeshStandardMaterial).isMeshStandardMaterial
+            if (lit) {
+              litMeshes++
+              if (m.receiveShadow) litReceive++
+              if (m.castShadow) litCast++
+            } else if (mm) unlitMeshes++
           }
           const l = o as THREE.Light & {
             isLight?: boolean
@@ -363,12 +522,20 @@ function QaBridge() {
             distance?: number
           }
           if (!l.isLight) return
-          const isKey = l.userData?.auricRole === 'key'
-          if (isKey) keyIntensity += l.intensity
-          else fillSum += l.intensity
+          const role = l.userData?.auricRole ?? 'other'
+          if (l.castShadow) shadowCasters++
+          if (role === 'key') keyIntensity += l.intensity
+          else if (role === 'aperture') {
+            // a spot's `intensity` is candela over its whole throw, so adding
+            // it to a directional light's irradiance is a category error. The
+            // rig publishes the irradiance each aperture actually lands on the
+            // floor below it, which IS comparable with the key.
+            apertureIrradiance += (l.userData?.auricFloorIrradiance as number) ?? 0
+            apertureCount++
+          } else fillSum += l.intensity
           lights.push({
             type: l.type,
-            role: l.userData?.auricRole ?? 'other',
+            role,
             intensity: +l.intensity.toFixed(3),
             castShadow: l.castShadow === true,
             mapSize: l.shadow ? l.shadow.mapSize.x : 0,
@@ -385,6 +552,17 @@ function QaBridge() {
           meshes,
           castShadow: cast,
           receiveShadow: receive,
+          litMeshes,
+          unlitMeshes,
+          litReceive,
+          litCast,
+          /** the number the R4 shadow contract exists to move, over the only
+           *  denominator that means anything: meshes a light can shade */
+          litReceivePct: +((100 * litReceive) / Math.max(litMeshes, 1)).toFixed(1),
+          litCastPct: +((100 * litCast) / Math.max(litMeshes, 1)).toFixed(1),
+          shadowCasters,
+          apertureCount,
+          apertureIrradiance: +apertureIrradiance.toFixed(3),
           keyIntensity: +keyIntensity.toFixed(3),
           nonKeyIntensity: +fillSum.toFixed(3),
           keyOverFill: +(keyIntensity / Math.max(fillSum, 1e-6)).toFixed(3),
@@ -499,6 +677,9 @@ export default function GameCanvas() {
 
         {/* vfx */}
         <VFXSystems />
+
+        {/* renderer contract: every opaque lit mesh casts and receives */}
+        <ShadowContract />
 
         {/* adaptive quality + intro skip (mounted before GameTick) */}
         <QualityWatcher />

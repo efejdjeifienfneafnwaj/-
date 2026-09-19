@@ -104,6 +104,32 @@ type SurfaceOpts = {
   dust?: number
   /** soot collecting under soffits and downward faces (darker) */
   soot?: number
+  /**
+   * Stochastic per-tile permutation of the trim sheet (0 = off).
+   *
+   * R4 — this is the fix for "one panel stamped in a perfect 20×8 grid".
+   * A trim sheet, however varied inside one tile, is IDENTICAL in every tile,
+   * and across a 60 m wall the eye finds the lattice instantly. Each tile now
+   * hashes its own integer cell and picks one of eight rigid transforms of the
+   * sheet — a half-tile shift in U and/or V (which permutes which of the four
+   * authored 1 m plates lands in which quadrant) and an optional mirror in U.
+   * All eight map panel boundaries onto panel boundaries, so the seam trenches
+   * still line up across the cell edge and nothing tears; what changes is
+   * WHICH plate the player sees where. The same hash also drives a small
+   * per-tile albedo and roughness offset, so two tiles showing the same plate
+   * still differ in value the way cast panels actually weather.
+   *
+   * The value is the strength of that per-tile value jitter; the permutation
+   * itself is on whenever this is > 0.
+   *
+   * Sampling goes through `textureGrad` with derivatives taken from the
+   * CONTINUOUS uv, because the permuted uv is discontinuous at every cell
+   * boundary and implicit derivatives there would select the lowest mip and
+   * draw a bright seam grid — the exact artefact this is meant to remove.
+   */
+  tileShuffle?: number
+  /** mirror in V as well as U. Off by default: it flips drawn gravity stains. */
+  shuffleFlipV?: boolean
 }
 
 const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
@@ -111,7 +137,51 @@ const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
   macroRough: 0.18,
   dust: 0.3,
   soot: 0.42,
+  tileShuffle: 0,
+  shuffleFlipV: false,
 }
+
+/**
+ * Fragment-scope globals and samplers for the world surface.
+ *
+ * R4 — the projection moved from the VERTEX shader to here, and that is a
+ * correctness fix, not a tuning one. Picking the dominant axis per vertex means
+ * the three vertices of one triangle can disagree about which plane they are
+ * projecting onto, and the rasteriser then interpolates between two unrelated
+ * uv sets. On the canyon columns that produced the smeared, melted panel runs
+ * visible in every round-3 frame — the panel read it as "untextured", and it
+ * was actually textured with garbage coordinates. Selecting per FRAGMENT from
+ * the interpolated normal makes the uv an exact function of world position
+ * inside each of the three regions, so the sheet is crisp everywhere and the
+ * only artefact left is a one-pixel seam at the 45° crossover.
+ *
+ * `avSurfUv`   raw world-projected uv. Continuous (except across that seam), so
+ *              it is what the mip derivatives and the tangent frame use.
+ * `avSheetUv`  the permuted lookup — discontinuous at every tile edge, which is
+ *              exactly why nothing may take a derivative of it.
+ * `avSheetFlip` mirror sign; the normal map must apply it to X/Y or a mirrored
+ *              tile lights with its bevels inverted.
+ */
+const AV_SURFACE_PARS = /* glsl */ `
+vec2 avSurfUv;
+vec2 avSheetUv;
+vec2 avSheetFlip;
+vec2 avSheetDx;
+vec2 avSheetDy;
+float avTileJitter;
+vec4 avCellHash( vec2 c ) {
+  vec4 p = fract( vec4( c.xyxy ) * vec4( 0.1031, 0.1030, 0.0973, 0.1099 ) );
+  p += dot( p, p.wzxy + 33.33 );
+  return fract( ( p.xxyz + p.yzzw ) * p.zywx );
+}
+vec4 avSheetTex( sampler2D t ) {
+  return textureGrad( t, avSheetUv, avSheetDx, avSheetDy );
+}
+vec3 avSheetNormal( sampler2D t ) {
+  vec3 n = textureGrad( t, avSheetUv, avSheetDx, avSheetDy ).xyz * 2.0 - 1.0;
+  return vec3( n.xy * avSheetFlip, n.z );
+}
+`
 
 function worldUvChunk(uvScale: number): string {
   const k = uvScale.toFixed(5)
@@ -184,16 +254,19 @@ function applyWorldSurface(
   const chunk = worldUvChunk(uvScale)
   const detailRepeat = (uvScale > 0 ? 1 / DETAIL_TILE_M / uvScale : 0).toFixed(5)
   const macroRepeat = (uvScale > 0 ? 1 / MACRO_TILE_M / uvScale : 0).toFixed(6)
+  // Second macro octave at ~3.4× the frequency (≈3.8 m against 13 m). One
+  // octave alone is a slow swell that the eye reads as lighting, not as
+  // material; the second gives it bay-to-bay structure at architectural scale.
+  const macroRepeat2 = (uvScale > 0 ? 3.37 / MACRO_TILE_M / uvScale : 0).toFixed(6)
   const useMacro = o.macro > 0 || o.macroRough > 0
   const macroMean = getMacroMean().toFixed(4)
+  const shuffle = o.tileShuffle > 0
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${AV_VARYINGS}`)
       .replace('#include <uv_vertex>', chunk)
-    shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <common>',
-      `#include <common>\n${AV_VARYINGS}`,
-    )
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${AV_VARYINGS}${AV_SURFACE_PARS}`)
 
     // --- macro variation + deposition, injected right after the albedo read ---
     if (useMacro || o.dust > 0 || o.soot > 0) {
@@ -207,13 +280,19 @@ function applyWorldSurface(
           '#include <map_fragment>',
           /* glsl */ `
         #include <map_fragment>
-        float avMacro = texture2D( avMacroMap, vAvUv * ${macroRepeat} ).r - ${macroMean};
+        float avMacro = texture2D( avMacroMap, avSurfUv * ${macroRepeat} ).r - ${macroMean};
+        avMacro += ( texture2D( avMacroMap, avSurfUv * ${macroRepeat2} + 0.37 ).r - ${macroMean} ) * 0.5;
         diffuseColor.rgb *= 1.0 + avMacro * ${o.macro.toFixed(3)};
         float avUp = clamp( vAvN.y, -1.0, 1.0 );
         float avDust = max( 0.0, avUp ) * ${o.dust.toFixed(3)};
         float avSoot = max( 0.0, -avUp ) * ${o.soot.toFixed(3)};
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.11, 1.06, 0.97 ), avDust );
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.50, 0.49, 0.50 ), avSoot );
+        // Vertical deposition ramp: everything in a 30 m hall is dirtier at the
+        // plinth and cleaner at the clerestory, and a top-to-bottom value ramp
+        // is most of what stops a tall wall reading as one flat slab. Keyed to
+        // WORLD y so it is continuous across every mesh that makes up the wall.
+        diffuseColor.rgb *= mix( ${(1 - o.soot * 0.62).toFixed(3)}, 1.06, clamp( vAvW.y / 16.0, 0.0, 1.0 ) );
         `,
         )
         .replace(
@@ -233,7 +312,7 @@ function applyWorldSurface(
         /* glsl */ `
         #include <map_fragment>
         #ifdef USE_AOMAP
-          float avAo = texture2D( aoMap, vAoMapUv ).r;
+          float avAo = avSheetTex( aoMap ).r;
           diffuseColor.rgb *= mix( 1.0, avAo, ${aoBite.toFixed(3)} );
         #endif
         `,
@@ -252,9 +331,140 @@ function applyWorldSurface(
         #include <normal_fragment_maps>
         #if defined( USE_NORMALMAP_TANGENTSPACE )
           {
-            vec3 avDn = texture2D( avDetailMap, vAvUv * ${detailRepeat} ).xyz * 2.0 - 1.0;
+            vec3 avDn = texture2D( avDetailMap, avSurfUv * ${detailRepeat} ).xyz * 2.0 - 1.0;
             normal = normalize( normal + tbn * vec3( avDn.xy * ${detail.toFixed(3)}, 0.0 ) );
           }
+        #endif
+        `,
+        )
+    }
+
+    // --- world-surface sampling. LAST, because it expands the stock chunks
+    // itself: onBeforeCompile sees `#include <...>` still unresolved (three
+    // resolves includes inside WebGLProgram, after this hook), so the only way
+    // to redirect a chunk's sampler read is to write the chunk out. Every
+    // injection above wraps its include and leaves the token in place, so the
+    // expansions below still find them.
+    {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <map_fragment>',
+          /* glsl */ `
+        {
+          // Dominant-axis planar projection, per FRAGMENT (see AV_SURFACE_PARS).
+          // The length guard is not paranoia: a zero-length interpolated normal
+          // makes normalize() return NaN, the NaN reaches the albedo, and the
+          // bloom downsample chain then smears it across the entire frame —
+          // which is exactly how a single degenerate vertex turns one camera
+          // angle completely black.
+          float avNl = length( vAvN );
+          vec3 avNw = avNl > 1e-5 ? vAvN / avNl : vec3( 0.0, 1.0, 0.0 );
+          vec3 avAb = abs( avNw );
+          avSurfUv = ( avAb.y > max( avAb.x, avAb.z )
+            ? vAvW.xz
+            : ( avAb.x > avAb.z ? vAvW.zy : vAvW.xy ) ) * ${uvScale.toFixed(5)};
+          // Explicit derivatives, sanitised. They come from the CONTINUOUS uv,
+          // because the permuted one below is discontinuous at every cell edge
+          // and implicit derivatives there select mip 0 and draw a bright
+          // lattice — the exact artefact the permutation exists to remove. The
+          // one-pixel ring where the dominant axis flips still produces a huge
+          // (or non-finite) gradient, so it is both NaN-checked and clamped;
+          // textureGrad with a NaN lod is undefined and on this stack returns
+          // NaN, which the bloom chain spreads to the whole image.
+          vec2 avDx = dFdx( avSurfUv );
+          vec2 avDy = dFdy( avSurfUv );
+          bool avBad = any( isnan( avSurfUv ) ) || any( isnan( avDx ) ) || any( isnan( avDy ) )
+            || any( isinf( avDx ) ) || any( isinf( avDy ) );
+          if ( avBad ) { avSurfUv = vAvUv; avDx = dFdx( vAvUv ); avDy = dFdy( vAvUv ); }
+          avSheetDx = clamp( avDx, -0.25, 0.25 );
+          avSheetDy = clamp( avDy, -0.25, 0.25 );
+          ${
+            shuffle
+              ? /* glsl */ `
+          vec2 avCell = floor( avSurfUv );
+          vec4 avR = avCellHash( avCell );
+          // mirror in U (and optionally V). 1 - f maps 0→1 and 0.5→0.5, so a
+          // panel boundary always lands on a panel boundary and the seam
+          // trenches stay continuous across the cell edge.
+          vec2 avMir = vec2( step( 0.5, avR.x ), ${o.shuffleFlipV ? 'step( 0.5, avR.w )' : '0.0'} );
+          vec2 avF = fract( avSurfUv );
+          avF = mix( avF, 1.0 - avF, avMir );
+          // half-tile shift = one authored 1 m plate, so the four plates are
+          // dealt into different quadrants tile to tile
+          avF += step( 0.5, avR.yz ) * 0.5;
+          avSheetUv = avF;
+          avSheetFlip = 1.0 - 2.0 * avMir;
+          avTileJitter = ( avR.x + avR.y + avR.z + avR.w ) * 0.5 - 1.0;
+          `
+              : /* glsl */ `
+          avSheetUv = avSurfUv;
+          avSheetFlip = vec2( 1.0 );
+          avTileJitter = 0.0;
+          `
+          }
+        }
+        #ifdef USE_MAP
+          diffuseColor *= avSheetTex( map );
+        #endif
+        diffuseColor.rgb *= 1.0 + avTileJitter * ${o.tileShuffle.toFixed(3)};
+        `,
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          /* glsl */ `
+        float roughnessFactor = roughness;
+        #ifdef USE_ROUGHNESSMAP
+          roughnessFactor *= avSheetTex( roughnessMap ).g;
+        #endif
+        roughnessFactor = clamp( roughnessFactor - avTileJitter * ${(o.tileShuffle * 0.55).toFixed(3)}, 0.035, 1.0 );
+        `,
+        )
+        .replace(
+          '#include <metalnessmap_fragment>',
+          /* glsl */ `
+        float metalnessFactor = metalness;
+        #ifdef USE_METALNESSMAP
+          metalnessFactor *= avSheetTex( metalnessMap ).b;
+        #endif
+        `,
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          /* glsl */ `
+        #ifdef USE_NORMALMAP_OBJECTSPACE
+          normal = avSheetNormal( normalMap );
+          #ifdef FLIP_SIDED
+            normal = - normal;
+          #endif
+          #ifdef DOUBLE_SIDED
+            normal = normal * faceDirection;
+          #endif
+          normal = normalize( normalMatrix * normal );
+        #elif defined( USE_NORMALMAP_TANGENTSPACE )
+          vec3 mapN = avSheetNormal( normalMap );
+          mapN.xy *= normalScale;
+          normal = normalize( tbn * mapN );
+        #elif defined( USE_BUMPMAP )
+          normal = perturbNormalArb( - vViewPosition, normal, dHdxy_fwd(), faceDirection );
+        #endif
+        `,
+        )
+        .replace(
+          '#include <aomap_fragment>',
+          /* glsl */ `
+        #ifdef USE_AOMAP
+          float ambientOcclusion = ( avSheetTex( aoMap ).r - 1.0 ) * aoMapIntensity + 1.0;
+          reflectedLight.indirectDiffuse *= ambientOcclusion;
+          #if defined( USE_CLEARCOAT )
+            clearcoatSpecularIndirect *= ambientOcclusion;
+          #endif
+          #if defined( USE_SHEEN )
+            sheenSpecularIndirect *= ambientOcclusion;
+          #endif
+          #if defined( USE_ENVMAP ) && defined( STANDARD )
+            float dotNV = saturate( dot( geometryNormal, geometryViewDir ) );
+            reflectedLight.indirectSpecular *= computeSpecularOcclusion( dotNV, ambientOcclusion, material.roughness );
+          #endif
         #endif
         `,
         )
@@ -310,8 +520,12 @@ export function ivoryMaterial(): THREE.MeshStandardMaterial {
   // aoBite 0.6 → 0.42: the albedo map now carries its own cavity grime, and
   // at 0.6 on top of it the seams crushed to black.
   applyWorldSurface(ivory, 'av-ivory', 1 / TRIM_TILE_M, 0.36, 0.32, {
-    macro: 0.28,
-    macroRough: 0.16,
+    macro: 0.34,
+    macroRough: 0.18,
+    // R4: the wall the panel called "one panel stamped in a perfect 20×8 grid"
+    // is this material. Eight per-tile permutations of the sheet plus a ±7 %
+    // per-tile value offset break the lattice without touching geometry.
+    tileShuffle: 0.07,
   })
   return ivory
 }
@@ -339,8 +553,9 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
   })
   ivoryContact.normalScale.set(1.8, 1.8)
   applyWorldSurface(ivoryContact, 'av-ivory-contact', 1 / TRIM_TILE_M, 0.36, 0.32, {
-    macro: 0.28,
-    macroRough: 0.16,
+    macro: 0.34,
+    macroRough: 0.18,
+    tileShuffle: 0.07,
   })
   return ivoryContact
 }
@@ -386,22 +601,37 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
     //    metalness falls, the roughness climbs and the colour goes redder,
     //    all together. A constant metalness of 1.0 across every gold surface
     //    in a level is a material-authoring tell, not a look.
+    //
+    // R4 is where the "tan rubber rope" note is actually answered. The colour
+    // and the BRDF were already defensible; what was missing was that all
+    // three gold maps were built from value noise, so the surface had no
+    // straight machined edge anywhere and its highlight had nothing to break
+    // against. It therefore rendered as one smooth, evenly-lit tube whatever
+    // the probe did. The sheet is now DRAWN (reeded lands, chamfered grooves,
+    // cross-straps, bead rows, a fret inlay) and its roughness is a function
+    // of that drawn height, so a polished land sits at ~0.06 and throws a hard
+    // specular line off the key light ALONE. That read does not depend on the
+    // environment probe at all, which is the point: envMapIntensity comes down
+    // from 3.4, because a broad bright probe smeared across a featureless
+    // surface is precisely what made it look like tinted rubber.
     color: '#AE8438',
     map: getGoldAlbedoTexture(),
     metalness: 1.0,
     metalnessMap: orm,
-    // the map is authored at the final 0.14–0.5 band, so the multiplier is 1
+    // the map is authored at its final 0.045–0.92 band, so the multiplier is 1
     roughness: 1.0,
     roughnessMap: orm,
     aoMap: orm,
-    aoMapIntensity: 1.0,
+    aoMapIntensity: 1.25,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 3.4,
-    anisotropy: 0.85,
+    envMapIntensity: 2.6,
+    anisotropy: 0.9,
     anisotropyRotation: 0,
   })
-  goldPolished.normalScale.set(0.5, 0.5)
-  applyWorldSurface(goldPolished, 'av-gold-polished', 1 / 0.6, 0.3, 0, {
+  // R4: 0.5 → 1.15. At 0.5 the authored chamfers and strap lips were a
+  // suggestion; the whole reason to draw them is that they model under the key.
+  goldPolished.normalScale.set(1.15, 1.15)
+  applyWorldSurface(goldPolished, 'av-gold-polished', 1 / 0.6, 0.55, 0, {
     // metal gets only a whisper of macro — the layer exists to break a tiling
     // period on stone, and on a reflective surface it reads as paint
     macro: 0.1,
@@ -426,17 +656,21 @@ export function goldCastMaterial(): THREE.MeshStandardMaterial {
     map: getGoldAlbedoTexture(),
     metalness: 0.98,
     metalnessMap: orm,
-    roughness: 1.3,
+    // R4: 1.3 → 1.12. The ORM's own band already reaches 0.92 in the groove
+    // floors; multiplying that by 1.3 clipped two thirds of the sheet to fully
+    // matte and threw away the land/groove contrast that makes it read as
+    // metal. 1.12 gives ~0.05–1.0 with the polished lands intact.
+    roughness: 1.12,
     roughnessMap: orm,
     aoMap: orm,
-    aoMapIntensity: 1.0,
+    aoMapIntensity: 1.25,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 2.8,
+    envMapIntensity: 2.2,
     // broader runs of cast metal, so a slightly softer lobe than the polished
     anisotropy: 0.6,
   })
-  goldCast.normalScale.set(0.6, 0.6)
-  applyWorldSurface(goldCast, 'av-gold-cast', 1 / 0.9, 0.3, 0, {
+  goldCast.normalScale.set(1.05, 1.05)
+  applyWorldSurface(goldCast, 'av-gold-cast', 1 / 0.9, 0.55, 0, {
     macro: 0.13,
     macroRough: 0.1,
     dust: 0.2,
@@ -501,7 +735,7 @@ export function umberMaterial(): THREE.MeshStandardMaterial {
     envMapIntensity: 1.2,
   })
   umber.normalScale.set(1.35, 1.35)
-  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.4, 0.28)
+  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.4, 0.28, { tileShuffle: 0.08 })
   return umber
 }
 
@@ -535,7 +769,10 @@ export function screenMaterial(): THREE.MeshStandardMaterial {
     envMapIntensity: 0.85,
   })
   screen.normalScale.set(1.4, 1.4)
-  applyWorldSurface(screen, 'av-screen', 1 / TRIM_TILE_M, 0.34, 0.3, { macro: 0.28 })
+  applyWorldSurface(screen, 'av-screen', 1 / TRIM_TILE_M, 0.34, 0.3, {
+    macro: 0.28,
+    tileShuffle: 0.06,
+  })
   return screen
 }
 
@@ -564,7 +801,10 @@ export function cofferMaterial(): THREE.MeshStandardMaterial {
     envMapIntensity: 0.85,
   })
   coffer.normalScale.set(1.3, 1.3)
-  applyWorldSurface(coffer, 'av-coffer', 1 / TRIM_TILE_M, 0.34, 0.3, { macro: 0.28 })
+  applyWorldSurface(coffer, 'av-coffer', 1 / TRIM_TILE_M, 0.34, 0.3, {
+    macro: 0.28,
+    tileShuffle: 0.06,
+  })
   return coffer
 }
 
@@ -583,7 +823,9 @@ export function fretTrimMaterial(): THREE.MeshStandardMaterial {
     roughness: 0.85,
     roughnessMap: getBrushedGoldRoughnessTexture(),
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 3.0,
+    // R4: 3.0 → 2.4, matching the rest of the gold set. The machined sheet now
+    // carries the specular; the probe only has to fill the dark side.
+    envMapIntensity: 2.4,
     // a filigree run is a long thin metal element: the highlight has to travel
     // along it, not sit as a dot in the middle of every cell
     anisotropy: 0.8,
@@ -615,7 +857,7 @@ export function obsidianMaterial(): THREE.MeshStandardMaterial {
     envMapIntensity: 2.0,
   })
   obsidian.normalScale.set(1.15, 1.15)
-  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.35, 0.3)
+  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.35, 0.3, { tileShuffle: 0.07 })
   return obsidian
 }
 
@@ -635,15 +877,15 @@ function getRockVeinTexture(): THREE.CanvasTexture {
   ctx.strokeStyle = '#fff'
   ctx.lineCap = 'round'
   for (let i = 0; i < 26; i++) {
-    let x = Math.random() * size
-    let y = Math.random() * size
-    ctx.lineWidth = 0.8 + Math.random() * 1.6
+    let x = frand() * size
+    let y = frand() * size
+    ctx.lineWidth = 0.8 + frand() * 1.6
     ctx.beginPath()
     ctx.moveTo(x, y)
-    const segs = 3 + (Math.random() * 4) | 0
+    const segs = 3 + (frand() * 4) | 0
     for (let s = 0; s < segs; s++) {
-      x += (Math.random() - 0.5) * 42
-      y += (Math.random() - 0.5) * 42
+      x += (frand() - 0.5) * 42
+      y += (frand() - 0.5) * 42
       ctx.lineTo(x, y)
     }
     ctx.stroke()
@@ -651,9 +893,9 @@ function getRockVeinTexture(): THREE.CanvasTexture {
   // sparse hot flecks
   ctx.fillStyle = '#fff'
   for (let i = 0; i < 60; i++) {
-    const r = 0.5 + Math.random() * 1.4
+    const r = 0.5 + frand() * 1.4
     ctx.beginPath()
-    ctx.arc(Math.random() * size, Math.random() * size, r, 0, Math.PI * 2)
+    ctx.arc(frand() * size, frand() * size, r, 0, Math.PI * 2)
     ctx.fill()
   }
   rockVeinTex = new THREE.CanvasTexture(canvas)
@@ -867,7 +1109,20 @@ let groove: THREE.MeshBasicMaterial | null = null
  * jitter, occasional grate cells and edge wear — so large floors read as
  * built surfaces, not a single flat vector fill.
  */
+/**
+ * Deterministic hash in place of Math.random for the floor sheet.
+ * R4: the deck was baked from Math.random, so every reload produced a
+ * different floor and no QA capture could be compared against the previous
+ * one. Same distribution, stable across runs.
+ */
+let floorSeed = 0
+function frand(): number {
+  floorSeed = (floorSeed * 1664525 + 1013904223) >>> 0
+  return floorSeed / 4294967296
+}
+
 function makeFloorCanvases(): [HTMLCanvasElement, HTMLCanvasElement] {
+  floorSeed = 0x9e3779b9
   const size = 512
   const alb = document.createElement('canvas')
   alb.width = alb.height = size
@@ -886,11 +1141,11 @@ function makeFloorCanvases(): [HTMLCanvasElement, HTMLCanvasElement] {
   const img = a.getImageData(0, 0, size, size)
   const rimg = r.getImageData(0, 0, size, size)
   for (let i = 0; i < img.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 7
+    const n = (frand() - 0.5) * 7
     img.data[i] += n
     img.data[i + 1] += n
-    img.data[i + 2] += n + Math.random() * 2
-    const rn = (Math.random() - 0.5) * 34
+    img.data[i + 2] += n + frand() * 2
+    const rn = (frand() - 0.5) * 34
     rimg.data[i] += rn
     rimg.data[i + 1] += rn
     rimg.data[i + 2] += rn
@@ -905,14 +1160,14 @@ function makeFloorCanvases(): [HTMLCanvasElement, HTMLCanvasElement] {
       const jx = px * cell
       const jy = py * cell
       // panel value jitter
-      const v = (Math.random() - 0.5) * 10
+      const v = (frand() - 0.5) * 10
       a.fillStyle = `rgba(${v > 0 ? 255 : 0},${v > 0 ? 255 : 0},${v > 0 ? 255 : 8},${Math.abs(v) / 255})`
       a.fillRect(jx, jy, cell, cell)
-      const rv = 140 + Math.random() * 40
+      const rv = 140 + frand() * 40
       r.fillStyle = `rgba(${rv},${rv},${rv},0.35)`
       r.fillRect(jx, jy, cell, cell)
       // grate inset on ~1/3 of panels: recessed cell grid, rougher
-      if (Math.random() < 0.34) {
+      if (frand() < 0.34) {
         const m = 14 // inset margin
         const gx = jx + m
         const gy = jy + m
@@ -935,7 +1190,7 @@ function makeFloorCanvases(): [HTMLCanvasElement, HTMLCanvasElement] {
         a.fillStyle = 'rgba(70,80,100,0.5)'
         a.fillRect(gx, gy, gw, 2)
         a.fillRect(gx, gy, 2, gw)
-      } else if (Math.random() < 0.4) {
+      } else if (frand() < 0.4) {
         // plain panel: small corner bolts / wear ticks
         a.fillStyle = 'rgba(58,64,78,0.6)'
         const b = 7
@@ -983,11 +1238,11 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     floorMapTex = new THREE.CanvasTexture(alb)
     floorMapTex.wrapS = floorMapTex.wrapT = THREE.RepeatWrapping
     floorMapTex.colorSpace = THREE.SRGBColorSpace
-    floorMapTex.anisotropy = 4
+    floorMapTex.anisotropy = 16
     floorRoughTex = new THREE.CanvasTexture(rgh)
     floorRoughTex.wrapS = floorRoughTex.wrapT = THREE.RepeatWrapping
     floorRoughTex.colorSpace = THREE.NoColorSpace
-    floorRoughTex.anisotropy = 4
+    floorRoughTex.anisotropy = 16
     // relief straight off the albedo's own value structure: seams become
     // grooves, grate bars become ribs, bolts become domes
     floorNormalTex = normalFromLuminance(alb, 2.6)
@@ -1022,6 +1277,10 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.22,
     dust: 0.26,
     soot: 0.0,
+    // and the shuffle works hardest here too: a 3 m deck tile repeats ~20×
+    // across the arena floor in a single frame
+    tileShuffle: 0.08,
+    shuffleFlipV: true,
   })
   return floor
 }
@@ -1131,19 +1390,24 @@ export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
     map: getGoldAlbedoTexture(),
     metalness: 1.0,
     metalnessMap: orm,
-    roughness: 0.62, // × 0.14–0.5 map ⇒ ~0.09–0.31, the narrowest ramp here
+    roughness: 0.8, // × the 0.045–0.92 map ⇒ ~0.04–0.74, the narrowest ramp here
     roughnessMap: orm,
+    // R4: a nosing with no cavity term is a sticker. The ORM's R channel bottoms
+    // at 0.34 in the groove floors, which is what separates the lip from the
+    // channel behind it when both are catching the same key.
+    aoMap: orm,
+    aoMapIntensity: 1.15,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 3.6,
+    envMapIntensity: 2.8,
     // the strongest lobe in the level: a nosing is a 3.5 cm lip seen nearly
     // edge-on, and an anisotropic streak running ALONG it is exactly the
     // read that makes a metal edge legible at 20 m
     anisotropy: 0.72,
   })
-  goldEdge.normalScale.set(0.28, 0.28)
+  goldEdge.normalScale.set(0.62, 0.62)
   // a 0.5 m tile, so the brush is fine enough to sit on a 3.5 cm lip without
   // the 256² brush map beating against itself into a visible weave
-  applyWorldSurface(goldEdge, 'av-gold-edge', 1 / 0.5, 0, 0, {
+  applyWorldSurface(goldEdge, 'av-gold-edge', 1 / 0.5, 0.4, 0, {
     macro: 0.09,
     macroRough: 0.06,
     dust: 0.14,

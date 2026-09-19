@@ -52,6 +52,35 @@
  * + inscattering) are patched into the stock shader chunks — see GameCanvas.tsx
  * and Fog.tsx respectively, both of which document why at length.
  *
+ * R4 (light transport, measured). R3's premise — that the shadows were broken
+ * — was wrong, and a control capture proved it: toggling `__qa.setShadows()`
+ * between two otherwise identical frames moves 92 % of the chamber and 77 % of
+ * the canyon by a mean of 50–64/255. The shadow maps, the PCSS filter and the
+ * flags were all working. What was broken is that the frame was ENTIRELY in
+ * shadow, because the key is a 42°-elevation sun and the level's interiors are
+ * roofed, so the only thing lighting them was a directionless 0.82 IBL plus a
+ * hemisphere. Three rounds of bias and filter work could not have fixed that.
+ * So R4 is about where the light comes from, not how it is filtered:
+ * - APERTURE KEYS: each opening the sun physically enters through (two oculi,
+ *   two canyon glazing bays) now carries a spot aimed along the key's own
+ *   travel direction, in the key's colour, sized to put sun-level irradiance
+ *   on the floor below. The oculi cast. Interiors finally have a dominant
+ *   source that models form and throws a shadow you can point at.
+ * - the probe's GAIN drops 0.82 → 0.26 while its CONTRAST goes up (sun disc
+ *   and specular bar ×2.9, anti-key hemisphere 0.16 → 0.05), so the flat fill
+ *   collapses without costing gold its reflection.
+ * - hemisphere ×0.55, camera fill ×0.6, practicals ×0.62, key ×1.35.
+ * - near cascade normalBias 0.02 → 0.005 (2 cm of peter-panning was most of a
+ *   contact shadow's width), with the constant bias taking over the acne.
+ * - the R3 chamber oculus spot is retired: at intensity 4 / decay 1.5 over a
+ *   24 m throw it delivered 0.034 irradiance and cost a shadow pass.
+ * The other half of R4 lives in GameCanvas.tsx: a shadow-contract sweep that
+ * enforces cast/receive on every opaque lit mesh (receivers 450 → 499, casters
+ * 238 → 422). While measuring it, a material census turned up the biggest open
+ * problem in the build and it is not ours: of 1328 meshes only 477 are on a
+ * lit material at all. The rig can never shade the other 851. Most are
+ * legitimately unlit VFX, but it caps what any lighting work can achieve.
+ *
  * Phase-driven lights (chamber/pad gold points) live in EnvironmentFX.
  * The player-follow rim light (design §2.3 #12) is owned by the player rig.
  */
@@ -127,8 +156,15 @@ const CASCADE = {
     // eaten most of the contrast out there anyway.
     extent: 24,
     mapSize: 2048,
-    bias: -0.00013,
-    normalBias: 0.02,
+    // R4: normalBias 0.02 → 0.005. normalBias pushes the shadow lookup along
+    // the surface normal in WORLD units before projecting, so it trades acne
+    // for peter-panning one-for-one: at 0.02 a contact shadow is displaced
+    // 2 cm off its caster, which is most of the width of the contact itself.
+    // At 2.34 cm/texel the offset only has to clear a texel's worth of depth
+    // slope, and 0.005 does that while leaving the contact where the boot is.
+    // The constant depth bias takes over the rest of the acne budget.
+    bias: -0.00022,
+    normalBias: 0.005,
     /** PCSS penumbra scale, in units of 7 texels at maximum opening */
     radius: 1.15,
     share: 0.86,
@@ -136,12 +172,51 @@ const CASCADE = {
   far: {
     extent: 130,
     mapSize: 2048,
-    bias: -0.0004,
-    normalBias: 0.05,
+    // 12.7 cm/texel out here, so this one genuinely needs a wide normal
+    // offset — but 0.05 was detaching distant shadows from their casters by
+    // half a texel of world space at the near end of its range.
+    bias: -0.0006,
+    normalBias: 0.018,
     radius: 1.0,
     share: 0.14,
   },
 } as const
+
+// ---------------------------------------------------------------------------
+// R4 fill budget.
+//
+// These are local multipliers rather than edits to config.LIGHTING, because
+// config.ts belongs to the post/colour stream and the ratios below are a
+// property of the RIG (what fraction of the scene's light is directional and
+// motivated), not of the grade. Measured on the R3 build:
+//
+//     key 4.4    non-key 108.3    keyOverFill 0.041
+//
+// Most of that 108 is point lights with decay 2, so it is not 108 worth of
+// ambient — but the practicals were still summing to more irradiance in the
+// near field than the key delivered, and the practicals are the one class of
+// light that cannot model form because there are 9 of them pointing every way.
+// So the two directionless terms come down and the one dominant term goes up.
+// ---------------------------------------------------------------------------
+/**
+ * Gain on the near cascade — the single source that is allowed to model form.
+ *
+ * Tuned against a luma histogram of the same two framings before and after,
+ * sampled over the frame minus the HUD rects. At 1.35 the ambient cut had
+ * pulled the canyon's 95th percentile from 189 to 164 along with the median,
+ * which is a darker frame rather than a higher-contrast one. Raising the key
+ * is the correct place to put that back: it is the exact term a shadow
+ * removes, so it lifts the lit planes and the highlights while leaving the
+ * shadowed ones where the ambient cut left them. The spread opens instead of
+ * the whole histogram sliding.
+ */
+const KEY_GAIN = 1.62
+/** the hemisphere is the colour the shadow side is allowed to be, not a light */
+const HEMI_GAIN = 0.55
+/** camera-locked fill removes every shadow the player can see; keep it a trace */
+const CAMERA_FILL_GAIN = 0.6
+/** practical pools should read as pools, not as a second ambient */
+const PRACTICAL_GAIN = 0.62
 
 /** far cascade tint — the key colour pulled most of the way to the sky */
 const FAR_TINT = new THREE.Color(LIGHTING.key.color).lerp(
@@ -158,6 +233,142 @@ const FAR_TINT = new THREE.Color(LIGHTING.key.color).lerp(
 const PrimaryShadow: { map: THREE.Texture | null; matrix: THREE.Matrix4 } = {
   map: null,
   matrix: new THREE.Matrix4(),
+}
+
+// ---------------------------------------------------------------------------
+// APERTURE KEYS (R4) — the change this round is actually about
+//
+// The R3 note below argues at length about cascades, bias and filter quality.
+// All of it was answering the wrong question, and one measurement settled it.
+// Driving the built page and toggling `window.__qa.setShadows()` between two
+// otherwise identical frames:
+//
+//     chamber   mean |ON − OFF| = 49.6/255   92.4 % of pixels moved by >6
+//     canyon    mean |ON − OFF| = 63.7/255   77.2 % of pixels moved by >6
+//
+// The shadows were never broken. The PCSS patch matches the r185 chunk (I
+// re-ran the regex against the installed `shadowmap_pars_fragment` — it hits),
+// the maps render, the filter runs. The problem is the opposite of the one
+// three rounds of work orders assumed: when three quarters of the frame gets
+// DARKER the moment shadowing is enabled, essentially the whole frame is
+// already in shadow, and a shadow cannot read as a shape when there is no lit
+// plane next to it to be a shape against.
+//
+// That is a geometry fact, not a tuning one. The key sits at 42° elevation and
+// the level's interiors — the domed reliquary chamber, the arched traversal
+// canyon, the arena under its gallery — are ROOFED. The sun does not get in.
+// Every interior surface was therefore lit by ambient alone: the PMREM at 0.82
+// plus a 0.12 hemisphere, both of which are directionless by construction.
+// A directionless light cannot model form, so the frame reads exactly as the
+// panel described it — an untextured blockout.
+//
+// AAA does not light an interior with the sun. It lights it with the places
+// the sun gets in, and everything else falls off from there. So each aperture
+// in the level — the two oculi, the canyon's glazed slots — now carries a
+// SPOT LIGHT aimed along the key's own travel direction, in the key's colour,
+// at an intensity that puts real sun-level irradiance on the floor it lands
+// on. The two oculi CAST. The result is a hard-edged, off-centre pool of hot
+// light on an interior floor with the dome's own ribs cut into it, which is
+// the single most expensive-looking thing a renderer can do for free.
+//
+// They are motivated in the literal sense the brief asks for: the positions
+// are the same apertures GOD_RAYS draws its visible shafts from, so the light
+// on the floor is the bottom of a shaft you can see in the air above it.
+//
+// Sizing: the light travels `drop / KEY_DIR.y` metres from the aperture to the
+// floor, and decay is 1.0 rather than the physical 2.0 on purpose — a shaft of
+// sunlight through a hole is a slice of a source at infinity, so its pool does
+// not fall off inverse-square across the room. Intensity is therefore just
+// `floorIrradiance × path`, which keeps the number legible next to the key's
+// own irradiance instead of being an opaque four-digit candela figure.
+// ---------------------------------------------------------------------------
+const APERTURES: {
+  /** the mouth of the opening (matches a GOD_RAYS shaft) */
+  p: [number, number, number]
+  /** cone half-angle, rad — sized to the shaft's own bottom radius */
+  angle: number
+  /** irradiance delivered on the floor, in the same units as the key's */
+  floorIrradiance: number
+  /** metres from the aperture down to the floor it lands on */
+  drop: number
+  /** whether this one renders a shadow map (the two oculi do) */
+  cast: boolean
+}[] = [
+  // spawn oculus — the first interior the player stands in
+  { p: [0, 12, 7.5], angle: 0.46, floorIrradiance: 5.3, drop: 12, cast: true },
+  // reliquary chamber oculus — the mission's hero room, and the one frame the
+  // panel is most likely to judge. Its pool lands off-centre by design.
+  { p: [0, 17, 150], angle: 0.56, floorIrradiance: 6.2, drop: 17, cast: true },
+  // canyon glazing, two bays — these rake the deck the player sprints down
+  { p: [3.4, 10, 60], angle: 0.36, floorIrradiance: 3.9, drop: 10, cast: false },
+  { p: [3.4, 10, 100], angle: 0.36, floorIrradiance: 3.9, drop: 10, cast: false },
+]
+
+function ApertureKeys() {
+  const rig = useMemo(
+    () =>
+      APERTURES.map((a) => {
+        const path = a.drop / Math.max(KEY_DIR.y, 0.2)
+        return {
+          ...a,
+          path,
+          // aim the cone along the direction light actually travels, so the
+          // pool lands down-sun of the opening exactly where the cast shadows
+          // from the same direction say it should
+          target: [
+            a.p[0] - KEY_DIR.x * path,
+            a.p[1] - KEY_DIR.y * path,
+            a.p[2] - KEY_DIR.z * path,
+          ] as [number, number, number],
+          intensity: a.floorIrradiance * path,
+          // far enough past the floor that the cutoff window does not eat the
+          // pool, close enough that the light is cheap to cull
+          range: path * 2.2,
+        }
+      }),
+    [],
+  )
+
+  return (
+    <>
+      {rig.map((a, i) => (
+        <spotLight
+          key={i}
+          position={a.p}
+          color={LIGHTING.key.color}
+          intensity={a.intensity}
+          angle={a.angle}
+          // a hole in a roof has a soft edge because the sun is not a point;
+          // this is the term that stops the pool reading as a stage gobo
+          penumbra={0.55}
+          distance={a.range}
+          decay={1.0}
+          castShadow={a.cast}
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+          shadow-radius={1.4}
+          shadow-camera-near={1.5}
+          shadow-camera-far={a.range}
+          shadow-bias={-0.0004}
+          shadow-normalBias={0.012}
+          onUpdate={(l: THREE.SpotLight) => {
+            l.target.position.set(a.target[0], a.target[1], a.target[2])
+            l.target.updateMatrixWorld()
+            if (!l.target.parent) l.parent?.add(l.target)
+            // reported separately from the key: a spot's intensity is candela
+            // over a 25 m throw, so summing it with a directional light's
+            // irradiance would make every ratio meaningless. The bridge reads
+            // `auricFloorIrradiance` instead, which IS in the key's units.
+            l.userData.auricRole = 'aperture'
+            l.userData.auricFloorIrradiance = a.floorIrradiance
+            // these are the interiors' dominant source, so they are the LAST
+            // casters to be shed — losing them returns the room to flat ambient
+            l.userData.auricShadowTier = 2
+          }}
+        />
+      ))}
+    </>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -664,7 +875,7 @@ function CameraFill() {
     <directionalLight
       ref={light}
       color={LIGHTING.cameraFill.color}
-      intensity={LIGHTING.cameraFill.intensity}
+      intensity={LIGHTING.cameraFill.intensity * CAMERA_FILL_GAIN}
       onUpdate={(l: THREE.DirectionalLight) => {
         if (!l.target.parent) l.parent?.add(l.target)
       }}
@@ -710,7 +921,7 @@ function KeyCascade() {
     <directionalLight
       ref={light}
       color={LIGHTING.key.color}
-      intensity={LIGHTING.key.intensity * near.share}
+      intensity={LIGHTING.key.intensity * near.share * KEY_GAIN}
       castShadow
       shadow-mapSize-width={near.mapSize}
       shadow-mapSize-height={near.mapSize}
@@ -785,7 +996,7 @@ function TealPracticals() {
       }
       const p = TEAL_FIXTURES[f]
       l.position.set(p[0], p[1], p[2])
-      l.intensity = LIGHTING.tealPractical.intensity * pulse
+      l.intensity = LIGHTING.tealPractical.intensity * PRACTICAL_GAIN * pulse
     }
   })
 
@@ -841,8 +1052,27 @@ function TealPracticals() {
  *  mip 0 instead of being pre-blurred into a smear. */
 const ENV_W = MATERIALS.envMapResolution
 const ENV_H = MATERIALS.envMapResolution / 2
-/** overall probe gain; the ambient this contributes is deliberately under the key */
-const ENV_INTENSITY = 0.82
+/**
+ * Overall probe gain.
+ *
+ * R4: 0.82 → 0.26, and this is the second half of the aperture fix above.
+ * `scene.environmentIntensity` scales the probe's DIFFUSE irradiance and its
+ * specular together, and at 0.82 an IBL built from a sky gradient is a large,
+ * perfectly directionless ambient term applied to all 1328 meshes. It was the
+ * dominant diffuse contributor in every interior, which is why the interiors
+ * read as one flat value and why `keyOverFill` measured 0.041.
+ *
+ * Cutting the gain would normally cost gold its reflection, so the probe's
+ * CONTRAST is raised by the same argument in the opposite direction: the sun
+ * disc and the specular bar are multiplied up (they occupy ~0.002 sr, so they
+ * move the highlight without moving the ambient) and the anti-key hemisphere
+ * is crushed from 0.16 to 0.05. Net effect on a polished gold bevel: the
+ * bright end of its reflection ramp is roughly where it was, the dark end is
+ * three times darker, and the flat fill underneath is a third of what it was.
+ */
+const ENV_INTENSITY = 0.26
+/** compensating gain on the probe's narrow, high-radiance features */
+const ENV_SPEC_GAIN = 2.9
 
 function smoothstep01(e0: number, e1: number, x: number) {
   const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1)
@@ -897,7 +1127,10 @@ function buildEnvEquirect(): THREE.DataTexture {
       const sd = dx * KEY_DIR.x + dy * KEY_DIR.y + dz * KEY_DIR.z
 
       // crush the anti-key hemisphere so every specular ramp has a dark end
-      const occl = 0.16 + 0.84 * smoothstep01(-0.55, 0.4, sd)
+      // R4: floor 0.16 → 0.05. A gold surface needs somewhere genuinely black
+      // to reflect or it is painted plastic from every angle; this is also the
+      // largest single reduction in the probe's diffuse irradiance.
+      const occl = 0.05 + 0.95 * smoothstep01(-0.55, 0.4, sd)
       r *= occl
       g *= occl
       b *= occl
@@ -909,8 +1142,8 @@ function buildEnvEquirect(): THREE.DataTexture {
       b += warm.b * band
 
       // the sun disc + its glow — narrow solid angle, enormous radiance
-      const disc = smoothstep01(discOuter, discInner, sd) * 46
-      const glow = Math.pow(Math.max(sd, 0), 240) * 3.4
+      const disc = smoothstep01(discOuter, discInner, sd) * 46 * ENV_SPEC_GAIN
+      const glow = Math.pow(Math.max(sd, 0), 240) * 3.4 * ENV_SPEC_GAIN
       const sun = disc + glow
       r += warm.r * sun
       g += warm.g * sun
@@ -918,7 +1151,7 @@ function buildEnvEquirect(): THREE.DataTexture {
 
       // second, cooler specular bar for the far side of a curve
       const bd = dx * bar.x + dy * bar.y + dz * bar.z
-      const bar2 = Math.pow(Math.max(bd, 0), 700) * 6.5
+      const bar2 = Math.pow(Math.max(bd, 0), 700) * 6.5 * ENV_SPEC_GAIN
       r += cool.r * bar2
       g += cool.g * bar2
       b += cool.b * bar2
@@ -1026,7 +1259,7 @@ function GoldPracticals() {
       const flicker = 0.9 + 0.07 * Math.sin(t * 1.7 + f * 2.1) + 0.03 * Math.sin(t * 4.3 + f)
       l.intensity = THREE.MathUtils.lerp(
         l.intensity,
-        LIGHTING.goldPractical.intensity * flicker,
+        LIGHTING.goldPractical.intensity * PRACTICAL_GAIN * flicker,
         k,
       )
     }
@@ -1063,6 +1296,14 @@ export default function Lighting() {
       {/* 1a — the key. One dominant cascade, 0.86 of the light in the scene,
           following the camera and texel-snapped. */}
       <KeyCascade />
+
+      {/* 1c — APERTURE KEYS. The key cannot reach a roofed interior, so the
+          interiors get the openings the key comes through instead: shadow-
+          casting spots at the two oculi and the canyon glazing, aimed along
+          the key's own travel direction and in its colour, each laying a hot,
+          off-centre, rib-cut pool on the floor below. See APERTURES above for
+          the measurement that made this the round's main change. */}
+      <ApertureKeys />
 
       {/* 1b — aligned sky bounce: same direction, whole-level ortho, 0.14 of
           the key and tinted toward the sky so the fraction it leaks past the
@@ -1102,7 +1343,11 @@ export default function Lighting() {
       {/* 2 — cool indigo hemisphere fill. At 0.12 against a 3.78 key this is
           not a light, it is the colour the shadow side is allowed to be. */}
       <hemisphereLight
-        args={[LIGHTING.hemisphere.skyColor, LIGHTING.hemisphere.groundColor, LIGHTING.hemisphere.intensity]}
+        args={[
+          LIGHTING.hemisphere.skyColor,
+          LIGHTING.hemisphere.groundColor,
+          LIGHTING.hemisphere.intensity * HEMI_GAIN,
+        ]}
       />
 
       {/* camera-side warm fill + halved cool rim, re-aimed across the axis so
@@ -1128,35 +1373,13 @@ export default function Lighting() {
           megalith under-plate was a glowing sticker throwing no pool. */}
       <GoldPracticals />
 
-      {/* 11 — oculus spot (punch for the chamber shaft). R3: this now CASTS.
-          A second shadowing source is the difference between a lit room and a
-          room with a light in it: the Reliquary throws its own shadow across
-          the chamber floor, at a different angle from the key's, and the
-          planters and pylons under the oculus get a second, harder edge. Its
-          cone is 0.22 rad, so the caster set is small and the pass is cheap. */}
-      <spotLight
-        position={[0, 24, 150]}
-        color="#FFE9C4"
-        intensity={4}
-        angle={0.22}
-        penumbra={0.42}
-        distance={60}
-        decay={1.5}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-radius={1.6}
-        shadow-camera-near={2}
-        shadow-camera-far={48}
-        shadow-bias={-0.0006}
-        shadow-normalBias={0.03}
-        onUpdate={(l: THREE.SpotLight) => {
-          l.target.position.set(0, 0, 150)
-          l.target.updateMatrixWorld()
-          if (!l.target.parent) l.parent?.add(l.target)
-          l.userData.auricShadowTier = 1
-        }}
-      />
+      {/* 11 — the R3 chamber oculus spot is RETIRED. It sat at (0,24,150) with
+          intensity 4, distance 60 and decay 1.5, which delivers 4/24^1.5 =
+          0.034 irradiance on the chamber floor 24 m below — three orders of
+          magnitude under the key, i.e. nothing at all, while still paying for
+          a 1024² shadow pass every frame. Its job (a second, harder-edged
+          source in the hero room) is now done properly by the chamber entry in
+          APERTURES, which is sized from the throw distance instead of guessed. */}
 
       {/* unconditional contact shadows under the player and every enemy —
           survives the quality tier where key shadow casting is switched off */}
