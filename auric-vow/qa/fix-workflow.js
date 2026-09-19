@@ -8,9 +8,10 @@ export const meta = {
 }
 
 const ROOT = '/home/user/-/auric-vow'
-const ORDER = args && args.workOrder ? args.workOrder : ''
-const MAP = args && args.map ? args.map : ''
+const ORDER_PATH = args && args.orderPath ? args.orderPath : 'qa/work-order-r1.md'
+const MAP_PATH = args && args.mapPath ? args.mapPath : 'qa/map.md'
 const ROUND = args && args.round ? args.round : 1
+const NOTES = args && args.notes ? args.notes : ''
 
 const RESULT_SCHEMA = {
   type: 'object',
@@ -119,13 +120,14 @@ ${s.owns.map((f) => '- ' + f).join('\n')}
 
 Four other engineers are editing the other subsystems in the same working tree at the same time. Touching a file outside this list will collide with their work and lose changes. If a task in the work order needs a file you do not own, put it in notDone and say which workstream should take it. The one exception is src/game/config.ts: you may ADD new constants for your own subsystem, but never edit or remove existing ones.
 
-## The work order from the review
+## Corrections to the work order — these override it where they conflict
 
-${ORDER}
+${NOTES}
 
-## Technical map of the codebase
+## Required reading, before you touch anything
 
-${MAP}
+- \`${ROOT}/${ORDER_PATH}\` — the review's work order. Read your own section in full, and skim the others so you know what your neighbours are changing.
+- \`${ROOT}/${MAP_PATH}\` — a technical map of the codebase written by an earlier audit pass: architecture, per-subsystem entry points, and a weakness register with ids like E1, P3, C2.
 
 ## How to work
 

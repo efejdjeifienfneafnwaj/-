@@ -71,7 +71,10 @@ async function main() {
     console.log('shot', name, '-', note)
   }
 
-  await page.evaluate((dt) => window.__qa.setFixedDt(dt), DT)
+  /** retune the fixed step: short-lived flashes need a fine step to be caught,
+   *  long effects need a coarse one so the shot does not cost minutes */
+  const setDt = (dt) => page.evaluate((dt) => window.__qa.setFixedDt(dt), dt)
+  await setDt(DT)
   await step(4)
   await snap('01_title', 'title screen over the live world backdrop')
 
@@ -114,42 +117,68 @@ async function main() {
   // arena + enemies
   await page.evaluate(() => { window.__qa.setPhase('EXTERMINATE'); window.__qa.grantEnergy(); window.__qa.teleport(0, 0.2, 180) })
   await step(30)
-  const aimed = await page.evaluate(() => {
-    const p = window.__playerRef.position
-    const all = window.__qa.enemyPositions().filter((e) => e[2])
-    if (!all.length) return null
-    // prefer ground troops over high-hovering drones: aiming at a drone
-    // points the camera at empty sky and the shot shows nothing
-    const ground = all.filter((e) => e[3][1] < p.y + 3)
-    const es = ground.length ? ground : all
-    es.sort((a, b) => Math.hypot(a[3][0] - p.x, a[3][2] - p.z) - Math.hypot(b[3][0] - p.x, b[3][2] - p.z))
-    const e = es[0]
-    window.__qa.lookAt(e[3][0], e[3][1] + 1.2, e[3][2])
-    return { count: all.length, target: e }
-  })
-  await step(4)
-  await snap('08_enemies', 'combat arena with live enemies: ' + JSON.stringify(aimed && aimed.count))
 
-  // rifle fire
-  await page.mouse.down(); await step(5)
+  /**
+   * Stand the player a fixed distance from a live GROUND enemy and aim at its
+   * chest, so combat frames actually contain a target. Aiming at the nearest
+   * enemy without this puts high-hovering drones (and therefore empty sky) in
+   * frame, which is what round 1 captured.
+   */
+  const frameEnemy = (standoff = 11) =>
+    page.evaluate((standoff) => {
+      const p = window.__playerRef.position
+      const all = window.__qa.enemyPositions().filter((e) => e[2])
+      if (!all.length) return null
+      const ground = all.filter((e) => e[3][1] < 3)
+      const es = ground.length ? ground : all
+      es.sort(
+        (a, b) =>
+          Math.hypot(a[3][0] - p.x, a[3][2] - p.z) - Math.hypot(b[3][0] - p.x, b[3][2] - p.z),
+      )
+      const e = es[0]
+      const [ex, ey, ez] = e[3]
+      // place the player standoff metres from the target, on the arena side
+      const dx = p.x - ex, dz = p.z - ez
+      const len = Math.hypot(dx, dz) || 1
+      window.__qa.teleport(ex + (dx / len) * standoff, Math.max(0.2, ey), ez + (dz / len) * standoff)
+      window.__qa.lookAt(ex, ey + 1.1, ez)
+      return { count: all.length, ground: ground.length, target: e, standoff }
+    }, standoff)
+
+  const aimed = await frameEnemy(11)
+  await step(6)
+  await snap('08_enemies', 'combat arena framed on a live ground enemy: ' + JSON.stringify(aimed && aimed.count))
+
+  // rifle fire — fine step so the muzzle flash and tracers are caught mid-life
+  await frameEnemy(11)
+  await step(2)
+  await setDt(1 / 90)
+  await page.mouse.down(); await step(3)
   await snap('09_rifle', 'rifle firing: muzzle flash, tracers, impacts')
   await step(8)
   await snap('10_rifle_hits', 'sustained fire with hit feedback and damage numbers')
-  await page.mouse.up(); await step(2)
+  await page.mouse.up()
+  await setDt(DT)
+  await step(2)
 
   // abilities
-  await page.keyboard.press('KeyQ'); await step(3)
+  await frameEnemy(13)
+  await page.keyboard.press('KeyQ'); await step(2)
   await snap('11_ability_dash', 'Gilt Dash (Q): blink-dash with afterimages')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
-  await page.keyboard.press('KeyE'); await step(4)
+  await frameEnemy(14)
+  await page.keyboard.press('KeyE'); await step(3)
   await snap('12_ability_volley', 'Sunspike Volley (E): homing javelin fan')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
-  await page.keyboard.press('Digit1'); await step(4)
+  await frameEnemy(11)
+  await page.keyboard.press('Digit1'); await step(3)
   await snap('13_ability_halo', 'Aegis Halo (1): ringed gold barrier')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
+  await frameEnemy(9)
+  await setDt(1 / 45)
   await page.keyboard.press('Digit4'); await step(3)
   await snap('14_ultimate_start', 'Auric Requiem (4): nova ignition')
   await step(6)
@@ -158,19 +187,13 @@ async function main() {
   await snap('16_ultimate_fade', 'Auric Requiem dissipating')
 
   // melee
-  await page.evaluate(() => {
-    const p = window.__playerRef.position
-    const es = window.__qa.enemyPositions().filter((e) => e[2])
-    if (es.length) {
-      es.sort((a, b) => Math.hypot(a[3][0] - p.x, a[3][2] - p.z) - Math.hypot(b[3][0] - p.x, b[3][2] - p.z))
-      const e = es[0]
-      window.__qa.teleport(e[3][0] - 2.5, e[3][1], e[3][2])
-      window.__qa.lookAt(e[3][0], e[3][1] + 1.2, e[3][2])
-    }
-  })
-  await step(3)
+  await frameEnemy(2.6)
+  await setDt(1 / 60)
+  await step(2)
   await page.keyboard.press('KeyF'); await step(3)
   await snap('17_katana', 'katana slash arc')
+
+  await setDt(DT)
 
   // wide environment / composition shots
   await page.evaluate(() => { window.__qa.teleport(-22, 6.5, 172); window.__qa.lookAt(6, 2, 205) })
