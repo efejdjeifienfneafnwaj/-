@@ -129,7 +129,8 @@ async function main() {
       const p = window.__playerRef.position
       const all = window.__qa.enemyPositions().filter((e) => e[2])
       if (!all.length) return null
-      const ground = all.filter((e) => e[3][1] < 3)
+      // ground troops only: a drone hovering overhead puts empty sky in frame
+      const ground = all.filter((e) => e[3][1] < 2.5)
       const es = ground.length ? ground : all
       es.sort(
         (a, b) =>
@@ -137,26 +138,36 @@ async function main() {
       )
       const e = es[0]
       const [ex, ey, ez] = e[3]
-      // place the player standoff metres from the target, on the arena side
       const dx = p.x - ex, dz = p.z - ez
       const len = Math.hypot(dx, dz) || 1
-      window.__qa.teleport(ex + (dx / len) * standoff, Math.max(0.2, ey), ez + (dz / len) * standoff)
+      window.__qa.teleport(ex + (dx / len) * standoff, 0.2, ez + (dz / len) * standoff)
       window.__qa.lookAt(ex, ey + 1.1, ez)
+      // remember the target so the aim can be re-applied right before the
+      // shutter: the player settles onto the floor over the following frames
+      // and the camera boom drifts off the target if it is aimed only once
+      window.__qaTarget = [ex, ey + 1.1, ez]
       return { count: all.length, ground: ground.length, target: e, standoff }
     }, standoff)
 
+  /** re-apply the aim at the remembered target, immediately before a shot */
+  const reaim = () =>
+    page.evaluate(() => {
+      const t = window.__qaTarget
+      if (t) window.__qa.lookAt(t[0], t[1], t[2])
+    })
+
   const aimed = await frameEnemy(11)
   await step(6)
-  await snap('08_enemies', 'combat arena framed on a live ground enemy: ' + JSON.stringify(aimed && aimed.count))
+  await reaim(); await step(1); await snap('08_enemies', 'combat arena framed on a live ground enemy: ' + JSON.stringify(aimed && aimed.count))
 
   // rifle fire — fine step so the muzzle flash and tracers are caught mid-life
   await frameEnemy(11)
   await step(2)
   await setDt(1 / 90)
   await page.mouse.down(); await step(3)
-  await snap('09_rifle', 'rifle firing: muzzle flash, tracers, impacts')
+  await reaim(); await step(1); await snap('09_rifle', 'rifle firing: muzzle flash, tracers, impacts')
   await step(8)
-  await snap('10_rifle_hits', 'sustained fire with hit feedback and damage numbers')
+  await reaim(); await step(1); await snap('10_rifle_hits', 'sustained fire with hit feedback and damage numbers')
   await page.mouse.up()
   await setDt(DT)
   await step(2)
@@ -164,34 +175,34 @@ async function main() {
   // abilities
   await frameEnemy(13)
   await page.keyboard.press('KeyQ'); await step(2)
-  await snap('11_ability_dash', 'Gilt Dash (Q): blink-dash with afterimages')
+  await reaim(); await step(1); await snap('11_ability_dash', 'Gilt Dash (Q): blink-dash with afterimages')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
   await frameEnemy(14)
   await page.keyboard.press('KeyE'); await step(3)
-  await snap('12_ability_volley', 'Sunspike Volley (E): homing javelin fan')
+  await reaim(); await step(1); await snap('12_ability_volley', 'Sunspike Volley (E): homing javelin fan')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
   await frameEnemy(11)
   await page.keyboard.press('Digit1'); await step(3)
-  await snap('13_ability_halo', 'Aegis Halo (1): ringed gold barrier')
+  await reaim(); await step(1); await snap('13_ability_halo', 'Aegis Halo (1): ringed gold barrier')
   await step(6)
   await page.evaluate(() => window.__qa.grantEnergy())
   await frameEnemy(9)
   await setDt(1 / 45)
   await page.keyboard.press('Digit4'); await step(3)
-  await snap('14_ultimate_start', 'Auric Requiem (4): nova ignition')
+  await reaim(); await step(1); await snap('14_ultimate_start', 'Auric Requiem (4): nova ignition')
   await step(6)
-  await snap('15_ultimate_peak', 'Auric Requiem at full expansion with slow-mo grade')
+  await reaim(); await step(1); await snap('15_ultimate_peak', 'Auric Requiem at full expansion with slow-mo grade')
   await step(12)
-  await snap('16_ultimate_fade', 'Auric Requiem dissipating')
+  await reaim(); await step(1); await snap('16_ultimate_fade', 'Auric Requiem dissipating')
 
   // melee
   await frameEnemy(2.6)
   await setDt(1 / 60)
   await step(2)
   await page.keyboard.press('KeyF'); await step(3)
-  await snap('17_katana', 'katana slash arc')
+  await reaim(); await step(1); await snap('17_katana', 'katana slash arc')
 
   await setDt(DT)
 

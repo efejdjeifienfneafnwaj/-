@@ -1,0 +1,26 @@
+{
+  "note": "round 2 capture; 21_skybox missing because the headless renderer crashed on the final frame",
+  "viewport": [1280, 720],
+  "shots": [
+    {"name": "01_title", "note": "title screen over the live world backdrop"},
+    {"name": "02_spawn", "note": "third-person view at the spawn dais looking down the canyon"},
+    {"name": "03_sprint", "note": "sprinting down the traversal canyon"},
+    {"name": "04_air", "note": "mid-air after a jump"},
+    {"name": "05_wallrun", "note": "wall-run along the gold-veined canyon slab"},
+    {"name": "06_slide", "note": "power slide across the reliquary chamber floor"},
+    {"name": "07_chamber", "note": "the Null Reliquary chamber (mission objective)"},
+    {"name": "08_enemies", "note": "combat arena framed on a live ground enemy"},
+    {"name": "09_rifle", "note": "rifle firing: muzzle flash, tracers, impacts"},
+    {"name": "10_rifle_hits", "note": "sustained fire with hit feedback and damage numbers"},
+    {"name": "11_ability_dash", "note": "Gilt Dash (Q): blink-dash with afterimages"},
+    {"name": "12_ability_volley", "note": "Sunspike Volley (E): homing javelin fan"},
+    {"name": "13_ability_halo", "note": "Aegis Halo (1): ringed gold barrier"},
+    {"name": "14_ultimate_start", "note": "Auric Requiem (4): nova ignition"},
+    {"name": "15_ultimate_peak", "note": "Auric Requiem at full expansion with slow-mo grade"},
+    {"name": "16_ultimate_fade", "note": "Auric Requiem dissipating"},
+    {"name": "17_katana", "note": "katana slash arc"},
+    {"name": "18_arena_wide", "note": "arena from the upper gallery: composition, depth, silhouette"},
+    {"name": "19_canyon_wide", "note": "canyon from the high ledge toward the chamber gate"},
+    {"name": "20_extraction", "note": "extraction bridge and pad"}
+  ]
+}

@@ -79,7 +79,7 @@ const crits = await parallel(
     agent(
       `You are a senior art director at a AAA studio doing a hostile review pass. You are reviewing captured frames from a browser game built in Three.js / react-three-fiber called AURIC VOW — a Warframe-style ninja action game. The team claims it is AAA quality. Your job is to establish whether that claim is false.
 
-Read EVERY screenshot in ${SHOTS} (they are PNG files named 01_title.png through 21_skybox.png; ${SHOTS}/state.json lists what each shot was meant to show). Use the Read tool on each image file — you can see images. Do not skip any.
+Read EVERY screenshot in ${SHOTS} (they are PNG files named 01_title.png onward; ${SHOTS}/state.json lists what each shot was meant to show). Use the Read tool on each image file — you can see images. Do not skip any.
 
 Your review lens: **${l.key}**
 ${l.brief}
