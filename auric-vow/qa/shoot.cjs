@@ -89,10 +89,30 @@ async function main() {
   }), n)
 
   const shots = []
+  /**
+   * A frame whose 3D layer failed to paint compresses to a small fraction of a
+   * real render, because only the flat HUD survives. Round 3 banked four such
+   * frames as clean passes. Reject anything suspiciously small, step the clock
+   * and shoot again; report a frame that never recovers rather than keeping it.
+   */
+  const MIN_RENDER_BYTES = 150 * 1024
+  const blankFrames = []
   const snap = async (name, note) => {
     if (QUICK && !QUICK_KEEP.has(name)) { console.log('skip', name); return }
-    await page.screenshot({ path: path.join(OUT, name + '.png'), timeout: 180000 })
-    shots.push({ name, note })
+    const file = path.join(OUT, name + '.png')
+    let bytes = 0
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await step(2)
+      await page.screenshot({ path: file, timeout: 180000 })
+      bytes = fs.statSync(file).size
+      if (bytes >= MIN_RENDER_BYTES) break
+      console.log('retry', name, '- only', bytes, 'bytes, 3D layer probably did not paint')
+    }
+    if (bytes < MIN_RENDER_BYTES) {
+      blankFrames.push({ name, bytes })
+      console.log('BLANK', name, bytes, 'bytes after 3 attempts')
+    }
+    shots.push({ name, note, bytes })
     console.log('shot', name, '-', note)
   }
 
@@ -251,9 +271,12 @@ async function main() {
     return { phase: s.phase, hp: s.hp, shield: s.shield, energy: s.energy, kills: s.kills, tier: s.qualityTier, programs: g.info.programs.length, textures: g.info.memory.textures, geometries: g.info.memory.geometries }
   })
   fs.writeFileSync(path.join(OUT, 'state.json'), JSON.stringify({ state: st, aimed, shots, viewport: [W, H], fixedDt: DT }, null, 2))
+  if (blankFrames.length) {
+    errors.push('BLANK FRAMES (3D layer did not paint): ' + blankFrames.map((b) => b.name + ' ' + b.bytes + 'B').join(', '))
+  }
   fs.writeFileSync(path.join(OUT, 'errors.log'), errors.join('\n'))
   console.log('state', JSON.stringify(st))
-  console.log('errors', errors.length)
+  console.log('errors', errors.length, 'blank', blankFrames.length)
   await browser.close(); srv.close()
 }
 main().catch((e) => { console.error(e); process.exit(1) })

@@ -466,6 +466,10 @@ export default function GameCanvas() {
           toneMappingExposure: LIGHTING.exposure,
           outputColorSpace: THREE.SRGBColorSpace,
           powerPreference: 'high-performance',
+          // QA capture only: without a preserved drawing buffer a screenshot
+          // taken between frames grabs a cleared surface, which banked four
+          // all-black frames in the round 3 review as if they were renders.
+          preserveDrawingBuffer: QA_CAPTURE,
         }}
         camera={{ fov: RENDERER.fov, near: 0.1, far: 400, position: [0, 3, 8] }}
       >
