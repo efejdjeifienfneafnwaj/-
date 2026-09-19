@@ -116,12 +116,16 @@ async function main() {
   await step(30)
   const aimed = await page.evaluate(() => {
     const p = window.__playerRef.position
-    const es = window.__qa.enemyPositions().filter((e) => e[2])
-    if (!es.length) return null
+    const all = window.__qa.enemyPositions().filter((e) => e[2])
+    if (!all.length) return null
+    // prefer ground troops over high-hovering drones: aiming at a drone
+    // points the camera at empty sky and the shot shows nothing
+    const ground = all.filter((e) => e[3][1] < p.y + 3)
+    const es = ground.length ? ground : all
     es.sort((a, b) => Math.hypot(a[3][0] - p.x, a[3][2] - p.z) - Math.hypot(b[3][0] - p.x, b[3][2] - p.z))
     const e = es[0]
     window.__qa.lookAt(e[3][0], e[3][1] + 1.2, e[3][2])
-    return { count: es.length, target: e }
+    return { count: all.length, target: e }
   })
   await step(4)
   await snap('08_enemies', 'combat arena with live enemies: ' + JSON.stringify(aimed && aimed.count))
