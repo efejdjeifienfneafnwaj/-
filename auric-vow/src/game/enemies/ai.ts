@@ -19,6 +19,10 @@ const _dir = new THREE.Vector3()
 const _whisker = new THREE.Vector3()
 const _sep = new THREE.Vector3()
 const _flat = new THREE.Vector3()
+// [R2] perception scratch — canSeePlayer ran twice per enemy per second and
+// allocated two Vector3 on every call (rule: nothing allocates per frame)
+const _look = new THREE.Vector3()
+const _target = new THREE.Vector3()
 
 /** line-of-sight between two world points (static level colliders only) */
 export function hasLineOfSight(from: THREE.Vector3, to: THREE.Vector3): boolean {
@@ -44,11 +48,16 @@ export function canSeePlayer(e: EnemyEntity, range: number, fovDeg: number, faci
       _flat.normalize()
       const cosHalf = Math.cos(THREE.MathUtils.degToRad(fovDeg / 2))
       // flatten the look dir too for a fair horizontal cone
-      const dFlat = _flat.dot(_dir.clone().setY(0).normalize())
-      if (dFlat < cosHalf && dist > 2.5) return false
+      _look.copy(_dir).setY(0)
+      if (_look.lengthSq() > 0.000001) {
+        _look.normalize()
+        const dFlat = _flat.dot(_look)
+        if (dFlat < cosHalf && dist > 2.5) return false
+      }
     }
   }
-  return hasLineOfSight(eye, PlayerRef.position.clone().setY(PlayerRef.position.y + PlayerRef.height * 0.5))
+  _target.copy(PlayerRef.position).setY(PlayerRef.position.y + PlayerRef.height * 0.5)
+  return hasLineOfSight(eye, _target)
 }
 
 /** horizontal separation push from other alive enemies (repulsion radius 1.2 m) */

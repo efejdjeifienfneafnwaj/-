@@ -10,6 +10,17 @@
  *   the player moves; the key's energy is split between them.
  * - ambient is cut hard (hemisphere 0.7→0.32, camera fill 0.55→0.25, cool rim
  *   halved) so the 2.2 key does the modelling and recesses keep true darks.
+ *
+ * R2 (art review round 2), in order of how much each one changed the frame:
+ * - KEY_OFFSET reweighted so the −Z component (the axis the camera looks
+ *   down) carries 0.58 of the key instead of 0.27, at a lower 41° elevation.
+ * - key 2.2 → 4.4 and every fill term cut to roughly a third, so a shadow is
+ *   a ~3.5-stop event rather than a quarter-stop one (see config LIGHTING).
+ * - the PMREM probe is re-weighted by SOLID ANGLE: the narrow specular bar
+ *   goes 6 → 12 while every broad panel drops 3–4×, which buys gold its
+ *   reflection without the probe acting as ambient fill.
+ * - ContactBlobs: an unconditional projected contact shadow under the player
+ *   and every enemy, so grounding survives the tier where casting is off.
  * - practicals are no longer six hardcoded coordinates: positions come from
  *   ShrineStation.TEAL_FIXTURES (the actual emissive strips, offset along the
  *   surface normal) and only the nearest 4 are lit, with intensity locked to
@@ -26,11 +37,39 @@ import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { Environment, Lightformer } from '@react-three/drei'
-import { LIGHTING, MATERIALS, COLORS, FOG } from '../config'
+import { LIGHTING, MATERIALS, COLORS, SKY } from '../config'
 import { TEAL_FIXTURES } from './ShrineStation'
+import { PlayerRef } from '../player/PlayerRef'
+import { EnemyRegistry } from '../enemies/EnemyRegistry'
+import { raycastLevel } from './Colliders'
+import { getContactBlobTexture } from '../textures'
 
-/** constant key direction (light → target); everything else follows it */
-const KEY_OFFSET = new THREE.Vector3(-40, 60, -20).normalize().multiplyScalar(120)
+/**
+ * Constant key direction (light → target); everything else follows it.
+ *
+ * R2 — this moved, and it is one of the most consequential numbers in the rig.
+ * The old vector (-40, 60, -20) had the right hemisphere but almost no weight
+ * along the axis the player actually looks down: the −Z term was 0.27 of a
+ * unit vector, so the faces the camera sees took barely a quarter of the key
+ * and the frame read flat no matter how bright the key got.
+ *
+ * Sign discipline, because it is easy to get backwards and a capture proved
+ * it: KEY_OFFSET is the light's POSITION relative to its target, so light
+ * TRAVELS along −KEY_OFFSET. A surface is lit when its normal points back
+ * along +KEY_OFFSET. The camera looks down +Z and therefore sees −Z-facing
+ * surfaces, so the key must sit at NEGATIVE z for the visible faces to be the
+ * lit ones. (Moving it to +z was tried and flattened every frame into
+ * backlight — worth stating here so nobody repeats it.)
+ *
+ * What actually changed in R2 is the WEIGHTING, not the hemisphere: the −Z
+ * component goes from 0.27 to 0.58 of the vector, so the faces the player
+ * walks toward take more than double the key they used to, and the elevation
+ * drops 53° → 41° so shadows are long enough to read as events. At that
+ * elevation the 17 m canyon outer wall throws its edge to about x = 2.5,
+ * which leaves the east third of the deck in full key and the rest in shadow
+ * — a raking, half-lit deck rather than a uniformly lit one.
+ */
+const KEY_OFFSET = new THREE.Vector3(-46, 66, -58).normalize().multiplyScalar(120)
 /** unit vector pointing from the scene TOWARD the key (used by the skybox) */
 export const KEY_DIR = KEY_OFFSET.clone().normalize()
 
@@ -127,6 +166,155 @@ function DustField() {
         />
       </points>
     </group>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Unconditional contact shadows (work order env-art #2)
+//
+// The cascade shadows are back (the R2 diagnosis found the maps were fine and
+// almost nothing was flagged `receiveShadow`), but a character still needs a
+// hard contact AO patch directly under it: a cascade's softest PCF tap is
+// wider than the gap between a boot and the deck, and on quality tier 1 the
+// key stops casting entirely. So every ground entity also gets a projected
+// blob, drawn as one InstancedMesh of horizontal quads with a per-instance
+// strength attribute.
+//
+// Cost: one draw call, one throttled raycast per frame (round-robin over the
+// slots), zero allocation in the frame loop.
+// ---------------------------------------------------------------------------
+const BLOB_SLOTS = 10
+const _blobM = new THREE.Matrix4()
+const _blobQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0))
+const _blobP = new THREE.Vector3()
+const _blobS = new THREE.Vector3()
+const _blobOrigin = new THREE.Vector3()
+const _blobDown = new THREE.Vector3(0, -1, 0)
+/** how far below an entity we look for a floor before giving up */
+const BLOB_PROBE = 7
+/** per-slot scratch, module scope so the frame loop allocates nothing */
+const _blobX = new Float32Array(BLOB_SLOTS)
+const _blobY = new Float32Array(BLOB_SLOTS)
+const _blobZ = new Float32Array(BLOB_SLOTS)
+const _blobR = new Float32Array(BLOB_SLOTS)
+const _blobA = new Float32Array(BLOB_SLOTS)
+
+function ContactBlobs() {
+  const mesh = useRef<THREE.InstancedMesh>(null!)
+  /** last known ground height per slot; probed round-robin */
+  const groundY = useMemo(() => new Float32Array(BLOB_SLOTS).fill(-999), [])
+  const probeCursor = useRef(0)
+
+  const geom = useMemo(() => {
+    const g = new THREE.PlaneGeometry(1, 1)
+    g.setAttribute(
+      'aStrength',
+      new THREE.InstancedBufferAttribute(new Float32Array(BLOB_SLOTS), 1),
+    )
+    return g
+  }, [])
+
+  const mat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: { uMap: { value: getContactBlobTexture() } },
+        vertexShader: /* glsl */ `
+          attribute float aStrength;
+          varying vec2 vUv;
+          varying float vS;
+          void main() {
+            vUv = uv;
+            vS = aStrength;
+            gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: /* glsl */ `
+          uniform sampler2D uMap;
+          varying vec2 vUv;
+          varying float vS;
+          void main() {
+            float a = texture2D(uMap, vUv).a * vS;
+            if (a <= 0.004) discard;
+            gl_FragColor = vec4(0.0, 0.0, 0.0, a);
+          }
+        `,
+        transparent: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+        toneMapped: false,
+      }),
+    [],
+  )
+
+  useFrame(() => {
+    const m = mesh.current
+    if (!m) return
+    const strength = geom.getAttribute('aStrength') as THREE.InstancedBufferAttribute
+    const arr = strength.array as Float32Array
+
+    // --- gather: slot 0 is always the player, 1..n the live enemies.
+    //     Written into preallocated scratch arrays; no closure, no object and
+    //     no array is created per frame.
+    let slot = 0
+    _blobX[slot] = PlayerRef.position.x
+    _blobY[slot] = PlayerRef.position.y
+    _blobZ[slot] = PlayerRef.position.z
+    _blobR[slot] = PlayerRef.radius
+    _blobA[slot] = 0.82
+    slot++
+    const enemies = EnemyRegistry.list()
+    for (let i = 0; i < enemies.length && slot < BLOB_SLOTS; i++) {
+      const e = enemies[i]
+      if (!e.alive) continue
+      _blobX[slot] = e.position.x
+      // ground units report feet, drones report body centre — the airborne
+      // fade below handles the difference without a per-type branch
+      _blobY[slot] = e.position.y
+      _blobZ[slot] = e.position.z
+      _blobR[slot] = e.radius
+      _blobA[slot] = 0.7
+      slot++
+    }
+
+    // --- resolve: one floor probe per frame, round-robin over the slots, so
+    //     the level raycast cost is fixed no matter how many enemies are alive
+    const probe = probeCursor.current % BLOB_SLOTS
+    for (let i = 0; i < slot; i++) {
+      const feetY = _blobY[i]
+      if (i === probe || groundY[i] < -900) {
+        _blobOrigin.set(_blobX[i], feetY + 0.6, _blobZ[i])
+        const hit = raycastLevel(_blobOrigin, _blobDown, BLOB_PROBE, ['floor'])
+        groundY[i] = hit ? hit.point.y : feetY
+      }
+      const gy = groundY[i]
+      const air = Math.max(0, feetY - gy)
+      // a shadow spreads and fades as its caster leaves the ground
+      const fade = 1 - THREE.MathUtils.smoothstep(air, 0.05, 3.2)
+      const spread = 1 + Math.min(air, 3.2) * 0.42
+      const size = _blobR[i] * 4.6 * spread
+      _blobP.set(_blobX[i], gy + 0.025, _blobZ[i])
+      _blobS.set(size, size, 1)
+      _blobM.compose(_blobP, _blobQ, _blobS)
+      m.setMatrixAt(i, _blobM)
+      arr[i] = _blobA[i] * fade
+    }
+    // park unused slots
+    for (let i = slot; i < BLOB_SLOTS; i++) arr[i] = 0
+
+    probeCursor.current++
+    strength.needsUpdate = true
+    m.instanceMatrix.needsUpdate = true
+  })
+
+  return (
+    <instancedMesh
+      ref={mesh}
+      args={[geom, mat, BLOB_SLOTS]}
+      frustumCulled={false}
+      renderOrder={2}
+    />
   )
 }
 
@@ -297,60 +485,93 @@ export default function Lighting() {
           lower half of every bevel stays dark, a warm horizon band, and two
           wide sky panels so upward faces pick up the backdrop. */}
       <Environment resolution={MATERIALS.envMapResolution} frames={1} background={false}>
-        <color attach="background" args={['#04060C']} />
-        {/* narrow intensity-6 white strip, above and slightly behind */}
+        <color attach="background" args={['#02030A']} />
+        {/*
+          R2 — the two reviews asked for opposite things here: env-art wanted a
+          much hotter bar so gold reads as metal, vfx-postfx wanted the whole
+          Environment cut so it stops acting as ambient fill. Both are right
+          about different parts of it, and the resolution is SOLID ANGLE.
+
+          A narrow bar contributes almost nothing to total irradiance no matter
+          how bright it is — it is a sharp reflection, not a light. The broad
+          panels are what were flattening the scene: they cover most of the
+          hemisphere, so their intensity goes straight into every surface as
+          uniform fill and cancels the key.
+
+          So: the narrow bar goes UP (6 → 12), every broad panel comes DOWN by
+          roughly 3–4×, and a black occluder is added opposite the bar so a
+          curved gold surface has somewhere dark to reflect. The result is a
+          hard specular ramp across every bevel with no lift in the ambient.
+        */}
+        {/* 1 — the key reflection: narrow, intensity 12, above and behind */}
         <Lightformer
           form="rect"
-          intensity={6}
+          intensity={12}
           color="#FFFFFF"
           position={[0, 9, -5]}
           rotation-x={-Math.PI / 2}
-          scale={[1.1, 14, 1]}
+          scale={[0.85, 14, 1]}
         />
+        {/* 2 — a dimmer warm bar ~90° off, so gold has a second, cooler ramp */}
         <Lightformer
           form="rect"
-          intensity={3.2}
+          intensity={7}
           color={LIGHTING.key.color}
-          position={[-6, 6, -9]}
-          rotation-y={0.6}
-          scale={[0.8, 9, 1]}
+          position={[-9, 5, 0]}
+          rotation-y={Math.PI / 2}
+          scale={[0.6, 8, 1]}
         />
-        {/* near-black ground — nothing bounces up off a void station */}
+        {/* 3 — black occluder opposite the key bar: the dark half of every
+            specular ramp. Without a black in the probe, gold reflects a grey
+            room from every angle and reads as painted plastic. */}
         <Lightformer
           form="rect"
-          intensity={0.12}
+          intensity={0}
+          color="#000000"
+          position={[7, 4, 6]}
+          rotation-y={-Math.PI / 2.4}
+          scale={[14, 14, 1]}
+        />
+        {/* 4 — near-black ground; nothing bounces up off a void station */}
+        <Lightformer
+          form="rect"
+          intensity={0.04}
           color="#07080E"
           position={[0, -8, 0]}
           rotation-x={Math.PI / 2}
           scale={[26, 26, 1]}
         />
-        {/* warm horizon band so gold picks up a low amber roll-off */}
+        {/* 5 — warm horizon band so gold picks up a low amber roll-off */}
         <Lightformer
           form="rect"
-          intensity={0.85}
+          intensity={0.55}
           color="#FFB77A"
           position={[0, 0.4, -12]}
-          scale={[24, 1.4, 1]}
+          scale={[24, 1.1, 1]}
         />
-        {/* sky contribution: horizon on −Z, zenith overhead (work order #10) */}
+        {/* 6/7 — sky contribution, now authored from the R2 sky palette and cut
+            hard: the backdrop sits two stops under the architecture, so it must
+            not light the architecture either */}
         <Lightformer
           form="rect"
-          intensity={0.5}
-          color={FOG.skyHorizon}
+          intensity={0.14}
+          color={SKY.horizon}
           position={[0, 3, -16]}
           scale={[30, 8, 1]}
         />
         <Lightformer
           form="rect"
-          intensity={0.35}
-          color={FOG.skyZenith}
+          intensity={0.1}
+          color={SKY.zenith}
           position={[0, 14, 0]}
           rotation-x={-Math.PI / 2}
           scale={[26, 26, 1]}
         />
-        {/* level-colour bounce: teal corruption east, gold shrine west */}
-        <Lightformer intensity={0.55} color={COLORS.cadenceTeal} position={[11, 2, 0]} rotation-y={-Math.PI / 2} scale={[7, 3, 1]} />
-        <Lightformer intensity={0.6} color={COLORS.regalGold} position={[-11, 2, 0]} rotation-y={Math.PI / 2} scale={[7, 3, 1]} />
+        {/* 8/9 — level-colour bounce: gold shrine west, a trace of corruption
+            east. Teal is down hardest: the colour script reserves it for the
+            hostile domain, and an env-wide teal tint put it on every surface. */}
+        <Lightformer intensity={0.12} color={COLORS.cadenceTeal} position={[11, 2, 0]} rotation-y={-Math.PI / 2} scale={[7, 3, 1]} />
+        <Lightformer intensity={0.22} color={COLORS.regalGold} position={[-11, 2, 0]} rotation-y={Math.PI / 2} scale={[7, 3, 1]} />
       </Environment>
 
       {/* 1a — near shadow cascade (follows the camera, texel-snapped) */}
@@ -359,7 +580,11 @@ export default function Lighting() {
       {/* 1b — far cascade: same direction, whole-level ortho for distant
           blockers (domes, megaliths, monoliths) */}
       <directionalLight
-        position={[KEY_OFFSET.x, KEY_OFFSET.y + 20, KEY_OFFSET.z + 130]}
+        /* exactly parallel to the near cascade — the old `+20` on Y tilted
+           this one a few degrees off, which was invisible while nothing
+           received shadows and would now show as a kink at the cascade
+           boundary where the two shadow directions disagree */
+        position={[KEY_OFFSET.x * 1.6, KEY_OFFSET.y * 1.6, KEY_OFFSET.z * 1.6 + 130]}
         color={LIGHTING.key.color}
         intensity={LIGHTING.key.intensity * (1 - LIGHTING.cascadeSplit)}
         castShadow
@@ -402,13 +627,15 @@ export default function Lighting() {
       {/* 3–8 — teal practicals, nearest 4 modelled vein fixtures */}
       <TealPracticals />
 
-      {/* 11 — oculus spot (punch for the chamber god-ray) */}
+      {/* 11 — oculus spot (punch for the chamber god-ray). R2: 6 → 4 and the
+          cone tightened; at 0.3 rad / intensity 6 it was a second key inside
+          the chamber and the Reliquary lost its shape. */}
       <spotLight
         position={[0, 24, 150]}
         color="#FFE9C4"
-        intensity={6}
-        angle={0.3}
-        penumbra={0.5}
+        intensity={4}
+        angle={0.22}
+        penumbra={0.42}
         distance={60}
         decay={1.5}
         onUpdate={(l: THREE.SpotLight) => {
@@ -417,6 +644,10 @@ export default function Lighting() {
           if (!l.target.parent) l.parent?.add(l.target)
         }}
       />
+
+      {/* unconditional contact shadows under the player and every enemy —
+          survives the quality tier where key shadow casting is switched off */}
+      <ContactBlobs />
 
       <GodRays />
       <DustField />

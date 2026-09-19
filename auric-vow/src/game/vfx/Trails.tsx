@@ -42,9 +42,29 @@ const TARGET_SPAN_SEC = 0.45
 const MIN_SEG = 0.06
 const MAX_SEG = 1.0
 
-/** HDR filament: above the 1.0 bloom knee, so the spine is what glows */
-const SPINE_BOOST = 2.8
+/**
+ * HDR filament: above the bloom knee, so the spine is what glows.
+ * [vfx R2] 2.8 → 1.6. At 2.8 the spine clipped to pure white across the whole
+ * ribbon width once bloom was actually enabled, which is what turned the dash
+ * streak into the featureless white tube the review flagged. 1.6 still sits
+ * comfortably over the 0.85 knee — it blooms as a LINE — while leaving the
+ * cross-ribbon colour ramp visible.
+ */
+const SPINE_BOOST = 1.6
 const EDGE_BOOST = 1.0
+
+/**
+ * [vfx R2] Auto-termination. Ribbons relied entirely on their owner calling
+ * `end()`; an owner that was destroyed, reset or simply forgot left a frozen
+ * streak hanging in the world and permanently consumed one of eight slots.
+ * A ribbon whose smoothed speed sits under STALL_SPEED for STALL_SEC, or that
+ * receives no push at all for ORPHAN_SEC, ends itself.
+ */
+const STALL_SPEED = 2.0
+const STALL_SEC = 0.15
+const ORPHAN_SEC = 0.35
+/** grace period after begin() before the stall test is armed */
+const STALL_ARM_SEC = 0.25
 
 const HEAD_COLOR = new THREE.Color(COLORS.solarWhite)
 const MID_COLOR = new THREE.Color(COLORS.aureate)
@@ -102,6 +122,12 @@ class Ribbon {
   private filled = 1
   /** smoothed emitter speed (m/s), drives the resampling distance */
   private speed = 0
+  /** seconds since begin() — the stall test is armed after STALL_ARM_SEC */
+  private age = 0
+  /** seconds the smoothed speed has been under STALL_SPEED */
+  private stalled = 0
+  /** seconds since the owner last pushed a head position */
+  private sincePush = 0
   private readonly posAttr: THREE.BufferAttribute
   private readonly alphaAttr: THREE.BufferAttribute
   private readonly colorAttr: THREE.BufferAttribute
@@ -174,6 +200,9 @@ class Ribbon {
     this.endAge = 0
     this.filled = 1
     this.speed = 0
+    this.age = 0
+    this.stalled = 0
+    this.sincePush = 0
     this.hasPending = false
     this.pending.copy(p)
     for (const s of this.samples) s.copy(p)
@@ -192,7 +221,14 @@ class Ribbon {
    * rate (V10). Called once per frame, before the strip is rebuilt.
    */
   private resample(realDt: number): void {
-    if (!this.hasPending) return
+    if (!this.hasPending) {
+      // no push this frame: the emitter is gone, stopped, or paused. Bleed the
+      // measured speed so the stall test can fire on a frozen ribbon too.
+      this.sincePush += realDt
+      this.speed *= Math.max(0, 1 - realDt * 6)
+      return
+    }
+    this.sincePush = 0
     this.hasPending = false
     const s = this.samples
     const head = s[0]
@@ -228,6 +264,18 @@ class Ribbon {
   update(dt: number, realDt: number, camera: THREE.Camera): boolean {
     if (!this.active) return false
     this.resample(realDt)
+    // --- auto-termination (V-R2): never depend on the owner calling end() ---
+    if (!this.ending) {
+      this.age += realDt
+      if (this.speed < STALL_SPEED) this.stalled += realDt
+      else this.stalled = 0
+      if (
+        this.age > STALL_ARM_SEC &&
+        (this.stalled > STALL_SEC || this.sincePush > ORPHAN_SEC)
+      ) {
+        this.end()
+      }
+    }
     if (this.ending) {
       this.endAge += dt
       if (this.endAge >= FADE_SEC) {
@@ -260,10 +308,19 @@ class Ribbon {
       else side.normalize()
 
       const t = i / (SAMPLES - 1) // 0 head → 1 tail
+      // [vfx R2] end-on collapse. A camera-facing strip seen along its own
+      // tangent has no width to show — it degenerates into a flat plate
+      // pointed at the lens. Fold both the width and the alpha away as
+      // |dot(tangent, view)| → 1 so the ribbon disappears instead of
+      // becoming a plank across the frame.
+      _t1.copy(dir).normalize()
+      _t2.copy(view).normalize()
+      const endOn = Math.abs(_t1.dot(_t2))
+      const facing = Math.max(0.05, 1 - endOn * endOn * endOn)
       // width: full just behind the head, tapering to a point at the tail.
       // sqrt keeps the body wide instead of pinching immediately.
       const taper = Math.sqrt(Math.max(0, 1 - t)) * (0.55 + 0.45 * Math.min(1, t * 6))
-      const halfW = BASE_HALF_WIDTH * taper * fade
+      const halfW = BASE_HALF_WIDTH * taper * fade * (0.35 + 0.65 * facing)
       const b = i * VPS * 3
       // left edge
       pos[b] = p.x + side.x * halfW
@@ -299,7 +356,7 @@ class Ribbon {
       // alpha: 0 at both edges, 1 at the spine; squared head→tail falloff.
       // Slots that have not been written yet collapse to nothing.
       const grown = i < this.filled ? 1 : 0
-      const along = (1 - t) * (1 - t) * fade * grown
+      const along = (1 - t) * (1 - t) * fade * grown * facing
       const a2 = i * VPS
       alp[a2] = 0
       alp[a2 + 1] = along
@@ -315,6 +372,8 @@ class Ribbon {
 const _side = new THREE.Vector3()
 const _dir = new THREE.Vector3()
 const _view = new THREE.Vector3()
+const _t1 = new THREE.Vector3()
+const _t2 = new THREE.Vector3()
 const _mix = new THREE.Color()
 
 const drainBuffer: TrailOp[] = []

@@ -86,7 +86,7 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
         {stage >= 3 && (
           <div className="avs-actions avs-reveal">
             <button
-              className="avs-btn"
+              className="avs-btn primary"
               onClick={() => {
                 AudioBus.playUIClick()
                 onRetry()

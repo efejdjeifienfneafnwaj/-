@@ -11,19 +11,26 @@
  * layer. Every attack telegraphs: burst fire flares the visor 0.35 s early,
  * melee has a 0.42 s raised-blade windup before it can damage anything.
  *
- * AI: GUARD → ALERT (0.5 s weapon raise) → ATTACK (8–18 m band strafe, LOS
+ * R2 art pass: every lit mesh now receives shadow (the round 2 diagnosis
+ * found 80 of 880 meshes receiving, which is why the game shows no shadow at
+ * all), the crimson accents are authored ABOVE the 1.0 bloom knee through
+ * ENEMY_FX and carry a shared falloff sprite, the fire band moved 8–18 m →
+ * 6–12 m so a trooper is worth looking at on screen, and both attacks ramp
+ * their emissive through the wind-up instead of switching state at the end.
+ *
+ * AI: GUARD → ALERT (0.5 s weapon raise) → ATTACK (6–12 m band strafe, LOS
  * burst-fire with eye-flare telegraph, wound-up melee < 2 m) / RUSH variant
  * (a fixed minority of the squad, not "everyone whenever 3 are alive")
  * → STAGGER (kneel 1.2 s) → dissolve death.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { useGameStore } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
 import { VFX } from '@/game/vfx/VFXBus'
-import { ENEMY_LOOK, ENEMY_SPAWN, PLAYER } from '@/game/config'
+import { ENEMY_FX, ENEMY_LOOK, ENEMY_SPAWN, PLAYER } from '@/game/config'
 import { broadcastAlert, type EnemyEntity } from './EnemyRegistry'
 import {
   canSeePlayer,
@@ -36,16 +43,23 @@ import {
   whiskerSteer,
   PERCEPTION_INTERVAL,
 } from './ai'
-import { patchDissolve, makeOutlineMaterial } from './dissolve'
+import { patchDissolve, makeOutlineMaterial, makeEnemyGlowMaterial } from './dissolve'
 import { fireEnemyBolt } from './EnemyProjectiles'
 
 const SPEED_PATROL = 2
 const SPEED_COMBAT = 4.5
 const SPEED_RUSH = 6
-const DETECT_RANGE = 22
+const DETECT_RANGE = 26
 const DETECT_FOV = 110
-const BAND_MIN = 8
-const BAND_MAX = 18
+/**
+ * [R2] Engagement band pulled 8–18 m → 6–12 m. The review asked for hostiles
+ * that read at a glance; a trooper holding 18 m covers ~40 px of a 1080-line
+ * frame, which is why the capture set reads as an empty arena. Fighting at
+ * 6–12 m roughly doubles the on-screen mass without touching the model scale
+ * (which the colliders and spawn radii are authored against).
+ */
+const BAND_MIN = 6
+const BAND_MAX = 12
 const FALLBACK_DIST = 5
 const BURST_INTERVAL = 1.8
 const BURST_TELEGRAPH = 0.35
@@ -67,6 +81,8 @@ const _sep = new THREE.Vector3()
 const _aimAt = new THREE.Vector3()
 const _fx = new THREE.Vector3()
 const _tmp = new THREE.Vector3()
+/** world position of the carbine muzzle (bolts must leave the barrel) */
+const _muzzle = new THREE.Vector3()
 const EYE_DIM = new THREE.Color(ENEMY_LOOK.accent).multiplyScalar(0.45)
 const EYE_FULL = new THREE.Color(ENEMY_LOOK.accent)
 const EYE_HOT = new THREE.Color(ENEMY_LOOK.accentHot)
@@ -119,11 +135,15 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       transparent: true,
     })
     const barrel = new THREE.MeshBasicMaterial({ color: ENEMY_LOOK.accentHot, toneMapped: false })
+    // soft additive bloom-feeder around the visor + chest core: the accent
+    // cores themselves are small, so without a halo they read as 2 px dots
+    const halo = makeEnemyGlowMaterial(ENEMY_LOOK.accent)
+    halo.opacity = ENEMY_FX.halo.opacity
     const dPlate = patchDissolve(plate)
     const dShell = patchDissolve(shell)
     const dGun = patchDissolve(gunmetal, { rimStrength: ENEMY_LOOK.rimStrength * 0.5 })
     const outline = makeOutlineMaterial()
-    return { plate, shell, gunmetal, eye, core, barrel, dPlate, dShell, dGun, outline }
+    return { plate, shell, gunmetal, eye, core, barrel, halo, dPlate, dShell, dGun, outline }
   }, [])
 
   useEffect(() => {
@@ -134,9 +154,32 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       mats.eye.dispose()
       mats.core.dispose()
       mats.barrel.dispose()
+      mats.halo.dispose()
       mats.outline.dispose()
     }
   }, [mats])
+
+  /**
+   * [R2 blocker] The runtime diagnosis found 80 of 880 meshes with
+   * `receiveShadow` — which is why no shadow lands anywhere in the game, on
+   * the enemies least of all. Every LIT mesh now receives; the additive
+   * cores, the glow sprites and the inverted-hull outline must not (a
+   * BackSide hull that receives shadow shades its own silhouette).
+   *
+   * The caster set is deliberately left exactly as the JSX authored it: the
+   * diagnosis notes the shadow pass scales with CASTERS, so the big plates
+   * keep casting and the small trim stays receive-only. Done as one
+   * traversal rather than 60 JSX props so the body stays readable.
+   */
+  useLayoutEffect(() => {
+    const g = group.current
+    if (!g) return
+    g.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      m.receiveShadow = (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial === true
+    })
+  }, [])
 
   useFrame((_, delta) => {
     const s = useGameStore.getState()
@@ -182,6 +225,7 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       mats.dGun.uniform.value = t
       mats.outline.setOpacity(ENEMY_LOOK.outline.opacity * Math.max(0, 1 - t * 2.2))
       mats.core.opacity = Math.max(0, 1 - t * 4)
+      mats.halo.opacity = ENEMY_FX.halo.opacity * Math.max(0, 1 - t * 3)
       mats.eye.color.copy(EYE_FULL).multiplyScalar(Math.max(0, 1 - t * 3))
       g.position.copy(e.position)
       // ragdoll-ish collapse: fold at the hips, buckle the knees, fall away
@@ -396,6 +440,16 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           e.ai.stateT = 0
           e.ai.shotsLeft = 0
           AudioBus.playEnemyChirp()
+          // the wind-up gets a floor tell as well as the visor ramp, so the
+          // attack is readable when the trooper is behind the player's guard
+          _fx.copy(e.position).setY(e.position.y + 0.04)
+          VFX.ring({
+            position: _fx,
+            color: ENEMY_LOOK.accentHot,
+            maxRadius: MELEE_RANGE * 0.9,
+            life: MELEE_WINDUP,
+            width: 0.12,
+          })
         }
         break
       }
@@ -415,9 +469,14 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
         e.ai.shotsLeft -= 1
         markThreat(e, 'fire', 0.5)
         _aimAt.copy(PlayerRef.position).setY(PlayerRef.position.y + PlayerRef.height * 0.45)
-        _v.subVectors(_aimAt, e.headPosition)
+        // the bolt leaves the BARREL, not the skull: the carbine is posed by
+        // the aim layer below, so a shot at a wall-running player visibly
+        // comes out of a gun that is pointing up at them
+        if (gun.current) gun.current.getWorldPosition(_muzzle)
+        else _muzzle.copy(e.headPosition)
+        _v.subVectors(_aimAt, _muzzle)
         if (hasLineOfSight(e.headPosition, _aimAt)) {
-          fireEnemyBolt(e.headPosition, _v, BOLT_SPEED, BOLT_DAMAGE)
+          fireEnemyBolt(_muzzle, _v, BOLT_SPEED, BOLT_DAMAGE)
           e.ai.muzzle = 0.06
         }
       }
@@ -468,6 +527,16 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       bodyGroup.current.position.y = bounce + idleBob
     }
 
+    // additive AIM layer (N8): when alerted the gun arm and the spine pitch
+    // to the player's actual elevation, so a hostile shooting at a
+    // wall-running or airborne player is visibly tracking them rather than
+    // firing level while the bolt curves away
+    _tmp.subVectors(PlayerRef.position, e.headPosition)
+    const horiz = Math.hypot(_tmp.x, _tmp.z)
+    const aimPitch = e.alerted
+      ? THREE.MathUtils.clamp(Math.atan2(_tmp.y + PlayerRef.height * 0.45, Math.max(0.4, horiz)), -0.7, 0.8)
+      : 0
+
     // arms: counter-swing when idle-walking, carbine up when alerted
     const meleeing = e.state === 'meleeWindup' || e.state === 'meleeStrike'
     const meleeK = meleeing
@@ -481,7 +550,11 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       armL.current.rotation.x = THREE.MathUtils.lerp(armL.current.rotation.x, target, lerpK)
     }
     if (armR.current) {
-      const raise = meleeing ? -2.5 * meleeK + 0.9 * (1 - meleeK) : e.alerted ? -1.25 : swing * 0.75
+      const raise = meleeing
+        ? -2.5 * meleeK + 0.9 * (1 - meleeK)
+        : e.alerted
+          ? -1.25 - aimPitch * 0.75
+          : swing * 0.75
       armR.current.rotation.x = THREE.MathUtils.lerp(armR.current.rotation.x, raise, lerpK)
       armR.current.rotation.z = THREE.MathUtils.lerp(armR.current.rotation.z, e.alerted && !meleeing ? -0.32 : 0, lerpK)
     }
@@ -498,30 +571,55 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
       const hunch = THREE.MathUtils.degToRad(9) + (rush && e.state === 'attack' ? 0.16 : 0)
       const fl = flinch.current * flinch.current
       spine.current.rotation.x =
-        hunch + Math.sin(ph * 2) * 0.03 * w + Math.sin(idleClock.current * Math.PI * 0.8) * 0.02 * (1 - w) - fl * 0.28
+        hunch +
+        Math.sin(ph * 2) * 0.03 * w +
+        Math.sin(idleClock.current * Math.PI * 0.8) * 0.02 * (1 - w) -
+        fl * 0.28 -
+        aimPitch * 0.22
       spine.current.rotation.y = -Math.sin(ph) * 0.14 * w
       spine.current.rotation.z = Math.sin(ph + 1.2) * 0.05 * w + fl * 0.12
     }
     if (gun.current) gun.current.visible = true
 
-    // visor / core: dim idle, lit in combat, white-hot on telegraph & hits
-    const telegraphing =
-      (e.state === 'attack' && (e.ai.burstT ?? 1) <= BURST_TELEGRAPH && (e.ai.shotsLeft ?? 0) <= 0) ||
-      e.state === 'meleeWindup'
+    // ---- accent tells (R2 #4) --------------------------------------------
+    // Everything crimson on this model is a toneMapped:false basic material,
+    // so its authored colour IS its HDR value. Under a 1.0 bloom knee an
+    // accent at palette value can never glow; these levels put the idle ember
+    // just under the knee, combat just over it, and the attack wind-up a full
+    // 2.5 stops above — so the RAMP, not a binary swap, is the telegraph.
+    const burstT = e.ai.burstT ?? 1
+    const burstRamp =
+      e.state === 'attack' && (e.ai.shotsLeft ?? 0) <= 0 && burstT <= BURST_TELEGRAPH && burstT > 0
+        ? 1 - burstT / BURST_TELEGRAPH
+        : 0
+    const meleeRamp =
+      e.state === 'meleeWindup' ? Math.min(1, (e.ai.stateT ?? 0) / MELEE_WINDUP) : 0
+    const windup = Math.max(burstRamp, meleeRamp)
+    const telegraphing = windup > 0
+    // 6.5 Hz flutter riding the ramp so a wind-up reads even in peripheral vision
+    const flutter = telegraphing
+      ? 1 + 0.22 * windup * Math.sin(idleClock.current * Math.PI * 2 * ENEMY_FX.telegraphHz)
+      : 1
+    const baseLevel = e.alerted ? ENEMY_FX.accentAlert : ENEMY_FX.accentIdle
+    const level =
+      THREE.MathUtils.lerp(baseLevel, ENEMY_FX.accentTelegraph, windup * windup) * flutter
+
     if (e.hitFlash > 0) {
-      mats.eye.color.set('#FFFFFF')
-      mats.plate.emissive.setScalar(0.85)
-      mats.shell.emissive.setScalar(0.7)
+      mats.eye.color.setScalar(ENEMY_FX.accentHit)
+      mats.plate.emissive.setScalar(ENEMY_FX.hitFlashEmissive)
+      mats.shell.emissive.setScalar(ENEMY_FX.hitFlashEmissive * 0.8)
     } else {
       mats.plate.emissive.setScalar(0)
       mats.shell.emissive.setScalar(0)
-      if (telegraphing) mats.eye.color.copy(EYE_HOT).multiplyScalar(2.4)
-      else mats.eye.color.lerpColors(EYE_DIM, EYE_FULL, e.alerted ? 1 : 0.35)
+      if (telegraphing) mats.eye.color.copy(EYE_HOT).multiplyScalar(level)
+      else mats.eye.color.lerpColors(EYE_DIM, EYE_FULL, e.alerted ? 1 : 0.4).multiplyScalar(level)
     }
-    mats.core.color.copy(EYE_FULL).multiplyScalar(e.alerted ? 1.25 : 0.6)
+    mats.core.color.copy(EYE_FULL).multiplyScalar(level * 0.8)
+    mats.halo.color.copy(EYE_HOT).multiplyScalar(0.5 + windup * 1.4)
+    mats.halo.opacity = ENEMY_FX.halo.opacity * (e.alerted ? 1 : 0.45) * (1 + windup)
     mats.barrel.color
       .copy(EYE_HOT)
-      .multiplyScalar((e.ai.muzzle ?? 0) > 0 ? 6 : telegraphing ? 2.2 : 0.7)
+      .multiplyScalar((e.ai.muzzle ?? 0) > 0 ? ENEMY_FX.accentMuzzle : level * 0.55)
   })
 
   const o = mats.outline.material
@@ -559,6 +657,7 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           <mesh material={mats.core} position={[0, 0.2, 0.2]}>
             <sphereGeometry args={[0.055, 10, 8]} />
           </mesh>
+          <sprite material={mats.halo} position={[0, 0.2, 0.23]} scale={[0.3, 0.3, 1]} />
           {/* back pack / power cell */}
           <mesh material={mats.gunmetal} position={[0, 0.2, -0.2]} castShadow>
             <boxGeometry args={[0.3, 0.38, 0.14]} />
@@ -622,10 +721,11 @@ export function Trooper({ entity }: { entity: EnemyEntity }) {
           <mesh material={mats.plate} position={[0, 0.66, -0.15]} rotation-x={0.5} castShadow>
             <boxGeometry args={[0.035, 0.12, 0.16]} />
           </mesh>
-          {/* horizontal visor slit */}
+          {/* horizontal visor slit + its falloff sprite */}
           <mesh material={mats.eye} position={[0, 0.58, 0.165]}>
             <boxGeometry args={[0.16, 0.032, 0.03]} />
           </mesh>
+          <sprite material={mats.halo} position={[0, 0.58, 0.19]} scale={[0.42, 0.24, 1]} />
 
           {/* ---- arms ---- */}
           <group ref={armL} position={[-0.3, 0.32, 0]}>

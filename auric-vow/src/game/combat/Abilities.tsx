@@ -26,12 +26,16 @@ import {
   VFX,
   caImpulse,
   ultGradeWindow,
+  ultChargeWindow,
+  endChargeWindow,
+  addBloomLoad,
   acquireLight,
+  LIGHT_PRIORITY,
   type TrailHandle,
   type TrackedLightHandle,
 } from '@/game/vfx/VFXBus'
 import { createEnergyShell, type EnergyShell } from '@/game/vfx/EnergyShell'
-import { getSoftGlowTexture } from '@/game/vfx/vfxTextures'
+import { getSoftGlowTexture, getParticleAtlas } from '@/game/vfx/vfxTextures'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { addTrauma } from '@/game/player/CameraRig'
 import { EnemyRegistry } from '@/game/enemies/EnemyRegistry'
@@ -108,13 +112,31 @@ const AEGIS_SPEED_MULT = 1.3
 // (a) ≤0.15s screen flash, (b) 0.4s inward mote spiral, (c) deforming torus
 // shockwave + 120-particle gold vortex, (d) 3s glyph floor decal + embers
 // + persistent faint ring.
-const REQUIEM_CHARGE = 0.4
+// [vfx R2] The charge is a longer, heavier intake now (0.4 → 0.55): it has to
+// be its own PICTURE — dimmed, desaturated, vignetted, motes converging — and
+// 0.4 s at 0.25× time was still over before the grade finished easing in.
+const REQUIEM_CHARGE = 0.55
+/** gameplay blast radius (damage) — unchanged, this is a balance number */
 const REQUIEM_RADIUS = 12
 const REQUIEM_DMG_CENTER = 250
 const REQUIEM_DMG_EDGE = 120
 const REQUIEM_AFTERGLOW = 3.0
-const REQUIEM_SHOCKWAVE_DUR = 0.35
+/**
+ * [vfx R2] 0.35 → 0.8 s, reaching VFXENERGY.novaWave.radius (30 m) rather
+ * than stopping at the 12 m damage radius. The review's complaint was that
+ * the ult had no ARC: it appeared and was gone inside a third of a second, at
+ * a scale barely larger than the player. It now eases out over 0.8 s to a
+ * radius that crosses the whole arena, and its alpha is driven by d(radius)/dt
+ * so the front is brightest while it is moving fastest and dies as it slows —
+ * which is what a pressure wave actually looks like.
+ */
+const REQUIEM_SHOCKWAVE_DUR = VFXENERGY.novaWave.durSec
+const REQUIEM_WAVE_RADIUS = VFXENERGY.novaWave.radius
 const REQUIEM_SCREEN_FLASH = 0.14
+/** [vfx R2] time dilation during the charge — a breath, not the full stop */
+const REQUIEM_CHARGE_SCALE = 0.5
+/** wall-clock seconds the charge occupies at that dilation */
+const REQUIEM_CHARGE_WALL = REQUIEM_CHARGE / REQUIEM_CHARGE_SCALE
 const REQUIEM_PILLARS = 8
 const REQUIEM_PILLAR_RADIUS = 10
 const REQUIEM_MOTES = 60
@@ -130,6 +152,13 @@ const _prev = new THREE.Vector3()
 
 /** leased light that rides the Gilt Dash for its whole duration */
 let dashLight: TrackedLightHandle | null = null
+/** [vfx R2] spark-shedder clock for the Requiem pillars (module scope: one ult) */
+let pillarSparkClock = 0
+/** [vfx R2] shared spark-shedder clock for javelins in flight */
+let javelinSparkClock = 0
+/** [vfx R2] the Aegis barrier's own leased light — a shell that lights nothing
+ *  is a decal painted on the air (work order item 8: one light per cluster) */
+let aegisLight: TrackedLightHandle | null = null
 
 // ---------------------------------------------------------------------------
 // Cast gating
@@ -171,6 +200,12 @@ function castDash(camera: THREE.Camera) {
   cs.dashHits.clear()
   cs.ghostsToSpawn = GHOST_COUNT
   cs.nextGhostAt = cs.clock
+  // Release before re-acquiring. A dash re-cast before the previous one has
+  // expired would otherwise drop the old handles on the floor, stranding a
+  // ribbon slot and a tracked-light slot for the rest of the session (the
+  // only reference that could ever free them is the one being overwritten).
+  // The nova path already does this; dash was the odd one out.
+  cs.dashTrail?.end()
   cs.dashTrail = VFX.trail('gilt-dash')
 
   _pt.copy(PlayerRef.position)
@@ -185,7 +220,10 @@ function castDash(camera: THREE.Camera) {
   VFX.burst({ position: _pt, color: COLORS.aureate, count: 6, speed: 2.2, life: 0.8, size: 0.09, gravity: -0.2, shape: 'smoke' })
   // the dash carries its own light for its whole 0.45 s (V17), so the walls
   // the player blinks past actually register the pass
-  dashLight = acquireLight(COLORS.aureate, 11)
+  dashLight?.release()
+  dashLight = acquireLight(COLORS.aureate, 11, 2, LIGHT_PRIORITY.cosmetic)
+  // a launch package this size briefly owns a quarter of the frame
+  addBloomLoad(0.25)
   addTrauma(0.12) // a push, not a shake — dash stays clean (§3.1)
   AudioBus.playWhoosh()
   AudioBus.playAbility() // choir stab approximation (220/277/330 detuned sines)
@@ -280,6 +318,7 @@ function castVolley() {
   cs.volleyNextSpawnAt = cs.clock
   cs.volleySpawned = 0
   cs.volleyLaunched = false
+  javelinSparkClock = 0
   AudioBus.playAbility()
 }
 
@@ -290,9 +329,16 @@ function javelinAnchor(camera: THREE.Camera, i: number, out: THREE.Vector3) {
   if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1)
   _dir.normalize()
   _right.crossVectors(_dir, UP)
+  // [vfx R2] The fan ARCS (work order item 11). A straight evenly-spaced row
+  // of seven identical spears is a picket fence; bowing it in Y and pulling
+  // the outer spears back in Z turns it into a drawn bow the eye reads as one
+  // shape. The centre rides 0.55 m higher than the tips and 0.35 m further
+  // forward.
+  const k = JAVELIN_COUNT > 1 ? i / (JAVELIN_COUNT - 1) : 0.5
+  const bow = Math.sin(k * Math.PI)
   out.copy(PlayerRef.position)
-  out.y += 1.7 + Math.sin((i / (JAVELIN_COUNT - 1)) * Math.PI) * 0.25
-  out.addScaledVector(_dir, JAVELIN_FORWARD)
+  out.y += 1.62 + bow * 0.55
+  out.addScaledVector(_dir, JAVELIN_FORWARD + bow * 0.35)
   out.addScaledVector(_right, (i - (JAVELIN_COUNT - 1) / 2) * JAVELIN_LATERAL)
   return out
 }
@@ -315,6 +361,8 @@ function javelinBurst(pos: THREE.Vector3, normal?: THREE.Vector3) {
   VFX.burst({ position: pos, color: COLORS.aureate, count: 5, speed: 1.6, life: 0.7, size: 0.1, gravity: -0.5, shape: 'smoke' })
   VFX.ring({ position: pos, color: COLORS.aureate, maxRadius: 1.6, life: 0.3, width: 0.16, normal })
   VFX.flash({ position: pos, color: COLORS.solarWhite, intensity: 32, distance: 15, life: 0.12 })
+  // [vfx R2] the spear leaves a mark: a hot energy burn that cools to soot
+  VFX.decal({ position: pos, normal, color: COLORS.aureate, size: 1.5, life: 8, energy: 0.8 })
   addTrauma(0.1)
   AudioBus.playHit()
 }
@@ -328,20 +376,68 @@ function javelinBurst(pos: THREE.Vector3, normal?: THREE.Vector3) {
 export interface JavelinVisual {
   shell: EnergyShell
   trail: TrailHandle | null
+  /** per-index roll about the spear's own axis, so the seven are not clones */
+  roll: number
+  /** seconds since this javelin materialised — drives the scale-in */
+  bornT: number
+  /** seconds remaining of the post-impact dissolve (0 = not dissolving) */
+  dissolve: number
 }
 
-function endJavelinVisual(v: JavelinVisual | undefined): void {
+/**
+ * [vfx R2] Work order item 12: this never hid the shell. A javelin that hit a
+ * wall stopped MOVING but its three additive layers, its glow head and its
+ * 3× outer falloff stayed in the world at full brightness at the point of
+ * impact, which is the "beam and puck" the review saw in 12_ability_volley.
+ *
+ * The shell now dissolves over 0.8 s — shrinking along its length while its
+ * intensity falls — and is then hard-hidden with its scale reset, so nothing
+ * is left behind and the next volley starts from a clean transform.
+ */
+const JAVELIN_DISSOLVE = 0.8
+
+function endJavelinVisual(v: JavelinVisual | undefined, dissolve = true): void {
   if (!v) return
   if (v.trail) {
     v.trail.end()
     v.trail = null
   }
   v.shell.releaseLight()
+  if (dissolve) {
+    v.dissolve = JAVELIN_DISSOLVE
+  } else {
+    v.dissolve = 0
+    v.shell.setIntensity(0)
+    v.shell.group.visible = false
+    v.shell.group.scale.setScalar(1)
+  }
+}
+
+/** run the post-impact dissolve for a javelin whose logical life is over */
+function updateJavelinDissolve(v: JavelinVisual, dt: number): void {
+  if (v.dissolve <= 0) return
+  v.dissolve = Math.max(0, v.dissolve - dt)
+  const k = v.dissolve / JAVELIN_DISSOLVE
+  if (k <= 0) {
+    v.shell.setIntensity(0)
+    v.shell.group.visible = false
+    v.shell.group.scale.setScalar(1)
+    return
+  }
+  v.shell.group.visible = true
+  // the spike collapses into the surface it struck and burns out
+  v.shell.group.scale.set(1 + (1 - k) * 0.6, 1 + (1 - k) * 0.6, k * k)
+  v.shell.setIntensity(k * k * 1.3)
 }
 
 function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]) {
   const cs = CombatState
-  if (!cs.volleyActive) return
+  if (!cs.volleyActive) {
+    // a hard state reset (death, restart) can clear volleyActive mid-dissolve;
+    // finish any spike that is still burning out rather than freezing it
+    for (const v of visuals) updateJavelinDissolve(v, dt)
+    return
+  }
 
   // --- windup: materialize one javelin per 30 ms, hovering in an arc ---
   if (!cs.volleyLaunched) {
@@ -352,6 +448,14 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
       j.life = JAVELIN_LIFE
       javelinAnchor(camera, cs.volleySpawned, j.pos)
       j.vel.set(0, 0, 0)
+      const nv = visuals[cs.volleySpawned]
+      if (nv) {
+        // each spear SCALES IN over its own spawn interval instead of popping
+        // at full size (work order item 11), and takes an individual roll
+        nv.bornT = 0
+        nv.dissolve = 0
+        nv.roll = (cs.volleySpawned * 2.399963) % (Math.PI * 2)
+      }
       cs.volleySpawned++
       cs.volleyNextSpawnAt = cs.clock + VOLLEY_SPAWN_INTERVAL
       AudioBus.playUIClick() // ascending chime-note approximation
@@ -377,6 +481,7 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
         const v = visuals[i]
         if (v) {
           v.trail = VFX.trail(`javelin-${i}`)
+          // cosmetic priority: the ult may evict these, and should
           v.shell.attachLight(COLORS.aureate, 9)
         }
       }
@@ -390,6 +495,7 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
       VFX.ring({ position: PlayerRef.position, color: COLORS.aureate, maxRadius: 2.5, life: 0.35, width: 0.3 })
       VFX.burst({ position: _pt, color: COLORS.aureate, count: 60, speed: 6, life: 0.5, size: 0.07, gravity: 1 })
       VFX.burst({ position: _pt, color: COLORS.solarWhite, count: 40, speed: 8, life: 0.35, size: 0.06, gravity: 0 })
+      addBloomLoad(0.3)
     }
   }
 
@@ -440,6 +546,24 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
       vis.trail?.push(j.pos)
       vis.shell.driveLight(j.pos.x, j.pos.y, j.pos.z, 16)
     }
+    // [vfx R2] SPARK SHEDDER (work order item 8). A beam that sheds nothing
+    // is a painted object; a beam that throws embers off its own length is
+    // burning. Throttled across the whole volley, not per javelin, so seven
+    // spears in flight cost one small burst every 70 ms.
+    javelinSparkClock -= dt
+    if (javelinSparkClock <= 0) {
+      javelinSparkClock = 0.07
+      VFX.burst({
+        position: j.pos,
+        color: COLORS.aureate,
+        count: 2,
+        speed: 2.2,
+        life: 0.45,
+        size: 0.045,
+        gravity: 2.5,
+        shape: 'ember',
+      })
+    }
 
     // wall burst
     const wall = raycastLevel(_prev, _dir, stepLen + 0.05)
@@ -484,36 +608,73 @@ function updateVolley(camera: THREE.Camera, dt: number, visuals: JavelinVisual[]
     0,
     1,
   )
+  const B = VFXENERGY.beam
   for (let i = 0; i < JAVELIN_COUNT; i++) {
     const v = visuals[i]
     const j = cs.javelins[i]
     if (!v || !j) continue
     const g = v.shell.group
-    g.visible = j.active
     if (!j.active) {
-      v.shell.setIntensity(0)
+      // a struck javelin is not simply switched off any more — it dissolves
+      updateJavelinDissolve(v, dt)
       continue
     }
+    v.bornT += dt
+    g.visible = true
     g.position.copy(j.pos)
+
+    // [vfx R2] near-plane discipline (work order item 11). The outer falloff
+    // is 3× the spear's radius; at a metre from the lens that is a gold wall.
+    // Clamp the outer layer as the camera closes and fade the whole shell out
+    // before it can cross the near plane.
+    const camD = camera.position.distanceTo(j.pos)
+    const outerK = THREE.MathUtils.clamp(camD / B.outerClampDist, 0.34, 1)
+    v.shell.outer.scale.set(3.0 * outerK, 3.0 * outerK, 1.15)
+    const nearFade = THREE.MathUtils.clamp(
+      (camD - B.nearFadeEnd) / Math.max(0.01, B.nearFadeStart - B.nearFadeEnd),
+      0,
+      1,
+    )
+
     if (j.flying) {
       _pt.copy(j.pos).add(j.vel)
       g.lookAt(_pt)
-      v.shell.setIntensity(1)
+      v.shell.setIntensity(nearFade)
       // roll the spear about its own axis so the fan reads as seven objects
-      g.rotateZ(cs.clock * 6 + i)
+      g.rotateZ(cs.clock * 6 + v.roll)
+      g.scale.setScalar(1)
     } else {
       camera.getWorldDirection(_dir)
       _pt.copy(j.pos).add(_dir)
       g.lookAt(_pt)
+      g.rotateZ(v.roll)
+      // scale-in: 0.15 → 1 over three spawn intervals, on an ease-out
+      const born = THREE.MathUtils.clamp(v.bornT / (VOLLEY_SPAWN_INTERVAL * 3), 0, 1)
+      const grow = 1 - (1 - born) * (1 - born)
+      g.scale.set(
+        THREE.MathUtils.lerp(0.35, 1, grow),
+        THREE.MathUtils.lerp(0.35, 1, grow),
+        THREE.MathUtils.lerp(0.15, 1, grow),
+      )
       v.shell.setIntensity(
-        THREE.MathUtils.lerp(JAVELIN_WINDUP_MIN, JAVELIN_WINDUP_MAX, windupT * windupT),
+        THREE.MathUtils.lerp(JAVELIN_WINDUP_MIN, JAVELIN_WINDUP_MAX, windupT * windupT) *
+          grow *
+          nearFade,
       )
     }
   }
 
   if (cs.volleyLaunched && !anyActive) {
-    cs.volleyActive = false
-    for (const v of visuals) endJavelinVisual(v)
+    let dissolving = false
+    for (const v of visuals) {
+      if (v.dissolve > 0) dissolving = true
+    }
+    // the volley stays "active" until the last spike has finished dissolving,
+    // so the shells are never orphaned visible by an early state reset
+    if (!dissolving) {
+      cs.volleyActive = false
+      for (const v of visuals) endJavelinVisual(v, false)
+    }
   }
 }
 
@@ -552,6 +713,7 @@ function castAegis() {
   VFX.burst({ position: _pt, color: COLORS.solarWhite, count: 40, speed: 8, life: 0.4, size: 0.06, gravity: 1 })
   VFX.burst({ position: _pt, color: COLORS.aureate, count: 30, speed: 3.5, life: 0.7, size: 0.09, gravity: -0.5 })
   VFX.flash({ position: _pt, color: COLORS.aureate, intensity: 32, distance: 15, life: 0.2 })
+  addBloomLoad(0.35)
   AudioBus.playAbility() // deep-bell approximation
   addTrauma(0.25)
 }
@@ -600,6 +762,10 @@ function updateAegis(
       aegis.shell.setVisible(false)
       aegis.ground.visible = false
     }
+    if (aegisLight) {
+      aegisLight.release()
+      aegisLight = null
+    }
     return
   }
 
@@ -643,6 +809,15 @@ function updateAegis(
   const gs = 1.05 + 0.05 * Math.sin(cs.clock * 3.1)
   aegis.ground.scale.set(gs, gs, 1)
   aegis.groundMat.opacity = 0.34 * breathe * failing
+  // the barrier is a light source: it has to put gold on the player's plates
+  // and a pool on the deck, or it reads as a painted sphere
+  if (!aegisLight?.live()) aegisLight = acquireLight(COLORS.aureate, 7, 2, LIGHT_PRIORITY.ability)
+  aegisLight?.set(
+    PlayerRef.position.x,
+    PlayerRef.position.y + 0.95,
+    PlayerRef.position.z,
+    9 * breathe * failing,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -661,8 +836,13 @@ interface RequiemFx {
   torusLeadMat: THREE.ShaderMaterial
   /** [vfx R1] leased PointLight — the nova is a LIGHT EVENT, not a decal */
   novaLight: TrackedLightHandle | null
+  /** [vfx R2] thin expanding shell with a hard leading edge (item 5) */
+  shell: THREE.Mesh
+  shellMat: THREE.ShaderMaterial
   motes: THREE.Points
   moteAttr: THREE.BufferAttribute
+  /** [vfx R2] textured mote material — uniforms driven per frame */
+  moteMat: THREE.ShaderMaterial
   moteSeeds: Float32Array // per mote: startRadius, baseAngle, yOff, swirlDir
   /** full-screen additive white-gold overlay at detonation (§3.4, fix1) */
   screenFlash: THREE.Mesh
@@ -687,17 +867,34 @@ function castRequiem(fx: RequiemFx) {
   }
   cs.requiemPhase = 1
   cs.requiemT = 0
+  pillarSparkClock = 0
   cs.requiemOrigin.copy(PlayerRef.position)
-  // 1.2 s of 0.25× global time-dilation covering charge + detonation (§3.4)
-  useGameStore.getState().setTimeScale(TIMESCALE.slowmoUlt, TIMESCALE.slowmoUltDurationSec)
-  // hold the grade richer and slightly lifted across the whole dilation
-  // window, plus the charge that precedes it (POSTFX.grade.ult*)
-  ultGradeWindow(TIMESCALE.slowmoUltDurationSec + REQUIEM_CHARGE + 0.3)
+  /*
+   * [vfx R2] THE TIME ARC WAS BACKWARDS.
+   *
+   * `setTimeScale(scale, durationSec)` decays on REAL time (store.tickTimeScale
+   * takes realDt) while `cs.requiemT` accumulates SCALED time. Firing the full
+   * 0.25× dilation at CAST therefore spent the entire 1.2 s dilation window on
+   * the charge: 1.2 s of wall clock at 0.25× advances the charge by only 0.3 s,
+   * so the dilation had already expired by the time the nova actually went off
+   * and the payoff — the one frame the ability exists for — played at normal
+   * speed. Measured on the R2 build, not inferred.
+   *
+   * The charge now runs at a milder 0.5× (an intake of breath), and the FULL
+   * 0.25× dilation is fired at the detonation, where it belongs.
+   */
+  useGameStore.getState().setTimeScale(REQUIEM_CHARGE_SCALE, REQUIEM_CHARGE_WALL + 0.1)
+  // the CHARGE is its own picture: dim, desaturated, vignette closing in
+  // around the rooted player. The lifted `ult` grade is NOT raised here — it
+  // is raised at the detonation, so the nova punches out of a dark frame
+  // instead of blending into one continuous "ability happening" wash.
+  ultChargeWindow(REQUIEM_CHARGE_WALL)
   AudioBus.playAbility() // reversed choir swell approximation
   fx.motes.visible = true
   fx.torus.visible = false
   fx.torusInner.visible = false
   fx.torusLead.visible = false
+  fx.shell.visible = false
   fx.decal.visible = false
   fx.faintRing.visible = false
 }
@@ -730,10 +927,15 @@ function detonateRequiem(fx: RequiemFx) {
   VFX.flash({ position: _pt, color: COLORS.solarWhite, intensity: 60, distance: 40, life: 0.12 })
   VFX.flash({ position: _pt, color: COLORS.aureate, intensity: 45, distance: 30, life: 0.4 }) // lingering glow (fix1)
   // three nested fronts instead of one constant-width white circle: a tight
-  // hot leading edge, the main body, and a slower saturated trailing wave
-  VFX.ring({ position: origin, color: COLORS.solarWhite, maxRadius: REQUIEM_RADIUS, life: 0.32, width: 0.45 })
-  VFX.ring({ position: origin, color: COLORS.aureate, maxRadius: REQUIEM_RADIUS * 0.82, life: 0.5, width: 0.9 })
-  VFX.ring({ position: origin, color: COLORS.aureate, maxRadius: REQUIEM_RADIUS * 1.12, life: 0.75, width: 0.3 })
+  // hot leading edge, the main body, and a slower saturated trailing wave.
+  // [vfx R2] all three now run the full 0.8 s arc out to the 30 m wave radius
+  // (the trailing ripple deliberately lags at 0.62×, work order item 4), so
+  // the ult crosses the arena instead of stopping at the damage radius.
+  VFX.ring({ position: origin, color: COLORS.solarWhite, maxRadius: REQUIEM_WAVE_RADIUS, life: REQUIEM_SHOCKWAVE_DUR, width: 0.5 })
+  VFX.ring({ position: origin, color: COLORS.aureate, maxRadius: REQUIEM_WAVE_RADIUS * 0.86, life: REQUIEM_SHOCKWAVE_DUR * 1.15, width: 1.1 })
+  VFX.ring({ position: origin, color: COLORS.aureate, maxRadius: REQUIEM_WAVE_RADIUS * VFXENERGY.novaWave.rippleFrac, life: REQUIEM_SHOCKWAVE_DUR * 1.4, width: 0.6 })
+  // scorched glyph burn at the epicentre — the ult leaves a mark on the world
+  VFX.decal({ position: origin, color: COLORS.aureate, size: REQUIEM_RADIUS * 1.1, life: 12, energy: 0.85 })
   // RADIAL SPARK BURST — needle-streaked, not a puff
   VFX.burst({
     position: _pt,
@@ -764,11 +966,30 @@ function detonateRequiem(fx: RequiemFx) {
 
   // one CA shock on the detonation frame (0.12 s ease-out), not a plateau
   caImpulse(1)
-  // the nova's own light: 0 → 450 → 0 over the 1.2 s window (VFXENERGY).
+  // the charge grade ends HERE: the nova has to land on a dark frame, and the
+  // lifted peak grade is raised in its place for the whole expansion
+  endChargeWindow()
+  // the full 1.2 s of 0.25× dilation starts AT THE BLAST (see castRequiem)
+  useGameStore.getState().setTimeScale(TIMESCALE.slowmoUlt, TIMESCALE.slowmoUltDurationSec)
+  // wall-clock cover for the expansion: the front takes REQUIEM_SHOCKWAVE_DUR
+  // of GAME time, which under the dilation is most of two seconds of real time
+  ultGradeWindow(TIMESCALE.slowmoUltDurationSec + REQUIEM_SHOCKWAVE_DUR + 0.5)
+  // the detonation covers most of the frame in additive energy for a few
+  // frames. Tell the bloom governor, or the whole bloom pyramid is pinned by
+  // the screen flash and every discrete source in frame vanishes into milk.
+  addBloomLoad(1.5)
+  // the nova's own light: 0 → peak → 0 across a ~0.45 s envelope (VFXENERGY).
   // The charge already held a slot — hand it back before taking the big one,
-  // or the pool leaks one light per cast.
+  // or the pool leaks one light per cast. `LIGHT_PRIORITY.event` means this
+  // one can EVICT a javelin or dash light: measured on the R2 build, casting
+  // the ult during a live volley left the nova with no light at all.
   fx.novaLight?.release()
-  fx.novaLight = acquireLight(COLORS.solarWhite, VFXENERGY.novaLight.distance)
+  fx.novaLight = acquireLight(
+    COLORS.solarWhite,
+    VFXENERGY.novaLight.distance,
+    2,
+    LIGHT_PRIORITY.event,
+  )
   fx.novaLight?.set(origin.x, origin.y + 1.2, origin.z, 0)
 
   addTrauma(0.7)
@@ -796,6 +1017,14 @@ function detonateRequiem(fx: RequiemFx) {
   fx.torusLeadMat.uniforms.uProgress!.value = 0
   fx.torusLeadMat.uniforms.uOpacity!.value = 0.8
   fx.torusLeadMat.uniforms.uTime!.value = 0
+  // [vfx R2] the expanding SHELL — a thin surface with a hard leading edge
+  // racing out ahead of the flat rings, so the nova is a volume event rather
+  // than three discs on the floor (and so it cannot be mistaken for Aegis)
+  fx.shell.visible = true
+  fx.shell.position.copy(origin)
+  fx.shell.position.y += 1.1
+  fx.shell.scale.setScalar(0.4)
+  fx.shellMat.uniforms.uOpacity!.value = 1
   // glowing glyph floor decal (3 s fade) + persistent faint ring at the edge
   fx.decal.visible = true
   fx.decal.position.copy(origin)
@@ -840,6 +1069,7 @@ function updateRequiem(
       fx.faintRing.visible = false
       fx.faintRingMat.opacity = 0
     }
+    if (fx.shell.visible) fx.shell.visible = false
     return
   }
   cs.requiemT += dt
@@ -869,6 +1099,31 @@ function updateRequiem(
     PlayerRef.velocity.x = 0
     PlayerRef.velocity.z = 0
 
+    // [vfx R2] SPARK SHEDDER (work order item 8): the shafts shed embers off
+    // their ground contact as the charge builds, so they read as burning
+    // columns of light rather than eight painted cards.
+    pillarSparkClock += dt
+    if (pillarSparkClock >= 0.05) {
+      pillarSparkClock -= 0.05
+      const pi = (Math.random() * REQUIEM_PILLARS) | 0
+      const pa = (pi / REQUIEM_PILLARS) * Math.PI * 2
+      _pt2.set(
+        cs.requiemOrigin.x + Math.cos(pa) * REQUIEM_PILLAR_RADIUS,
+        cs.requiemOrigin.y + 0.25,
+        cs.requiemOrigin.z + Math.sin(pa) * REQUIEM_PILLAR_RADIUS,
+      )
+      VFX.burst({
+        position: _pt2,
+        color: COLORS.aureate,
+        count: 2,
+        speed: 1.4,
+        life: 0.9,
+        size: 0.06,
+        gravity: -1.8,
+        shape: 'ember',
+      })
+    }
+
     // pillars fade in to 0.55 (fix1: brighter, must dominate the arena edge)
     const fade = Math.min(1, cs.requiemT / REQUIEM_CHARGE) * 0.75
     for (let i = 0; i < REQUIEM_PILLARS; i++) {
@@ -879,7 +1134,9 @@ function updateRequiem(
     }
     // the charge itself is a light: the rooted player is lit from inside as
     // the motes converge
-    if (!fx.novaLight) fx.novaLight = acquireLight(COLORS.aureate, 16)
+    if (!fx.novaLight) {
+      fx.novaLight = acquireLight(COLORS.aureate, 16, 2, LIGHT_PRIORITY.ability)
+    }
     fx.novaLight?.set(
       cs.requiemOrigin.x,
       cs.requiemOrigin.y + 1.2,
@@ -891,6 +1148,10 @@ function updateRequiem(
     const p = Math.min(1, cs.requiemT / REQUIEM_CHARGE)
     _pt.copy(cs.requiemOrigin)
     _pt.y += 1.2
+    // drive the mote shader: convergence centre, charge progress, flicker clock
+    ;(fx.moteMat.uniforms.uCenter!.value as THREE.Vector3).copy(_pt)
+    fx.moteMat.uniforms.uProgress!.value = p
+    fx.moteMat.uniforms.uTime!.value += dt
     for (let i = 0; i < REQUIEM_MOTES; i++) {
       const s = i * 4
       const r0 = fx.moteSeeds[s]!
@@ -910,39 +1171,68 @@ function updateRequiem(
   } else {
     // ---- (c) detonation: deforming torus shockwave 0 → 12 m in 0.35 s ----
     const t = cs.requiemT
-    const expand = Math.min(1, t / REQUIEM_SHOCKWAVE_DUR)
+    const DUR = REQUIEM_SHOCKWAVE_DUR
+    const expand = Math.min(1, t / DUR)
+    // [vfx R2] THE ARC. Cubic ease-out radius over 0.8 s out to 30 m, and —
+    // this is the part that makes it read as pressure rather than as a
+    // growing circle — alpha is tied to d(radius)/dt. The normalised
+    // derivative of 1-(1-x)^3 is (1-x)^2, so the front is at full brightness
+    // in the first frames where it is moving fastest and has faded to nothing
+    // by the time it coasts to a stop.
+    const eased = 1 - Math.pow(1 - expand, 3)
+    const speedK = (1 - expand) * (1 - expand)
+    const s = Math.max(0.001, THREE.MathUtils.lerp(0.6, REQUIEM_WAVE_RADIUS, eased))
     fx.torusMat.uniforms.uProgress!.value = expand
     fx.torusMat.uniforms.uTime!.value = t
-    fx.torusMat.uniforms.uOpacity!.value = Math.max(0, 1 - t / 0.7)
-    // ease-out expansion; slight overshoot pop at the front
-    const eased = 1 - (1 - expand) * (1 - expand)
-    const s = Math.max(0.001, THREE.MathUtils.lerp(0.6, REQUIEM_RADIUS, eased))
+    fx.torusMat.uniforms.uOpacity!.value = speedK
     if (fx.torus.visible) {
       fx.torus.scale.set(s, s, s)
       fx.torus.rotation.z += dt * 1.1
-      if (t > 0.75) fx.torus.visible = false
+      if (expand >= 1) fx.torus.visible = false
     }
-    // inner ring: 0.85× radius, counter-rotating, 0.4× opacity — the pair
-    // shears against each other and the nova stops reading as one circle
+    // TRAILING RIPPLE at 0.62× the front radius, launched a beat late — the
+    // second pressure wave every real detonation has behind its front
     if (fx.torusInner.visible) {
-      const si = s * 0.85
+      const rt = Math.max(0, t - VFXENERGY.novaWave.rippleDelay)
+      const rExpand = Math.min(1, rt / DUR)
+      const rEased = 1 - Math.pow(1 - rExpand, 3)
+      const si =
+        Math.max(0.001, THREE.MathUtils.lerp(0.6, REQUIEM_WAVE_RADIUS, rEased)) *
+        VFXENERGY.novaWave.rippleFrac
       fx.torusInner.scale.set(si, si, si)
       fx.torusInner.rotation.z -= dt * 2.3
-      fx.torusInnerMat.uniforms.uProgress!.value = expand
+      fx.torusInnerMat.uniforms.uProgress!.value = rExpand
       fx.torusInnerMat.uniforms.uTime!.value = t * 1.35
-      fx.torusInnerMat.uniforms.uOpacity!.value = Math.max(0, 0.4 * (1 - t / 0.85))
-      if (t > 0.9) fx.torusInner.visible = false
+      fx.torusInnerMat.uniforms.uOpacity!.value = 0.5 * (1 - rExpand) * (1 - rExpand)
+      if (rExpand >= 1) fx.torusInner.visible = false
     }
     // leading ring: thin, faster, gone first — this is the pressure front
     if (fx.torusLead.visible) {
-      const le = Math.min(1, t / (REQUIEM_SHOCKWAVE_DUR * 0.72))
-      const sl = Math.max(0.001, THREE.MathUtils.lerp(0.6, REQUIEM_RADIUS * 1.14, 1 - (1 - le) * (1 - le)))
+      const le = Math.min(1, t / (DUR * 0.68))
+      const sl = Math.max(
+        0.001,
+        THREE.MathUtils.lerp(0.6, REQUIEM_WAVE_RADIUS * 1.1, 1 - Math.pow(1 - le, 3)),
+      )
       fx.torusLead.scale.set(sl, sl, sl)
       fx.torusLead.rotation.z += dt * 3.4
       fx.torusLeadMat.uniforms.uProgress!.value = le
       fx.torusLeadMat.uniforms.uTime!.value = t * 1.8
-      fx.torusLeadMat.uniforms.uOpacity!.value = Math.max(0, 0.8 * (1 - t / 0.45))
-      if (t > 0.5) fx.torusLead.visible = false
+      fx.torusLeadMat.uniforms.uOpacity!.value = 0.9 * (1 - le) * (1 - le)
+      if (le >= 1) fx.torusLead.visible = false
+    }
+    // [vfx R2] the expanding SHELL — a thin surface with a hard leading edge,
+    // slightly ahead of the flat rings and gone well before them, so the ult
+    // reads as a volume of released light instead of a static gold sphere
+    if (fx.shell.visible) {
+      const se = Math.min(1, t / (DUR * 0.55))
+      const ss = THREE.MathUtils.lerp(0.4, REQUIEM_WAVE_RADIUS * 0.72, 1 - Math.pow(1 - se, 3))
+      fx.shell.scale.setScalar(Math.max(0.01, ss))
+      // the edge band narrows as the shell thins out across a bigger surface
+      fx.shellMat.uniforms.uEdge!.value = 0.42 + se * 0.5
+      fx.shellMat.uniforms.uFill!.value = 0.35 * (1 - se)
+      const sFall = 1 - se
+      fx.shellMat.uniforms.uOpacity!.value = sFall * sFall * sFall
+      if (se >= 1) fx.shell.visible = false
     }
 
     // ---- the nova's own light: 0 → 450 → 0 across the 1.2 s window ----
@@ -1007,6 +1297,8 @@ function updateRequiem(
       if (fade <= 0) p.visible = false
     }
 
+    // the ult's aftermath is the third picture: torus gone, embers drifting,
+    // scorch on the deck. Nothing above is still visible by this point.
     if (cs.requiemT >= REQUIEM_AFTERGLOW) cs.requiemPhase = 0
   }
 }
@@ -1033,6 +1325,130 @@ function makeMoteSeeds(): Float32Array {
 // 0.6 → 12 m over 0.35 s, whose tube deforms (radial wobble grows with
 // uProgress) while the canvas glyph rune scrolls around the ring (uv.x).
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// [vfx R2] Requiem charge motes (work order item 6)
+//
+// The 60 charge motes were a bare `PointsMaterial` with NO map, which on every
+// renderer draws gl_Points as hard opaque SQUARES. Sixty gold squares spiralling
+// into the player is the single most primitive thing in the build, and it was
+// happening in the game's hero moment.
+//
+// They are now textured from the shared particle atlas (the EMBER tile: hard
+// core, wide soft halo), with per-mote size (0.4–1.6×), brightness (0.5–1.5×)
+// and roll, an ease-out alpha, and a screen-space stretch along the mote's own
+// convergence direction so fast ones read as streaks pulled into the player.
+// ---------------------------------------------------------------------------
+
+/** the ember tile occupies the top-right quadrant of the 2×2 atlas */
+const MOTE_VERT = /* glsl */ `
+attribute float aSize;
+attribute float aSeed;
+uniform float uPixelScale;
+uniform float uAspect;
+uniform float uTime;
+uniform float uProgress;
+uniform vec3 uCenter;
+varying float vAlpha;
+varying float vBright;
+varying float vAngle;
+varying float vStretch;
+void main() {
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec4 clip0 = projectionMatrix * mv;
+  // convergence direction in SCREEN space: the mote is pulled toward the
+  // player, so it stretches along the line it is travelling
+  vec3 toC = uCenter - position;
+  vec4 clip1 = projectionMatrix * (modelViewMatrix * vec4(position + toC * 0.05, 1.0));
+  vec2 s0 = clip0.xy / max(1e-4, abs(clip0.w));
+  vec2 s1 = clip1.xy / max(1e-4, abs(clip1.w));
+  vec2 d = vec2((s1.x - s0.x) * uAspect, s1.y - s0.y);
+  float dl = length(d);
+  vAngle = dl > 1e-5 ? atan(d.y, d.x) : aSeed * 6.2831853;
+  // the pull accelerates: stretch grows with the charge
+  vStretch = clamp(dl * 5.0, 0.0, 1.8) * (0.35 + uProgress);
+  // ease-out alpha: motes arrive bright and wink out as they reach the core
+  float ease = 1.0 - pow(max(0.0, 1.0 - uProgress), 2.0);
+  vAlpha = (0.25 + 0.75 * ease) * (1.0 - smoothstep(0.86, 1.0, uProgress));
+  // per-mote flicker so the swarm scintillates instead of pulsing as one
+  vBright = (0.5 + aSeed) * (0.82 + 0.18 * sin(uTime * (9.0 + aSeed * 26.0) + aSeed * 41.0));
+  float s = aSize * (0.55 + 0.45 * ease);
+  gl_PointSize = s * (1.0 + vStretch) * uPixelScale / max(0.1, -mv.z);
+  gl_Position = clip0;
+}
+`
+
+const MOTE_FRAG = /* glsl */ `
+uniform sampler2D uAtlas;
+uniform vec3 uColor;
+varying float vAlpha;
+varying float vBright;
+varying float vAngle;
+varying float vStretch;
+void main() {
+  vec2 p = vec2(gl_PointCoord.x - 0.5, 0.5 - gl_PointCoord.y);
+  float c = cos(-vAngle);
+  float s = sin(-vAngle);
+  vec2 r = vec2(c * p.x - s * p.y, s * p.x + c * p.y);
+  r.y *= (1.0 + vStretch);
+  vec2 uv = r + 0.5;
+  if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) discard;
+  // ember tile: top-right quadrant of the shared 2x2 particle atlas
+  vec4 tex = texture2D(uAtlas, clamp(uv, 0.008, 0.992) * 0.5 + vec2(0.5, 0.5));
+  float a = tex.a * vAlpha;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uColor * tex.rgb * vBright, a);
+}
+`
+
+// ---------------------------------------------------------------------------
+// [vfx R2] Requiem detonation SHELL (work order item 5)
+//
+// The critics read the ultimate as "the barrier again" because both were a
+// sphere of gold around the player. The difference a real nova has is that its
+// shell is a THIN, EXPANDING surface with a hard leading edge — it is gone from
+// the inside as fast as it arrives at the outside.
+//
+// `uEdge` steps the silhouette hard (no soft fresnel bleed), `uFill` keeps only
+// a trace of interior, and the whole thing is driven by the same eased radius
+// as the ring fronts so it is unmistakably one event with them.
+// ---------------------------------------------------------------------------
+
+const SHELL_VERT = /* glsl */ `
+varying vec3 vN;
+varying vec3 vV;
+void main() {
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vN = normalize(mat3(modelMatrix) * normal);
+  vV = cameraPosition - wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`
+
+const SHELL_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform vec3 uCore;
+uniform float uOpacity;
+uniform float uEdge;
+uniform float uFill;
+varying vec3 vN;
+varying vec3 vV;
+void main() {
+  float ndv = abs(dot(normalize(vN), normalize(vV)));
+  float fres = 1.0 - ndv;
+  // HARD leading edge: a narrow band at the silhouette, not a soft rim
+  float edge = smoothstep(uEdge - 0.09, uEdge - 0.01, fres);
+  float hot = smoothstep(uEdge - 0.03, uEdge + 0.02, fres);
+  float a = (edge * 0.85 + uFill * pow(fres, 3.0)) * uOpacity;
+  if (a < 0.004) discard;
+  vec3 col = mix(uColor, uCore, hot);
+  // uCore carries VFXENERGY.novaCoreBoost (7×), which is only survivable
+  // because the shell starts at 0.4 m — a blinding pinpoint — and its opacity
+  // falls as the CUBE of expansion. By the time the surface is metres across
+  // it is contributing about 1.0 linear, i.e. a bright band, not a white-out.
+  gl_FragColor = vec4(col * (0.55 + hot * 0.85), a);
+}
+`
 
 const NOVA_VERT = /* glsl */ `
 uniform float uProgress;
@@ -1072,9 +1488,13 @@ void main() {
   // [vfx R1] radial gradient ACROSS the tube: hot filament down the middle of
   // the ring width, feathering to nothing at both tube edges, so the nova has
   // a cross-section instead of a constant-width outline
+  // [vfx R2] the tube scales with the ring, so at 30 m a fixed profile would
+  // be a 1.5 m thick gold doughnut. Tightening the gaussian with uProgress
+  // keeps the visible FRONT the same apparent thickness all the way out.
   float tube = abs(vUv.y - 0.5) * 2.0;
-  float prof = exp(-tube * tube * 2.6);
-  float core = exp(-tube * tube * 11.0);
+  float tighten = 2.6 + uProgress * 9.0;
+  float prof = exp(-tube * tube * tighten);
+  float core = exp(-tube * tube * (tighten * 4.2));
   col = mix(col, white, core * 0.75);
   float a = (0.18 + prof * 0.62 + glyph * 0.5 * prof) * uOpacity;
   // only the filament is authored above the bloom knee
@@ -1091,10 +1511,16 @@ void main() {
 // ---------------------------------------------------------------------------
 
 const PILLAR_VERT = /* glsl */ `
+uniform float uTip;
 varying vec2 vUv;
 void main() {
   vUv = uv;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  // [vfx R2] TAPER along the length (work order item 8). A constant-width
+  // shaft is the clearest primitive tell there is: light spreads out of its
+  // source and thins as it climbs. uv.y = 0 at the ground end.
+  vec3 p = position;
+  p.x *= mix(1.0, uTip, uv.y);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }
 `
 
@@ -1183,6 +1609,7 @@ export function AbilitySystems() {
               uCore: { value: new THREE.Color(COLORS.solarWhite) },
               uOpacity: { value: 0 },
               uTime: { value: 0 },
+              uTip: { value: VFXENERGY.beam.tipScale },
             },
             transparent: true,
             blending: THREE.AdditiveBlending,
@@ -1195,6 +1622,12 @@ export function AbilitySystems() {
   )
 
   const glyphTex = useMemo(() => getGlyphSpriteTexture(), [])
+  /** HDR halo tints — the core is the only part above the bloom knee */
+  const haloCoreColor = useMemo(
+    () => new THREE.Color(COLORS.solarWhite).multiplyScalar(2.4),
+    [],
+  )
+  const haloMidColor = useMemo(() => new THREE.Color(COLORS.aureate).multiplyScalar(1.25), [])
 
   /**
    * [vfx R1] Seven javelins, each a three-layer energy shell: a tapered white
@@ -1231,7 +1664,7 @@ export function AbilitySystems() {
       head.scale.set(0.75, 0.75, 1)
       shell.group.add(head)
       shell.group.visible = false
-      return { shell, trail: null }
+      return { shell, trail: null, roll: 0, bornT: 0, dissolve: 0 }
     })
   }, [])
 
@@ -1316,25 +1749,71 @@ export function AbilitySystems() {
     const inner = makeRing(0.075, 20)
     const lead = makeRing(0.022, 22)
 
+    // [vfx R2] textured, randomised charge motes (work order item 6). The old
+    // PointsMaterial carried NO map, so these drew as 60 opaque gold SQUARES.
     const moteGeo = new THREE.BufferGeometry()
-    const moteAttr = new THREE.BufferAttribute(new Float32Array(REQUIEM_MOTES * 3), 3)
+    const moteAttr = new THREE.BufferAttribute(new Float32Array(REQUIEM_MOTES * 3), 3).setUsage(
+      THREE.DynamicDrawUsage,
+    )
     moteGeo.setAttribute('position', moteAttr)
     const moteSeeds = makeMoteSeeds()
-    const motes = new THREE.Points(
-      moteGeo,
-      new THREE.PointsMaterial({
-        color: COLORS.aureate,
-        size: 0.14, // fix1: 0.09 → 0.14 so motes read at range
-        transparent: true,
-        opacity: 0.9,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        sizeAttenuation: true,
-        toneMapped: false,
-      }),
-    )
+    // per-mote size 0.4–1.6× and an independent seed for brightness/flicker/roll
+    const moteSize = new Float32Array(REQUIEM_MOTES)
+    const moteSeed = new Float32Array(REQUIEM_MOTES)
+    for (let i = 0; i < REQUIEM_MOTES; i++) {
+      // reuse the deterministic seed table so the swarm is identical each cast
+      const r = moteSeeds[i * 4 + 1]! / (Math.PI * 2)
+      moteSize[i] = 0.09 * (0.4 + r * 1.2)
+      moteSeed[i] = (moteSeeds[i * 4]! - 4) / 3
+    }
+    moteGeo.setAttribute('aSize', new THREE.BufferAttribute(moteSize, 1))
+    moteGeo.setAttribute('aSeed', new THREE.BufferAttribute(moteSeed, 1))
+    moteGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5)
+    const moteMat = new THREE.ShaderMaterial({
+      vertexShader: MOTE_VERT,
+      fragmentShader: MOTE_FRAG,
+      uniforms: {
+        uPixelScale: { value: 800 },
+        uAspect: { value: 1.777 },
+        uTime: { value: 0 },
+        uProgress: { value: 0 },
+        uCenter: { value: new THREE.Vector3() },
+        uColor: { value: new THREE.Color(COLORS.aureate).multiplyScalar(2.2) },
+        uAtlas: { value: getParticleAtlas() },
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const motes = new THREE.Points(moteGeo, moteMat)
     motes.visible = false
     motes.frustumCulled = false
+    motes.renderOrder = 21
+
+    // [vfx R2] thin expanding nova shell with a hard leading edge (item 5)
+    const shellMat = new THREE.ShaderMaterial({
+      vertexShader: SHELL_VERT,
+      fragmentShader: SHELL_FRAG,
+      uniforms: {
+        uColor: { value: new THREE.Color(COLORS.aureate).multiplyScalar(1.6) },
+        uCore: {
+          value: new THREE.Color(COLORS.solarWhite).multiplyScalar(VFXENERGY.novaCoreBoost),
+        },
+        uOpacity: { value: 0 },
+        uEdge: { value: 0.45 },
+        uFill: { value: 0.3 },
+      },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    })
+    // icosahedron, not a UV sphere: no polar pinch on a shell this large
+    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), shellMat)
+    shell.visible = false
+    shell.frustumCulled = false
+    shell.renderOrder = 20
 
     // aftermath decal: fading gold radial glyph disc scorched into the floor
     const decalMat = new THREE.MeshBasicMaterial({
@@ -1397,8 +1876,11 @@ export function AbilitySystems() {
       torusLead: lead.mesh,
       torusLeadMat: lead.mat,
       novaLight: null,
+      shell,
+      shellMat,
       motes,
       moteAttr,
+      moteMat,
       moteSeeds,
       screenFlash,
       screenFlashMat,
@@ -1426,6 +1908,17 @@ export function AbilitySystems() {
       const remaining = Math.max(0, cs.cooldownReadyAt[id] - cs.clock)
       if (prevRemaining.current[id] > 0 && remaining <= 0) emitCombat({ type: 'ready', id })
       prevRemaining.current[id] = remaining
+    }
+
+    // mote point-size attenuation needs the viewport; only while charging
+    if (cs.requiemPhase === 1) {
+      const persp = state.camera as THREE.PerspectiveCamera
+      const u = requiemFx.moteMat.uniforms
+      u.uPixelScale!.value =
+        persp.isPerspectiveCamera === true
+          ? state.size.height / (2 * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2))
+          : state.size.height
+      u.uAspect!.value = state.size.height > 0 ? state.size.width / state.size.height : 1.777
     }
 
     updateDash(ghostRefs.current, ghostMats, ghostSpawnAt.current)
@@ -1464,25 +1957,46 @@ export function AbilitySystems() {
         </group>
       ))}
 
-      {/* ---- aegis halo: LARGE double ring + 6 orbiting glyph sprites (fix1) ---- */}
+      {/* ---- aegis halo: four layers (work order item 8) — wide soft falloff
+           billboard, saturated gold mid ring, hot white core ring above the
+           bloom knee, and 6 orbiting glyph sprites. Previously two flat tori
+           at ~0.86 additive, i.e. exactly at the knee, so the halo was a
+           single-layer gold outline that never bloomed. ---- */}
       <group ref={haloRef} visible={false}>
-        <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[0.62, 0.035, 8, 40]} />
+        {/* (1) wide soft outer falloff — sits UNDER the knee, gives the halo air */}
+        <mesh rotation-x={-Math.PI / 2} scale={[2.6, 2.6, 1]}>
+          <planeGeometry args={[1, 1]} />
           <meshBasicMaterial
-            color={COLORS.solarWhite}
+            map={getSoftGlowTexture()}
+            color={COLORS.aureate}
             transparent
-            opacity={0.9}
+            opacity={0.3}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* (2) saturated mid ring */}
+        <mesh rotation-x={Math.PI / 2}>
+          <torusGeometry args={[0.8, 0.026, 8, 40]} />
+          <meshBasicMaterial
+            color={haloMidColor}
+            transparent
+            opacity={0.8}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
           />
         </mesh>
+        {/* (3) hot white core ring, authored above the 0.85 knee so the halo
+             blooms as a thin bright circle rather than a flat gold band */}
         <mesh rotation-x={Math.PI / 2}>
-          <torusGeometry args={[0.8, 0.02, 8, 40]} />
+          <torusGeometry args={[0.62, 0.02, 8, 40]} />
           <meshBasicMaterial
-            color={COLORS.aureate}
+            color={haloCoreColor}
             transparent
-            opacity={0.75}
+            opacity={0.95}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
@@ -1530,6 +2044,7 @@ export function AbilitySystems() {
         </mesh>
       ))}
       <primitive object={requiemFx.motes} />
+      <primitive object={requiemFx.shell} />
       <primitive object={requiemFx.torus} />
       <primitive object={requiemFx.torusInner} />
       <primitive object={requiemFx.torusLead} />

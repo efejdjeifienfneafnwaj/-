@@ -1,6 +1,13 @@
 /**
  * AURIC VOW — Title screen.
  *
+ * R2: ENGAGE is a filled gold plate (the one action on the screen), the
+ * mission line is a caption rather than a second outlined button, the
+ * duplicated subtitle is gone, the type ramp/letterspacing/hairline weights
+ * are hud.css tokens shared with the pause and results screens, and the
+ * scrim's quiet band is two stops lighter so the architecture behind it is
+ * actually visible (the title CAMERA itself is the world stream's).
+ *
  * R1 art pass (H8): the plain centred text column is replaced by a composed
  * front end — a gradient scrim that darkens the live mission behind it and
  * reserves a quiet band for the wordmark, a layered plate/bevel/filigree
@@ -13,6 +20,7 @@
  */
 import { useEffect, useState } from 'react'
 import { AudioBus } from '@/game/AudioBus'
+import { MISSION } from '@/game/config'
 import '@/game/hud/hud.css'
 
 interface Props {
@@ -24,7 +32,7 @@ const HINTS: [string, string][] = [
   ['SHIFT', 'SPRINT'],
   ['LMB', 'RIFLE'],
   ['F', 'KATANA'],
-  ['Q E 1 4', 'ABILITIES'],
+  ['1 2 3 4', 'ABILITIES'],
 ]
 
 export default function TitleScreen({ onEngage }: Props) {
@@ -55,12 +63,10 @@ export default function TitleScreen({ onEngage }: Props) {
           <h1 className="avs-title">AURIC VOW</h1>
         </div>
 
-        <p className="avs-sub">THE SILENT ANVIL</p>
-
         {ready && (
           <div className="avs-menu avs-reveal">
             <button
-              className="avs-btn"
+              className="avs-btn primary"
               onClick={(e) => {
                 e.stopPropagation()
                 engage()
@@ -68,8 +74,11 @@ export default function TitleScreen({ onEngage }: Props) {
             >
               ENGAGE
             </button>
-            <div className="avs-btn ghost" style={{ cursor: 'default', pointerEvents: 'none' }}>
-              MISSION · THE SILENT ANVIL
+            {/* [R2] the mission line was a second outlined button competing
+                with ENGAGE, under a subtitle that printed the same words. The
+                subtitle is gone and this is a caption. */}
+            <div className="avs-caption">
+              MISSION · <b>{MISSION.titleCard}</b>
             </div>
           </div>
         )}

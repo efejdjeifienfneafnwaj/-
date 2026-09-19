@@ -13,7 +13,7 @@
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
-import { FOG } from '../config'
+import { FOG, SKY } from '../config'
 import { ZONE_Z } from './layout'
 
 interface FogZone {
@@ -21,10 +21,22 @@ interface FogZone {
   color: THREE.Color
 }
 
-/** global scale on every fog colour — protects the bottom of the histogram */
-const VALUE_FLOOR = 0.72
+/**
+ * Global scale on every fog colour — protects the bottom of the histogram.
+ * R2: 0.72 → SKY.fogValueFloor (0.5). With the key doubled, distant geometry
+ * was landing back in the same blue haze band the review called "a single
+ * mid-grey value band"; fog is the one term that can put a floor UNDER the
+ * frame's darks, and it has to be authored below them, not through them.
+ */
+const VALUE_FLOOR = SKY.fogValueFloor
 /** extra darkening applied as the camera descends into the void */
-const VOID_TINT = new THREE.Color('#080A14')
+const VOID_TINT = new THREE.Color(SKY.voidTint)
+/**
+ * R2 height fog: density is scaled up low in a space and thinned overhead, so
+ * a 10 m hall has atmosphere at the floor and a clean read at the cornice
+ * instead of one uniform wash top to bottom (map E18, partial).
+ */
+const HEIGHT_FOG = { floorY: 0, ceilY: 11, lowMult: 1.35, highMult: 0.55 }
 
 export default function Fog() {
   const fogRef = useRef<THREE.FogExp2>(null!)
@@ -33,10 +45,10 @@ export default function Fog() {
     () => ({
       spawn: { density: 0.01, color: new THREE.Color(FOG.color) } as FogZone,
       canyonA: { density: FOG.canyonDensity, color: new THREE.Color(FOG.color) } as FogZone,
-      canyonB: { density: FOG.canyonDensity, color: new THREE.Color(FOG.skyHorizon) } as FogZone,
-      chamber: { density: 0.012, color: new THREE.Color('#1E2A4A') } as FogZone,
+      canyonB: { density: FOG.canyonDensity, color: new THREE.Color(SKY.horizon) } as FogZone,
+      chamber: { density: 0.012, color: new THREE.Color('#141C36') } as FogZone,
       arena: { density: FOG.arenaDensity, color: new THREE.Color(FOG.color) } as FogZone,
-      extraction: { density: 0.015, color: new THREE.Color(FOG.skyHorizon) } as FogZone,
+      extraction: { density: 0.015, color: new THREE.Color(SKY.horizon) } as FogZone,
     }),
     [],
   )
@@ -76,7 +88,15 @@ export default function Fog() {
     // below deck level the fog deepens toward the void value, so falls and
     // under-structure read as depth instead of a uniform blue wash
     const below = THREE.MathUtils.clamp(-state.camera.position.y / 12, 0, 1)
-    if (below > 0) targetColor.lerp(VOID_TINT, below * 0.7)
+    if (below > 0) targetColor.lerp(VOID_TINT, below * 0.85)
+
+    // height fog: thick at deck level, thin at the cornice
+    const hT = THREE.MathUtils.clamp(
+      (state.camera.position.y - HEIGHT_FOG.floorY) / (HEIGHT_FOG.ceilY - HEIGHT_FOG.floorY),
+      0,
+      1,
+    )
+    density *= THREE.MathUtils.lerp(HEIGHT_FOG.lowMult, HEIGHT_FOG.highMult, hT)
 
     const k = 1 - Math.exp(-2.2 * dt) // smooth zone transitions
     fog.density = THREE.MathUtils.lerp(fog.density, density, k)

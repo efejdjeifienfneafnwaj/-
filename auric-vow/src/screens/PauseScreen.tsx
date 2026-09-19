@@ -38,7 +38,7 @@ export default function PauseScreen({ onResume, onAbandon }: Props) {
 
         <div className="avs-menu">
           <button
-            className="avs-btn"
+            className="avs-btn primary"
             onClick={() => {
               AudioBus.playUIClick()
               onResume()

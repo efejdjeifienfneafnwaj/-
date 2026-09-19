@@ -22,6 +22,13 @@ import { getShellGlyphTexture, getStreakTexture, getSoftGlowTexture } from './vf
 const BEACON_HEIGHT = 40
 const BEACON_RADIUS = 2.0 // fix1: 1.5 → 2.0 wider beam
 const BEACON_CORE_RADIUS = 0.55 // bright inner core (fix1)
+/**
+ * [vfx R2] The beam TAPERS. A constant-width column is the single clearest
+ * primitive tell in the game's energy vocabulary (work order item 8) — a real
+ * shaft of light spreads as it leaves its source and thins as it dies. The
+ * pillar is now a truncated cone: 0.62× at the base, full width at altitude.
+ */
+const BEACON_BASE_SCALE = 0.62
 const RING_RADII = [2, 3, 4]
 const RING_SPEEDS = [0.3, -0.2, 0.5] // rev/s
 
@@ -299,7 +306,18 @@ export default function Ambient() {
   const glowRef = useRef<THREE.Mesh>(null)
   const glowMatRef = useRef<THREE.MeshBasicMaterial>(null)
   const beaconLightRef = useRef<THREE.PointLight>(null)
+  /**
+   * [vfx R2] Work order item 7 asks every beam to carry a real light, a
+   * SpotLight where the emitter is directional. The extraction beam had one
+   * point light at its foot and nothing else, so a 40 m pillar of light lit a
+   * 22 m bubble of floor and none of the walls it was supposedly washing.
+   * This cone is colour-locked to the beam and runs off the SAME pulse value,
+   * so the light and the geometry can never drift out of phase.
+   */
+  const beaconSpotRef = useRef<THREE.SpotLight>(null)
   const channelLightRef = useRef<THREE.PointLight>(null)
+  const channelCoreRef = useRef<THREE.Mesh>(null)
+  const channelCoreMatRef = useRef<THREE.MeshBasicMaterial>(null)
   const ringRefs = useRef<(THREE.Group | null)[]>([])
   const pillarMatRef = useRef<THREE.ShaderMaterial>(null)
 
@@ -314,13 +332,29 @@ export default function Ambient() {
   const emberClock = useRef(0)
 
   const glyphTex = useMemo(() => getGlyphSpriteTexture(), [])
+  // radiusTop > radiusBottom: the shaft opens upward out of its ground pool
   const pillarGeo = useMemo(
-    () => new THREE.CylinderGeometry(BEACON_RADIUS, BEACON_RADIUS, BEACON_HEIGHT, 32, 1, true),
+    () =>
+      new THREE.CylinderGeometry(
+        BEACON_RADIUS,
+        BEACON_RADIUS * BEACON_BASE_SCALE,
+        BEACON_HEIGHT,
+        32,
+        1,
+        true,
+      ),
     [],
   )
   const coreGeo = useMemo(
     () =>
-      new THREE.CylinderGeometry(BEACON_CORE_RADIUS, BEACON_CORE_RADIUS, BEACON_HEIGHT, 24, 1, true),
+      new THREE.CylinderGeometry(
+        BEACON_CORE_RADIUS * 0.7,
+        BEACON_CORE_RADIUS,
+        BEACON_HEIGHT,
+        24,
+        1,
+        true,
+      ),
     [],
   )
   const ringGeo = useMemo(() => new THREE.RingGeometry(0.9, 1, 96), [])
@@ -366,8 +400,11 @@ export default function Ambient() {
 
     // -- extraction beacon ---------------------------------------------------
     if (beaconVisible) {
+      // ONE pulse value drives the shader, the point light and the spot cone,
+      // so the beam's brightness and the light it casts are the same event
+      const pulse = 0.9 + 0.1 * Math.sin(t * Math.PI * 2)
       if (pillarMatRef.current) {
-        pillarMatRef.current.uniforms.uPulse!.value = 0.9 + 0.1 * Math.sin(t * Math.PI * 2)
+        pillarMatRef.current.uniforms.uPulse!.value = pulse
       }
       for (let i = 0; i < RING_RADII.length; i++) {
         const r = ringRefs.current[i]
@@ -378,20 +415,29 @@ export default function Ambient() {
         if (m) m.uniforms.uSpin!.value -= RING_SPEEDS[i]! * dt * 0.45
       }
       if (beaconLightRef.current) {
-        beaconLightRef.current.intensity = 12 + 2 * Math.sin(t * Math.PI * 2) // 1 Hz, i10→14
+        beaconLightRef.current.intensity = 13 * pulse
       }
-      // continuous ember emitter: 4/s rising 3 m over 2 s
+      const spot = beaconSpotRef.current
+      if (spot) {
+        // the cone washes DOWN the beam's own axis onto the pad and the walls
+        spot.intensity = 55 * pulse
+        spot.target.position.copy(lastKnown.current)
+        spot.target.updateMatrixWorld()
+      }
+      // continuous ember emitter: embers rise out of the pad, not sparks —
+      // an extraction beacon is a slow updraught, not an impact
       emberClock.current += dt
-      if (emberClock.current >= 0.25) {
-        emberClock.current -= 0.25
+      if (emberClock.current >= 0.2) {
+        emberClock.current -= 0.2
         VFX.burst({
           position: lastKnown.current,
           color: COLORS.aureate,
-          count: 1,
-          speed: 0.4,
-          life: 2,
-          size: 0.04,
+          count: 2,
+          speed: 0.5,
+          life: 2.2,
+          size: 0.05,
           gravity: -1.5, // negative gravity = rise
+          shape: 'ember',
         })
       }
     }
@@ -399,15 +445,28 @@ export default function Ambient() {
     // -- objective channel glow ----------------------------------------------
     if (glowVisible) {
       const p = s.channelProgress
+      // [vfx R2] the channel is layered like every other energy element: a
+      // tight hot core over a wide soft falloff, both breathing on the same
+      // curve, plus a light that tracks the same value. One flat quad scaled
+      // up was the "single-layer energy" tell the review called out.
+      const breathe = 0.92 + 0.08 * Math.sin(t * 6.2)
       const glow = glowRef.current
       if (glow) {
         glow.quaternion.copy(camera.quaternion)
-        const sc = 0.6 + p * 2.2
+        const sc = (0.6 + p * 2.2) * breathe
         glow.scale.set(sc, sc, sc)
         glow.position.set(0, 1.2, 0)
       }
-      if (glowMatRef.current) glowMatRef.current.opacity = 0.25 + p * 0.65
-      if (channelLightRef.current) channelLightRef.current.intensity = 2 + p * 10
+      if (glowMatRef.current) glowMatRef.current.opacity = (0.18 + p * 0.5) * breathe
+      const core = channelCoreRef.current
+      if (core) {
+        core.quaternion.copy(camera.quaternion)
+        const cs = (0.22 + p * 0.7) * breathe
+        core.scale.set(cs, cs, cs)
+        core.position.set(0, 1.2, 0)
+      }
+      if (channelCoreMatRef.current) channelCoreMatRef.current.opacity = (0.4 + p * 0.6) * breathe
+      if (channelLightRef.current) channelLightRef.current.intensity = (2 + p * 14) * breathe
     }
   })
 
@@ -474,10 +533,37 @@ export default function Ambient() {
             distance={22}
             decay={2}
           />
+          {/* colour-locked cone down the beam axis (work order item 7).
+              `light.target` is aimed imperatively in useFrame — a SpotLight's
+              default target is a detached Object3D whose world matrix stays at
+              the origin, so a beacon anywhere but 0,0,0 would fire sideways. */}
+          <spotLight
+            ref={beaconSpotRef}
+            position={[0, 26, 0]}
+            color={COLORS.aureate}
+            intensity={55}
+            distance={44}
+            angle={0.42}
+            penumbra={0.85}
+            decay={2}
+          />
         </group>
 
-        {/* objective channel glow */}
+        {/* objective channel glow: wide soft falloff + tight hot core */}
         <group visible={glowVisible}>
+          <mesh ref={channelCoreRef} geometry={glowGeo} renderOrder={19}>
+            <meshBasicMaterial
+              ref={channelCoreMatRef}
+              map={getSoftGlowTexture()}
+              color={COLORS.solarWhite}
+              transparent
+              opacity={0}
+              depthWrite={false}
+              blending={THREE.AdditiveBlending}
+              toneMapped={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
           <mesh ref={glowRef} geometry={glowGeo} renderOrder={18}>
             <meshBasicMaterial
               ref={glowMatRef}

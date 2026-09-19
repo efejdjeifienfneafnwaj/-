@@ -8,18 +8,25 @@
  * on the nose. Nothing else in the game is horizontal-and-hovering, so the
  * type reads instantly against troopers (vertical) and heavies (massive).
  *
+ * R2 art pass: every lit mesh receives and casts shadow (the round 2
+ * diagnosis measured 80 receivers in 880 meshes), the eye is authored above
+ * the 1.0 bloom knee through ENEMY_FX with a shared camera-facing falloff
+ * sprite behind it, it blinks at 1.5 Hz as the CHIRP's light signature, the
+ * fire telegraph is a ramp rather than a switch, and the orbit tightened
+ * 8–12 m → 6–9 m so the drone is worth looking at on screen.
+ *
  * AI: PATROL → ALERT (0.6 s screech, rise, broadcast) → ATTACK (strafe-orbit
  * with real obstacle avoidance, telegraphed crimson bolts, dart-away) →
  * STAGGER (spin-out) → dissolve death.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { useGameStore } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
 import { VFX } from '@/game/vfx/VFXBus'
-import { ENEMY_LOOK } from '@/game/config'
+import { ENEMY_FX, ENEMY_LOOK } from '@/game/config'
 import { broadcastAlert, type EnemyEntity } from './EnemyRegistry'
 import {
   avoidFlying,
@@ -31,15 +38,16 @@ import {
   separationForce,
   PERCEPTION_INTERVAL,
 } from './ai'
-import { patchDissolve, makeOutlineMaterial } from './dissolve'
+import { patchDissolve, makeOutlineMaterial, makeEnemyGlowMaterial } from './dissolve'
 import { fireEnemyBolt } from './EnemyProjectiles'
 
 const SPEED_PATROL = 3
 const SPEED_ATTACK = 6
 const DETECT_RANGE = 25
 const DETECT_FOV = 100
-const ORBIT_RADIUS_MIN = 8
-const ORBIT_RADIUS_MAX = 12
+/** [R2] 8–12 m → 6–9 m: a drone orbiting at 12 m is 30 px of hull */
+const ORBIT_RADIUS_MIN = 6
+const ORBIT_RADIUS_MAX = 9
 const FIRE_INTERVAL = 1.6
 const FIRE_TELEGRAPH = 0.28
 const BOLT_SPEED = 25
@@ -93,11 +101,15 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
       toneMapped: false,
       transparent: true,
     })
+    // camera-facing falloff behind the single eye — the drone's whole read at
+    // distance is one crimson point, so it has to survive being 3 px wide
+    const halo = makeEnemyGlowMaterial(ENEMY_LOOK.accent)
+    halo.opacity = ENEMY_FX.halo.opacity
     const dShell = patchDissolve(shell)
     const dFin = patchDissolve(fin)
     const dJoint = patchDissolve(joint, { rimStrength: ENEMY_LOOK.rimStrength * 0.5 })
     const outline = makeOutlineMaterial(ENEMY_LOOK.outline.pixels * 0.85)
-    return { shell, fin, joint, core, dShell, dFin, dJoint, outline }
+    return { shell, fin, joint, core, halo, dShell, dFin, dJoint, outline }
   }, [])
 
   useEffect(() => {
@@ -106,9 +118,28 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
       mats.fin.dispose()
       mats.joint.dispose()
       mats.core.dispose()
+      mats.halo.dispose()
       mats.outline.dispose()
     }
   }, [mats])
+
+  /**
+   * [R2 blocker] Flag every lit mesh as a shadow RECEIVER. The round 2
+   * diagnosis measured 80 receivers in an 880-mesh scene: the shadow pass was
+   * running and being thrown away. Additive cores, the glow sprite and the
+   * inverted-hull outline stay out of it; the caster set is unchanged.
+   */
+  useLayoutEffect(() => {
+    const g = group.current
+    if (!g) return
+    g.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      // receive only: the caster set stays exactly as the JSX authored it,
+      // because the shadow pass cost scales with casters, not receivers
+      m.receiveShadow = (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial === true
+    })
+  }, [])
 
   useFrame((state, delta) => {
     const s = useGameStore.getState()
@@ -153,6 +184,7 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
         const cs = Math.max(0, 1 - t * 4)
         coreMesh.current.scale.setScalar(cs)
       }
+      mats.halo.opacity = ENEMY_FX.halo.opacity * Math.max(0, 1 - t * 3)
       // tumble out of the sky rather than spinning in place
       e.position.y -= dt * (1.2 + e.deathTimer * 6)
       g.position.copy(e.position)
@@ -336,18 +368,38 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
     if (finGroup.current) finGroup.current.rotation.z += dt * (e.alerted ? 5.2 : 2.2)
     if (ringGroup.current) ringGroup.current.rotation.z -= dt * (e.alerted ? 3.4 : 1.4)
 
+    // ---- eye tell (R2 #4): a RAMP through the fire telegraph, authored
+    // above the 1.0 bloom knee so the drone reads as lit from inside -------
+    const fireT = e.ai.fireT ?? 1
+    const windup =
+      e.state === 'attack' && fireT <= FIRE_TELEGRAPH && fireT > 0 ? 1 - fireT / FIRE_TELEGRAPH : 0
+    const inCombat = e.state === 'attack' || e.state === 'alert'
+    const flutter = windup > 0
+      ? 1 + 0.25 * windup * Math.sin(state.clock.elapsedTime * Math.PI * 2 * ENEMY_FX.telegraphHz)
+      : 1
+    // the CHIRP's own signature: a 1.5 Hz beacon blink under everything else,
+    // so a drone is told apart from a trooper's steady ember and a heavy's
+    // slow throb by its LIGHT, not only by its silhouette
+    const beacon = 0.78 + 0.34 * Math.pow(Math.sin(state.clock.elapsedTime * Math.PI * 1.5 + bobPhase.current) * 0.5 + 0.5, 3)
+    const level =
+      THREE.MathUtils.lerp(
+        (inCombat ? ENEMY_FX.accentAlert : ENEMY_FX.accentIdle) * beacon,
+        ENEMY_FX.accentTelegraph,
+        windup * windup,
+      ) * flutter
     if (coreMesh.current) {
       const mat = mats.core
-      const inCombat = e.state === 'attack' || e.state === 'alert'
-      const glinting = e.state === 'attack' && (e.ai.fireT ?? 1) <= FIRE_TELEGRAPH
-      if (e.hitFlash > 0) mat.color.set('#FFFFFF')
-      else if (glinting || (e.ai.muzzle ?? 0) > 0) mat.color.copy(CORE_HOT).multiplyScalar(2.6)
-      else mat.color.lerpColors(CORE_DIM, CORE_FULL, inCombat ? 1 : 0.35)
-      coreMesh.current.scale.setScalar(glinting ? 1.5 : 1)
+      if (e.hitFlash > 0) mat.color.setScalar(ENEMY_FX.accentHit)
+      else if ((e.ai.muzzle ?? 0) > 0) mat.color.copy(CORE_HOT).multiplyScalar(ENEMY_FX.accentMuzzle)
+      else if (windup > 0) mat.color.copy(CORE_HOT).multiplyScalar(level)
+      else mat.color.lerpColors(CORE_DIM, CORE_FULL, inCombat ? 1 : 0.4).multiplyScalar(level)
+      coreMesh.current.scale.setScalar(1 + windup * 0.55)
     }
+    mats.halo.color.copy(CORE_HOT).multiplyScalar(0.5 + windup * 1.6)
+    mats.halo.opacity = ENEMY_FX.halo.opacity * (inCombat ? 1 : 0.5) * (1 + windup)
     // hit flash — shell override
-    mats.shell.emissive.setScalar(e.hitFlash > 0 ? 0.85 : 0)
-    mats.fin.emissive.setScalar(e.hitFlash > 0 ? 0.85 : 0)
+    mats.shell.emissive.setScalar(e.hitFlash > 0 ? ENEMY_FX.hitFlashEmissive : 0)
+    mats.fin.emissive.setScalar(e.hitFlash > 0 ? ENEMY_FX.hitFlashEmissive : 0)
   })
 
   function syncHead(e: EnemyEntity) {
@@ -395,6 +447,7 @@ export function Drone({ entity }: { entity: EnemyEntity }) {
         <mesh ref={coreMesh} material={mats.core} position={[0, 0, 0.24]}>
           <sphereGeometry args={[0.075, 12, 10]} />
         </mesh>
+        <sprite material={mats.halo} position={[0, 0, 0.27]} scale={[0.46, 0.46, 1]} />
         {/* ---- counter-rotating gimbal ring + blades ---- */}
         <group ref={ringGroup} rotation-x={Math.PI / 2}>
           <mesh material={mats.joint} position={[0, 0, 0]}>

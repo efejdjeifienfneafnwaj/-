@@ -45,6 +45,8 @@ import {
   recessMaterial,
   umberMaterial,
   fretTrimMaterial,
+  screenMaterial,
+  cofferMaterial,
   obsidianMaterial,
   floorMaterial,
   arenaGrooveMaterial,
@@ -70,10 +72,8 @@ const PLANE = new THREE.PlaneGeometry(1, 1)
 const CYL = new THREE.CylinderGeometry(1, 1, 1, 20)
 const PETAL = new THREE.BoxGeometry(1, 0.12, 2.2)
 const OCTA = new THREE.OctahedronGeometry(1, 0)
-const RIB_CANYON = new THREE.TorusGeometry(7, 0.5, 8, 24, Math.PI)
-const RIB_ARENA = new THREE.TorusGeometry(30, 0.9, 8, 40, Math.PI)
-const RIB_CHAMBER = new THREE.TorusGeometry(14, 0.45, 8, 28, Math.PI)
-const RIB_BRIDGE = new THREE.TorusGeometry(5.5, 0.35, 8, 20, Math.PI)
+// (rib geometry is built further down from the keyed RIB_SECTION profile —
+//  the plain tori these replaced could not self-shadow)
 const WALL_ARCH = new THREE.TorusGeometry(2.2, 0.3, 8, 20, Math.PI)
 // arch-bay variants (fix2): B = narrow + heavy, C = wide + slender
 const WALL_ARCH_B = new THREE.TorusGeometry(1.55, 0.36, 8, 18, Math.PI)
@@ -147,6 +147,69 @@ const TRIM_PROFILE_FINE: [number, number][] = [
   [0.062, 0.022],
   [0.055, 0.045],
   [0.0, 0.045],
+]
+
+/**
+ * R2 — keyed structural rib section (map E14 / work order #5).
+ *
+ * Every arch rib in the level was a `TorusGeometry`: a circular tube, which is
+ * the one section that CANNOT self-shadow, because its surface normal turns
+ * smoothly through 360° and produces a single soft gradient from any light
+ * direction. That is most of why the architecture read as untextured
+ * primitives — ribs are the largest ornament in frame and they had no edges.
+ *
+ * This is the profile a cast Orokin rib actually has, swept with the same
+ * `sweepArc` the gold trim runs use: a flat back against the vault, a chamfer
+ * onto the soffit, a pair of quirked grooves, and a bead on the crown. The
+ * grooves are 6–8 cm deep at canyon scale, so the key light puts a hard dark
+ * line down the whole length of every rib and the ribs finally read as carved.
+ *
+ * `r` is radial offset from the arc radius (negative = toward the room),
+ * `d` is out-of-plane depth.
+ *
+ * ORDER MATTERS: `sweepArc` emits a fixed index winding, so the section has to
+ * be listed with the same handedness as TRIM_PROFILE or every rib renders
+ * inside-out (back faces culled, hollow silhouette). TRIM_PROFILE has its flat
+ * back at MINIMUM r and runs in increasing `d`; this section's flat back is at
+ * MAXIMUM r — it faces the vault, not the room — so it runs in DECREASING `d`
+ * to keep the same signed area.
+ */
+const RIB_SECTION: [number, number][] = [
+  [0.55, 0.5],
+  [0.18, 0.5],
+  [0.1, 0.38],
+  [0.2, 0.3],
+  [0.2, 0.18],
+  [0.02, 0.12],
+  [-0.16, 0.06],
+  [-0.16, -0.06],
+  [0.02, -0.12],
+  [0.2, -0.18],
+  [0.2, -0.3],
+  [0.1, -0.38],
+  [0.18, -0.5],
+  [0.55, -0.5],
+]
+
+function ribSection(scale: number): [number, number][] {
+  return RIB_SECTION.map(([r, d]) => [r * scale, d * scale] as [number, number])
+}
+
+/**
+ * L-profile gold trim run — the machined angle that covers every floor-to-wall
+ * and wall-to-ceiling joint. Real buildings have one; the R1 level met floors
+ * and walls on a bare 90° corner, which is the junction a blockout has.
+ * Unit length along Z (scale Z to the run), sitting in the corner at the
+ * origin with the two flanges running +X (floor) and +Y (wall).
+ */
+const L_TRIM_PROFILE: [number, number][] = [
+  [0.0, 0.0],
+  [0.26, 0.0],
+  [0.26, 0.035],
+  [0.09, 0.06],
+  [0.06, 0.09],
+  [0.035, 0.26],
+  [0.0, 0.26],
 ]
 
 /**
@@ -308,6 +371,14 @@ function repeatUv(g: THREE.BufferGeometry, ru: number, rv = 1): THREE.BufferGeom
 /** stepped trim run, unit length along Z (scale Z) */
 const TRIM_RUN = sweepLine(TRIM_PROFILE)
 const TRIM_RUN_FINE = sweepLine(TRIM_PROFILE_FINE)
+/** gold L-angle for floor/wall and wall/ceiling joints, unit length along Z */
+const L_TRIM_RUN = sweepLine(L_TRIM_PROFILE)
+
+/** keyed structural ribs (chamfer + quirked grooves + crown bead) */
+const RIB_CANYON = sweepArc(ribSection(1.0), 7, Math.PI, 30)
+const RIB_ARENA = sweepArc(ribSection(1.8), 30, Math.PI, 56)
+const RIB_CHAMBER = sweepArc(ribSection(0.9), 14, Math.PI, 34)
+const RIB_BRIDGE = sweepArc(ribSection(0.7), 5.5, Math.PI, 24)
 /** arch trims matching the three canyon bay variants + chamber/arena/bridge */
 const ARCH_TRIM_A = sweepArc(TRIM_PROFILE, 2.05, Math.PI, 22)
 const ARCH_TRIM_B = sweepArc(TRIM_PROFILE, 1.42, Math.PI, 20)
@@ -336,6 +407,27 @@ const COLUMN_PROFILE: [number, number][] = (() => {
 const COLUMN_GEO = flutedColumn(COLUMN_PROFILE, 18, 0.07, [-3.9, 3.3], 54)
 /** flat fret course for wall panels (unit square, scaled per run) */
 const FRET_PANEL = repeatUv(new THREE.PlaneGeometry(1, 1), 6)
+
+// --- R2 ornament: pierced screens, coffers, inlay annuli --------------------
+/**
+ * Pierced screen panels, hung ~7 cm in front of a flat wall span with a
+ * recess-black box behind them. A flat span is the tell the critics named
+ * ("untextured primitive architecture"); a screen turns it into a silhouette
+ * with real depth, and because the material is alpha-TESTED (not blended) it
+ * writes depth and therefore casts a pierced shadow of its own.
+ * Two aspect variants so the motif stays square on both wide and tall spans.
+ */
+const SCREEN_WIDE = repeatUv(new THREE.PlaneGeometry(1, 1), 2, 2)
+const SCREEN_TALL = repeatUv(new THREE.PlaneGeometry(1, 1), 2, 2)
+/** single coffer (stepped frame, punched centre) for the upper wall register */
+const COFFER_PANEL = new THREE.PlaneGeometry(1, 1)
+
+/** flat annulus in the XZ plane (rotate −π/2 about X to lay it on a floor) */
+function annulus(inner: number, outer: number, seg = 96): THREE.BufferGeometry {
+  return new THREE.RingGeometry(inner, outer, seg)
+}
+const MANDALA_CHANNEL = annulus(0.955, 1.0)
+const MANDALA_INLAY = annulus(0.966, 0.99)
 /** column collars + fret bands sized to the fluted profile */
 const COLUMN_FRET_LO = repeatUv(new THREE.CylinderGeometry(0.775, 0.775, 0.42, 30, 1, true), 5)
 const COLUMN_FRET_HI = repeatUv(new THREE.CylinderGeometry(0.655, 0.655, 0.34, 28, 1, true), 4)
@@ -346,10 +438,21 @@ const COLUMN_COLLAR_HI = new THREE.CylinderGeometry(0.635, 0.635, 0.18, 28, 1, t
 /** wall panel body: plain box (no absurd 0.85 m fillet from scaling RBOX,
  *  map E2) subdivided in Y so the baked contact gradient has vertices */
 const PANEL_BOX = bakeContactAO(new THREE.BoxGeometry(1, 1, 1, 1, 26, 1), -0.5, -0.44, 0.36)
+/** plinth / base-course box: a grounded dark band at the foot of every
+ *  free-standing mass (work order #3 — extend the cavity bake past the ribs) */
+const PLINTH_BOX = bakeContactAO(new THREE.BoxGeometry(1, 1, 1, 1, 10, 1), -0.5, -0.24, 0.42)
+/** chamber dome: the springing where the shell meets the wall goes dark, so a
+ *  18 m vault stops reading as a uniformly lit hemisphere */
+const DOME_AO = bakeContactAO(DOME_GEO, 0.4, 6.5, 0.34)
 const RIB_CANYON_AO = bakeContactAO(RIB_CANYON, 0, 1.9, 0.4)
 const RIB_CHAMBER_AO = bakeContactAO(RIB_CHAMBER, 0, 2.6, 0.4)
 const RIB_ARENA_AO = bakeContactAO(RIB_ARENA, 0, 4.4, 0.42)
 const RIB_BRIDGE_AO = bakeContactAO(RIB_BRIDGE, 0, 1.4, 0.42)
+/** arch springings: the joint where a bay arch lands on its panel is a cavity,
+ *  and it was the brightest part of the arch because nothing occluded it */
+const WALL_ARCH_AO = bakeContactAO(WALL_ARCH, 0, 0.9, 0.46)
+const WALL_ARCH_B_AO = bakeContactAO(WALL_ARCH_B, 0, 0.7, 0.46)
+const WALL_ARCH_C_AO = bakeContactAO(WALL_ARCH_C, 0, 1.1, 0.46)
 
 // ---------------------------------------------------------------------------
 // Instancing helper
@@ -366,11 +469,27 @@ const _e = new THREE.Euler()
 const _v = new THREE.Vector3()
 const _s = new THREE.Vector3()
 
+/**
+ * R2 — `receiveShadow` now defaults to TRUE.
+ *
+ * The runtime diagnosis of the R2 build is unambiguous: 880 meshes in the
+ * scene, 122 casters, 80 receivers. The shadow maps were allocated, both
+ * cascades were rendering, and the near cascade was correctly framed on the
+ * player — every one of those shadows was then thrown away because the surface
+ * it landed on had `receiveShadow === false`. That is the whole reason "light
+ * never interacts with the scene".
+ *
+ * Receiving is nearly free (it is a branch in an already-compiled shader, and
+ * the depth map is rendered either way); CASTING is what costs, and that stays
+ * opt-in per call site. So the default flips here, and ShrineStation's root
+ * also sweeps every plain <mesh> in the level (see the traverse in the default
+ * export) so no structural surface can be missed by hand.
+ */
 function Instanced({
   geometry,
   material,
   items,
-  receiveShadow = false,
+  receiveShadow = true,
   castShadow = false,
 }: {
   geometry: THREE.BufferGeometry
@@ -537,7 +656,7 @@ function ZoneA() {
       <Instanced geometry={COLUMN_FRET_HI} material={fretTrimMaterial()} items={A_PILLAR_FRET_HI} />
       <Instanced geometry={COLUMN_COLLAR_LO} material={goldMaterial()} items={A_PILLAR_BAND_LO} />
       <Instanced geometry={COLUMN_COLLAR_HI} material={goldPolishedMaterial()} items={A_PILLAR_BAND_HI} />
-      <Instanced geometry={RBOX} material={umberMaterial()} items={A_PILLAR_PLINTHS} castShadow />
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={A_PILLAR_PLINTHS} castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={A_CAPITALS} castShadow />
       {/* insertion pod — opened petal flower, still glowing gold */}
       <Instanced geometry={PETAL} material={ivoryMaterial()} items={A_POD_PETALS} />
@@ -582,12 +701,24 @@ for (let z = 15; z <= 133; z += 3) {
   if (z + 3 <= 133) B_PANES.push({ p: [5.97, 4, z + 1.5], r: [0, Math.PI / 2, 0], s: [2.6, 7, 1] })
 }
 
-// west wall (B2–B4) with gold pilaster strips + teal vein insets
+// west wall (B2–B4) with gold pilaster strips + vein insets
 const B_WEST_PILASTERS: InstItem[] = []
 const B_WEST_VEINS: InstItem[] = []
 const B_WEST_VEIN_CHANNEL: InstItem[] = []
+/**
+ * R2 — the canyon's west wall is the surface the player runs beside for 95 m
+ * and it was a flat ivory slab with gold stripes on it. Every second bay now
+ * carries a tall pierced screen on a black recess: the same amount of wall,
+ * with a silhouette and a depth cue.
+ */
+const B_WEST_SCREEN: InstItem[] = []
+const B_WEST_SCREEN_BACK: InstItem[] = []
 for (let z = 44; z <= 132; z += 8) {
   B_WEST_PILASTERS.push({ p: [-5.85, 4.5, z], s: [0.25, 9, 0.6] })
+  if (((z - 44) / 8) % 2 === 1 && z + 4 <= 132) {
+    B_WEST_SCREEN_BACK.push({ p: [-5.88, 4.3, z + 4], s: [0.1, 6.6, 6.6] })
+    B_WEST_SCREEN.push({ p: [-5.81, 4.3, z + 4], r: [0, Math.PI / 2, 0], s: [6.2, 6.2, 1] })
+  }
   // every other one only — and each sits in a dark channel
   if (((z - 44) / 8) % 2 === 0) {
     B_WEST_VEINS.push({ p: [-5.68, 3, z + 4], s: [0.06, 4.5, 0.3] })
@@ -621,8 +752,16 @@ const B_WALL_MINIPIL: InstItem[] = []
 const B_WALL_NICHE: InstItem[] = []
 const B_WALL_FRET: InstItem[] = []
 const B_WALL_BASE_UMBER: InstItem[] = []
-/** teal practical fixtures: [x, y, z] of every canyon glow strip (Lighting) */
-const B_TEAL_FIXTURES: [number, number, number][] = []
+const B_WALL_SCREEN: InstItem[] = []
+const B_WALL_CORBEL: InstItem[] = []
+/**
+ * R2 colour script — architectural practicals are AUREATE, not cadence teal.
+ * Teal is the hostile/corruption hue and nothing else: spawn gates, vein
+ * growth, glyph stains. The canyon used to be lit by 30-odd teal strips, which
+ * put the enemy colour on 100 m of the player's own shrine and is why the
+ * frames read as one cyan-tinted value band.
+ */
+const B_GOLD_FIXTURES: [number, number, number][] = []
 
 const BAY_RHYTHM = [5, 4, 6, 4, 7]
 {
@@ -665,8 +804,22 @@ const BAY_RHYTHM = [5, 4, 6, 4, 7]
         const th = west ? 3.6 : 4.4
         B_WALL_TEAL_CHANNEL.push({ p: [px + face * 0.58, ty, zc - w * 0.34], s: [0.08, th + 0.7, 0.62] })
         B_WALL_TEAL.push({ p: [tx, ty, zc - w * 0.34], s: [0.1, th, 0.24] })
-        B_TEAL_FIXTURES.push([tx + face * 0.3, ty, zc - w * 0.34])
+        B_GOLD_FIXTURES.push([tx + face * 0.3, ty, zc - w * 0.34])
       }
+      // Pierced stone screen across the arch niche. The niche box
+      // (B_WALL_NICHE, recess black) is already the backing, so the screen has
+      // to sit PROUD of its front face — 0.66 + half its 0.08 thickness — and
+      // still behind the arch moulding, which stands 0.3 out from the panel.
+      B_WALL_SCREEN.push({
+        p: [px + face * 0.8, (1.0 + ay + 1.6) / 2, zc],
+        r: [0, face * Math.PI / 2, 0],
+        s: [w * 0.7, ay + 0.85, 1],
+      })
+      // corbel bracket under the cornice — fills the upper corner of the frame
+      B_WALL_CORBEL.push({
+        p: [px + face * 0.92, ph - 1.4, zc],
+        s: [0.9, 0.7, w * 0.42],
+      })
       // gold vertical seam trim (variants A/B) or flanking mini-pilasters (C)
       if (variant === 2) {
         B_WALL_MINIPIL.push({ p: [gx, 5, zc - w * 0.42], s: [0.16, 7, 0.4] })
@@ -786,14 +939,23 @@ function ZoneB() {
       {/* west wall (B2–B4) */}
       <MassMesh
         spec={{ x0: -6.4, y0: 0, z0: 40, x1: -5.9, y1: 9, z1: 135 }}
-        material={ivoryMaterial()}
+        geometry={PANEL_BOX}
+        material={ivoryContactMaterial()}
+        castShadow
       />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WEST_PILASTERS} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_SCREEN_BACK} />
+      <Instanced
+        geometry={SCREEN_TALL}
+        material={screenMaterial()}
+        items={B_WEST_SCREEN}
+        castShadow
+      />
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_VEIN_CHANNEL} />
-      <Instanced geometry={BOX} material={veinTealMaterial()} items={B_WEST_VEINS} />
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_WEST_VEINS} />
 
       {/* east glass wall to space */}
-      <Instanced geometry={BOX} material={ivoryMaterial()} items={B_MULLIONS} />
+      <Instanced geometry={BOX} material={ivoryMaterial()} items={B_MULLIONS} castShadow />
       <Instanced geometry={PLANE} material={glassMaterial()} items={B_PANES} />
       <mesh geometry={BOX} material={goldMaterial()} position={[6, 8.15, 74]} scale={[0.5, 0.4, 119]} />
       <mesh geometry={BOX} material={goldMaterial()} position={[6, 0.25, 74]} scale={[0.5, 0.5, 119]} />
@@ -809,26 +971,37 @@ function ZoneB() {
         castShadow
       />
       <Instanced geometry={BOX} material={umberMaterial()} items={B_WALL_BASE_UMBER} receiveShadow />
-      <Instanced geometry={WALL_ARCH} material={ivoryMaterial()} items={B_WALL_ARCH_A} castShadow />
+      <Instanced geometry={WALL_ARCH_AO} material={ivoryContactMaterial()} items={B_WALL_ARCH_A} castShadow />
       <Instanced geometry={ARCH_TRIM_A} material={goldMaterial()} items={B_WALL_ARCH_A} />
-      <Instanced geometry={WALL_ARCH_B} material={ivoryMaterial()} items={B_WALL_ARCH_B} castShadow />
+      <Instanced geometry={WALL_ARCH_B_AO} material={ivoryContactMaterial()} items={B_WALL_ARCH_B} castShadow />
       <Instanced geometry={ARCH_TRIM_B} material={goldMaterial()} items={B_WALL_ARCH_B} />
-      <Instanced geometry={WALL_ARCH_C} material={ivoryMaterial()} items={B_WALL_ARCH_C} castShadow />
+      <Instanced geometry={WALL_ARCH_C_AO} material={ivoryContactMaterial()} items={B_WALL_ARCH_C} castShadow />
       <Instanced geometry={ARCH_TRIM_C} material={goldMaterial()} items={B_WALL_ARCH_C} />
       <Instanced geometry={BOX} material={goldPolishedMaterial()} items={B_WALL_KEYSTONE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WALL_MINIPIL} />
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WALL_ENGRAVE} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={B_WALL_FRET} />
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WALL_TEAL_CHANNEL} />
-      <Instanced geometry={BOX} material={veinTealMaterial()} items={B_WALL_TEAL} />
+      {/* R2 colour script: the canyon's bay practicals are AUREATE. Teal is
+          reserved for the hostile domain (gates, vein growth, glyph stains). */}
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_WALL_TEAL} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WALL_GOLD} />
+      {/* pierced screens over the flat bay spans, backed by the arch niche */}
+      <Instanced
+        geometry={SCREEN_WIDE}
+        material={screenMaterial()}
+        items={B_WALL_SCREEN}
+        castShadow
+      />
+      {/* corbel brackets under the cornice — upper-corner framing mass */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_WALL_CORBEL} />
       {/* cornice beams crowning the outer walls */}
       <mesh geometry={BOX} material={goldMaterial()} position={[-9.5, 17.2, 75]} scale={[0.7, 0.5, 115]} />
       <mesh geometry={BOX} material={goldMaterial()} position={[14.1, 19.2, 75]} scale={[0.7, 0.5, 115]} />
 
       {/* descending under-structure + teal under-glow (void = depth, not empty) */}
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_BUTTRESSES} castShadow />
-      <Instanced geometry={BOX} material={veinTealMaterial()} items={B_UNDERGLOW} />
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_UNDERGLOW} />
 
       {/* arch-rib colonnade — contact-AO baked feet, casts shadow */}
       <Instanced
@@ -843,13 +1016,13 @@ function ZoneB() {
 
       {/* wall-run slabs + gold veins */}
       {WALLRUN_SLABS.map((s, i) => (
-        <MassMesh key={i} spec={s} material={ivoryMaterial()} />
+        <MassMesh key={i} spec={s} material={ivoryMaterial()} castShadow />
       ))}
       <Instanced geometry={BOX} material={recessMaterial()} items={B_SLAB_CHANNEL} />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_SLAB_VEINS} />
 
       {/* broken spire + crown */}
-      <MassMesh spec={SPIRE} material={ivoryMaterial()} />
+      <MassMesh spec={SPIRE} material={ivoryMaterial()} castShadow />
       <mesh geometry={BOX} material={goldMaterial()} position={[4, 8.06, 106]} scale={[5.2, 0.14, 6.2]} />
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={B_SPIRE_CROWN} />
 
@@ -861,8 +1034,8 @@ function ZoneB() {
       <Instanced geometry={BOX} material={goldEdgeMaterial()} items={B_STEP_NOSING_EDGE} />
 
       {/* balcony gate frame at z135 */}
-      <mesh geometry={BOX} material={ivoryMaterial()} position={[-4, 4, 134.7]} scale={[1.2, 8, 1]} />
-      <mesh geometry={BOX} material={ivoryMaterial()} position={[4, 4, 134.7]} scale={[1.2, 8, 1]} />
+      <mesh geometry={BOX} material={ivoryMaterial()} position={[-4, 4, 134.7]} scale={[1.2, 8, 1]} castShadow />
+      <mesh geometry={BOX} material={ivoryMaterial()} position={[4, 4, 134.7]} scale={[1.2, 8, 1]} castShadow />
       <mesh geometry={BOX} material={goldMaterial()} position={[0, 8.4, 134.7]} scale={[9.4, 0.8, 1]} />
 
       <PetalGate />
@@ -1176,6 +1349,60 @@ for (const sx of [1, -1]) {
 for (const dz of [-10.5, 10.5]) C_FLOOR_UMBER.push({ p: [0, 0.004, 150 + dz], s: [22, 0.008, 1.8] })
 for (const dx of [-10.5, 10.5]) C_FLOOR_UMBER.push({ p: [dx, 0.004, 150], s: [1.8, 0.008, 22] })
 
+// ---------------------------------------------------------------------------
+// R2 chamber ornament: pierced screens on the long spans, a coffered upper
+// register, a gold L-angle at every floor-to-wall joint, and corbel brackets
+// under the cornice.
+//
+// The junction trim matters more than it sounds: before this, floors met walls
+// on a bare 90° corner, which is a junction only a blockout has. A real
+// building covers that joint with a machined angle, and the 2 cm highlight
+// along it is what tells the eye the two surfaces are different materials.
+// ---------------------------------------------------------------------------
+const C_SCREENS: InstItem[] = []
+const C_SCREEN_BACK: InstItem[] = []
+const C_COFFERS: InstItem[] = []
+const C_COFFER_BACK: InstItem[] = []
+const C_CORBELS: InstItem[] = []
+const C_PILASTER_NOSING: InstItem[] = []
+const C_PILASTER_NOSING_LIP: InstItem[] = []
+for (const sx of [1, -1]) {
+  for (const z of [138.5, 145, 155, 161.5]) {
+    // lower register: pierced screen over a black recess
+    // The bay is built OUT, not cut in (the wall is a solid box), so the
+    // whole composition has to stay inside the depth the pilasters already
+    // establish — 0.17 — or the screens read as panels leaning on the wall.
+    // Backing plate is flush to the wall face; screen sits 0.24 proud of it.
+    C_SCREEN_BACK.push({ p: [sx * 14.9, 3.3, z], s: [0.22, 4.6, 5.2] })
+    C_SCREENS.push({ p: [sx * 14.76, 3.3, z], r: [0, sx * Math.PI / 2, 0], s: [5.0, 4.4, 1] })
+    // upper register: coffer panel, punched centre, over the same black
+    C_COFFER_BACK.push({ p: [sx * 14.9, 7.9, z], s: [0.22, 2.6, 3.0] })
+    C_COFFERS.push({ p: [sx * 14.76, 7.9, z], r: [0, sx * Math.PI / 2, 0], s: [2.8, 2.4, 1] })
+  }
+  for (const z of [141, 147.5, 152.5, 159]) {
+    // modelled gold nosing down the face of every pilaster: a stepped shaft
+    // plus a narrow proud lip, so the pilaster has an edge that catches the
+    // key instead of being a flat gold rectangle painted on the wall
+    C_PILASTER_NOSING.push({ p: [sx * 14.74, 5, z], s: [0.2, 9.6, 0.34] })
+    C_PILASTER_NOSING_LIP.push({ p: [sx * 14.62, 5, z], s: [0.1, 9.6, 0.17] })
+  }
+  for (let z = 137; z <= 163; z += 3.25) {
+    C_CORBELS.push({ p: [sx * 14.5, 8.85, z], s: [1.1, 0.6, 1.1] })
+  }
+}
+/** gold L-angle around the chamber floor/wall joint: [pos, yaw, length] */
+const C_LTRIM: InstItem[] = [
+  { p: [-14.98, 0.005, 150], r: [0, 0, 0], s: [1, 1, 29.6] },
+  { p: [14.98, 0.005, 150], r: [0, Math.PI, 0], s: [1, 1, 29.6] },
+  { p: [0, 0.005, 135.02], r: [0, -Math.PI / 2, 0], s: [1, 1, 29.6] },
+  { p: [0, 0.005, 164.98], r: [0, Math.PI / 2, 0], s: [1, 1, 29.6] },
+]
+/** plinth-height fret course, under the screens */
+const C_FRET_PLINTH: InstItem[] = []
+for (const sx of [1, -1]) {
+  C_FRET_PLINTH.push({ p: [sx * 14.83, 1.15, 150], r: [0, sx * Math.PI / 2, 0], s: [28, 0.42, 1] })
+}
+
 // 6 floor sockets + vein cables to the Reliquary
 const C_SOCKETS: InstItem[] = []
 for (let i = 0; i < 6; i++) {
@@ -1236,7 +1463,7 @@ function Reliquary() {
   return (
     <group>
       <group ref={g} position={RELIQUARY_POSITION.toArray()}>
-        <mesh geometry={ICOSA} material={obsidianMaterial()} />
+        <mesh geometry={ICOSA} material={obsidianMaterial()} castShadow />
         <mesh geometry={ICOSA_INNER} material={purifyVeinMaterial()} />
       </group>
       {/* petal rosette cradle */}
@@ -1252,7 +1479,7 @@ function Planter({ x, z, purify }: { x: number; z: number; purify?: boolean }) {
   const petals = useMemo(() => rosette(x, 1.15, z, 0.8, 8, -0.55, [0.5, 0.8, 0.5]), [x, z])
   return (
     <group>
-      <mesh geometry={RBOX} material={ivoryMaterial()} position={[x, 0.5, z]} scale={[2, 1, 2]} receiveShadow />
+      <mesh geometry={RBOX} material={ivoryMaterial()} position={[x, 0.5, z]} scale={[2, 1, 2]} receiveShadow castShadow />
       <mesh geometry={BOX} material={goldMaterial()} position={[x, 1.02, z]} scale={[2.1, 0.08, 2.1]} />
       <Instanced geometry={PETAL} material={goldMaterial()} items={petals} />
       <mesh
@@ -1267,8 +1494,12 @@ function Planter({ x, z, purify }: { x: number; z: number; purify?: boolean }) {
 }
 
 function ZoneC() {
+  // BackSide clone of the CONTACT ivory: the dome carries a baked springing
+  // gradient (DOME_AO) so the vault has a dark ring where it meets the walls.
+  // Cloning preserves onBeforeCompile/customProgramCacheKey, so it still gets
+  // the world-space trim projection and the detail normal layer.
   const domeMat = useMemo(() => {
-    const m = ivoryMaterial().clone()
+    const m = ivoryContactMaterial().clone()
     m.side = THREE.BackSide
     return m
   }, [])
@@ -1283,7 +1514,7 @@ function ZoneC() {
       <Instanced geometry={BOX} material={umberMaterial()} items={C_FLOOR_UMBER} receiveShadow />
 
       {/* dome + oculus */}
-      <mesh geometry={DOME_GEO} material={domeMat} position={[0, 0, 150]} />
+      <mesh geometry={DOME_AO} material={domeMat} position={[0, 0, 150]} receiveShadow />
       <mesh geometry={RING_GEO} material={goldMaterial()} position={[0, 17.6, 150]} rotation={[Math.PI / 2, 0, 0]} scale={[3.1, 3.1, 14]} />
       <mesh position={[0, 17.75, 150]} rotation={[Math.PI / 2, 0, 0]} geometry={CIRCLE} scale={[2.7, 2.7, 1]}>
         <meshBasicMaterial color={SOLAR_HOT} toneMapped={false} />
@@ -1299,18 +1530,41 @@ function ZoneC() {
       />
       <Instanced geometry={ARCH_TRIM_CHAMBER} material={goldMaterial()} items={C_RIBS} />
 
-      {/* perimeter walls + trim + panel detail */}
+      {/* perimeter walls + trim + panel detail. R2: the walls are drawn with
+          the subdivided PANEL_BOX and the contact-AO ivory, so a 10 m wall has
+          a grounded dark band at its foot even with the SSAO pass off — and
+          they cast, so the colonnade finally throws shadows across the floor. */}
       {C_WALLS.map((w, i) => (
-        <MassMesh key={i} spec={w} material={ivoryMaterial()} castShadow />
+        <MassMesh
+          key={i}
+          spec={w}
+          geometry={PANEL_BOX}
+          material={ivoryContactMaterial()}
+          castShadow
+        />
       ))}
       <Instanced geometry={RBOX} material={umberMaterial()} items={C_BASE} receiveShadow />
       <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={C_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={C_WALL_TRIM} />
       <Instanced geometry={BOX} material={goldMaterial()} items={C_WALL_PILASTERS} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={C_PILASTER_NOSING} />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={C_PILASTER_NOSING_LIP} />
       <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_BANDS} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={C_WALL_FRET} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={C_FRET_PLINTH} />
       <Instanced geometry={BOX} material={recessMaterial()} items={C_WALL_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={C_WALL_INSETS} />
+
+      {/* R2 ornament: pierced screens (lower register) and coffers (upper),
+          both on a recess-black backing so the holes read as true darks */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_SCREEN_BACK} />
+      <Instanced geometry={SCREEN_WIDE} material={screenMaterial()} items={C_SCREENS} castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_COFFER_BACK} />
+      <Instanced geometry={COFFER_PANEL} material={cofferMaterial()} items={C_COFFERS} castShadow />
+      {/* gold L-angle covering every floor-to-wall joint */}
+      <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={C_LTRIM} />
+      {/* corbel brackets under the cornice — upper-corner framing mass */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={C_CORBELS} />
 
       {/* teal vein clusters + corruption glyphs */}
       <Instanced geometry={BOX} material={veinTealMaterial()} items={C_VEINS} />
@@ -1398,6 +1652,161 @@ for (const sx of [1, -1]) {
 D_FLOOR_UMBER.push({ p: [0, 0.004, 195], s: [56, 0.008, 3.2] })
 D_FLOOR_UMBER.push({ p: [0, 0.004, 175], s: [56, 0.008, 1.4] })
 D_FLOOR_UMBER.push({ p: [0, 0.004, 215], s: [56, 0.008, 1.4] })
+
+// ---------------------------------------------------------------------------
+// R2 — Zone D brought to shrine parity (work order env-art #7 and #9)
+//
+// The arena was the weakest room in the level: six flat 60 m walls with a
+// pilaster every 6 m, a painted floor decal, and no light of its own. It is
+// also where the player spends most of the mission. Everything the shrine got
+// in R1 is applied here — contact-AO wall panels, pierced screens, a coffered
+// upper register, fret courses at plinth and head height, modelled gold
+// pilaster nosings, a junction angle, corbel framing — plus the two things the
+// composition notes asked for: an inlaid (not painted) floor mandala, and
+// perimeter practicals so the floor has pools and enemies separate from it.
+// ---------------------------------------------------------------------------
+const D_SCREENS: InstItem[] = []
+const D_SCREEN_BACK: InstItem[] = []
+const D_COFFERS: InstItem[] = []
+const D_COFFER_BACK: InstItem[] = []
+const D_CORBELS: InstItem[] = []
+const D_PILASTER_NOSING: InstItem[] = []
+const D_PILASTER_NOSING_LIP: InstItem[] = []
+const D_FRET_PLINTH: InstItem[] = []
+const D_FRET_HEAD: InstItem[] = []
+const D_SCONCE_BRACKET: InstItem[] = []
+const D_SCONCE_HOOD: InstItem[] = []
+const D_SCONCE_LENS: InstItem[] = []
+/** arena perimeter practicals — consumed by GOLD_FIXTURES / EnvironmentFX */
+const D_SCONCE_FIXTURES: [number, number, number][] = []
+
+// east / west long walls
+for (const sx of [1, -1]) {
+  // screen + coffer bays, skipping the z where the corruption insets sit
+  for (const z of [171.5, 177.5, 189, 195, 213, 219]) {
+    D_SCREEN_BACK.push({ p: [sx * 29.9, 3.2, z], s: [0.22, 5.0, 5.4] })
+    D_SCREENS.push({ p: [sx * 29.76, 3.2, z], r: [0, sx * Math.PI / 2, 0], s: [5.1, 4.7, 1] })
+    D_COFFER_BACK.push({ p: [sx * 29.9, 8.1, z], s: [0.22, 2.8, 3.2] })
+    D_COFFERS.push({ p: [sx * 29.76, 8.1, z], r: [0, sx * Math.PI / 2, 0], s: [3.0, 2.6, 1] })
+  }
+  for (let z = 171; z <= 219; z += 6) {
+    D_PILASTER_NOSING.push({ p: [sx * 29.74, 5, z], s: [0.2, 10, 0.42] })
+    D_PILASTER_NOSING_LIP.push({ p: [sx * 29.62, 5, z], s: [0.1, 10, 0.2] })
+  }
+  for (let z = 167; z <= 223; z += 3.5) {
+    D_CORBELS.push({ p: [sx * 29.45, 8.9, z], s: [1.2, 0.68, 1.2] })
+  }
+  D_FRET_PLINTH.push({ p: [sx * 29.83, 1.2, 195], r: [0, sx * Math.PI / 2, 0], s: [58, 0.45, 1] })
+  D_FRET_HEAD.push({ p: [sx * 29.83, 2.62, 195], r: [0, sx * Math.PI / 2, 0], s: [58, 0.32, 1] })
+  // perimeter sconces: a modelled gold bracket with a hood and a recessed
+  // lens. These are the fixtures the pooled gold practicals ride, so every
+  // pool of light on the arena floor has a visible source above it.
+  for (const z of [174, 186, 198, 210]) {
+    D_SCONCE_BRACKET.push({ p: [sx * 29.78, 6.2, z], s: [0.5, 0.34, 0.5] })
+    D_SCONCE_HOOD.push({ p: [sx * 29.5, 6.72, z], s: [1.1, 0.16, 0.9] })
+    D_SCONCE_LENS.push({ p: [sx * 29.45, 6.22, z], s: [0.1, 0.5, 0.62] })
+    D_SCONCE_FIXTURES.push([sx * 28.7, 6.0, z])
+  }
+}
+// south / north end walls
+for (const sz of [1, -1]) {
+  /** the wall's INTERIOR face; `face` points into the room from it */
+  const wz = sz > 0 ? 225 : 165
+  const face = sz > 0 ? -1 : 1
+  for (const x of [-22, -16, -10, 10, 16, 22]) {
+    D_SCREEN_BACK.push({ p: [x, 3.2, wz + face * 0.11], s: [5.4, 5.0, 0.22] })
+    D_SCREENS.push({ p: [x, 3.2, wz + face * 0.25], r: [0, sz > 0 ? Math.PI : 0, 0], s: [5.1, 4.7, 1] })
+    D_COFFER_BACK.push({ p: [x, 8.1, wz + face * 0.11], s: [3.2, 2.8, 0.22] })
+    D_COFFERS.push({ p: [x, 8.1, wz + face * 0.25], r: [0, sz > 0 ? Math.PI : 0, 0], s: [3.0, 2.6, 1] })
+  }
+  for (const x of [-24, -18, -12, 12, 18, 24]) {
+    D_PILASTER_NOSING.push({ p: [x, 5, wz + face * 0.16], s: [0.42, 10, 0.2] })
+    D_PILASTER_NOSING_LIP.push({ p: [x, 5, wz + face * 0.28], s: [0.2, 10, 0.1] })
+  }
+  for (let x = -28; x <= 28; x += 3.5) {
+    D_CORBELS.push({ p: [x, 8.9, wz + face * 0.5], s: [1.2, 0.68, 1.2] })
+  }
+  for (const x of [-14, 14]) {
+    D_SCONCE_BRACKET.push({ p: [x, 6.2, wz + face * 0.22], s: [0.5, 0.34, 0.5] })
+    D_SCONCE_HOOD.push({ p: [x, 6.72, wz + face * 0.5], s: [0.9, 0.16, 1.1] })
+    D_SCONCE_LENS.push({ p: [x, 6.22, wz + face * 0.55], s: [0.62, 0.5, 0.1] })
+    D_SCONCE_FIXTURES.push([x, 6.0, wz + face * 1.3])
+  }
+}
+/** gold L-angle around the whole arena floor/wall joint */
+const D_LTRIM: InstItem[] = [
+  { p: [-29.98, 0.005, 195], r: [0, 0, 0], s: [1, 1, 59.6] },
+  { p: [29.98, 0.005, 195], r: [0, Math.PI, 0], s: [1, 1, 59.6] },
+  { p: [0, 0.005, 165.02], r: [0, -Math.PI / 2, 0], s: [1, 1, 59.6] },
+  { p: [0, 0.005, 224.98], r: [0, Math.PI / 2, 0], s: [1, 1, 59.6] },
+]
+
+// --- inlaid floor mandala (replaces the painted groove decal as the primary
+//     read): recessed channels with gold inlay sunk into them, plus 24 radial
+//     spokes. Everything sits within 2 cm of the deck, so nothing the player
+//     collides with moves; only what they see does.
+const MANDALA_RADII = [8, 13, 18, 22]
+const D_MANDALA_CHANNEL: InstItem[] = MANDALA_RADII.map((r) => ({
+  p: [0, 0.006, 195] as [number, number, number],
+  r: [-Math.PI / 2, 0, 0] as [number, number, number],
+  s: [r, r, 1] as [number, number, number],
+}))
+const D_MANDALA_INLAY: InstItem[] = MANDALA_RADII.map((r) => ({
+  p: [0, 0.013, 195] as [number, number, number],
+  r: [-Math.PI / 2, 0, 0] as [number, number, number],
+  s: [r, r, 1] as [number, number, number],
+}))
+const D_MANDALA_SPOKE_CH: InstItem[] = []
+const D_MANDALA_SPOKE_IN: InstItem[] = []
+for (let i = 0; i < 24; i++) {
+  const a = (i / 24) * Math.PI * 2
+  const long = i % 3 === 0
+  const len = long ? 15 : 9
+  const mid = long ? 14.6 : 12.4
+  const p: [number, number, number] = [Math.cos(a) * mid, 0.006, 195 + Math.sin(a) * mid]
+  const rot: [number, number, number] = [0, Math.PI / 2 - a, 0]
+  D_MANDALA_SPOKE_CH.push({ p, r: rot, s: [long ? 0.34 : 0.22, 0.01, len] })
+  D_MANDALA_SPOKE_IN.push({
+    p: [p[0], 0.011, p[2]],
+    r: rot,
+    s: [long ? 0.17 : 0.11, 0.008, len - 0.5],
+  })
+}
+
+// --- the arena's one vertical landmark (work order #9).
+//     Off-centre in BOTH axes, rising from the west cornice well above the
+//     10 m wall line, so every wide shot of the arena has something to compose
+//     against and a sense of scale. It sits above the wall top — outside the
+//     play volume entirely — so no collider changes and nothing to walk into.
+const LANDMARK: [number, number, number] = [-28.4, 0, 186]
+const D_LANDMARK_PLINTH: InstItem[] = [
+  { p: [LANDMARK[0], 10.5, LANDMARK[2]], s: [4.8, 1.2, 4.8] },
+]
+/** corbelled brackets carrying the plinth back into the wall, so the landmark
+ *  reads as seated on the cornice rather than floating over the arena */
+const D_LANDMARK_BRACE: InstItem[] = [
+  { p: [LANDMARK[0] + 0.6, 9.2, LANDMARK[2] - 1.5], s: [3.2, 1.4, 1.0] },
+  { p: [LANDMARK[0] + 0.6, 9.2, LANDMARK[2] + 1.5], s: [3.2, 1.4, 1.0] },
+  { p: [LANDMARK[0] + 0.9, 8.1, LANDMARK[2]], s: [2.6, 1.2, 2.2] },
+]
+const D_LANDMARK_SHAFT: InstItem[] = [
+  { p: [LANDMARK[0], 16.2, LANDMARK[2]], s: [2.7, 10.6, 2.7] },
+  { p: [LANDMARK[0] + 2.1, 14.4, LANDMARK[2] - 0.6], r: [0, 0.5, 0.06], s: [1.0, 5.6, 1.0] },
+]
+const D_LANDMARK_BANDS: InstItem[] = [
+  { p: [LANDMARK[0], 11.3, LANDMARK[2]], s: [3.3, 0.4, 3.3] },
+  { p: [LANDMARK[0], 15.0, LANDMARK[2]], s: [3.0, 0.28, 3.0] },
+  { p: [LANDMARK[0], 21.2, LANDMARK[2]], s: [3.6, 0.9, 3.6] },
+]
+const D_LANDMARK_FLUTE: InstItem[] = []
+for (let i = 0; i < 4; i++) {
+  const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+  D_LANDMARK_FLUTE.push({
+    p: [LANDMARK[0] + Math.cos(a) * 1.4, 18.0, LANDMARK[2] + Math.sin(a) * 1.4],
+    r: [0, Math.PI / 2 - a, 0],
+    s: [0.22, 9.0, 0.5],
+  })
+}
 
 // floor medallion: concentric gold rings + radial petals (r 20)
 const D_MEDAL_RINGS: InstItem[] = [20, 16, 12].map((r) => ({
@@ -1518,10 +1927,17 @@ function ZoneD() {
       <mesh
         geometry={CIRCLE}
         material={arenaGrooveMaterial()}
-        position={[0, 0.012, 195]}
+        position={[0, 0.022, 195]}
         rotation={[-Math.PI / 2, 0, 0]}
         scale={[28.6, 28.6, 1]}
       />
+      {/* R2 — the mandala is INLAID, not painted: recessed channels cut into
+          the deck with gold sunk inside them, so it self-shadows and picks up
+          a specular ramp instead of reading as a sticker. */}
+      <Instanced geometry={MANDALA_CHANNEL} material={recessMaterial()} items={D_MANDALA_CHANNEL} />
+      <Instanced geometry={MANDALA_INLAY} material={goldPolishedMaterial()} items={D_MANDALA_INLAY} />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_MANDALA_SPOKE_CH} />
+      <Instanced geometry={BOX} material={goldPolishedMaterial()} items={D_MANDALA_SPOKE_IN} />
       {/* the rings and petals are GILDED INLAY, not energy — lit metal, so the
           arena floor stops reading as a flat orange decal. Only the small
           centre disc stays emissive, and EnvironmentFX still pulses it. */}
@@ -1529,18 +1945,70 @@ function ZoneD() {
       <Instanced geometry={PETAL} material={goldMaterial()} items={D_MEDAL_PETALS} />
       <mesh geometry={CIRCLE} material={medallionMaterial()} position={[0, 0.04, 195]} rotation={[-Math.PI / 2, 0, 0]} scale={[2.2, 2.2, 1]} />
 
-      {/* walls + trim + panel detail */}
+      {/* walls + trim + panel detail — R2: contact-AO panel walls that cast */}
       {D_WALLS.map((w, i) => (
-        <MassMesh key={i} spec={w} material={ivoryMaterial()} castShadow />
+        <MassMesh
+          key={i}
+          spec={w}
+          geometry={PANEL_BOX}
+          material={ivoryContactMaterial()}
+          castShadow
+        />
       ))}
       <Instanced geometry={RBOX} material={umberMaterial()} items={D_BASE} receiveShadow />
       <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={D_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_WALL_TRIM} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_WALL_PILASTERS} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_PILASTER_NOSING} />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_PILASTER_NOSING_LIP} />
       <Instanced geometry={BOX} material={recessMaterial()} items={D_WALL_BANDS} />
       <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_WALL_FRET} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_FRET_PLINTH} />
+      <Instanced geometry={FRET_PANEL} material={fretTrimMaterial()} items={D_FRET_HEAD} />
       <Instanced geometry={BOX} material={recessMaterial()} items={D_WALL_CHANNEL} />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_WALL_INSETS} />
+
+      {/* R2 ornament parity with the shrine: pierced screens on the lower
+          register, coffers above, a junction angle, corbel framing */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_SCREEN_BACK} />
+      <Instanced geometry={SCREEN_WIDE} material={screenMaterial()} items={D_SCREENS} castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_COFFER_BACK} />
+      <Instanced geometry={COFFER_PANEL} material={cofferMaterial()} items={D_COFFERS} castShadow />
+      <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={D_LTRIM} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_CORBELS} />
+
+      {/* perimeter practicals: a modelled bracket + hood + recessed lens at
+          every fixture the pooled gold point lights ride, so each pool of
+          light on the deck has a visible source above it */}
+      <Instanced geometry={RBOX} material={goldMaterial()} items={D_SCONCE_BRACKET} />
+      <Instanced geometry={RBOX} material={goldPolishedMaterial()} items={D_SCONCE_HOOD} />
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={D_SCONCE_LENS} />
+
+      {/* the arena's vertical landmark — off-centre, above the cornice line */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_LANDMARK_BRACE} castShadow />
+      <Instanced geometry={RBOX} material={umberMaterial()} items={D_LANDMARK_PLINTH} castShadow />
+      <Instanced
+        geometry={PANEL_BOX}
+        material={ivoryContactMaterial()}
+        items={D_LANDMARK_SHAFT}
+        castShadow
+      />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_LANDMARK_FLUTE} />
+      <Instanced geometry={BOX} material={goldPolishedMaterial()} items={D_LANDMARK_BANDS} />
+      <mesh
+        geometry={OCTA}
+        material={goldPolishedMaterial()}
+        position={[LANDMARK[0], 23.0, LANDMARK[2]]}
+        scale={[1.5, 2.1, 1.5]}
+        castShadow
+      />
+      <mesh
+        geometry={CIRCLE}
+        material={veinGoldMaterial()}
+        position={[LANDMARK[0], 21.72, LANDMARK[2]]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        scale={[1.5, 1.5, 1]}
+      />
 
       {/* massive arch-ribs — swept gold moulding, contact-AO feet */}
       <Instanced
@@ -1621,6 +2089,10 @@ for (let z = 227; z <= 251; z += 4) {
   E_UNDERGLOW.push({ p: [3.9, -1.06, z + 1], s: [0.12, 0.1, 3.4] })
 }
 E_FINS.push({ p: [0, -8, 258], s: [4, 15, 4] }) // pad root pier
+const E_LTRIM: InstItem[] = [
+  { p: [-3.98, 0.005, 239], r: [0, 0, 0], s: [1, 1, 27.6] },
+  { p: [3.98, 0.005, 239], r: [0, Math.PI, 0], s: [1, 1, 27.6] },
+]
 
 /**
  * Extraction beacon — ignites at phase EXTRACT: vertical gold light column,
@@ -1705,8 +2177,11 @@ function ZoneE() {
       <MassMesh spec={{ x0: -4, y0: -1, z0: 225, x1: 4, y1: 0, z1: 253 }} material={floorMaterial()} />
       <MassMesh spec={{ x0: -1.5, y0: -3.5, z0: 225, x1: 1.5, y1: -1, z1: 253 }} material={ivoryMaterial()} receiveShadow={false} />
       {/* descending keel fins + under-glow */}
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={E_FINS} />
-      <Instanced geometry={BOX} material={veinTealMaterial()} items={E_UNDERGLOW} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={E_FINS} castShadow />
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={E_UNDERGLOW} />
+      {/* gold L-angle along both deck edges — the same junction trim the
+          chamber and arena get, so the bridge reads as built, not extruded */}
+      <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={E_LTRIM} />
       {/* gold rails */}
       <Instanced geometry={BOX} material={goldMaterial()} items={E_RAIL_POSTS} />
       <mesh geometry={BOX} material={goldMaterial()} position={[-4.1, 1.02, 239]} scale={[0.14, 0.1, 27]} />
@@ -1818,13 +2293,20 @@ MONOLITHS.forEach((m, idx) => {
 // distance, so the count here is free.
 // ---------------------------------------------------------------------------
 export const TEAL_FIXTURES: readonly [number, number, number][] = [
-  ...B_TEAL_FIXTURES,
+  // R2: the canyon's bay strips are gone from this list — they are aureate
+  // now. What is left is the corruption inside the chamber and the arena,
+  // which is exactly where a hostile colour belongs.
   ...C_TEAL_FIXTURES,
   ...D_TEAL_FIXTURES,
 ]
 
 export const GOLD_FIXTURES: readonly [number, number, number][] = (() => {
   const out: [number, number, number][] = []
+  // canyon bay fixtures, recoloured aureate by the R2 colour script
+  for (const f of B_GOLD_FIXTURES) out.push(f)
+  // arena perimeter sconces — the review asked for floor pools so enemies
+  // separate from the deck instead of floating on a uniformly lit plane
+  for (const f of D_SCONCE_FIXTURES) out.push(f)
   // wall-run slab gold veins (canyon) — one light per slab, off its inner face
   for (const sl of WALLRUN_SLABS) {
     const zc = (sl.z0 + sl.z1) / 2
@@ -1845,6 +2327,8 @@ export const GOLD_FIXTURES: readonly [number, number, number][] = (() => {
 // ShrineStation — the whole level
 // ---------------------------------------------------------------------------
 export default function ShrineStation() {
+  const root = useRef<THREE.Group>(null!)
+
   // register all static colliders (dynamic gates register themselves)
   useEffect(() => {
     clearColliders()
@@ -1852,8 +2336,42 @@ export default function ShrineStation() {
     return () => clearColliders()
   }, [])
 
+  /**
+   * R2 shadow sweep — the single highest-value change in this round.
+   *
+   * Setting `receiveShadow` on a few hundred JSX elements by hand is how the
+   * R1 build ended up with 80 receivers out of 880 meshes: every new piece of
+   * dressing silently opted out. Instead the level's whole subtree is swept
+   * once on mount. Rules:
+   *   - anything with a lit (standard) material RECEIVES; this is the fix.
+   *   - unlit energy/decal materials are skipped — a MeshBasicMaterial ignores
+   *     the flag anyway, and skipping keeps the shadow-receive material count
+   *     honest if anyone measures it again.
+   *   - CASTING is not set here. Cast cost scales with caster count and the
+   *     diagnosis explicitly asks for large structural masses to cast while
+   *     small trim stays receive-only, so casters remain per-call-site.
+   * The level is static, so this runs exactly once.
+   */
+  useLayoutEffect(() => {
+    const g = root.current
+    if (!g) return
+    let receivers = 0
+    g.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const mat = m.material as THREE.Material | THREE.Material[]
+      const lit = Array.isArray(mat)
+        ? mat.some((x) => (x as THREE.MeshStandardMaterial).isMeshStandardMaterial)
+        : (mat as THREE.MeshStandardMaterial)?.isMeshStandardMaterial === true
+      if (!lit) return
+      m.receiveShadow = true
+      receivers++
+    })
+    if (receivers === 0) console.warn('[ShrineStation] shadow sweep found no lit meshes')
+  }, [])
+
   return (
-    <group>
+    <group ref={root}>
       <ZoneA />
       <ZoneB />
       <ZoneC />
@@ -1865,7 +2383,9 @@ export default function ShrineStation() {
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_SECOND} castShadow />
       <Instanced geometry={BOX} material={recessMaterial()} items={MONO_PANELS} />
       <Instanced geometry={BOX} material={goldMaterial()} items={MONO_GOLD} />
-      <Instanced geometry={BOX} material={veinTealMaterial()} items={MONO_TEAL} />
+      {/* distant monoliths: both stripe sets are aureate now — a teal
+          silhouette on the horizon read as a second faction */}
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={MONO_TEAL} />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={MONO_GOLDGLOW} />
     </group>
   )

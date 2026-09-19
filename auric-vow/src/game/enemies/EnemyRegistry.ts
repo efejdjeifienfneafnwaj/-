@@ -6,12 +6,19 @@
  *
  * Kill *scoring* is handled by the caller via the store (registerKill);
  * this module only applies hp/stagger/knockback and fires death visuals
- * (teal dissolve burst + core pop + AudioBus chirp).
+ * (crimson core pop + flash + AudioBus chirp).
+ *
+ * [R2] The death burst was authored in cadenceTeal, which the R2 colour
+ * script reassigned to corruption/architecture. A hostile that dies teal
+ * contradicts the crimson ENEMY_LOOK palette its own body is built from, so
+ * every death FX here is now driven by ENEMY_LOOK and authored above the 1.0
+ * bloom knee (the flash and the burst were the only enemy events with enough
+ * screen presence to bloom, and they were bleeding the wrong hue).
  */
 import * as THREE from 'three'
 import { VFX } from '@/game/vfx/VFXBus'
 import { AudioBus } from '@/game/AudioBus'
-import { COLORS } from '@/game/config'
+import { ENEMY_FX, ENEMY_LOOK } from '@/game/config'
 
 export type EnemyType = 'drone' | 'trooper' | 'heavy'
 
@@ -119,7 +126,7 @@ export const EnemyRegistry = {
 
     const dmg = opts?.headshot ? amount * 2 : amount
     e.hp = Math.max(0, e.hp - dmg)
-    e.hitFlash = 0.08
+    e.hitFlash = ENEMY_FX.hitFlashSec
 
     if (opts?.knockback) e.knockback.add(opts.knockback)
 
@@ -146,19 +153,29 @@ export const EnemyRegistry = {
     e.state = 'dead'
     const fx = DEATH_FX[e.type]
     _corePos.copy(e.headPosition)
-    // core pop — teal particle burst + light flash
+    // core pop — crimson ejecta + a hot white-cored flash, then a slower
+    // cooling ember fall so the kill has a second beat instead of one pop
     VFX.burst({
       position: _corePos,
-      color: COLORS.cadenceTeal,
+      color: ENEMY_LOOK.accentHot,
       count: fx.count,
       speed: fx.speed,
       life: 0.6,
       size: fx.size,
       gravity: -2,
     })
-    VFX.flash({ position: _corePos, color: COLORS.cadenceTeal, intensity: fx.flash, distance: 10, life: 0.3 })
+    VFX.burst({
+      position: _corePos,
+      color: ENEMY_LOOK.accent,
+      count: Math.round(fx.count * 0.5),
+      speed: fx.speed * 0.45,
+      life: 1.05,
+      size: fx.size * 0.7,
+      gravity: -5,
+    })
+    VFX.flash({ position: _corePos, color: ENEMY_LOOK.accentHot, intensity: fx.flash, distance: 10, life: 0.3 })
     if (fx.ring > 0) {
-      VFX.ring({ position: e.position, color: COLORS.cadenceTeal, maxRadius: 4, life: 0.5, width: 0.3 })
+      VFX.ring({ position: e.position, color: ENEMY_LOOK.accentHot, maxRadius: 4, life: 0.5, width: 0.3 })
     }
     AudioBus.playEnemyChirp()
     return true

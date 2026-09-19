@@ -20,7 +20,7 @@
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
-import { COLORS, FOG } from '../config'
+import { COLORS, FOG, SKY } from '../config'
 import { KEY_DIR } from './Lighting'
 
 const DOME_R = 300
@@ -33,8 +33,12 @@ const PARALLAX = 0.06
 const domeMaterial = () =>
   new THREE.ShaderMaterial({
     uniforms: {
-      uZenith: { value: new THREE.Color(FOG.skyZenith) },
-      uHorizon: { value: new THREE.Color(FOG.skyHorizon) },
+      // R2 colour script: the sky palette comes from SKY (env-art owned),
+      // not FOG — the horizon is pulled hard toward cosmicIndigo so the
+      // backdrop sits roughly two stops under the architecture in front of it
+      uZenith: { value: new THREE.Color(SKY.zenith) },
+      uHorizon: { value: new THREE.Color(SKY.horizon) },
+      uScale: { value: SKY.domeScale },
       uSun: { value: KEY_DIR.clone() },
     },
     vertexShader: /* glsl */ `
@@ -49,6 +53,7 @@ const domeMaterial = () =>
       uniform vec3 uZenith;
       uniform vec3 uHorizon;
       uniform vec3 uSun;
+      uniform float uScale;
       // cheap value-noise fbm for the nebula band
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -74,14 +79,17 @@ const domeMaterial = () =>
         float n2 = fbm(d.zx * 7.0 - d.y * 5.0);
         vec3 indigo = vec3(0.13, 0.10, 0.46);
         vec3 violet = vec3(0.32, 0.13, 0.58);
-        col += (indigo * band * (0.35 + 1.3 * n) + violet * band2 * n2 * 0.9) * 1.05;
+        // R2: nebula contribution roughly halved. It was the brightest thing
+        // above the arena cornice, so silhouettes read against a lit sky.
+        col += (indigo * band * (0.35 + 1.3 * n) + violet * band2 * n2 * 0.9) * 0.55;
         // warm glow around the key direction — the sky agrees with the rig
         float sd = max(dot(d, uSun), 0.0);
         col += vec3(0.62, 0.46, 0.30) * pow(sd, 6.0) * 0.55;
         col += vec3(0.30, 0.26, 0.24) * pow(sd, 2.0) * 0.12;
-        // exposure was dropped to 0.85 for the level; the sky is authored, not
-        // tonemapped, so match it here or the backdrop floats off the frame
-        col *= 0.6;
+        // The sky is authored, not tonemapped, so its level has to be set by
+        // hand against the architecture. R2: 0.6 -> SKY.domeScale (0.34) —
+        // "the sky supports the composition" means it loses to the building.
+        col *= uScale;
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -202,7 +210,7 @@ function NebulaShelf() {
             // horizontal shelf shape, feathered top and bottom
             float shelf = smoothstep(0.0, 0.34, vUv.y) * (1.0 - smoothstep(0.58, 1.0, vUv.y));
             float edge = smoothstep(0.0, 0.18, vUv.x) * (1.0 - smoothstep(0.82, 1.0, vUv.x));
-            float a = shelf * edge * pow(n, 1.6) * 0.3;
+            float a = shelf * edge * pow(n, 1.6) * 0.085;
             vec3 col = mix(vec3(0.16, 0.12, 0.42), vec3(0.42, 0.20, 0.52), n2);
             col += vec3(0.30, 0.34, 0.62) * pow(n2, 3.0) * 0.6;
             gl_FragColor = vec4(col, a);
@@ -329,7 +337,12 @@ function RingedPlanet() {
             vec3 rimCol = vec3(0.42, 0.58, 0.95);
             col += rimCol * fres * (0.14 + 0.86 * day) * 1.45;
             col += rimCol * 0.07 * fres * (1.0 - day);
-            gl_FragColor = vec4(col * 0.72, 1.0);
+            // R2b: the planet is the single largest shape in the arena-wide frame
+            // after the architecture, and at 0.72 (R1) / 0.42 it still read as a
+            // pale disc BRIGHTER than the building in front of it. 0.24 puts it
+            // roughly two stops under the lit ivory, which is what "the sky
+            // supports the composition" has to mean for a 40 m gas giant.
+            gl_FragColor = vec4(col * 0.24, 1.0);
           }
         `,
         fog: false,
@@ -344,7 +357,7 @@ function RingedPlanet() {
           uMap: { value: makeRingTexture() },
           uSun: { value: KEY_DIR.clone() },
           uRadius: { value: PLANET_R },
-          uTint: { value: new THREE.Color('#8E9CCF') },
+          uTint: { value: new THREE.Color('#57618C') },
         },
         vertexShader: /* glsl */ `
           varying vec2 vUv;
@@ -422,7 +435,7 @@ function VoidGlow() {
             float r = length(vUv);
             float glow = pow(max(0.0, 1.0 - r), 1.6);
             vec3 col = mix(vec3(0.04, 0.05, 0.12), vec3(0.19, 0.26, 0.5), glow);
-            gl_FragColor = vec4(col, glow * 0.6);
+            gl_FragColor = vec4(col, glow * 0.34);
           }
         `,
         transparent: true,

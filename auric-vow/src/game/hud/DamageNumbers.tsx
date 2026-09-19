@@ -1,10 +1,17 @@
 /**
  * AURIC VOW — DamageNumbers.tsx
  * Pooled floating damage numbers (vfx-hud.md §2.7): 32 world-anchored DOM
- * divs projected world→screen each frame. Rise 60px over 0.7s (ease-out,
- * ±20px x-drift), fade in the last 0.2s. Same-target 'normal' hits within
- * 0.25s merge into a running total. 'player' events render as teal edge
- * readouts instead of world-anchored numbers.
+ * divs projected world→screen each frame. Rise 64px over the 1.1s life
+ * (ease-out, ±20px x-drift) at FULL opacity for the first 65% of it, then
+ * fade. Same-target 'normal' hits within 0.25s merge into a running total.
+ * 'player' events render as ember edge readouts instead of world-anchored
+ * numbers.
+ *
+ * [R2] Size is a log ramp on the amount (a 9 and a 120 must not read the
+ * same), the base sizes went 22→30 px (34 px for player damage), the stroke
+ * to 3 px, and each number sits on its own dark radial scrim (hud.css) so it
+ * survives a blown ivory background — the review's first blocker was that
+ * hit feedback is simply never visible in a frame.
  *
  * This component DRAINS store.damageEvents once per frame (its rAF) and
  * forwards every event to the HUD hitmarker queue (drainHitmarkerEvents).
@@ -16,16 +23,29 @@
  */
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { HUD_FEEDBACK } from '../config'
 import { useGameStore, type DamageEvent } from '../store'
 
 const POOL = 32
 const RISE_PX = 64
-const LIFE_SEC = 0.75
+/** [R2] 0.75 → 1.1 s, and full opacity is HELD for the first 65% of it.
+ *  The old curve started fading at the halfway mark, so a number was already
+ *  translucent by the time the eye found it — the review's first blocker. */
+const LIFE_SEC = HUD_FEEDBACK.numberLifeSec
+const HOLD_FRAC = HUD_FEEDBACK.numberHoldFrac
 const MERGE_WINDOW_SEC = 0.25
 const MERGE_DIST = 2
 /** scale punch: 1.35 → 1.0 over 120 ms so every number lands with weight */
 const PUNCH_SEC = 0.12
 const PUNCH_AMOUNT = 0.35
+/** log size ramp: a 120 damage crit must not read the same as a 9 */
+const SIZE_REF = HUD_FEEDBACK.numberRefAmount
+const SIZE_MAX = HUD_FEEDBACK.numberMaxScale
+function sizeRamp(amount: number): number {
+  if (amount <= 0) return 1
+  const r = 1 + Math.log(Math.max(1, amount) / SIZE_REF) * 0.42
+  return Math.min(SIZE_MAX, Math.max(0.82, r))
+}
 
 // ---------------------------------------------------------------------------
 // Module-level camera binding + hitmarker forwarding queue
@@ -68,6 +88,8 @@ interface NumSlot {
   driftX: number
   /** screen-space readout for player-taken damage */
   edge: boolean
+  /** last written log-size multiplier (so we only touch style on change) */
+  ramp: number
 }
 
 function makeSlots(): NumSlot[] {
@@ -79,6 +101,7 @@ function makeSlots(): NumSlot[] {
     kind: 'normal' as const,
     driftX: 0,
     edge: false,
+    ramp: 0,
   }))
 }
 
@@ -138,6 +161,9 @@ export default function DamageNumbers() {
         slot.kind = ev.kind
         slot.driftX = (Math.random() * 2 - 1) * 20
         slot.edge = ev.kind === 'player'
+        // force a size write: this slot may be recycled from a different
+        // kind, whose base px differs even at the same ramp
+        slot.ramp = 0
         slot.world.copy(ev.position)
       }
 
@@ -178,13 +204,21 @@ export default function DamageNumbers() {
         }
 
         const rise = easeOutCubic(p) * RISE_PX
-        const opacity = p > 0.5 ? 1 - (p - 0.5) / 0.5 : 1
+        const opacity = p > HOLD_FRAC ? 1 - (p - HOLD_FRAC) / (1 - HOLD_FRAC) : 1
         const age = tNow - s.born
         const punch = age < PUNCH_SEC ? 1 + PUNCH_AMOUNT * (1 - age / PUNCH_SEC) : 1
         const txt = String(Math.round(s.amount))
         if (el.textContent !== txt) el.textContent = txt
         const cls = `dmg dmg-${s.kind}`
         if (el.className !== cls) el.className = cls
+        // log ramp on the amount — written only when it actually changes
+        const ramp = sizeRamp(s.amount)
+        if (Math.abs(ramp - s.ramp) > 0.01) {
+          s.ramp = ramp
+          el.style.fontSize = `${(
+            (s.edge ? HUD_FEEDBACK.numberPlayerPx : HUD_FEEDBACK.numberBasePx) * ramp
+          ).toFixed(1)}px`
+        }
         el.style.opacity = opacity.toFixed(3)
         el.style.transform =
           `translate3d(${(x + s.driftX * p).toFixed(1)}px, ${(y - rise).toFixed(1)}px, 0) translate(-50%, -100%) scale(${punch.toFixed(3)})`

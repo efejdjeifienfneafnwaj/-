@@ -23,11 +23,12 @@ import { addTrauma, CamRef } from '@/game/player/CameraRig'
 import { MOVE } from '@/game/player/movementConfig'
 import { EnemyRegistry } from '@/game/enemies/EnemyRegistry'
 import { raycastLevel } from '@/game/world/Colliders'
-import { COLORS, TIMESCALE, WEAPONS } from '@/game/config'
+import { COLORS, COMBATFX, TIMESCALE, WEAPONS } from '@/game/config'
 import { useGameStore } from '@/game/store'
 import { ImpactFx, raycastEnemies, resolveEnemyHit, rifleFalloff, RIFLE_RANGE } from './DamageSystem'
 import { CombatState, canFight, combatTick } from './state'
 import { ammoState, consumeAmmo, startReload } from '@/game/hud/ammoState'
+import { PlayerSockets } from '@/game/player/PlayerRig'
 
 const RIFLE = WEAPONS.rifle
 const KATANA = WEAPONS.katana
@@ -38,15 +39,40 @@ const UP = new THREE.Vector3(0, 1, 0)
  * Grip-space muzzle offset — the barrel tip of the re-authored rifle, which is
  * modelled around a grip origin at (0,0,0) with the bore along -Z
  * (ViewModel.tsx). The view model publishes the real mesh position into
- * `MuzzleWorld` every frame; this constant is only the pre-mount fallback and
- * the local anchor the flash meshes are parented at.
+ * `MuzzleWorld` every frame; this constant is only the local anchor the flash
+ * meshes are parented at. It is NOT a fallback: see `getMuzzleWorld`.
  */
 export const MUZZLE_LOCAL = new THREE.Vector3(0, 0.055, -0.62)
 
 // katana tuning (combat.md §2)
-const SWING_DUR = [0.22, 0.24, 0.3] as const
+//
+// [combat-feel R2] Durations re-authored to the 3-key curve the review asked
+// for (work order combat-feel #1): 120 ms wind-up, a 60 ms contact window and
+// a 200 ms follow-through = 380 ms. A 220 ms swing at a constant rate has no
+// readable moment of impact; this one does, and `swingPhase()` below is the
+// curve every consumer (arc strip, ribbon, blade mesh, damage) shares.
+const SWING_TOTAL =
+  COMBATFX.swing.windupSec + COMBATFX.swing.contactSec + COMBATFX.swing.followSec
+const SWING_DUR = [SWING_TOTAL, SWING_TOTAL, SWING_TOTAL * 1.16] as const
 const SWING_ARC_DEG = [140, 120, 100] as const
-const SWING_RANGE = 2.6
+/** fraction of a swing spent winding up — the frame the edge lands on */
+const SWING_CONTACT_AT = COMBATFX.swing.windupSec / SWING_TOTAL
+/** fraction of a swing at which the contact window closes (lunge ends here) */
+const SWING_CONTACT_END =
+  (COMBATFX.swing.windupSec + COMBATFX.swing.contactSec) / SWING_TOTAL
+/**
+ * [combat-feel R2] 2.6 → 2.0 m. The arc now describes an actual 1.16 m blade
+ * swung from the hand socket, so the damage volume has to shrink with it or
+ * the crescent and the kill stop agreeing.
+ */
+const SWING_RANGE = 2.0
+/**
+ * Blade roll (about the blade axis) per combo step, so the EDGE leads the cut
+ * instead of `lookAt()` picking an arbitrary roll off world up (weakness C11).
+ * After lookAt the rig's local +X is the sweep tangent, so +90° rolls the ha
+ * (local -Y) onto it. The overhead chop already leads with -Y.
+ */
+const SWING_ROLL = [Math.PI / 2, -Math.PI / 2, 0] as const
 const CHAIN_WINDOW = 0.5
 const LUNGE_SPEED = 16
 const LUNGE_RANGE = KATANA.lungeRange // 4 m
@@ -70,40 +96,50 @@ const _normal = new THREE.Vector3()
 const _reflect = new THREE.Vector3()
 const _sweep = new THREE.Vector3()
 const _guard = new THREE.Vector3()
+const _camFwd = new THREE.Vector3()
+const _camRel = new THREE.Vector3()
 
 // ---------------------------------------------------------------------------
 // Tracer pool — travelling bolts, not 1-frame streaks.
 //
 // [combat-feel R1] The old pool died after 0.09 s, i.e. 36 m of a 120 m
 // weapon (weakness C3), so nothing was ever mid-flight when a frame was
-// captured. Now: 180 m/s (a bolt crosses the arena in ~0.2 s and is legible
-// for a dozen frames), a 14 m segment, life derived from the actual shot
-// distance, and retirement only once the TAIL has reached the impact point.
+// captured. Life is derived from the actual shot distance and the bolt is
+// retired only once the TAIL has reached the impact point.
 //
-// Each bolt is three layers so it reads as a projectile rather than a line:
-//   core   tapered cylinder, wide at the head, a thread at the tail
-//   halo   one quad rolled about the bolt axis to face the camera, vertex
-//          alpha fading down the tail, width clamped to >= 6 px on screen
-//   head   additive sprite — the bolt itself, the thing the eye tracks
+// [combat-feel R2] 180 m/s over a 14 m segment drew a fourteen-metre LASER
+// lying across the frame — the shape of a beam weapon, not of a projectile.
+// Work order combat-feel #6: 280 m/s over 3.2 m, i.e. a short fast object
+// with a head, and the on-screen width floor cut 6 px → 3 px so the bolt
+// stops fattening into a rod at distance.
+//
+// Each bolt is the three-layer energy shell plus a head, so it reads as a
+// projectile rather than a line:
+//   core    thread-thin white cylinder, tapered to nothing at the tail
+//   mid     saturated aureate band, rolled about the bolt axis to face the
+//           camera, soft across its width and ramped down its length
+//   outer   a wide, very dim falloff band — the bolt's atmosphere
+//   head    additive sprite: the bolt itself, the thing the eye tracks
 // ---------------------------------------------------------------------------
 
 const TRACER_COUNT = 28
-/** m/s — deliberately sub-sonic-looking so bolts are readable in flight */
-const TRACER_SPEED = 180
-/** visible bolt length (m) */
-const TRACER_SEG = 14
-const TRACER_CORE_R = 0.03
-const TRACER_HALO_R = 0.13
-/** minimum on-screen halo width (px): distant bolts must never sub-pixel out */
-const TRACER_MIN_PX = 6
+const TRACER_SPEED = COMBATFX.tracer.speed
+const TRACER_SEG = COMBATFX.tracer.segment
+const TRACER_CORE_R = 0.016
+const TRACER_MID_R = 0.07
+const TRACER_OUTER_R = 0.2
+/** minimum on-screen mid width (px): distant bolts must never sub-pixel out */
+const TRACER_MIN_PX = COMBATFX.tracer.minPx
 
 interface Tracer {
   group: THREE.Group
   core: THREE.Mesh
   halo: THREE.Mesh
+  outer: THREE.Mesh
   head: THREE.Sprite
   coreMat: THREE.MeshBasicMaterial
   haloMat: THREE.MeshBasicMaterial
+  outerMat: THREE.MeshBasicMaterial
   headMat: THREE.SpriteMaterial
   active: boolean
   start: THREE.Vector3
@@ -117,17 +153,46 @@ interface Tracer {
 const tracerCoreGeo = new THREE.CylinderGeometry(1, 0.22, 1, 8, 1, true)
 tracerCoreGeo.translate(0, 0.5, 0) // pivot at the tail: scale.y = segment length
 
-/** halo quad: unit square, pivot at the tail, vertex alpha ramped down the tail */
+/**
+ * Band quad shared by the mid and outer bolt layers: unit square, pivot at the
+ * tail, vertex alpha ramped to nothing down the tail (the length taper the
+ * work order asks for) and a soft cross-section supplied by `getBandTexture`
+ * so the band is never a hard-edged rectangle under bloom.
+ */
 const tracerHaloGeo = new THREE.PlaneGeometry(1, 1)
 tracerHaloGeo.translate(0, 0.5, 0)
 tracerHaloGeo.setAttribute(
   'color',
   // PlaneGeometry emits +Y row first: verts 0,1 = head, verts 2,3 = tail
   new THREE.BufferAttribute(
-    new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.04, 1, 1, 1, 0.04]),
+    new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0]),
     4,
   ),
 )
+
+/** 32×4 cross-section falloff: transparent → hot centre → transparent. */
+let bandTex: THREE.CanvasTexture | null = null
+function getBandTexture(): THREE.CanvasTexture {
+  if (bandTex) return bandTex
+  const w = 32
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = 4
+  const ctx = c.getContext('2d')!
+  const g = ctx.createLinearGradient(0, 0, w, 0)
+  g.addColorStop(0, 'rgba(255,255,255,0)')
+  g.addColorStop(0.32, 'rgba(255,236,196,0.55)')
+  g.addColorStop(0.5, 'rgba(255,255,255,1)')
+  g.addColorStop(0.68, 'rgba(255,236,196,0.55)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, w, 4)
+  bandTex = new THREE.CanvasTexture(c)
+  bandTex.colorSpace = THREE.SRGBColorSpace
+  bandTex.wrapS = THREE.ClampToEdgeWrapping
+  bandTex.wrapT = THREE.ClampToEdgeWrapping
+  return bandTex
+}
 
 /** 64² hot round bolt head (white core → aureate falloff). */
 let boltTex: THREE.CanvasTexture | null = null
@@ -162,6 +227,18 @@ function makeTracers(): Tracer[] {
       toneMapped: false,
     })
     const haloMat = new THREE.MeshBasicMaterial({
+      map: getBandTexture(),
+      color: COLORS.aureate,
+      transparent: true,
+      opacity: 0,
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+      side: THREE.DoubleSide,
+    })
+    const outerMat = new THREE.MeshBasicMaterial({
+      map: getBandTexture(),
       color: COLORS.aureate,
       transparent: true,
       opacity: 0,
@@ -182,19 +259,23 @@ function makeTracers(): Tracer[] {
     })
     const core = new THREE.Mesh(tracerCoreGeo, coreMat)
     const halo = new THREE.Mesh(tracerHaloGeo, haloMat)
+    const outer = new THREE.Mesh(tracerHaloGeo, outerMat)
     const head = new THREE.Sprite(headMat)
     head.renderOrder = 21
     const group = new THREE.Group()
-    group.add(halo, core)
+    // draw order: wide falloff first, then the saturated band, then the core
+    group.add(outer, halo, core)
     group.visible = false
     head.visible = false
     return {
       group,
       core,
       halo,
+      outer,
       head,
       coreMat,
       haloMat,
+      outerMat,
       headMat,
       active: false,
       start: new THREE.Vector3(),
@@ -248,37 +329,120 @@ function updateTracers(pool: Tracer[], dt: number, camera: THREE.Camera, viewpor
     const len = Math.max(0.05, head - tail)
     t.group.position.copy(t.start).addScaledVector(t.dir, tail)
 
-    // screen-space width floor so a 100 m bolt still covers ~6 px
+    // screen-space width floor so a 100 m bolt still covers ~3 px
     _tracerMid.copy(t.group.position).addScaledVector(t.dir, len * 0.5)
     const camDist = _tracerMid.distanceTo(camera.position)
     const minW = TRACER_MIN_PX * pxScale * camDist
-    const haloW = Math.max(TRACER_HALO_R * 2, minW)
-    const coreR = Math.max(TRACER_CORE_R, minW * 0.16)
+    const midW = Math.max(TRACER_MID_R * 2, minW)
+    const outerW = Math.max(TRACER_OUTER_R * 2, minW * 2.6)
+    const coreR = Math.max(TRACER_CORE_R, minW * 0.13)
 
     t.core.scale.set(coreR, len, coreR)
-    t.halo.scale.set(haloW, len, 1)
+    t.halo.scale.set(midW, len, 1)
+    t.outer.scale.set(outerW, len, 1)
 
-    // roll the halo quad about the bolt axis so it always faces the camera
+    // roll both bands about the bolt axis so they always face the camera
     _tracerCamLocal
       .copy(camera.position)
       .sub(t.group.position)
       .applyQuaternion(_tracerQInv.copy(t.group.quaternion).invert())
-    t.halo.rotation.y = Math.atan2(_tracerCamLocal.x, _tracerCamLocal.z)
+    const roll = Math.atan2(_tracerCamLocal.x, _tracerCamLocal.z)
+    t.halo.rotation.y = roll
+    t.outer.rotation.y = roll
 
     // fade only over the last segment, as the tail runs into the impact point
     const endFade = THREE.MathUtils.clamp((t.dist - tail) / TRACER_SEG, 0, 1)
     t.coreMat.opacity = endFade
-    t.haloMat.opacity = 0.7 * endFade
+    t.haloMat.opacity = 0.85 * endFade
+    t.outerMat.opacity = 0.2 * endFade
 
     // bolt head sprite: rides the leading edge until it lands
     if (head < t.dist - 0.01) {
       t.head.visible = true
       t.head.position.copy(t.start).addScaledVector(t.dir, head)
-      t.head.scale.setScalar(Math.max(0.3, 9 * pxScale * camDist))
+      t.head.scale.setScalar(Math.max(0.22, 7 * pxScale * camDist))
       t.headMat.opacity = 1
     } else {
       t.head.visible = false
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Hot line — the one-frame streak muzzle → impact
+//
+// [combat-feel R2, work order combat-feel #6] A bolt that takes 0.3 s to
+// arrive gives the trigger frame nothing to show: the muzzle lights up and
+// then nothing happens for ten frames, which is why the round 2 shots read as
+// if the gun were not firing. A hitscan weapon needs the instantaneous
+// "line drawn to the target" read on the trigger frame as well as the
+// travelling bolt. This is that line: a thread-thin additive cylinder from
+// the real barrel tip to the real impact point, alive for ~50 ms.
+// ---------------------------------------------------------------------------
+
+const HOTLINE_COUNT = 6
+
+interface HotLine {
+  mesh: THREE.Mesh
+  mat: THREE.MeshBasicMaterial
+  active: boolean
+  age: number
+}
+
+/** unit cylinder along +Y, pivot at the base: scale.y = length */
+const hotLineGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)
+hotLineGeo.translate(0, 0.5, 0)
+
+function makeHotLines(): HotLine[] {
+  return Array.from({ length: HOTLINE_COUNT }, () => {
+    const mat = new THREE.MeshBasicMaterial({
+      color: COLORS.solarWhite,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const mesh = new THREE.Mesh(hotLineGeo, mat)
+    mesh.frustumCulled = false
+    mesh.renderOrder = 20
+    mesh.visible = false
+    return { mesh, mat, active: false, age: 0 }
+  })
+}
+
+const _lineDir = new THREE.Vector3()
+
+function spawnHotLine(pool: HotLine[], from: THREE.Vector3, to: THREE.Vector3) {
+  const l = pool.find((x) => !x.active) ?? pool[0]!
+  _lineDir.copy(to).sub(from)
+  const len = _lineDir.length()
+  if (len < 0.05) return
+  _lineDir.divideScalar(len)
+  l.active = true
+  l.age = 0
+  l.mesh.visible = true
+  l.mesh.position.copy(from)
+  l.mesh.quaternion.setFromUnitVectors(UP, _lineDir)
+  l.mesh.scale.set(COMBATFX.tracer.lineRadius, len, COMBATFX.tracer.lineRadius)
+  l.mat.opacity = 1
+}
+
+function updateHotLines(pool: HotLine[], dt: number) {
+  for (const l of pool) {
+    if (!l.active) continue
+    l.age += dt
+    const t = l.age / COMBATFX.tracer.lineLifeSec
+    if (t >= 1) {
+      l.active = false
+      l.mesh.visible = false
+      l.mat.opacity = 0
+      continue
+    }
+    // hold for the first third so a 33 ms capture step cannot miss it
+    l.mat.opacity = t < 0.34 ? 1 : 1 - (t - 0.34) / 0.66
+    // the line thins as it dies rather than just dimming
+    l.mesh.scale.x = l.mesh.scale.z = COMBATFX.tracer.lineRadius * (1 - t * 0.6)
   }
 }
 
@@ -408,7 +572,7 @@ function makeGunFx(): GunFx {
   // 2-frame muzzle light (work order combat-feel #5). Kept permanently in the
   // scene at intensity 0 so the light count — and therefore every material's
   // shader permutation — never changes mid-mission.
-  const light = new THREE.PointLight('#FFE9C4', 0, 7, 2)
+  const light = new THREE.PointLight('#FFE9C4', 0, COMBATFX.muzzle.distance, 2)
   light.castShadow = false
 
   const shellGeo = new THREE.CylinderGeometry(0.0115, 0.0125, 0.052, 7, 1)
@@ -456,7 +620,7 @@ function makeGunFx(): GunFx {
   return { light, lightAge: 1e9, shells, shellState, shellDummy, scorches }
 }
 
-const MUZZLE_LIGHT_LIFE = 0.055
+const MUZZLE_LIGHT_LIFE = COMBATFX.muzzle.lifeSec
 
 /**
  * [combat-feel R1, weakness C10] There used to be FOUR muzzle-flash systems
@@ -469,7 +633,7 @@ const MUZZLE_LIGHT_LIFE = 0.055
  */
 function spawnMuzzleLight(fx: GunFx, muzzle: THREE.Vector3) {
   fx.light.position.copy(muzzle)
-  fx.light.intensity = 25
+  fx.light.intensity = COMBATFX.muzzle.intensity
   fx.lightAge = 0
 }
 
@@ -517,11 +681,21 @@ function spawnScorch(fx: GunFx, point: THREE.Vector3, normal: THREE.Vector3) {
 const _fwd = new THREE.Vector3(0, 0, 1)
 
 function updateGunFx(fx: GunFx, dt: number) {
-  // muzzle light: 2 frames of real illumination on the weapon and the walls
+  // [combat-feel R2] Muzzle light 25 → 60 at 8 m over 0.09 s, and — the part
+  // that actually matters for a 30 fps capture — a FLAT HOLD at full
+  // intensity for the first 34 ms (work order combat-feel #5). A light that
+  // starts decaying on frame 0 is, at a 33 ms step, a light that was never
+  // brighter than half. With the hold, the player's own armour, the hand and
+  // the wall in front of the muzzle all take a full-strength flash.
   if (fx.lightAge < MUZZLE_LIGHT_LIFE) {
     fx.lightAge += dt
-    const t = Math.min(1, fx.lightAge / MUZZLE_LIGHT_LIFE)
-    fx.light.intensity = 25 * (1 - t) * (1 - t)
+    const hold = COMBATFX.muzzle.holdSec
+    if (fx.lightAge <= hold) {
+      fx.light.intensity = COMBATFX.muzzle.intensity
+    } else {
+      const t = Math.min(1, (fx.lightAge - hold) / Math.max(1e-4, MUZZLE_LIGHT_LIFE - hold))
+      fx.light.intensity = COMBATFX.muzzle.intensity * (1 - t) * (1 - t)
+    }
   } else if (fx.light.intensity !== 0) {
     fx.light.intensity = 0
   }
@@ -594,11 +768,19 @@ export const MuzzleWorld = { position: new THREE.Vector3(), valid: false }
  */
 export const EjectWorld = { position: new THREE.Vector3(), valid: false }
 
-/** world-space muzzle position — the rig's barrel tip, or the camera-space
- * fallback offset before the player rig has mounted. */
-export function getMuzzleWorld(camera: THREE.Camera, out: THREE.Vector3): THREE.Vector3 {
-  if (MuzzleWorld.valid) return out.copy(MuzzleWorld.position)
-  return out.copy(MUZZLE_LOCAL).applyMatrix4(camera.matrixWorld)
+/**
+ * World-space muzzle position — the rig's real barrel tip, or `null`.
+ *
+ * [combat-feel R2, work order combat-feel #5] The camera-space fallback is
+ * GONE. It used to place the muzzle 0.62 m in front of the lens whenever the
+ * hand socket had not published, which meant every flash, every bolt, every
+ * shell and the muzzle light spawned in mid-air at head height — a shot
+ * leaving nothing the player could see. Callers that get `null` must suppress
+ * shot VFX outright rather than guess.
+ */
+export function getMuzzleWorld(_camera: THREE.Camera, out: THREE.Vector3): THREE.Vector3 | null {
+  if (!MuzzleWorld.valid) return null
+  return out.copy(MuzzleWorld.position)
 }
 
 function applySpread(dir: THREE.Vector3, spreadDeg: number) {
@@ -617,6 +799,7 @@ function fireShot(
   tracers: Tracer[],
   fx: GunFx,
   impacts: PendingImpact[],
+  lines: HotLine[],
 ) {
   const cs = CombatState
   cs.ammo = ammoState.mag // mirror HUD-authoritative mag for the snapshot
@@ -632,7 +815,11 @@ function fireShot(
   const wall = raycastLevel(_origin, _dir, RIFLE_RANGE)
   const wallDist = wall ? wall.distance : Infinity
 
-  getMuzzleWorld(camera, _muzzle)
+  // [combat-feel R2, work order combat-feel #5] No barrel tip published means
+  // no rig on screen; the shot still resolves (the player must never lose a
+  // trigger pull to a camera state) but NOTHING visual is spawned, because
+  // every muzzle-anchored effect would otherwise land in mid-air.
+  const hasMuzzle = getMuzzleWorld(camera, _muzzle) !== null
 
   if (enemyHit && enemyHit.distance < wallDist + 0.01) {
     const dmg = RIFLE.damagePerShot * rifleFalloff(enemyHit.distance)
@@ -643,21 +830,27 @@ function fireShot(
       crit: enemyHit.crit,
       dir: _dir,
     })
+    // [combat-feel R2] The bolt now terminates on exactly the point
+    // DamageSystem resolved against, so the streak, the hot line and the
+    // flesh response all land on the same spot. No deferred surface event is
+    // queued for an enemy: `resolveEnemyHit` has already fired the full flesh
+    // package on the trigger frame (a hitmarker must not lag the trigger),
+    // and the deferred queue's job is scorch-and-sparks on WORLD geometry.
     _end.copy(enemyHit.point)
   } else if (wall) {
     // [combat-feel R1] deferred to bolt arrival (weakness C3) — see the
     // impact queue above. Scorch, sparks and the impact light all fire there.
     _normal.copy(wall.normal)
+    _end.copy(wall.point)
     scheduleImpact(
       impacts,
       cs.clock,
-      wall.distance / TRACER_SPEED,
+      (hasMuzzle ? _muzzle.distanceTo(_end) : wall.distance) / TRACER_SPEED,
       true,
-      wall.point,
+      _end,
       _normal,
       _dir,
     )
-    _end.copy(wall.point)
   } else {
     // explicit miss branch: the bolt still has to DO something at max range,
     // otherwise long shots simply vanish (work order combat-feel #5)
@@ -666,22 +859,27 @@ function fireShot(
     scheduleImpact(impacts, cs.clock, RIFLE_RANGE / TRACER_SPEED, false, _end, _normal, _dir)
   }
 
-  spawnTracer(tracers, _muzzle, _end)
-
-  // muzzle flash set: star + white core + 2-frame point light + brass +
-  // a short spit of stretched sparks out of the bore
-  spawnMuzzleLight(fx, _muzzle)
-  spawnShell(fx, camera)
-  ImpactFx.sparks(_muzzle, _dir, 4, {
-    speed: 9,
-    spread: 0.16,
-    color: COLORS.solarWhite,
-    life: 0.11,
-    width: 0.014,
-    gravity: 2,
-  })
-  cs.muzzleFlashAt = cs.clock
+  cs.muzzleFlashAt = hasMuzzle ? cs.clock : -1
   cs.muzzleFlip = !cs.muzzleFlip
+
+  if (hasMuzzle) {
+    spawnTracer(tracers, _muzzle, _end)
+    // the instantaneous read: one hot thread from the barrel to the hit, held
+    // for two frames, under the travelling bolt
+    spawnHotLine(lines, _muzzle, _end)
+    // muzzle flash set: the flash cards live on the weapon (ViewModel.tsx);
+    // this is its light, its brass and a short spit of bore ejecta
+    spawnMuzzleLight(fx, _muzzle)
+    spawnShell(fx, camera)
+    ImpactFx.sparks(_muzzle, _dir, 6, {
+      speed: 11,
+      spread: 0.14,
+      color: COLORS.solarWhite,
+      life: 0.12,
+      width: 0.013,
+      gravity: 2,
+    })
+  }
 
   // ---- recoil: shaped kick with a spring-back recentre (weakness C1) ----
   // The old code added a permanent 0.008 rad to CamRef.pitch per shot and
@@ -743,22 +941,31 @@ function updateImpacts(impacts: PendingImpact[], fx: GunFx, clock: number) {
     if (!im.active || clock < im.at) continue
     im.active = false
     if (im.hit) {
-      // reflect the bolt off the surface so the spray points the right way
+      // [combat-feel R2, work order combat-feel #7] A bullet hitting stone is
+      // FOUR things happening at once, and round 2 shipped one of them at a
+      // quarter strength. Now: a tight cone of ejecta reflected about the
+      // surface normal, a second slower stretched burst that lingers, a ring
+      // lying ON the surface (not a floor disc in mid-air), a real light and
+      // the scorch.
       _reflect.copy(im.dir).reflect(im.normal).normalize()
       _reflect.addScaledVector(im.normal, 0.55).normalize()
-      ImpactFx.sparks(im.point, _reflect, 8, {
-        speed: 8,
-        spread: 0.5,
+      // 1. the reflected cone — fast, white, gone in a third of a second
+      ImpactFx.sparks(im.point, _reflect, COMBATFX.impact.sparkCount, {
+        speed: 13,
+        spread: 0.42,
         color: COLORS.solarWhite,
         life: 0.3,
-        width: 0.02,
+        width: 0.018,
+        gravity: 9,
       })
-      ImpactFx.sparks(im.point, im.normal, 4, {
-        speed: 4.5,
-        spread: 0.85,
+      // 2. the second, stretched burst — slower, gold, arcs and falls
+      ImpactFx.sparks(im.point, im.normal, 10, {
+        speed: 5.5,
+        spread: 0.95,
         color: COLORS.aureate,
-        life: 0.38,
-        width: 0.024,
+        life: 0.5,
+        width: 0.026,
+        gravity: 11,
       })
       VFX.burst({
         position: im.point,
@@ -769,7 +976,23 @@ function updateImpacts(impacts: PendingImpact[], fx: GunFx, clock: number) {
         size: 0.055,
         gravity: 4,
       })
-      VFX.flash({ position: im.point, color: COLORS.solarWhite, intensity: 8, distance: 5, life: 0.09 })
+      // 3. surface-aligned pressure ring: the hit has a plane
+      VFX.ring({
+        position: im.point,
+        color: COLORS.solarWhite,
+        maxRadius: COMBATFX.impact.ringRadius,
+        life: COMBATFX.impact.ringLife,
+        width: 0.35,
+        normal: im.normal,
+      })
+      // 4. the light: 8/5 lit nothing at gameplay distance
+      VFX.flash({
+        position: im.point,
+        color: COLORS.solarWhite,
+        intensity: COMBATFX.impact.flashIntensity,
+        distance: COMBATFX.impact.flashDistance,
+        life: 0.09,
+      })
       spawnScorch(fx, im.point, im.normal)
     } else {
       // max-range puff: a bolt that hits nothing still burns out visibly
@@ -792,6 +1015,7 @@ function updateRifle(
   tracers: Tracer[],
   fx: GunFx,
   impacts: PendingImpact[],
+  lines: HotLine[],
 ) {
   const cs = CombatState
   const holdingFire = canFight() && Input.held('fire')
@@ -822,7 +1046,7 @@ function updateRifle(
     cs.fireCooldown <= 0 &&
     consumeAmmo() // false → mag went dry between frames; next pass reloads
   ) {
-    fireShot(camera, tracers, fx, impacts)
+    fireShot(camera, tracers, fx, impacts, lines)
   }
   cs.ammo = ammoState.mag
 }
@@ -834,6 +1058,13 @@ function updateRifle(
 let trailSeq = 0
 /** swing time of the last arc sample, so the strip can be sub-sampled */
 let lastArcT = 0
+/**
+ * Bumped on every `startSwing`. The arc strip watches it and breaks the
+ * surface when it changes: without this, a chained combo bridges a triangle
+ * from the end of the previous swing to the start of the next one, which is a
+ * metre-wide sheet of additive light across the middle of the frame.
+ */
+let swingToken = 0
 /** scratch swing descriptor for arc sub-sampling (never allocated per frame) */
 const _arcSample = { step: 0, t: 0, dur: 1 }
 
@@ -874,6 +1105,7 @@ function startSwing(camera: THREE.Camera, step: 0 | 1 | 2) {
     trail: VFX.trail(`katana-${++trailSeq}`),
   }
   lastArcT = 0
+  swingToken++
   AudioBus.playKatana()
   if (airborne && step === 2) {
     cs.slamPending = true
@@ -883,14 +1115,71 @@ function startSwing(camera: THREE.Camera, step: 0 | 1 | 2) {
 }
 
 const _pivot = new THREE.Vector3()
+const _pivotCache = new THREE.Vector3()
+let pivotClock = -1
+
+/**
+ * The swing pivot: the player's RIGHT HAND, read from the socket the weapon is
+ * actually parented to.
+ *
+ * [combat-feel R2, work order combat-feel #1 — BLOCKER] The arc used to pivot
+ * on `PlayerRef.position + 1.25y`, the middle of the collision capsule, while
+ * the blade mesh hangs off `PlayerSockets.rightHand`. The drawn sword and the
+ * drawn arc were therefore describing two different swings half a metre
+ * apart, which is the whole reason 17_katana read as a crescent decal pasted
+ * over a character rather than as that character cutting.
+ *
+ * Sampled once per combat frame — a socket's world matrix is not free, and
+ * `bladePoseWorld` is called up to five times a frame to sub-sample the arc.
+ */
+function swingPivot(out: THREE.Vector3): THREE.Vector3 {
+  if (pivotClock !== CombatState.clock) {
+    pivotClock = CombatState.clock
+    const hand = PlayerSockets.rightHand
+    if (hand) hand.getWorldPosition(_pivotCache)
+    else _pivotCache.copy(PlayerRef.position).setY(PlayerRef.position.y + 1.25)
+  }
+  return out.copy(_pivotCache)
+}
+
+/**
+ * Authored 3-key swing curve → fraction of the arc travelled, in [-a, 1].
+ *
+ *   wind-up        120 ms   the blade cocks BACK by `anticipation`
+ *   contact         60 ms   80% of the arc is crossed; damage lands here
+ *   follow-through 200 ms   the last 20%, eased out to a settle
+ *
+ * Every consumer shares it — the swept arc strip, the ribbon, the blade
+ * mesh's `lookAt` target and the damage window — so what the player sees and
+ * what the game resolves are the same motion. A constant-rate sweep has no
+ * moment of impact at all, which is what "no weight" meant (weakness C11).
+ */
+function swingPhase(t: number, dur: number): number {
+  const S = COMBATFX.swing
+  const k = dur / SWING_TOTAL
+  const w = S.windupSec * k
+  const c = S.contactSec * k
+  const tt = THREE.MathUtils.clamp(t, 0, dur)
+  if (tt < w) {
+    const u = tt / Math.max(1e-4, w)
+    return -S.anticipation * (u * u * (3 - 2 * u))
+  }
+  if (tt < w + c) {
+    const u = (tt - w) / Math.max(1e-4, c)
+    return -S.anticipation + (S.anticipation + S.contactTravel) * (u * u * (3 - 2 * u))
+  }
+  const u = THREE.MathUtils.clamp((tt - w - c) / Math.max(1e-4, dur - w - c), 0, 1)
+  return S.contactTravel + (1 - S.contactTravel) * (1 - (1 - u) ** 3)
+}
 
 /**
  * World-space blade pose at the current point of a swing.
  *
- * `outTip` is the tip; `outGuard` is the point at the top of the guard, i.e.
- * the inner edge of the swept arc — the arc ribbon needs both, otherwise the
- * "crescent" degenerates into the flat chest-height ring the audit flagged
- * (weakness C2).
+ * `outTip` is the kissaki; `outGuard` is the inner edge of the swept surface,
+ * a hand's width past the tsuba. Both sit at a fixed radius from the hand
+ * pivot, so the swept surface is a real spherical fan rather than the flat
+ * chest-height ring the audit flagged (weakness C2) — and that radius is the
+ * length of the sword that is drawn, 1.16 m, not the old 2.1 m.
  */
 function bladePoseWorld(
   camera: THREE.Camera,
@@ -898,45 +1187,56 @@ function bladePoseWorld(
   outTip: THREE.Vector3,
   outGuard: THREE.Vector3 | null,
 ): THREE.Vector3 {
-  const p = Math.min(1, swing.t / swing.dur)
+  const e = swingPhase(swing.t, swing.dur)
+  const ec = THREE.MathUtils.clamp(e, 0, 1)
+  const R = COMBATFX.arc.tipRadius
   camera.getWorldDirection(_dir)
   _dir.y = 0
   if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1)
   _dir.normalize()
   _right.crossVectors(_dir, UP)
-  _pivot.copy(PlayerRef.position)
-  _pivot.y += 1.25
+  swingPivot(_pivot)
   if (swing.step === 0) {
-    // Draw Cut — 140° horizontal, right → left. Eased so the blade snaps
-    // through the contact window instead of sweeping at a constant rate.
-    const e = p * p * (3 - 2 * p)
-    const a = THREE.MathUtils.lerp(70, -70, e) * DEG
+    // Draw Cut — 140° horizontal sweep, right → left, with a shallow rise
+    const az = THREE.MathUtils.lerp(70, -70, e) * DEG
+    const el = (2 + Math.sin(ec * Math.PI) * 8) * DEG
+    const ch = Math.cos(el) * R
     outTip
       .copy(_pivot)
-      .addScaledVector(_dir, Math.cos(a) * 2.1)
-      .addScaledVector(_right, Math.sin(a) * 2.1)
-    outTip.y = _pivot.y + 0.15 + Math.sin(p * Math.PI) * 0.12
+      .addScaledVector(_dir, Math.cos(az) * ch)
+      .addScaledVector(_right, Math.sin(az) * ch)
+    outTip.y = _pivot.y + Math.sin(el) * R
   } else if (swing.step === 1) {
-    // Rising Reversal — diagonal left-low → right-high
-    const e = p * p * (3 - 2 * p)
-    const a = THREE.MathUtils.lerp(-55, 55, e) * DEG
+    // Rising Reversal — diagonal, low-left to high-right
+    const az = THREE.MathUtils.lerp(-55, 55, e) * DEG
+    const el = THREE.MathUtils.lerp(-40, 44, e) * DEG
+    const ch = Math.cos(el) * R
     outTip
       .copy(_pivot)
-      .addScaledVector(_dir, Math.cos(a) * 2.0)
-      .addScaledVector(_right, Math.sin(a) * 2.0)
-    outTip.y = PlayerRef.position.y + THREE.MathUtils.lerp(0.6, 2.2, e)
+      .addScaledVector(_dir, Math.cos(az) * ch)
+      .addScaledVector(_right, Math.sin(az) * ch)
+    outTip.y = _pivot.y + Math.sin(el) * R
   } else {
-    // Heaven Splitter — overhead vertical chop, slow lift then a hard drop
-    const e = p < 0.3 ? (p / 0.3) * 0.25 : 0.25 + ((p - 0.3) / 0.7) ** 1.6 * 0.75
-    outTip.copy(_pivot).addScaledVector(_dir, THREE.MathUtils.lerp(0.8, 1.9, e))
-    outTip.y = PlayerRef.position.y + THREE.MathUtils.lerp(2.6, 0.25, e)
+    // Heaven Splitter — overhead chop swept in the vertical plane that holds
+    // the aim vector, pivoting on the hand rather than dropping past the feet
+    const el = THREE.MathUtils.lerp(76, -40, e) * DEG
+    outTip.copy(_pivot).addScaledVector(_dir, Math.cos(el) * R)
+    outTip.y = _pivot.y + Math.sin(el) * R
   }
-  if (outGuard) {
-    // the guard rides ~22% of the way out from the hand pivot toward the tip
-    outGuard.copy(_pivot).lerp(outTip, 0.22)
-  }
+  if (outGuard) outGuard.copy(_pivot).lerp(outTip, COMBATFX.arc.guardFrac)
   return outTip
 }
+
+/**
+ * Roll (about the blade axis) the view model should apply after aiming the
+ * katana at `bladeTipWorld`, so the EDGE leads the cut instead of `lookAt()`
+ * picking an arbitrary roll off world up.
+ */
+export function bladeRollForStep(step: number): number {
+  return SWING_ROLL[step] ?? 0
+}
+
+
 
 /** world-space blade-tip position along the swing arc (drives VFX ribbon) */
 export function bladeTipWorld(
@@ -952,40 +1252,154 @@ export function bladeTipWorld(
 //
 // [combat-feel R1, weakness C2] The katana's only "arc" was an expanding ring
 // on the XZ plane at chest height, which is wrong for two of the three combo
-// steps and reads as a floor decal in the air. This is a real swept surface:
-// a triangle strip between the guard and the tip, sampled every frame, white
-// at the leading edge and fading to aureate over 0.18 s.
+// steps and reads as a floor decal in the air. R1 replaced it with a swept
+// triangle strip between the guard and the tip.
+//
+// [combat-feel R2, work order combat-feel #2 and #3 — BLOCKERS] R1's strip was
+// still wrong in four ways, all fixed here:
+//   - it swept a 2.1 m radius around a 0.95 m sword, so the crescent was
+//     twice the length of the blade that drew it → COMBATFX.arc.tipRadius;
+//   - DoubleSide, vertex-coloured, flat-additive: no taper at the guard and
+//     no exposure ceiling, so a swing near the camera filled the frame →
+//     a three-layer shader shell with a per-channel soft knee at 2.0;
+//   - no near-plane handling at all, and in third person the blade crosses
+//     the lens constantly → a fragment dissolve between 0.5 m and 1.6 m;
+//   - samples taken behind the camera bridged a triangle across the whole
+//     view → `breakStrip()` restarts the surface instead.
 // ---------------------------------------------------------------------------
 
-const ARC_SAMPLES = 18
-const ARC_FADE = 0.18
+const ARC_SAMPLES = 20
+const ARC_FADE = COMBATFX.arc.fadeSec
+
+const _arcEdgeA = new THREE.Vector3()
+const _arcEdgeB = new THREE.Vector3()
+const _arcNormal = new THREE.Vector3()
+const _arcToCam = new THREE.Vector3()
+
+/**
+ * Three-layer energy shell across one swept surface.
+ *
+ * `aEdge` runs 0 at the guard to 1 at the tip; `aAge` is the sample's age in
+ * the strip. The core is a thin white ridge riding the leading edge, the mid
+ * is the saturated aureate body, the outer is a dim wide falloff — i.e. the
+ * same authoring the work order asks of every energy element, done in ONE
+ * draw call instead of three stacked additive meshes.
+ *
+ * The output is soft-kneed per channel: linear up to 1.0, then asymptotic
+ * toward `uCap` (2.0). An additive strip that can cover a fifth of the frame
+ * must not be allowed to pin the bloom pass on its own, which is exactly what
+ * round 2 did with `VFXENERGY.core.boost` at 4.0.
+ */
+const ARC_VERT = /* glsl */ `
+attribute float aEdge;
+attribute float aAge;
+varying float vEdge;
+varying float vAge;
+varying vec3 vWorld;
+void main() {
+  vEdge = aEdge;
+  vAge = aAge;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`
+
+const ARC_FRAG = /* glsl */ `
+uniform vec3 uCore;
+uniform vec3 uMid;
+uniform vec3 uOuter;
+uniform float uCoreB;
+uniform float uMidB;
+uniform float uOuterB;
+uniform float uCap;
+uniform float uNear;
+uniform float uFar;
+uniform float uFade;
+varying float vEdge;
+varying float vAge;
+varying vec3 vWorld;
+
+void main() {
+  float a = clamp(1.0 - vAge / uFade, 0.0, 1.0);   // 1 = newest sample
+  float e = clamp(vEdge, 0.0, 1.0);
+
+  // the strip tapers to nothing at the guard: no slab of light on the hand
+  float core  = pow(e, 10.0) * pow(a, 3.0);
+  float mid   = pow(e, 2.6) * pow(a, 1.7);
+  float outer = pow(e, 1.3) * a * a;
+
+  vec3 c = uCore * (core * uCoreB) + uMid * (mid * uMidB) + uOuter * (outer * uOuterB);
+  float alpha = clamp(core + mid * 0.7 + outer * 0.4, 0.0, 1.0);
+
+  // near-camera dissolve — a metre-wide additive fan swept through the lens
+  // is a white wall, and in third person the blade passes the lens often
+  float d = distance(vWorld, cameraPosition);
+  float nf = smoothstep(uNear, uFar, d);
+  alpha *= nf;
+  c *= nf;
+
+  if (alpha <= 0.003) discard;
+
+  // soft knee: passthrough to 1.0, then asymptotic toward uCap
+  c = min(c, vec3(1.0)) + (vec3(1.0) - exp(-max(c - vec3(1.0), vec3(0.0)))) * (uCap - 1.0);
+  gl_FragColor = vec4(c, alpha);
+}
+`
 
 function makeSwingArc() {
   const geo = new THREE.BufferGeometry()
   const pos = new Float32Array(ARC_SAMPLES * 2 * 3)
-  const col = new Float32Array(ARC_SAMPLES * 2 * 4)
+  const edge = new Float32Array(ARC_SAMPLES * 2)
+  const ageBuf = new Float32Array(ARC_SAMPLES * 2)
+  for (let i = 0; i < ARC_SAMPLES; i++) {
+    edge[i * 2] = 0 // inner: the guard
+    edge[i * 2 + 1] = 1 // outer: the tip
+  }
   const posAttr = new THREE.BufferAttribute(pos, 3)
-  const colAttr = new THREE.BufferAttribute(col, 4)
+  const ageAttr = new THREE.BufferAttribute(ageBuf, 1)
   posAttr.setUsage(THREE.DynamicDrawUsage)
-  colAttr.setUsage(THREE.DynamicDrawUsage)
+  ageAttr.setUsage(THREE.DynamicDrawUsage)
   geo.setAttribute('position', posAttr)
-  geo.setAttribute('color', colAttr)
-  const idx: number[] = []
+  geo.setAttribute('aEdge', new THREE.BufferAttribute(edge, 1))
+  geo.setAttribute('aAge', ageAttr)
+
+  // Two windings, so the strip can be drawn SINGLE-SIDED whichever way the
+  // blade happens to be travelling (work order combat-feel #2 asks for
+  // FrontSide; a fixed winding would simply cull half the combo).
+  const idxA: number[] = []
+  const idxB: number[] = []
   for (let i = 0; i < ARC_SAMPLES - 1; i++) {
     const a = i * 2
-    idx.push(a, a + 1, a + 3, a, a + 3, a + 2)
+    idxA.push(a, a + 1, a + 3, a, a + 3, a + 2)
+    idxB.push(a, a + 3, a + 1, a, a + 2, a + 3)
   }
-  geo.setIndex(idx)
+  const windA = new THREE.BufferAttribute(new Uint16Array(idxA), 1)
+  const windB = new THREE.BufferAttribute(new Uint16Array(idxB), 1)
+  let usingA = true
+  geo.setIndex(windA)
   geo.setDrawRange(0, 0)
   geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4) // never cull
 
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    vertexColors: true,
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uCore: { value: new THREE.Color(COLORS.solarWhite) },
+      uMid: { value: new THREE.Color(COLORS.aureate) },
+      uOuter: { value: new THREE.Color(COLORS.aureate) },
+      uCoreB: { value: COMBATFX.arc.coreBoost },
+      uMidB: { value: COMBATFX.arc.midBoost },
+      uOuterB: { value: COMBATFX.arc.outerBoost },
+      uCap: { value: COMBATFX.arc.cap },
+      uNear: { value: COMBATFX.arc.dissolveNear },
+      uFar: { value: COMBATFX.arc.dissolveFar },
+      uFade: { value: ARC_FADE },
+    },
+    vertexShader: ARC_VERT,
+    fragmentShader: ARC_FRAG,
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    side: THREE.DoubleSide,
+    side: THREE.FrontSide,
     toneMapped: false,
   })
   const mesh = new THREE.Mesh(geo, mat)
@@ -995,9 +1409,6 @@ function makeSwingArc() {
 
   const ages = new Float32Array(ARC_SAMPLES)
   let count = 0
-
-  const hot = new THREE.Color(COLORS.solarWhite)
-  const cool = new THREE.Color(COLORS.aureate)
 
   /** drop expired samples off the front of the ring */
   function trim() {
@@ -1009,6 +1420,13 @@ function makeSwingArc() {
       for (let k = 0; k < 6; k++) pos[(i - drop) * 6 + k] = pos[i * 6 + k]!
     }
     count -= drop
+  }
+
+  function hide() {
+    if (mesh.visible) {
+      mesh.visible = false
+      geo.setDrawRange(0, 0)
+    }
   }
 
   return {
@@ -1035,42 +1453,56 @@ function makeSwingArc() {
       count++
     },
 
-    update(dt: number) {
+    /**
+     * Break the strip. Used when a pose falls behind the camera: rather than
+     * bridging a triangle across the lens (which draws a full-screen sheet of
+     * additive light), the surface simply restarts in front of it.
+     */
+    breakStrip() {
+      if (count !== 0) {
+        count = 0
+        hide()
+      }
+    },
+
+    update(dt: number, camera: THREE.Camera) {
       if (count === 0) {
-        if (mesh.visible) {
-          mesh.visible = false
-          geo.setDrawRange(0, 0)
-        }
+        hide()
         return
       }
       for (let i = 0; i < count; i++) ages[i] = ages[i]! + dt
       trim()
       if (count < 2) {
-        mesh.visible = false
-        geo.setDrawRange(0, 0)
+        hide()
         return
       }
       for (let i = 0; i < count; i++) {
-        const f = 1 - Math.min(1, ages[i]! / ARC_FADE)
-        // newest samples are white-hot, older ones cool to aureate
-        const w = f * f
-        const r = cool.r + (hot.r - cool.r) * w
-        const g = cool.g + (hot.g - cool.g) * w
-        const b = cool.b + (hot.b - cool.b) * w
-        const ci = i * 8
-        // inner (guard) edge: dimmer, so the arc has a soft trailing body
-        col[ci] = r
-        col[ci + 1] = g
-        col[ci + 2] = b
-        col[ci + 3] = f * 0.22
-        // outer (tip) edge: the bright leading line the eye follows
-        col[ci + 4] = r
-        col[ci + 5] = g
-        col[ci + 6] = b
-        col[ci + 7] = f * 0.95
+        const a = ages[i]!
+        ageBuf[i * 2] = a
+        ageBuf[i * 2 + 1] = a
       }
+
+      // single-sided facing: pick the winding whose front faces the camera,
+      // measured on the middle rib of the strip
+      const m = Math.max(0, Math.min(count - 2, (count - 1) >> 1))
+      const o = m * 6
+      const n = (m + 1) * 6
+      _arcEdgeA.set(pos[o + 3]! - pos[o]!, pos[o + 4]! - pos[o + 1]!, pos[o + 5]! - pos[o + 2]!)
+      _arcEdgeB.set(pos[n + 3]! - pos[o + 3]!, pos[n + 4]! - pos[o + 4]!, pos[n + 5]! - pos[o + 5]!)
+      _arcNormal.crossVectors(_arcEdgeA, _arcEdgeB)
+      _arcToCam.set(
+        camera.position.x - pos[o + 3]!,
+        camera.position.y - pos[o + 4]!,
+        camera.position.z - pos[o + 5]!,
+      )
+      const wantA = _arcNormal.dot(_arcToCam) >= 0
+      if (wantA !== usingA) {
+        usingA = wantA
+        geo.setIndex(wantA ? windA : windB)
+      }
+
       posAttr.needsUpdate = true
-      colAttr.needsUpdate = true
+      ageAttr.needsUpdate = true
       geo.setDrawRange(0, (count - 1) * 6)
       mesh.visible = true
     },
@@ -1183,6 +1615,8 @@ function endSwing(chain: boolean, camera: THREE.Camera) {
   }
 }
 
+let arcToken = -1
+
 function updateKatana(camera: THREE.Camera, dt: number, arc: SwingArc) {
   const cs = CombatState
 
@@ -1198,10 +1632,16 @@ function updateKatana(camera: THREE.Camera, dt: number, arc: SwingArc) {
 
   const swing = cs.swing
   if (swing) {
+    if (arcToken !== swingToken) {
+      arcToken = swingToken
+      arc.breakStrip()
+    }
     swing.t += dt
 
-    // target magnetism lunge (combat.md §2: 16 m/s toward target for swing duration)
-    if (swing.targetId !== null) {
+    // Target magnetism lunge (combat.md §2). [combat-feel R2] Gated to the
+    // wind-up and contact windows: a lunge that keeps driving through a 200 ms
+    // follow-through slides the player past the enemy he just cut.
+    if (swing.targetId !== null && swing.t < swing.dur * SWING_CONTACT_END) {
       const target = EnemyRegistry.list().find((e) => e.id === swing.targetId && e.alive)
       if (target) {
         _to.copy(target.position).sub(PlayerRef.position)
@@ -1215,7 +1655,7 @@ function updateKatana(camera: THREE.Camera, dt: number, arc: SwingArc) {
       }
     }
 
-    if (!swing.resolved && swing.t >= swing.dur * 0.35) {
+    if (!swing.resolved && swing.t >= swing.dur * SWING_CONTACT_AT) {
       swing.resolved = true
       resolveSwing(camera)
     }
@@ -1230,13 +1670,24 @@ function updateKatana(camera: THREE.Camera, dt: number, arc: SwingArc) {
     const sub = THREE.MathUtils.clamp(Math.round(dt / 0.011), 1, 4)
     _arcSample.step = swing.step
     _arcSample.dur = swing.dur
+    camera.getWorldDirection(_camFwd)
     for (let i = 1; i <= sub; i++) {
       _arcSample.t = lastArcT + (swing.t - lastArcT) * (i / sub)
       bladePoseWorld(camera, _arcSample, _pt, _guard)
+      // [combat-feel R2] reject samples behind the camera (work order #2):
+      // a rib behind the lens projects to nonsense and drags a triangle
+      // across the entire frame
+      _camRel.copy(_pt).sub(camera.position)
+      if (_camRel.dot(_camFwd) <= 0.05) {
+        arc.breakStrip()
+        continue
+      }
       arc.push(_guard, _pt)
     }
     lastArcT = swing.t
     bladePoseWorld(camera, swing, _pt, _guard)
+    // the ribbon is emitted from the blade TIP, which is now a point on the
+    // real sword rather than a point 2.1 m from the collision capsule
     swing.trail.push(_pt)
 
     if (swing.t >= swing.dur) endSwing(true, camera)
@@ -1279,17 +1730,19 @@ export function WeaponSystems() {
   const tracers = useMemo(() => makeTracers(), [])
   const gunFx = useMemo(() => makeGunFx(), [])
   const impacts = useMemo(() => makeImpactQueue(), [])
+  const hotLines = useMemo(() => makeHotLines(), [])
   const arc = useMemo(() => makeSwingArc(), [])
   const groupRef = useRef<THREE.Group>(null)
 
   useFrame((state, rawDt) => {
     const dt = combatTick(state.clock.elapsedTime, rawDt)
-    updateRifle(state.camera, dt, tracers, gunFx, impacts)
+    updateRifle(state.camera, dt, tracers, gunFx, impacts, hotLines)
     updateKatana(state.camera, dt, arc)
     updateImpacts(impacts, gunFx, CombatState.clock)
     updateTracers(tracers, dt, state.camera, state.size.height)
+    updateHotLines(hotLines, dt)
     updateGunFx(gunFx, dt)
-    arc.update(dt)
+    arc.update(dt, state.camera)
     ImpactFx.update(dt)
   })
 
@@ -1303,6 +1756,9 @@ export function WeaponSystems() {
       ))}
       {/* gunplay feedback: 2-frame muzzle light + brass casings + scorches
           (the flash itself is on the weapon, in ViewModel.tsx) */}
+      {hotLines.map((l, i) => (
+        <primitive key={`line-${i}`} object={l.mesh} />
+      ))}
       <primitive object={gunFx.light} />
       <primitive object={gunFx.shells} />
       {gunFx.scorches.map((s, i) => (

@@ -10,18 +10,24 @@
  * back reactor is the one big crimson mass on the model so the flanking
  * weakpoint reads from behind at 30 m.
  *
+ * R2 art pass: shadow receive/cast on every lit mesh, accents authored above
+ * the 1.0 bloom knee via ENEMY_FX with falloff sprites on the chest slit,
+ * the collar slit and the back reactor, a slam AoE decal that appears at the
+ * START of the wind-up, and slit/reactor levels that RAMP through every
+ * telegraph instead of switching at the end of it.
+ *
  * AI loop: < 3 m → Slam/Sweep (alternate) · 6–20 m LOS → Charge (wall impact
  * = 1.5 s self-stagger punish window) · else stalk. ENRAGE at hp < 30% now
  * has a real entrance: roar pose, shockwave, reactor glow build, charge dust.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { addTrauma } from '@/game/player/CameraRig'
 import { useGameStore } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
-import { ENEMY_LOOK } from '@/game/config'
+import { ENEMY_FX, ENEMY_LOOK } from '@/game/config'
 import { VFX } from '@/game/vfx/VFXBus'
 import { type EnemyEntity } from './EnemyRegistry'
 import {
@@ -33,7 +39,7 @@ import {
   turnToward,
   whiskerSteer,
 } from './ai'
-import { patchDissolve, makeOutlineMaterial } from './dissolve'
+import { patchDissolve, makeOutlineMaterial, makeEnemyGlowMaterial } from './dissolve'
 
 const SPEED_WALK = 3
 const SPEED_CHARGE = 12
@@ -103,11 +109,15 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
       transparent: true,
     })
     const slit = new THREE.MeshBasicMaterial({ color: ENEMY_LOOK.accent, toneMapped: false })
+    // one shared falloff sprite material drives both the chest slit bloom and
+    // the back-reactor weakpoint halo (the flanking read at 30 m)
+    const halo = makeEnemyGlowMaterial(ENEMY_LOOK.accent)
+    halo.opacity = ENEMY_FX.halo.opacity
     const dPlate = patchDissolve(plate)
     const dShell = patchDissolve(shell)
     const dGun = patchDissolve(gunmetal, { rimStrength: ENEMY_LOOK.rimStrength * 0.5 })
     const outline = makeOutlineMaterial(ENEMY_LOOK.outline.pixels * 1.2)
-    return { plate, shell, gunmetal, reactor, slit, dPlate, dShell, dGun, outline }
+    return { plate, shell, gunmetal, reactor, slit, halo, dPlate, dShell, dGun, outline }
   }, [])
 
   useEffect(() => {
@@ -117,9 +127,28 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
       mats.gunmetal.dispose()
       mats.reactor.dispose()
       mats.slit.dispose()
+      mats.halo.dispose()
       mats.outline.dispose()
     }
   }, [mats])
+
+  /**
+   * [R2 blocker] Shadow RECEIVE on every lit mesh. The CANTOR is the biggest
+   * mass in the game and was contributing nothing to the lighting read:
+   * measured scene-wide, only 80 of 880 meshes received a shadow. Casters are
+   * left as the JSX authored them — the pass cost scales with casters.
+   */
+  useLayoutEffect(() => {
+    const g = group.current
+    if (!g) return
+    g.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      // receive only: the caster set stays exactly as the JSX authored it,
+      // because the shadow pass cost scales with casters, not receivers
+      m.receiveShadow = (m.material as THREE.MeshStandardMaterial).isMeshStandardMaterial === true
+    })
+  }, [])
 
   useFrame((_, delta) => {
     const s = useGameStore.getState()
@@ -181,6 +210,7 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
       mats.dGun.uniform.value = d
       mats.outline.setOpacity(ENEMY_LOOK.outline.opacity * Math.max(0, 1 - d * 2.2))
       mats.reactor.opacity = Math.max(0, 1 - d * 3)
+      mats.halo.opacity = ENEMY_FX.halo.opacity * Math.max(0, 1 - d * 3)
       g.position.copy(e.position)
       return
     }
@@ -249,6 +279,18 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
         e.velocity.z = 0
         posed = 1
         markThreat(e, 'melee', 0.25)
+        // AoE decal for the whole wind-up: the player must be able to read
+        // the danger circle BEFORE the slam lands, not after it (N10)
+        if (e.ai.slamTold !== 1) {
+          e.ai.slamTold = 1
+          VFX.ring({
+            position: e.position,
+            color: ENEMY_LOOK.accentHot,
+            maxRadius: SLAM_AOE,
+            life: SLAM_WINDUP,
+            width: 0.14,
+          })
+        }
         // fists rise; red flare handled in visuals
         const k = Math.min(1, e.ai.stateT / SLAM_WINDUP)
         if (armL.current) armL.current.rotation.x = -2.2 * k
@@ -272,6 +314,7 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
           }
           e.state = 'attack'
           e.ai.stateT = 0
+          e.ai.slamTold = 0
           e.ai.attackCd = ATTACK_COOLDOWN * cdMult
         }
         break
@@ -489,22 +532,42 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
     }
 
     // chest slit: dim idle → hot telegraph / constant hot enrage
-    const telegraphing = e.state === 'slamWindup' || e.state === 'chargeTelegraph' || e.state === 'charge'
+    // ---- accent tells (R2 #4) --------------------------------------------
+    // Wind-up is a RAMP, not a switch: the slit climbs through the 0.6 s slam
+    // and the 0.5 s charge telegraph, so the attack is legible while there is
+    // still time to dodge it. Every level is authored above the 1.0 knee.
+    const windup =
+      e.state === 'slamWindup'
+        ? Math.min(1, (e.ai.stateT ?? 0) / SLAM_WINDUP)
+        : e.state === 'chargeTelegraph'
+          ? Math.min(1, (e.ai.stateT ?? 0) / CHARGE_TELEGRAPH)
+          : e.state === 'charge' || e.state === 'sweep'
+            ? 1
+            : 0
+    const base = enraged
+      ? ENEMY_FX.accentEnraged + Math.sin(performance.now() * 0.008) * 0.45
+      : e.alerted
+        ? ENEMY_FX.accentAlert
+        : ENEMY_FX.accentIdle
+    const flutter =
+      windup > 0
+        ? 1 + 0.2 * windup * Math.sin(performance.now() * 0.001 * Math.PI * 2 * ENEMY_FX.telegraphHz)
+        : 1
+    const level = THREE.MathUtils.lerp(base, ENEMY_FX.accentTelegraph, windup * windup) * flutter
     if (e.hitFlash > 0) {
-      mats.plate.emissive.setScalar(0.85)
-      mats.shell.emissive.setScalar(0.7)
-      mats.slit.color.set('#FFFFFF')
+      mats.plate.emissive.setScalar(ENEMY_FX.hitFlashEmissive)
+      mats.shell.emissive.setScalar(ENEMY_FX.hitFlashEmissive * 0.8)
+      mats.slit.color.setScalar(ENEMY_FX.accentHit)
     } else {
       mats.plate.emissive.setScalar(0)
       mats.shell.emissive.setScalar(0)
-      if (enraged) mats.slit.color.copy(SLIT_HOT).multiplyScalar(1.4 + Math.sin(performance.now() * 0.008) * 0.3)
-      else if (telegraphing) mats.slit.color.copy(SLIT_HOT).multiplyScalar(1.8)
-      else mats.slit.color.copy(SLIT_IDLE)
+      if (windup > 0 || enraged) mats.slit.color.copy(SLIT_HOT).multiplyScalar(level)
+      else mats.slit.color.copy(SLIT_IDLE).multiplyScalar(level)
     }
-    // reactor pulse — brighter when enraged
-    mats.reactor.color
-      .copy(SLIT_HOT)
-      .multiplyScalar(enraged ? 2.2 + Math.sin(performance.now() * 0.01) * 0.5 : 1.1)
+    // reactor pulse — the weakpoint is the one mass that always glows
+    mats.reactor.color.copy(SLIT_HOT).multiplyScalar(level * 0.85)
+    mats.halo.color.copy(SLIT_HOT).multiplyScalar(0.55 + windup * 1.5 + (enraged ? 0.6 : 0))
+    mats.halo.opacity = ENEMY_FX.halo.opacity * (e.alerted ? 1.1 : 0.5) * (1 + windup * 0.9)
   })
 
   /** back-reactor weakpoint rides behind the torso, opposite the facing */
@@ -593,6 +656,7 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
           <mesh material={mats.slit} position={[0, 0.34, 0.44]}>
             <boxGeometry args={[0.07, 0.42, 0.03]} />
           </mesh>
+          <sprite material={mats.halo} position={[0, 0.34, 0.48]} scale={[0.34, 0.8, 1]} />
 
           {/* ---- back reactor — the crimson weakpoint mass ---- */}
           <mesh material={mats.gunmetal} position={[0, 0.41, -0.38]} castShadow>
@@ -601,6 +665,7 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
           <mesh material={mats.reactor} position={[0, 0.41, -0.5]}>
             <sphereGeometry args={[0.2, 14, 10]} />
           </mesh>
+          <sprite material={mats.halo} position={[0, 0.41, -0.56]} scale={[0.95, 0.95, 1]} />
           <mesh material={mats.gunmetal} position={[0, 0.41, -0.44]} rotation-x={Math.PI / 2}>
             <torusGeometry args={[0.25, 0.055, 8, 18]} />
           </mesh>
@@ -644,6 +709,7 @@ export function Heavy({ entity }: { entity: EnemyEntity }) {
           <mesh material={mats.slit} position={[0, 0.84, 0.23]}>
             <boxGeometry args={[0.2, 0.035, 0.03]} />
           </mesh>
+          <sprite material={mats.halo} position={[0, 0.84, 0.26]} scale={[0.5, 0.26, 1]} />
 
           {/* ---- arms ending in piston fists ---- */}
           {[-1, 1].map((side) => {

@@ -226,3 +226,59 @@ export function makeOutlineMaterial(pixels: number = ENEMY_LOOK.outline.pixels):
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared hostile glow sprite  [enemies-hud R2]
+//
+// Every accent on a hostile is a small hard-edged emissive primitive — a 3 cm
+// visor slit, a 5 cm core sphere. Under a 1.0 bloom knee those are two or
+// three pixels of bloom at gameplay distance, which is why the hostiles read
+// as unlit dark shapes in the capture set. Each accent now carries a
+// camera-facing falloff sprite off ONE baked 64×64 radial texture, shared by
+// every enemy in the scene, so the tell has a soft core that survives
+// distance without a per-enemy texture or a per-frame allocation.
+// ---------------------------------------------------------------------------
+
+let glowTex: THREE.Texture | null = null
+
+/** the one baked radial-falloff texture every hostile glow sprite samples */
+export function getEnemyGlowTexture(): THREE.Texture {
+  if (glowTex) return glowTex
+  const S = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = S
+  canvas.height = S
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2)
+    // a tight core with a long tail — a linear falloff blooms as a disc
+    g.addColorStop(0.0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.18, 'rgba(255,255,255,0.62)')
+    g.addColorStop(0.42, 'rgba(255,255,255,0.20)')
+    g.addColorStop(0.72, 'rgba(255,255,255,0.05)')
+    g.addColorStop(1.0, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, S, S)
+  }
+  glowTex = new THREE.CanvasTexture(canvas)
+  glowTex.colorSpace = THREE.NoColorSpace
+  glowTex.needsUpdate = true
+  return glowTex
+}
+
+/**
+ * An additive camera-facing glow for a hostile accent. `color` is authored in
+ * HDR by the caller each frame (ENEMY_FX levels), so this is deliberately
+ * `toneMapped: false` and never depth-writes.
+ */
+export function makeEnemyGlowMaterial(color: string): THREE.SpriteMaterial {
+  return new THREE.SpriteMaterial({
+    map: getEnemyGlowTexture(),
+    color: new THREE.Color(color),
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+    fog: false,
+  })
+}

@@ -20,7 +20,7 @@ import { EnemyRegistry, type EnemyHandle } from '@/game/enemies/EnemyRegistry'
 import { VFX } from '@/game/vfx/VFXBus'
 import { AudioBus } from '@/game/AudioBus'
 import { useGameStore } from '@/game/store'
-import { COLORS } from '@/game/config'
+import { COLORS, COMBATFX, ENEMY_LOOK } from '@/game/config'
 
 export interface ResolveHitOpts {
   /** world-space impact point (damage number + sparks spawn here) */
@@ -80,37 +80,65 @@ export function resolveEnemyHit(
   })
 
   // ---- on-flesh impact ------------------------------------------------
-  // [combat-feel R1] Three layers, all with life >= 0.08 s so a 33 ms capture
-  // step can never land between them (work order combat-feel #2):
+  // [combat-feel R1] Layers with life >= 0.08 s so a 33 ms capture step can
+  // never land between them (work order combat-feel #2):
   //   1. stretched ejecta streaks sprayed back along the incoming direction
-  //   2. the bus' soft teal bleed blob underneath, for volume
-  //   3. a short impact light so the hit actually relights the enemy plates
+  //   2. a second slower burst underneath, for volume
+  //   3. a surface-aligned ring, so the hit has a plane
+  //   4. a short impact light so the hit actually relights the enemy plates
+  //
+  // [combat-feel R2] The soft blob under every player hit was tinted
+  // `cadenceTeal`, which is now the HOSTILE colour and nothing else: every
+  // shot the player landed sprayed the enemy's own energy back at him, and
+  // ability hits in particular read as if the enemy had done something. All
+  // player-sourced ejecta is aureate / solar white — the player's energy —
+  // and only enemy death keeps a hostile tint (see below).
   _ejecta.set(0, 0, 0)
   if (opts.dir) _ejecta.copy(opts.dir).multiplyScalar(-1)
   else _ejecta.copy(opts.point).sub(enemy.position).setY(0.35)
   if (_ejecta.lengthSq() < 1e-6) _ejecta.set(0, 1, 0)
   _ejecta.normalize()
-  ImpactFx.sparks(opts.point, _ejecta, crit ? 10 : 6, {
-    speed: crit ? 9 : 6.5,
-    spread: 0.62,
-    color: crit ? COLORS.solarWhite : COLORS.aureate,
-    life: 0.26,
-    width: crit ? 0.026 : 0.02,
+  const heavy = crit || opts.ability === true
+  ImpactFx.sparks(opts.point, _ejecta, heavy ? 14 : 8, {
+    speed: heavy ? 11 : 7.5,
+    spread: 0.55,
+    color: heavy ? COLORS.solarWhite : COLORS.aureate,
+    life: 0.28,
+    width: heavy ? 0.026 : 0.02,
+    gravity: 8,
+  })
+  // second, slower stretched burst so the hit has a tail as well as a spike
+  ImpactFx.sparks(opts.point, _ejecta, heavy ? 8 : 5, {
+    speed: 4.2,
+    spread: 1.0,
+    color: COLORS.aureate,
+    life: 0.46,
+    width: 0.024,
+    gravity: 10,
   })
   VFX.burst({
     position: opts.point,
-    color: COLORS.cadenceTeal,
-    count: crit ? 8 : 5,
+    color: COLORS.aureate,
+    count: heavy ? 8 : 5,
     speed: 4,
     life: 0.25,
     size: 0.05,
     gravity: 4,
   })
+  // a ring lying against the incoming shot, not a disc on the floor
+  VFX.ring({
+    position: opts.point,
+    color: heavy ? COLORS.solarWhite : COLORS.aureate,
+    maxRadius: COMBATFX.impact.ringRadius * (heavy ? 1.3 : 1),
+    life: COMBATFX.impact.ringLife,
+    width: 0.35,
+    normal: _ejecta,
+  })
   VFX.flash({
     position: opts.point,
-    color: crit ? COLORS.solarWhite : COLORS.aureate,
-    intensity: crit ? 9 : 5,
-    distance: crit ? 4 : 3,
+    color: heavy ? COLORS.solarWhite : COLORS.aureate,
+    intensity: heavy ? COMBATFX.impact.flashIntensity : COMBATFX.impact.flashIntensity * 0.55,
+    distance: heavy ? COMBATFX.impact.flashDistance : COMBATFX.impact.flashDistance * 0.6,
     life: 0.09,
   })
 
@@ -118,10 +146,14 @@ export function resolveEnemyHit(
 
   if (killed) {
     useGameStore.getState().registerKill({ headshot: crit, ability: opts.ability })
-    // kill feedback: teal soul-wisp rising (combat.md §5) + gold confirm flash
+    // Kill feedback: a rising soul-wisp (combat.md §5) + gold confirm flash.
+    // [combat-feel R2] The wisp is the thing leaving the ENEMY, so it carries
+    // the hostile palette rather than the level's reserved cadence teal — it
+    // now matches the dissolve edge the corpse burns away with, so a kill is
+    // one colour event rather than two that disagree.
     VFX.burst({
       position: opts.point,
-      color: COLORS.cadenceTeal,
+      color: ENEMY_LOOK.dissolveEdge,
       count: 1,
       speed: 2.2,
       life: 0.8,
@@ -147,7 +179,14 @@ export function resolveEnemyHit(
       width: 0.028,
       gravity: 7,
     })
-    VFX.flash({ position: opts.point, color: COLORS.aureate, intensity: 8, distance: 5, life: 0.12 })
+    // the kill's own light — a body dropping should relight the floor
+    VFX.flash({
+      position: opts.point,
+      color: COLORS.solarWhite,
+      intensity: COMBATFX.impact.flashIntensity,
+      distance: COMBATFX.impact.flashDistance * 1.4,
+      life: 0.14,
+    })
   }
 
   return { applied: true, killed, amount, crit }

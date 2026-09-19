@@ -127,7 +127,7 @@ export default function WinScreen({ onRestart }: Props) {
         {stage >= 6 && (
           <div className="avs-actions avs-reveal">
             <button
-              className="avs-btn"
+              className="avs-btn primary"
               onClick={() => {
                 AudioBus.playUIClick()
                 onRestart()

@@ -56,6 +56,7 @@ attribute vec3 aVel;
 attribute float aShape;
 attribute float aStretch;
 attribute float aSeed;
+attribute float aRoll;
 uniform float uPixelScale;
 uniform float uAspect;
 uniform float uTime;
@@ -85,8 +86,13 @@ void main() {
   vec2 s1 = clip1.xy / max(1e-4, abs(clip1.w));
   vec2 d = vec2((s1.x - s0.x) * uAspect, s1.y - s0.y);
   float dl = length(d);
-  vAngle = dl > 1e-5 ? atan(d.y, d.x) : 0.0;
   vStretch = aStretch * clamp(dl * 7.0, 0.0, 2.4);
+  // [vfx R2] streaked particles align to their screen-space heading; round
+  // ones (smoke, embers, debris chips) take a per-particle roll with a slow
+  // drift, so a cloud of them is never eight copies of the same sprite at the
+  // same angle — the tell that gives away a billboard atlas.
+  float spin = aRoll + (aSeed - 0.5) * uTime * 0.9;
+  vAngle = vStretch > 0.02 && dl > 1e-5 ? atan(d.y, d.x) : spin;
 
   float s = aSize * (0.45 + 0.55 * t) * (0.35 + 0.65 * birth);
   gl_PointSize = aLife > 0.0 ? s * (1.0 + vStretch) * uPixelScale / max(0.1, -mv.z) : 0.0;
@@ -135,6 +141,7 @@ class ParticlePool {
   private readonly shape: Float32Array
   private readonly stretch: Float32Array
   private readonly seed: Float32Array
+  private readonly roll: Float32Array
   private readonly posAttr: THREE.BufferAttribute
   private readonly lifeAttr: THREE.BufferAttribute
   private readonly colAttr: THREE.BufferAttribute
@@ -144,6 +151,7 @@ class ParticlePool {
   private readonly shapeAttr: THREE.BufferAttribute
   private readonly stretchAttr: THREE.BufferAttribute
   private readonly seedAttr: THREE.BufferAttribute
+  private readonly rollAttr: THREE.BufferAttribute
   readonly material: THREE.ShaderMaterial
 
   readonly family: Family
@@ -164,6 +172,7 @@ class ParticlePool {
     this.shape = new Float32Array(cap)
     this.stretch = new Float32Array(cap)
     this.seed = new Float32Array(cap)
+    this.roll = new Float32Array(cap)
     for (let i = 0; i < cap; i++) this.seed[i] = Math.random()
 
     const geo = new THREE.BufferGeometry()
@@ -178,6 +187,7 @@ class ParticlePool {
     this.shapeAttr = dyn(this.shape, 1)
     this.stretchAttr = dyn(this.stretch, 1)
     this.seedAttr = new THREE.BufferAttribute(this.seed, 1)
+    this.rollAttr = dyn(this.roll, 1)
     geo.setAttribute('position', this.posAttr)
     geo.setAttribute('aLife', this.lifeAttr)
     geo.setAttribute('aMaxLife', this.maxLifeAttr)
@@ -187,6 +197,7 @@ class ParticlePool {
     geo.setAttribute('aShape', this.shapeAttr)
     geo.setAttribute('aStretch', this.stretchAttr)
     geo.setAttribute('aSeed', this.seedAttr)
+    geo.setAttribute('aRoll', this.rollAttr)
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5) // never cull
 
     this.material = new THREE.ShaderMaterial({
@@ -293,6 +304,7 @@ class ParticlePool {
       this.grav[i] = cmd.gravity
       this.shape[i] = cmd.shape
       this.stretch[i] = cmd.stretch
+      this.roll[i] = Math.random() * Math.PI * 2
       // drag (V15): sparks bleed speed fast, embers float, smoke stalls
       this.drag[i] =
         cmd.shape === PARTICLE_SHAPE.smoke
@@ -306,6 +318,7 @@ class ParticlePool {
     this.maxLifeAttr.needsUpdate = true
     this.shapeAttr.needsUpdate = true
     this.stretchAttr.needsUpdate = true
+    this.rollAttr.needsUpdate = true
     // upload the freshly written state immediately: update() would otherwise
     // only flush it next frame, and never at all while timeScale is 0
     this.posAttr.needsUpdate = true

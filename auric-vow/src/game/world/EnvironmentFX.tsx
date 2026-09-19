@@ -46,7 +46,13 @@ const PHASE_INDEX: Record<string, number> = {
   LOSE: 6,
 }
 
-const GOLD_PRACTICALS = 2
+/**
+ * R2: 2 → 4. The colour script moved the canyon's bay practicals and the
+ * arena's new perimeter sconces from cadence teal to aureate, so there are far
+ * more gold fixtures in the level and two pooled lights could no longer cover
+ * a room. Still nearest-N culled at 32 m, so the per-frame cost is unchanged.
+ */
+const GOLD_PRACTICALS = 4
 
 export default function EnvironmentFX() {
   const chamberGold = useRef<THREE.PointLight>(null!)
@@ -88,8 +94,10 @@ export default function EnvironmentFX() {
     // Reliquary cables / planter soil / gate glow: teal → gold
     purifyVeinMaterial().color.lerpColors(TEAL_COLOR, GOLD_COLOR, purify)
 
-    // chamber gold light ramps 4 → 14 with the channel
-    if (chamberGold.current) chamberGold.current.intensity = 4 + 10 * purify
+    // chamber gold light ramps 2.5 → 11 with the channel. R2: cut from 4 → 14
+    // — with the key at 4.4 and the fill cut hard, a 14-intensity point at the
+    // room centre was re-flattening the one space that has a real key shaft.
+    if (chamberGold.current) chamberGold.current.intensity = 2.5 + 8.5 * purify
 
     // --- teal corruption veins pulse (sin brightness)
     const pulse = 0.82 + 0.18 * Math.sin(t * 2.4)
@@ -126,7 +134,7 @@ export default function EnvironmentFX() {
 
     // --- extraction pad gold point (off until phase 4)
     if (padGold.current) {
-      const target = s.phase === 'EXTRACT' || s.phase === 'WIN' ? 12 : 0
+      const target = s.phase === 'EXTRACT' || s.phase === 'WIN' ? 8 : 0
       padGold.current.intensity = THREE.MathUtils.lerp(padGold.current.intensity, target, 1 - Math.exp(-3 * dt))
     }
 
@@ -198,7 +206,7 @@ export default function EnvironmentFX() {
         ref={chamberGold}
         position={[0, 5, 150]}
         color={COLORS.aureate}
-        intensity={4}
+        intensity={2.5}
         distance={14}
         decay={2}
       />

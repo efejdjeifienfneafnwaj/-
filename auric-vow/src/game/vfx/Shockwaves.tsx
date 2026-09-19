@@ -21,11 +21,13 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { getGlyphSpriteTexture } from '../textures'
-import { drainRings, type RingCmd } from './VFXBus'
+import { drainRings, drainDecals, type RingCmd, type DecalCmd } from './VFXBus'
 
 // 6 → 10: a Sunspike Volley can pop 7 impact rings in one frame on top of
 // the Requiem nova + afterglow rings and Aegis ripples (fix1).
 const MAX_RINGS = 10
+/** [vfx R2] persistent surface marks — see the DECALS section below */
+const MAX_DECALS = 12
 
 /** CircleGeometry faces +Z; every orientation is measured from there. */
 const PLANE_NORMAL = new THREE.Vector3(0, 0, 1)
@@ -153,16 +155,196 @@ const sharedGeo = new THREE.CircleGeometry(1, 64)
 const _n = new THREE.Vector3()
 const drainBuffer: RingCmd[] = []
 
-/** Pooled shockwave rings, drained from the VFX bus. */
+// ---------------------------------------------------------------------------
+// [vfx R2] DECALS (V19) — the world remembers being hit
+//
+// Every impact in the game was transient: a puff, a ring, a flash, all gone
+// inside a fifth of a second. Nothing accumulated, so a fought-over deck looked
+// exactly like an untouched one and the level read as a showroom.
+//
+// A decal is one surface-aligned quad drawn with PREMULTIPLIED alpha
+// (src = ONE, dst = ONE_MINUS_SRC_ALPHA), which is what lets a single draw
+// both DARKEN the surface (soot, via the alpha channel) and ADD to it (the
+// cooling energy burn, via the colour channel). A separate additive pass plus
+// a separate multiply pass would cost two draws and could not cross-fade.
+//
+// The burn cools fast (0.35 s) and the soot holds for the decal's full life,
+// so the mark goes hot → glowing → sooty stain exactly as a real scorch does.
+// ---------------------------------------------------------------------------
+
+let scorchTex: THREE.CanvasTexture | null = null
+
+/** irregular burn mask: dense core, ragged edge, a few thrown spatter dots */
+function getScorchTexture(): THREE.CanvasTexture {
+  if (scorchTex) return scorchTex
+  const S = 256
+  const c = document.createElement('canvas')
+  c.width = S
+  c.height = S
+  const ctx = c.getContext('2d')!
+  let seed = 0x1f35c7 >>> 0
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    return seed / 0xffffffff
+  }
+  const blob = (cx: number, cy: number, r: number, a: number) => {
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r)
+    g.addColorStop(0, `rgba(255,255,255,${a})`)
+    g.addColorStop(0.55, `rgba(255,255,255,${a * 0.55})`)
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // core
+  blob(S / 2, S / 2, S * 0.34, 0.95)
+  // ragged lobes so the mark is never a clean disc
+  for (let i = 0; i < 14; i++) {
+    const a = rand() * Math.PI * 2
+    const d = S * (0.1 + rand() * 0.22)
+    blob(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, S * (0.07 + rand() * 0.14), 0.5)
+  }
+  // thrown spatter
+  for (let i = 0; i < 18; i++) {
+    const a = rand() * Math.PI * 2
+    const d = S * (0.3 + rand() * 0.17)
+    blob(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, S * (0.015 + rand() * 0.035), 0.42)
+  }
+  // bite holes so the centre is not a solid pad
+  ctx.globalCompositeOperation = 'destination-out'
+  for (let i = 0; i < 9; i++) {
+    const a = rand() * Math.PI * 2
+    const d = S * rand() * 0.28
+    blob(S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d, S * (0.03 + rand() * 0.07), 0.55)
+  }
+  ctx.globalCompositeOperation = 'source-over'
+  scorchTex = new THREE.CanvasTexture(c)
+  scorchTex.colorSpace = THREE.SRGBColorSpace
+  return scorchTex
+}
+
+const DECAL_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`
+const DECAL_FRAG = /* glsl */ `
+uniform sampler2D uMask;
+uniform vec3 uColor;
+uniform float uSoot;
+uniform float uBurn;
+varying vec2 vUv;
+void main() {
+  float m = texture2D(uMask, vUv).a;
+  if (m < 0.004) discard;
+  // radial hardening: the centre of a burn is darker and hotter than its rim
+  vec2 c = vUv * 2.0 - 1.0;
+  float rr = clamp(1.0 - dot(c, c), 0.0, 1.0);
+  float soot = m * uSoot * (0.35 + 0.65 * rr);
+  float hot = pow(m, 2.2) * rr;
+  // premultiplied output: rgb ADDS (the cooling burn), a DARKENS (the soot)
+  vec3 burn = uColor * hot * uBurn;
+  gl_FragColor = vec4(burn, clamp(soot, 0.0, 1.0));
+}
+`
+
+class Decal {
+  readonly mesh: THREE.Mesh
+  readonly material: THREE.ShaderMaterial
+  active = false
+  age = 0
+  life = 4
+  /** authored peak values, re-applied through the fade curves each frame */
+  private soot = 0.85
+  private burn = 2.2
+
+  constructor(mask: THREE.Texture) {
+    this.material = new THREE.ShaderMaterial({
+      vertexShader: DECAL_VERT,
+      fragmentShader: DECAL_FRAG,
+      uniforms: {
+        uMask: { value: mask },
+        uColor: { value: new THREE.Color(1, 1, 1) },
+        uSoot: { value: 0.8 },
+        uBurn: { value: 1 },
+      },
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneMinusSrcAlphaFactor,
+      toneMapped: false,
+    })
+    this.mesh = new THREE.Mesh(decalGeo, this.material)
+    this.mesh.visible = false
+    // under every additive VFX but over the surface it is burnt into
+    this.mesh.renderOrder = 17
+    this.mesh.frustumCulled = false
+  }
+
+  spawn(cmd: DecalCmd): void {
+    this.active = true
+    this.age = 0
+    this.life = Math.max(0.3, cmd.life)
+    _n.set(cmd.nx, cmd.ny, cmd.nz)
+    if (_n.lengthSq() < 1e-8) _n.set(0, 1, 0)
+    _n.normalize()
+    this.mesh.quaternion.setFromUnitVectors(PLANE_NORMAL, _n)
+    // random roll so repeated hits on one wall are not the same stamp
+    this.mesh.rotateZ(Math.random() * Math.PI * 2)
+    this.mesh.position.set(cmd.x, cmd.y, cmd.z).addScaledVector(_n, 0.022)
+    const sc = Math.max(0.05, cmd.size)
+    this.mesh.scale.set(sc, sc, sc)
+    ;(this.material.uniforms.uColor!.value as THREE.Color).set(cmd.color)
+    this.soot = 0.85 * (1 - 0.4 * cmd.energy)
+    this.burn = 2.2 * cmd.energy
+    this.material.uniforms.uSoot!.value = this.soot
+    this.material.uniforms.uBurn!.value = this.burn
+    this.mesh.visible = true
+  }
+
+  update(dt: number): void {
+    if (!this.active) return
+    this.age += dt
+    const t = this.age / this.life
+    if (t >= 1) {
+      this.active = false
+      this.mesh.visible = false
+      return
+    }
+    // the burn cools in the first third of a second; the stain outlives it
+    const burnFade = Math.max(0, 1 - this.age / 0.35)
+    this.material.uniforms.uBurn!.value = this.burn * burnFade * burnFade
+    this.material.uniforms.uSoot!.value = this.soot * (1 - t * t)
+  }
+}
+
+const decalGeo = new THREE.PlaneGeometry(1, 1)
+const decalBuffer: DecalCmd[] = []
+
+
+
+/** Pooled shockwave rings + persistent surface decals, drained from the bus. */
 export default function Shockwaves() {
   const waves = useMemo(() => {
     const tex = getGlyphSpriteTexture()
     return Array.from({ length: MAX_RINGS }, () => new RingWave(tex))
   }, [])
+  const decals = useMemo(() => {
+    const tex = getScorchTexture()
+    return Array.from({ length: MAX_DECALS }, () => new Decal(tex))
+  }, [])
 
   useFrame((_, delta) => {
     const ts = useGameStore.getState().timeScale
     const dt = Math.min(delta, 0.1) * ts
+    // decals outlive hitstop and slow-mo by design: a scorch is not an
+    // animation, it is a state of the surface, so it ages on the wall clock
+    const realDt = Math.min(delta, 0.1)
 
     drainRings(drainBuffer)
     for (let i = 0; i < drainBuffer.length; i++) {
@@ -172,13 +354,28 @@ export default function Shockwaves() {
     }
     drainBuffer.length = 0
 
+    drainDecals(decalBuffer)
+    for (let i = 0; i < decalBuffer.length; i++) {
+      // recycle the OLDEST mark when the pool is full — a fresh hit always
+      // wins over a stain that is already most of the way faded out
+      const d =
+        decals.find((v) => !v.active) ??
+        decals.reduce((a, b) => (a.age / a.life > b.age / b.life ? a : b))
+      d.spawn(decalBuffer[i])
+    }
+    decalBuffer.length = 0
+
     for (const w of waves) w.update(dt)
+    for (const d of decals) d.update(realDt)
   })
 
   return (
     <group name="vfx-shockwaves">
       {waves.map((w, i) => (
         <primitive key={i} object={w.mesh} />
+      ))}
+      {decals.map((d, i) => (
+        <primitive key={`d${i}`} object={d.mesh} />
       ))}
     </group>
   )

@@ -2,6 +2,20 @@
  * AURIC VOW — HUD.tsx
  * Full DOM overlay HUD (design.md §5 / vfx-hud.md §2). pointer-events:none.
  *
+ * R2 art pass (enemies-hud work order):
+ *  · the mission plate left the centre axis — it hangs under the radar in the
+ *    upper-left now, and the distance span leaves the layout entirely when
+ *    there is no objective instead of printing an em-dash;
+ *  · world-projected enemy nameplates (health + stagger + faction glyph) held
+ *    3 s after damage or while aimed at, so a hit is visible on the target;
+ *  · the kill hitmarker fires on kills rather than on every ability hit, and
+ *    the four tiers are now visually distinct;
+ *  · shield numeric with a change flash and a shield-break wash, ammo as
+ *    mag/reserve with a low state, an ability cast animation on the same slot
+ *    index the tray draws, and a reticle that goes hostile on target;
+ *  · the radar gained a wall mask sampled from the collider registry, an
+ *    objective bearing pip and elevation glyphs.
+ *
  * R1 art pass. Four anchors became three: a contiguous bottom-left L-cluster
  * (vitals → energy → ability tray, energy directly above the diamonds it
  * funds), a bottom-right weapon strip, and ONE top-centre mission plate that
@@ -16,12 +30,22 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { ABILITIES, COLORS, HUD_RADAR, MISSION, PLAYER, type MissionPhaseId } from '../config'
+import {
+  ABILITIES,
+  COLORS,
+  ENEMY_FX,
+  HUD_RADAR,
+  MISSION,
+  PLAYER,
+  type MissionPhaseId,
+} from '../config'
 import { useGameStore, type DamageEvent } from '../store'
 import { Input } from '../Input'
 import { PlayerRef } from '@/game/player/PlayerRef'
 import { CamRef } from '@/game/player/CameraRig'
-import { EnemyRegistry } from '@/game/enemies/EnemyRegistry'
+import { EnemyRegistry, type EnemyHandle } from '@/game/enemies/EnemyRegistry'
+import { getColliders } from '@/game/world/Colliders'
+import { CombatState } from '@/game/combat/state'
 import { SpawnStatus } from '@/game/enemies/EnemyManager'
 import { activeThreats, type ThreatMark } from '@/game/enemies/ai'
 import {
@@ -65,6 +89,23 @@ const LOW_HP = PLAYER.maxHealth * 0.3
 const THREAT_SLOTS = 6
 const HITDIR_SLOTS = 4
 const RADAR_RANGE = HUD_RADAR.range
+const NP_SLOTS = ENEMY_FX.nameplate.pool
+const NP_RANGE = ENEMY_FX.nameplate.range
+const NP_HOLD = ENEMY_FX.nameplate.holdSec
+const NP_AIM_COS = Math.cos(THREE.MathUtils.degToRad(ENEMY_FX.nameplate.aimDeg))
+/** per-type nameplate copy — the faction glyph read, not a debug label */
+const NP_NAME: Record<string, string> = {
+  drone: 'CHIRP',
+  trooper: 'VOTARY',
+  heavy: 'CANTOR',
+}
+/** reticle turns hostile when the aim axis is inside this cone of an enemy */
+const RET_HOSTILE_COS = Math.cos(THREE.MathUtils.degToRad(3.2))
+
+const _fwd = new THREE.Vector3()
+const _toE = new THREE.Vector3()
+const _np = new THREE.Vector3()
+const _camPos = new THREE.Vector3()
 
 // ---------------------------------------------------------------------------
 // Inline glyphs (SVG — no emoji, no icon font). One silhouette idea each,
@@ -145,9 +186,9 @@ function VitaeGlyph() {
   )
 }
 
-function RifleGlyph() {
+function RifleGlyph({ active }: { active?: boolean }) {
   return (
-    <svg viewBox="0 0 32 14" className="weapon-glyph">
+    <svg viewBox="0 0 32 14" className={active ? 'weapon-glyph on' : 'weapon-glyph'}>
       <path
         d="M1 8h18l3-3h4l2 2 3-1v3l-4 1-2 3h-4l1-3H12l-2 2H7l1-2H1z"
         fill="none"
@@ -157,9 +198,9 @@ function RifleGlyph() {
   )
 }
 
-function KatanaGlyph() {
+function KatanaGlyph({ active }: { active?: boolean }) {
   return (
-    <svg viewBox="0 0 14 32" className="weapon-glyph katana">
+    <svg viewBox="0 0 14 32" className={active ? 'weapon-glyph katana on' : 'weapon-glyph katana'}>
       <path d="M7 1v22M4 23h6M7 25v6" fill="none" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
@@ -255,11 +296,16 @@ export default function HUD() {
   const hpFillRef = useRef<HTMLDivElement>(null)
   const hpTextRef = useRef<HTMLSpanElement>(null)
   const shFillRef = useRef<HTMLDivElement>(null)
+  const shTextRef = useRef<HTMLSpanElement>(null)
+  const vitalsRef = useRef<HTMLDivElement>(null)
+  const shieldVigRef = useRef<HTMLDivElement>(null)
   const osFillRef = useRef<HTMLDivElement>(null)
   const enFillRef = useRef<HTMLDivElement>(null)
   const enTextRef = useRef<HTMLSpanElement>(null)
   const abRootRef = useRef<HTMLDivElement>(null)
   const ammoTextRef = useRef<HTMLSpanElement>(null)
+  const ammoResRef = useRef<HTMLSpanElement>(null)
+  const weaponRef = useRef<HTMLDivElement>(null)
   const reloadArcRef = useRef<HTMLDivElement>(null)
   const reticleRef = useRef<HTMLDivElement>(null)
   const retTickRefs = useRef<(SVGGElement | null)[]>([null, null, null, null])
@@ -282,6 +328,7 @@ export default function HUD() {
   const chDotRef = useRef<SVGCircleElement>(null)
   const chPctRef = useRef<SVGTextElement>(null)
   const plateRef = useRef<HTMLDivElement>(null)
+  const npRef = useRef<HTMLDivElement>(null)
 
   // objective/phase change → 250 ms slide + gold flash on the mission plate
   useEffect(() => {
@@ -305,6 +352,20 @@ export default function HUD() {
     const hitdirEls = hitdirRef.current
       ? (Array.from(hitdirRef.current.children) as HTMLElement[])
       : []
+    // nameplate pool: one DOM subtree per slot, resolved once
+    const npEls = npRef.current ? (Array.from(npRef.current.children) as HTMLElement[]) : []
+    const npParts = npEls.map((el) => ({
+      root: el,
+      glyph: el.querySelector('.np-glyph') as HTMLElement,
+      name: el.querySelector('.np-name') as HTMLElement,
+      fill: el.querySelector('.np-fill') as HTMLElement,
+      stag: el.querySelector('.np-stag') as HTMLElement,
+    }))
+    /** id → rAF-clock seconds of the last damage taken (nameplate hold) */
+    const damagedAt = new Map<number, number>()
+    /** per-slot binding, rebuilt each frame without allocating */
+    const npBound: (EnemyHandle | null)[] = new Array(NP_SLOTS).fill(null)
+    const npLastId = new Array<number>(NP_SLOTS).fill(-1)
 
     const hitDrain: DamageEvent[] = []
     const threatList: ThreatMark[] = []
@@ -320,9 +381,13 @@ export default function HUD() {
     let spread = 6
     let prevVitals = PLAYER.maxHealth + PLAYER.maxShield
     let lastHpText = ''
+    let lastShText = ''
     let lastEnText = ''
     let lastAmmoText = ''
+    let lastResText = ''
+    let wasMelee = false
     let lastDistText = ''
+    let distOff = true
     let lastTimerText = ''
     let lastAliveText = ''
     let lastPctText = ''
@@ -359,6 +424,7 @@ export default function HUD() {
       raf = requestAnimationFrame(tick)
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
+      const tNow = now / 1000
       const s = useGameStore.getState()
 
       tickCooldowns(dt)
@@ -380,6 +446,20 @@ export default function HUD() {
       }
       if (shFillRef.current)
         shFillRef.current.style.transform = `scaleX(${(dShield / PLAYER.maxShield).toFixed(4)})`
+      const shText = String(Math.ceil(s.shield))
+      if (shText !== lastShText) {
+        if (shTextRef.current) {
+          shTextRef.current.textContent = shText
+          // a change flash on the numeral, so shield loss is felt not read
+          retrigger(shTextRef.current, 'chg')
+        }
+        // shield BREAK is its own event: vitals flash + a screen-edge wash
+        if (s.shield <= 0 && Number(lastShText) > 0) {
+          retrigger(vitalsRef.current, 'broke')
+          retrigger(shieldVigRef.current, 'flash')
+        }
+        lastShText = shText
+      }
       if (osFillRef.current)
         osFillRef.current.style.transform = `scaleX(${Math.min(1, abilityState.overshield / OVERSHIELD_MAX).toFixed(4)})`
       if (enFillRef.current)
@@ -413,6 +493,11 @@ export default function HUD() {
         }
         const cooling = cd > 0
         if (wasCooling[i] && !cooling) retrigger(abEls[i], 'ready')
+        // rising edge = the cast that started this cooldown. This also
+        // AUDITS the index contract the review asked about: the slot that
+        // animates is the same slot whose sweep and cost are drawn, so a
+        // mismatched cast index would be visible immediately.
+        if (!wasCooling[i] && cooling) retrigger(abEls[i], 'cast')
         wasCooling[i] = cooling
         const poor = s.energy < abilityState.costs[i]
         if (poor !== wasPoor[i]) {
@@ -439,9 +524,22 @@ export default function HUD() {
         reloadArcRef.current.style.background = `conic-gradient(${COLORS.aureate} ${deg}deg, rgba(138,143,163,0.22) ${deg}deg)`
       }
       const ammoText = String(ammoState.mag)
-      if (ammoText !== lastAmmoText && ammoTextRef.current) {
-        ammoTextRef.current.textContent = ammoText
+      if (ammoText !== lastAmmoText) {
+        if (ammoTextRef.current) ammoTextRef.current.textContent = ammoText
         lastAmmoText = ammoText
+        // under a quarter mag the count goes ember — a state, not a number
+        ammoTextRef.current?.classList.toggle('low', ammoState.mag / ammoState.magSize < 0.25)
+      }
+      const resText = ammoState.reserve === Infinity ? '/ ∞' : `/ ${Math.floor(ammoState.reserve)}`
+      if (resText !== lastResText && ammoResRef.current) {
+        ammoResRef.current.textContent = resText
+        lastResText = resText
+      }
+      // the katana has no equip slot — it is "active" while a swing is live
+      const melee = CombatState.swing !== null
+      if (melee !== wasMelee) {
+        wasMelee = melee
+        weaponRef.current?.classList.toggle('melee', melee)
       }
 
       // -- reticle ------------------------------------------------------------
@@ -462,7 +560,7 @@ export default function HUD() {
 
       // -- hitmarker (events drained by DamageNumbers) ------------------------
       drainHitmarkerEvents(hitDrain)
-      let hitKind: DamageEvent['kind'] | null = null
+      let hitKind: 'normal' | 'headshot' | 'ability' | 'kill' | null = null
       for (const ev of hitDrain) {
         if (ev.kind === 'player') {
           // directional arc: bearing of the damage source relative to the view
@@ -478,15 +576,50 @@ export default function HUD() {
           slot.t = 0.75
           continue
         }
-        if (ev.kind === 'ability') hitKind = 'ability'
-        else if (ev.kind === 'headshot' && hitKind !== 'ability') hitKind = 'headshot'
+        if (ev.kind === 'ability') hitKind = hitKind === 'kill' ? 'kill' : 'ability'
+        else if (ev.kind === 'headshot' && hitKind !== 'ability' && hitKind !== 'kill')
+          hitKind = 'headshot'
         else if (!hitKind) hitKind = 'normal'
+
+        // bind the hit to whichever hostile it landed on, so that enemy holds
+        // a health plate for NP_HOLD seconds (the review's "persistent
+        // per-enemy health bar off drainHitmarkerEvents")
+        const hits = EnemyRegistry.list()
+        let bestId = -1
+        let bestD = 9
+        for (let i = 0; i < hits.length; i++) {
+          const en = hits[i]
+          if (!en.alive) continue
+          const d = en.headPosition.distanceToSquared(ev.position)
+          if (d < bestD) {
+            bestD = d
+            bestId = en.id
+          }
+        }
+        if (bestId >= 0) {
+          damagedAt.set(bestId, tNow)
+          // [H10] the kill marker is for KILLS. It used to fire on every
+          // ability hit, so the strongest piece of feedback in the game was
+          // also the most common one.
+          for (let i = 0; i < hits.length; i++) {
+            if (hits[i].id === bestId && !hits[i].alive) hitKind = 'kill'
+          }
+        }
       }
       hitDrain.length = 0
       if (hitKind && hitRef.current) {
         hitRef.current.className = 'hitmarker'
-        retrigger(hitRef.current, `hm-${hitKind === 'ability' ? 'kill' : hitKind === 'headshot' ? 'crit' : 'hit'}`)
-        if (hitKind !== 'normal') retrigger(critVigRef.current, 'flash')
+        retrigger(
+          hitRef.current,
+          hitKind === 'kill'
+            ? 'hm-kill'
+            : hitKind === 'headshot'
+              ? 'hm-crit'
+              : hitKind === 'ability'
+                ? 'hm-ability'
+                : 'hm-hit',
+        )
+        if (hitKind === 'kill' || hitKind === 'headshot') retrigger(critVigRef.current, 'flash')
       }
 
       // -- directional damage arcs -------------------------------------------
@@ -512,9 +645,16 @@ export default function HUD() {
           objDistRef.current.textContent = distText
           lastDistText = distText
         }
-      } else if (lastDistText && objDistRef.current) {
-        objDistRef.current.textContent = '—'
+        if (distOff) {
+          distOff = false
+          objDistRef.current?.classList.remove('off')
+        }
+      } else if (!distOff) {
+        // [R2 blocker] no objective → the span AND its hairline divider leave
+        // the layout, instead of printing an em-dash in most of the frames
+        distOff = true
         lastDistText = ''
+        objDistRef.current?.classList.add('off')
       }
 
       if (s.phase === 'EXTRACT' && timerRef.current) {
@@ -577,10 +717,22 @@ export default function HUD() {
           const dist = PlayerRef.position.distanceTo(obj)
           const p = projectPoint(obj, cam, w, h, 26)
           marker.classList.toggle('edge', p.off)
-          if (dist < 5) marker.style.opacity = '0'
-          else marker.style.opacity = dist < 7 ? String((dist - 5) / 2) : '1'
+          // [R2 #8/#14] The marker rests ABOVE the aim point and gets out of
+          // the way of it: opacity is multiplied by a smoothstep over
+          // 45–110 px from screen centre, it shrinks with distance, and it is
+          // suppressed entirely while the channel gauge is drawing the same
+          // objective.
+          const cdx = p.x - w * 0.5
+          const cdy = p.y - h * 0.5
+          const centre = Math.hypot(cdx, cdy)
+          const tC = THREE.MathUtils.clamp((centre - 45) / 65, 0, 1)
+          const centreFade = p.off ? 1 : tC * tC * (3 - 2 * tC)
+          const near = dist < 5 ? 0 : dist < 7 ? (dist - 5) / 2 : 1
+          const channelOwns = s.phase === 'OBJECTIVE' && (channelRef.current?.style.opacity ?? '0') !== '0'
+          marker.style.opacity = channelOwns ? '0' : (near * centreFade * 0.55).toFixed(3)
+          const mScale = THREE.MathUtils.clamp(1.15 - dist * 0.006, 0.62, 1.15)
           marker.style.transform =
-            `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) rotate(${p.off ? ((p.angle + Math.PI / 2) * 180) / Math.PI : 0}deg)`
+            `translate3d(${p.x.toFixed(1)}px, ${(p.y - (p.off ? 0 : 16)).toFixed(1)}px, 0) rotate(${p.off ? ((p.angle + Math.PI / 2) * 180) / Math.PI : 0}deg) scale(${mScale.toFixed(3)})`
         }
       }
 
@@ -595,6 +747,49 @@ export default function HUD() {
         rctx.setTransform(rdpr, 0, 0, rdpr, 0, 0)
         const c = rSize * 0.5
         const scale = (rSize * 0.5 - 12) / RADAR_RANGE
+        const rc = Math.cos(CamRef.yaw)
+        const rs = Math.sin(CamRef.yaw)
+
+        // --- wall mask (R2 #11): the level's own footprint behind the blips.
+        // Without it the radar is dots on a disc and tells the player nothing
+        // about cover. Static AABBs, clipped to the plate, drawn once a frame.
+        rctx.save()
+        rctx.beginPath()
+        rctx.arc(c, c, rSize * 0.5 - 7, 0, Math.PI * 2)
+        rctx.clip()
+        rctx.fillStyle = 'rgba(212,222,240,0.10)'
+        const cols = getColliders()
+        const px0 = PlayerRef.position.x
+        const pz0 = PlayerRef.position.z
+        for (let i = 0; i < cols.length; i++) {
+          const col = cols[i]
+          // walls only: platforms and galleries are walkable, and painting
+          // them turns the plate into a solid sheet instead of a floorplan
+          if (!col.tags.includes('wall')) continue
+          const bx0 = col.box.min.x
+          const bx1 = col.box.max.x
+          const bz0 = col.box.min.z
+          const bz1 = col.box.max.z
+          // cheap reject: nearest point of the AABB outside the radar disc
+          const nx = Math.max(bx0, Math.min(px0, bx1)) - px0
+          const nz = Math.max(bz0, Math.min(pz0, bz1)) - pz0
+          if (nx * nx + nz * nz > RADAR_RANGE * RADAR_RANGE) continue
+          rctx.beginPath()
+          for (let k = 0; k < 4; k++) {
+            const wx = (k === 0 || k === 3 ? bx0 : bx1) - px0
+            const wz = (k < 2 ? bz0 : bz1) - pz0
+            const fwd = wx * -rs + wz * -rc
+            const rgt = wx * rc + wz * -rs
+            const sx = c + rgt * scale
+            const sy2 = c - fwd * scale
+            if (k === 0) rctx.moveTo(sx, sy2)
+            else rctx.lineTo(sx, sy2)
+          }
+          rctx.closePath()
+          rctx.fill()
+        }
+        rctx.restore()
+
         // facing wedge
         rctx.fillStyle = 'rgba(255,184,53,0.13)'
         rctx.beginPath()
@@ -648,6 +843,38 @@ export default function HUD() {
             rctx.fillStyle = heavy ? '#FF7A72' : '#E8404F'
             rctx.fill()
           }
+          // elevation tick: a hostile 2 m above or below the player reads as
+          // a different glyph, not as the same dot on a flat disc
+          const dy = e.position.y - PlayerRef.position.y
+          if (Math.abs(dy) > 1.8) {
+            rctx.strokeStyle = 'rgba(255,214,214,0.85)'
+            rctx.lineWidth = 1.1
+            rctx.beginPath()
+            const s0 = dy > 0 ? -1 : 1
+            rctx.moveTo(-3, r * 1.15 * s0 + 2.5 * s0)
+            rctx.lineTo(0, r * 1.15 * s0)
+            rctx.lineTo(3, r * 1.15 * s0 + 2.5 * s0)
+            rctx.stroke()
+          }
+          rctx.restore()
+        }
+
+        // objective bearing pip — a gold diamond riding the ring
+        const objp = s.objectivePosition
+        if (objp) {
+          const ox = objp.x - px0
+          const oz = objp.z - pz0
+          const ofwd = ox * -rs + oz * -rc
+          const orgt = ox * rc + oz * -rs
+          const olen = Math.hypot(ofwd, orgt) || 1
+          const rr = rSize * 0.5 - 9
+          const bx = c + (orgt / olen) * rr
+          const by = c - (ofwd / olen) * rr
+          rctx.save()
+          rctx.translate(bx, by)
+          rctx.rotate(Math.PI / 4)
+          rctx.fillStyle = '#FFB835'
+          rctx.fillRect(-3, -3, 6, 6)
           rctx.restore()
         }
       }
@@ -668,9 +895,21 @@ export default function HUD() {
           if (el.style.opacity !== '0') el.style.opacity = '0'
           continue
         }
+        // [R2 #10] keep the chevrons clear of the weapon cluster's bounds —
+        // a threat arrow sitting on the ammo readout costs both of them
+        let tx = p.x
+        let ty = p.y
+        if (tx > w - 250 && ty > h - 130) {
+          if (w - tx < h - ty) ty = h - 130
+          else tx = w - 250
+        }
+        if (tx < 210 && ty > h - 190) {
+          // and clear of the ability tray in the opposite corner
+          if (tx < 210) tx = 210
+        }
         el.style.opacity = '1'
         el.style.transform =
-          `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) rotate(${((p.angle + Math.PI / 2) * 180) / Math.PI}deg)`
+          `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0) rotate(${((p.angle + Math.PI / 2) * 180) / Math.PI}deg)`
       }
 
       // boss bar — a Heavy on the field owns the top of the frame
@@ -699,6 +938,74 @@ export default function HUD() {
           }
         }
       }
+
+      // -- enemy nameplates + hostile reticle state ---------------------------
+      // Two ordered passes over the (≤12 entry) live list: hostiles that have
+      // taken damage in the last NP_HOLD seconds claim plates first, then
+      // whatever the player is aiming at. No allocation, no sort.
+      let npCount = 0
+      let aimBest = -1
+      for (let i = 0; i < NP_SLOTS; i++) npBound[i] = null
+      if (cam) {
+        cam.getWorldDirection(_fwd)
+        cam.getWorldPosition(_camPos)
+        for (let pass = 0; pass < 2 && npCount < NP_SLOTS; pass++) {
+          for (let i = 0; i < list.length && npCount < NP_SLOTS; i++) {
+            const en = list[i]
+            if (!en.alive) continue
+            _toE.copy(en.headPosition).sub(_camPos)
+            const d = _toE.length()
+            if (d > NP_RANGE || d < 0.4) continue
+            _toE.divideScalar(d)
+            const facing = _toE.dot(_fwd)
+            if (facing > aimBest) aimBest = facing
+            const hot = tNow - (damagedAt.get(en.id) ?? -999) < NP_HOLD
+            const aimed = facing > NP_AIM_COS
+            if (pass === 0 ? !hot : hot || !aimed) continue
+            let dup = false
+            for (let k = 0; k < npCount; k++) if (npBound[k] === en) dup = true
+            if (dup) continue
+            npBound[npCount++] = en
+          }
+        }
+      }
+      // the reticle goes hostile when the aim axis is actually on a body —
+      // the single cheapest "this shot will land" tell a shooter can give
+      reticleRef.current?.classList.toggle('hostile', aimBest > RET_HOSTILE_COS)
+
+      for (let i = 0; i < NP_SLOTS; i++) {
+        const part = npParts[i]
+        if (!part) continue
+        const en = npBound[i]
+        if (!en || !cam) {
+          if (part.root.style.opacity !== '0') part.root.style.opacity = '0'
+          npLastId[i] = -1
+          continue
+        }
+        _np.copy(en.headPosition)
+        _np.y += en.type === 'drone' ? 0.42 : 0.5
+        const p = projectPoint(_np, cam, w, h, 8)
+        if (p.off) {
+          if (part.root.style.opacity !== '0') part.root.style.opacity = '0'
+          continue
+        }
+        if (npLastId[i] !== en.id) {
+          npLastId[i] = en.id
+          part.name.textContent = NP_NAME[en.type] ?? 'HOSTILE'
+          part.root.className = `np np-${en.type}`
+        }
+        const dist = _camPos.distanceTo(en.headPosition)
+        // fade the plate out with distance instead of cutting it off
+        const fade = 1 - Math.max(0, (dist - NP_RANGE * 0.6) / (NP_RANGE * 0.4))
+        part.root.style.opacity = Math.max(0.15, Math.min(1, fade)).toFixed(2)
+        part.root.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`
+        part.fill.style.transform = `scaleX(${Math.max(0, en.hp / en.maxHp).toFixed(3)})`
+        part.stag.style.transform = `scaleX(${Math.min(1, en.stagger / 100).toFixed(3)})`
+      }
+      // drop stale hold entries so the map cannot grow across a long run
+      if (damagedAt.size > 32) {
+        for (const [id, at] of damagedAt) if (tNow - at > NP_HOLD) damagedAt.delete(id)
+      }
     }
 
     raf = requestAnimationFrame(tick)
@@ -717,6 +1024,7 @@ export default function HUD() {
         {/* screen-edge feedback overlays */}
         <div ref={dmgVigRef} className="hud-dmgvig" />
         <div ref={critVigRef} className="hud-critvig" />
+        <div ref={shieldVigRef} className="hud-shieldvig" />
         <div className="hud-lowhp" />
         <div ref={hitdirRef} className="hitdir-layer">
           {Array.from({ length: HITDIR_SLOTS }, (_, i) => (
@@ -743,7 +1051,7 @@ export default function HUD() {
 
         {/* ---------- bottom-left: vitals → energy → abilities ---------- */}
         <div className="leftcluster hud-cluster">
-          <div className="vitals">
+          <div className="vitals" ref={vitalsRef}>
             <div className="v-grid">
               <div className="bar os-bar v-os">
                 <div ref={osFillRef} className="bar-fill os" />
@@ -752,7 +1060,12 @@ export default function HUD() {
               <div className="bar shield-bar">
                 <div ref={shFillRef} className="bar-fill shield" />
               </div>
-              <span />
+              <div className="v-num shield">
+                <span ref={shTextRef} className="n">
+                  {PLAYER.maxShield}
+                </span>
+                <span className="d">/ {PLAYER.maxShield}</span>
+              </div>
               <div className="v-rule" />
               <VitaeGlyph />
               <div className="bar hp-bar">
@@ -803,11 +1116,14 @@ export default function HUD() {
 
         {/* ---------- bottom-right: weapon only ---------- */}
         <div className="weaponcluster hud-cluster">
-          <div className="weapon">
-            <RifleGlyph />
+          <div className="weapon" ref={weaponRef}>
+            <RifleGlyph active />
             <div className="ammo-box">
               <span ref={ammoTextRef} className="ammo">
                 {ammoState.magSize}
+              </span>
+              <span ref={ammoResRef} className="ammo-res">
+                / ∞
               </span>
               <span className="ammo-name">VOW</span>
               <div ref={reloadArcRef} className="reload-arc" />
@@ -850,23 +1166,17 @@ export default function HUD() {
           </div>
         </div>
 
-        {/* ---------- top-center: banner + the one mission plate ---------- */}
-        <div className="topcenter">
-          {banner && (
-            <div key={banner.key} className="phase-banner">
-              <span className="pb-line left" />
-              <span className="pb-text">{banner.text}</span>
-              <span className="pb-line right" />
-            </div>
-          )}
-
+        {/* ---------- upper-left: the mission plate, off the centre axis ----
+            [R2] The objective banner used to sit on the vertical centre line
+            directly over the action. It now hangs under the minimap in the
+            upper-left reading corner; only the ceremonial phase banner and
+            the boss bar still own the centre. ------------------------------ */}
+        <div className="missionblock">
           <div className="mission-plate" ref={plateRef}>
             <div className="mp-row">
               <span className="mp-diamond" />
               <span className="mp-verb">{PHASE_OBJECTIVE[phase]}</span>
-              <span ref={objDistRef} className="mp-dist">
-                —
-              </span>
+              <span ref={objDistRef} className="mp-dist off" />
             </div>
             <div className="mp-rule" />
             <div className="mp-row2">
@@ -888,11 +1198,24 @@ export default function HUD() {
               </span>
               {phase === 'EXTRACT' && (
                 <div ref={timerRef} className="extract-timer">
-                  1:30
+                  {`${Math.floor(MISSION.extract.timerSec / 60)}:${String(
+                    Math.round(MISSION.extract.timerSec % 60),
+                  ).padStart(2, '0')}`}
                 </div>
               )}
             </div>
           </div>
+        </div>
+
+        {/* ---------- top-centre: ceremony only (phase banner + boss) ------- */}
+        <div className="topcenter">
+          {banner && (
+            <div key={banner.key} className="phase-banner">
+              <span className="pb-line left" />
+              <span className="pb-text">{banner.text}</span>
+              <span className="pb-line right" />
+            </div>
+          )}
 
           <div className="bossbar" ref={bossRef}>
             <div className="bb-head">
@@ -906,6 +1229,26 @@ export default function HUD() {
               <div ref={bossStagRef} className="bb-stagger" style={{ transform: 'scaleX(0)' }} />
             </div>
           </div>
+        </div>
+
+        {/* ---------- world-projected enemy nameplates ----------
+            [R2 blocker/major] Hit feedback that survives the frame: every
+            enemy that takes damage (or is aimed at) carries a health bar and
+            a faction glyph for 3 s, projected with the same maths as the
+            damage numbers. Pooled DOM, styled by the rAF loop only. -------- */}
+        <div className="np-layer" ref={npRef}>
+          {Array.from({ length: NP_SLOTS }, (_, i) => (
+            <div key={i} className="np" style={{ opacity: 0 }}>
+              <div className="np-head">
+                <i className="np-glyph" />
+                <span className="np-name" />
+              </div>
+              <div className="np-track">
+                <i className="np-fill" />
+                <i className="np-stag" />
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* ---------- off-screen threat chevrons ---------- */}

@@ -27,8 +27,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { COLORS } from '@/game/config'
-import { bladeTipWorld, EjectWorld, MuzzleWorld } from './Weapons'
+import { COLORS, COMBATFX } from '@/game/config'
+import { bladeRollForStep, bladeTipWorld, EjectWorld, MuzzleWorld } from './Weapons'
 import { PlayerSockets } from '@/game/player/PlayerRig'
 import { CombatState } from './state'
 import { ammoState } from '@/game/hud/ammoState'
@@ -146,6 +146,37 @@ function getFlareTexture(): THREE.CanvasTexture {
   flareTex = new THREE.CanvasTexture(c)
   flareTex.colorSpace = THREE.SRGBColorSpace
   return flareTex
+}
+
+/**
+ * 128² soft round flash: no spikes, just a white core falling to nothing.
+ * [combat-feel R2] The flash is three CAMERA-FACING CARDS at 0.12 / 0.3 /
+ * 0.5 m (work order combat-feel #5), each rolled independently per shot. One
+ * spiked star at one size is a sticker: the same sticker, same orientation,
+ * on every frame of every burst. A hot core inside a spiked mid inside a wide
+ * soft halo is a muzzle flash, and the three different rolls mean no two
+ * shots present the same shape.
+ */
+let softFlashTex: THREE.CanvasTexture | null = null
+function getSoftFlashTexture(): THREE.CanvasTexture {
+  if (softFlashTex) return softFlashTex
+  const size = 128
+  const c = document.createElement('canvas')
+  c.width = size
+  c.height = size
+  const ctx = c.getContext('2d')!
+  const cx = size / 2
+  const g = ctx.createRadialGradient(cx, cx, 0, cx, cx, cx)
+  g.addColorStop(0, 'rgba(255,255,255,1)')
+  g.addColorStop(0.18, 'rgba(255,250,236,0.92)')
+  g.addColorStop(0.44, 'rgba(255,205,110,0.4)')
+  g.addColorStop(0.75, 'rgba(255,184,53,0.12)')
+  g.addColorStop(1, 'rgba(255,184,53,0)')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, size, size)
+  softFlashTex = new THREE.CanvasTexture(c)
+  softFlashTex.colorSpace = THREE.SRGBColorSpace
+  return softFlashTex
 }
 
 // ---------------------------------------------------------------------------
@@ -299,13 +330,18 @@ export function WeaponViewModel() {
   const muzzleRef = useRef<THREE.Object3D>(null)
   const ejectRef = useRef<THREE.Object3D>(null)
   const flashRef = useRef<THREE.Group>(null)
-  const flareRef = useRef<THREE.Sprite>(null)
+  const flareCoreRef = useRef<THREE.Sprite>(null)
+  const flareMidRef = useRef<THREE.Sprite>(null)
+  const flareWideRef = useRef<THREE.Sprite>(null)
   const coneRef = useRef<THREE.Mesh>(null)
   const handKatanaRef = useRef<THREE.Group>(null)
   const sheathRootRef = useRef<THREE.Group>(null)
   const aimT = useRef(0)
   const lastFlashAt = useRef(-1)
-  const flashRoll = useRef(0)
+  const flashJitter = useRef(1)
+  /** per-shot recoil spring: impulse in, damped return out (weakness C1) */
+  const recoilSpring = useRef({ x: 0, v: 0 })
+  const lastRecoilAt = useRef(-1)
 
   // ---- geometry: procedural, built once -----------------------------------
   const geo = useMemo(
@@ -325,6 +361,10 @@ export function WeaponViewModel() {
       // deliberately deeper than the steel's half-height so the glow line
       // stands proud of the ha instead of being buried inside the blade
       bladeEdge: katanaBlade(0.955, 0.012, 0.0024, 0.055),
+      // [combat-feel R2] the blade's own energy shell: a fattened copy of the
+      // steel carrying a soft additive falloff, so the sword has a mid layer
+      // between the hot edge line and the air (round 2 shipped one flat line)
+      bladeShell: katanaBlade(0.97, 0.052, 0.014, 0.055),
       scabbard: scabbardGeometry(1.0),
     }),
     [],
@@ -393,9 +433,40 @@ export function WeaponViewModel() {
         toneMapped: false,
         side: THREE.DoubleSide,
       }),
-      flash: new THREE.SpriteMaterial({
+      /** blade energy shell — the mid layer around the hot edge line */
+      bladeShell: new THREE.MeshBasicMaterial({
+        color: COLORS.aureate,
+        transparent: true,
+        opacity: 0.3,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      }),
+      /** muzzle flash card 1/3 — 0.12 m hot core, soft */
+      flashCore: new THREE.SpriteMaterial({
+        map: getSoftFlashTexture(),
+        color: COLORS.solarWhite,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+      /** muzzle flash card 2/3 — 0.3 m spiked flare */
+      flashMid: new THREE.SpriteMaterial({
         map: getFlareTexture(),
         color: COLORS.solarWhite,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+      /** muzzle flash card 3/3 — 0.5 m wide gold halo */
+      flashWide: new THREE.SpriteMaterial({
+        map: getSoftFlashTexture(),
+        color: COLORS.aureate,
         transparent: true,
         opacity: 0,
         blending: THREE.AdditiveBlending,
@@ -481,10 +552,34 @@ export function WeaponViewModel() {
     const mag = magRef.current
     const bolt = boltRef.current
     const swinging = cs.swing !== null
+
+    // ---- per-shot recoil spring -----------------------------------------
+    // [combat-feel R2] `cs.recoil` is a linear ramp decaying at 10/s: the
+    // weapon slides back and then slides forward again at the same speed,
+    // which is not what a gun does. This is an impulse into a damped spring:
+    // a hard kick on the muzzle event, an overshoot past rest on the way back
+    // and a settle — the motion that makes a shot feel like it cost something.
+    // ~110 ms to rest, matching the shoulder impulse the work order asks
+    // PlayerRig for (combat-feel #8).
+    {
+      const sp = recoilSpring.current
+      if (cs.muzzleFlashAt > 0 && cs.muzzleFlashAt !== lastRecoilAt.current) {
+        lastRecoilAt.current = cs.muzzleFlashAt
+        sp.v += 11
+      }
+      const sdt = Math.min(rawDt, 1 / 30)
+      sp.v += (-1500 * sp.x - 52 * sp.v) * sdt
+      sp.x += sp.v * sdt
+      if (Math.abs(sp.x) < 1e-4 && Math.abs(sp.v) < 1e-3) {
+        sp.x = 0
+        sp.v = 0
+      }
+    }
+
     if (rifle) {
       rifle.visible = !swinging
       const a = aimT.current
-      const kick = cs.recoil
+      const kick = THREE.MathUtils.clamp(recoilSpring.current.x * 2.6, -0.35, 1.2)
 
       // reload: 1.4 s — drop the mag, seat a fresh one, cycle the bolt
       let rl = 0
@@ -501,11 +596,11 @@ export function WeaponViewModel() {
       const tilt = Math.sin(Math.PI * seg(rl, 0, 1)) * (ammoState.reloading ? 1 : 0)
 
       rifle.position.set(
-        AIM_POS.x * a + tilt * 0.05,
-        AIM_POS.y * a - tilt * 0.06,
-        AIM_POS.z * a + 0.022 * kick,
+        AIM_POS.x * a + tilt * 0.05 + 0.004 * kick,
+        AIM_POS.y * a - tilt * 0.06 + 0.006 * kick,
+        AIM_POS.z * a + 0.03 * kick,
       )
-      rifle.rotation.set(0.07 * kick + tilt * 0.55, tilt * 0.5, -tilt * 0.35)
+      rifle.rotation.set(0.1 * kick + tilt * 0.55, tilt * 0.5 + 0.02 * kick, -tilt * 0.35)
 
       if (mag) {
         mag.position.set(0, -0.155 * magDrop, 0.02 * magDrop)
@@ -535,23 +630,38 @@ export function WeaponViewModel() {
     // 0.1 s, i.e. ~3 frames at 30 fps: a 33 ms capture step can never miss it.
     const flash = flashRef.current
     if (flash) {
+      const M = COMBATFX.muzzle
+      // cs.muzzleFlashAt is -1 whenever the barrel tip has not published, so
+      // a shot with no visible weapon draws no flash (work order #5)
       const age = cs.clock - cs.muzzleFlashAt
-      const on = age >= 0 && age < 0.1 && rifle?.visible === true
+      const on = cs.muzzleFlashAt > 0 && age >= 0 && age < M.lifeSec && rifle?.visible === true
       flash.visible = on
       if (on) {
         if (cs.muzzleFlashAt !== lastFlashAt.current) {
           lastFlashAt.current = cs.muzzleFlashAt
-          flashRoll.current = Math.random() * Math.PI * 2
-          // a Sprite ignores parent roll — its own roll is a material property
-          mats.flash.rotation = flashRoll.current
-          flash.rotation.z = flashRoll.current * 0.5
+          // a Sprite ignores parent roll — its own roll is a material
+          // property, so each of the three cards gets its own random Z-roll
+          const r = Math.random() * Math.PI * 2
+          mats.flashCore.rotation = r
+          mats.flashMid.rotation = r * 0.73 + 1.1
+          mats.flashWide.rotation = -r * 1.31
+          flashJitter.current = 0.86 + Math.random() * 0.34
+          flash.rotation.z = r * 0.5
         }
-        const t = age / 0.1
-        const o = t < 0.3 ? 1 : 1 - (t - 0.3) / 0.7
-        mats.flash.opacity = o
-        mats.cone.opacity = o * 0.7
-        const s = 0.26 + t * 0.14
-        if (flareRef.current) flareRef.current.scale.setScalar(s * (cs.muzzleFlip ? 1.1 : 0.92))
+        const t = age / M.lifeSec
+        // two-frame hold at full, then a square fall: at a 33 ms capture step
+        // a flash that starts decaying on frame 0 is never caught at full
+        const hold = M.holdSec / M.lifeSec
+        const o = t < hold ? 1 : (1 - (t - hold) / Math.max(1e-3, 1 - hold)) ** 2
+        mats.flashCore.opacity = o
+        mats.flashMid.opacity = o * 0.9
+        mats.flashWide.opacity = o * 0.4
+        mats.cone.opacity = o * 0.6
+        const j = flashJitter.current * (cs.muzzleFlip ? 1.06 : 0.95)
+        const grow = 1 + t * 0.4
+        flareCoreRef.current?.scale.setScalar(M.cardCore * j)
+        flareMidRef.current?.scale.setScalar(M.cardMid * j * grow)
+        flareWideRef.current?.scale.setScalar(M.cardWide * j * grow * 1.12)
         if (coneRef.current) {
           const c = 1 - t * 0.35
           coneRef.current.scale.set(c, 1 + t * 0.5, c)
@@ -566,9 +676,15 @@ export function WeaponViewModel() {
       if (swing) {
         hand.visible = true
         // lookAt resolves in world space and divides out the parent rotation,
-        // so the blade (+Z) tracks the same arc Weapons.tsx damages along.
+        // so the blade (+Z) tracks the same arc Weapons.tsx damages along —
+        // and that arc now pivots on THIS socket, so the mesh lies inside its
+        // own swept surface instead of half a metre off it.
         bladeTipWorld(state.camera, swing, _tip)
         hand.lookAt(_tip)
+        // [combat-feel R2] lookAt leaves the roll to world up, which points
+        // the cutting edge at the floor through a horizontal cut. Roll the
+        // blade so the ha leads the sweep (weakness C11).
+        hand.rotateZ(bladeRollForStep(swing.step))
       } else {
         hand.visible = false
       }
@@ -706,13 +822,13 @@ export function WeaponViewModel() {
           {/* ---------------- muzzle anchor + flash ---------------- */}
           <object3D ref={muzzleRef} position={[0, 0.055, -0.63]} />
           <group ref={flashRef} position={[0, 0.055, -0.65]} visible={false}>
-            <sprite ref={flareRef} material={mats.flash} scale={[0.3, 0.3, 0.3]} />
+            {/* three camera-facing cards, each independently rolled per shot */}
+            <sprite ref={flareWideRef} material={mats.flashWide} scale={[0.5, 0.5, 0.5]} />
+            <sprite ref={flareMidRef} material={mats.flashMid} scale={[0.3, 0.3, 0.3]} />
+            <sprite ref={flareCoreRef} material={mats.flashCore} scale={[0.12, 0.12, 0.12]} />
             {/* bore cone: the flash has a direction, not just a blob */}
             <mesh ref={coneRef} material={mats.cone} position={[0, 0, -0.1]} rotation={[-Math.PI / 2, 0, 0]}>
               <coneGeometry args={[0.055, 0.22, 10, 1, true]} />
-            </mesh>
-            <mesh material={mats.cone} rotation={[0, 0, Math.PI / 4]}>
-              <planeGeometry args={[0.03, 0.3]} />
             </mesh>
           </group>
         </group>
@@ -721,8 +837,24 @@ export function WeaponViewModel() {
             Blade runs along +Z so Object3D.lookAt(worldTip) aims it. */}
         <group ref={handKatanaRef} visible={false}>
           <mesh geometry={geo.blade} material={mats.steel} position={[0, 0, 0.07]} castShadow />
+          {/* three-layer blade energy: hot edge line, mid shell, soft outer.
+              The arc strip in Weapons.tsx carries the same authoring, so the
+              sword and the path it cuts are lit by the same source. */}
+          <mesh geometry={geo.bladeShell} material={mats.bladeShell} position={[0, 0, 0.07]} />
+          <mesh
+            geometry={geo.bladeShell}
+            material={mats.bladeShell}
+            position={[0, 0, 0.07]}
+            scale={[2.1, 1.35, 1]}
+          />
           {/* permanent emissive edge, riding the same curve as the blade */}
           <mesh geometry={geo.bladeEdge} material={mats.energy} position={[0, -0.0255, 0.07]} />
+          <mesh
+            geometry={geo.bladeEdge}
+            material={mats.energyHot}
+            position={[0, -0.0255, 0.07]}
+            scale={[0.45, 0.42, 1]}
+          />
           {/* habaki collar */}
           <mesh material={mats.gold} position={[0, 0, 0.055]}>
             <boxGeometry args={[0.016, 0.042, 0.03]} />

@@ -21,6 +21,20 @@
  *   ±2° strafe lean.
  * - Trauma shake: addTrauma(n) — rotational noise + a positional component;
  *   addCamKick(dir, n) adds a directional positional punch (landing, impacts).
+ *
+ * r2 camera pass:
+ * - boomMin 1.25 → 1.8 (1.95 wall-running). The r2 capture had the frame
+ *   filling half the plate with the camera effectively inside the wall.
+ * - The boom floor is now a SOFT target: when the sphere sweep cannot honour
+ *   it, the boom lifts over the head and re-sweeps instead of forcing its way
+ *   through geometry (`boomHardMin` is the only true floor).
+ * - Dedicated wall-run state: the view yaws into the run, the boom pushes
+ *   1.6 m off the wall normal, lengthens and lifts.
+ * - Melee swing state: +0.8 m dolly and +6° pitch so the arc is read edge-on.
+ * - Landing dip driven from the real touchdown speed (it used to be gated on
+ *   PlayerAnim.landTimer, which only fires above 12 m/s, so ordinary landings
+ *   had no camera weight at all) plus a downward positional kick.
+ * - FOV response extended to the gilt dash.
  */
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -109,7 +123,13 @@ const RIM: readonly (readonly [number, number])[] = [
  * clearance. A single ray happily threads a 0.4 m gap and leaves the camera
  * inside a wall slab; this does not.
  */
-function sweptBoom(head: THREE.Vector3, dir: THREE.Vector3, dist: number, radius: number): number {
+function sweptBoom(
+  head: THREE.Vector3,
+  dir: THREE.Vector3,
+  dist: number,
+  radius: number,
+  floor: number,
+): number {
   let allowed = dist
   const hit = raycastLevel(head, dir, dist)
   if (hit) allowed = hit.distance - MOVE.cam.boomMargin
@@ -129,7 +149,7 @@ function sweptBoom(head: THREE.Vector3, dir: THREE.Vector3, dist: number, radius
       if (a < allowed) allowed = a
     }
   }
-  return Math.max(allowed, MOVE.cam.boomMin)
+  return Math.max(allowed, floor)
 }
 
 /** intro pitch: from the high fly-in start it looks down onto the dais */
@@ -150,6 +170,10 @@ export default function CameraRig() {
     ultT: 0,
     /** 0..1 wall-run shoulder-swap blend */
     wallT: 0,
+    /** 0..1 melee-swing camera blend */
+    swingT: 0,
+    /** 0..1 landing dip envelope (decays on cam.landing.recoverRate) */
+    landDip: 0,
     /** previous grounded flag, for the landing punch */
     wasGrounded: true,
     prevVy: 0,
@@ -193,27 +217,39 @@ export default function CameraRig() {
       )
     }
 
-    const yaw = CamRef.yaw
+    // -- state-derived offsets (hoisted above the look basis: the wall-run
+    //    state bends the view yaw, so the basis must be built from it) --------
+    const state = PlayerRef.state
+    const gliding = state === 'glide'
+    const sliding = state === 'slide'
+    const wallrunning = state === 'wallrunL' || state === 'wallrunR'
+    const wallSide = PlayerAnim.wallSide || (state === 'wallrunL' ? -1 : 1)
+
+    // ultimate camera state — requiemPhase 1 = charging (rooted), 2 = afterglow
+    const ulting = CombatState.requiemPhase !== 0
+    c.ultT += ((ulting ? 1 : 0) - c.ultT) * (1 - Math.exp(-MOVE.cam.ult.rate * dt))
+    // wall-run camera state (shoulder swap + off-wall push + view yaw)
+    c.wallT += ((wallrunning ? 1 : 0) - c.wallT) * (1 - Math.exp(-MOVE.cam.wallrun.rate * dt))
+
+    // [player-frame R2] melee swing: dolly out and pitch up so the swing plane
+    // is read edge-on from outside instead of straight down the blade
+    const swinging = CombatState.swing !== null
+    c.swingT +=
+      ((swinging ? 1 : 0) - c.swingT) *
+      (1 - Math.exp(-(swinging ? MOVE.cam.swing.rate : MOVE.cam.swing.decay) * dt))
+
     const pitch = CamRef.pitch
-    const cosP = Math.cos(pitch)
-    _look.set(-Math.sin(yaw) * cosP, Math.sin(pitch), -Math.cos(yaw) * cosP)
+    // the view yaws INTO the wall during a run so the frame is read three
+    // quarter against it — the r2 wall-run shot had the camera in the slab
+    const yaw = CamRef.yaw - wallSide * MOVE.cam.wallrun.yaw * c.wallT
+    const pitchView = pitch + MOVE.cam.swing.pitch * c.swingT
+    const cosP = Math.cos(pitchView)
+    _look.set(-Math.sin(yaw) * cosP, Math.sin(pitchView), -Math.cos(yaw) * cosP)
     _right.set(Math.cos(yaw), 0, -Math.sin(yaw)) // flat right
 
     // -- aim blend -----------------------------------------------------------
     const aiming = playing && !intro && Input.held('aim')
     c.aimT += ((aiming ? 1 : 0) - c.aimT) * (1 - Math.exp(-MOVE.cam.aimLerpRate * dt))
-
-    // -- state-derived offsets -------------------------------------------------
-    const state = PlayerRef.state
-    const gliding = state === 'glide'
-    const sliding = state === 'slide'
-    const wallrunning = state === 'wallrunL' || state === 'wallrunR'
-
-    // ultimate camera state — requiemPhase 1 = charging (rooted), 2 = afterglow
-    const ulting = CombatState.requiemPhase !== 0
-    c.ultT += ((ulting ? 1 : 0) - c.ultT) * (1 - Math.exp(-MOVE.cam.ult.rate * dt))
-    // wall-run shoulder swap
-    c.wallT += ((wallrunning ? 1 : 0) - c.wallT) * (1 - Math.exp(-7 * dt))
 
     // crouch camera drop (0.5 m over ~0.08s)
     c.crouchDrop +=
@@ -221,13 +257,18 @@ export default function CameraRig() {
       (1 - Math.exp(-MOVE.slide.camDropRate * dt))
 
     // landing dip + one-shot FOV punch on touchdown
+    // [player-frame R2] the dip used to be gated on PlayerAnim.landTimer, which
+    // is only written above 12 m/s — so every ordinary landing read as weightless.
+    // It is now driven from the real touchdown speed with a fast attack and a
+    // slow recovery, matched to the rig's landing absorb envelope.
     const grounded = PlayerRef.isGrounded
     if (grounded && !c.wasGrounded) {
-      const impact = Math.max(0, -c.prevVy)
-      if (impact > MOVE.landing.hardFallSpeed * 0.5) {
+      const impact = Math.max(0, -c.prevVy, PlayerAnim.landImpact)
+      if (impact > 3.2) {
         const n = THREE.MathUtils.clamp(impact / MOVE.terminalFall, 0, 1)
         c.landFov = MOVE.cam.landFovPunch * n
-        _kick.y -= 0.18 * n
+        c.landDip = Math.max(c.landDip, n)
+        _kick.y -= MOVE.cam.landing.kickMax * n
         addTrauma(0.12 * n)
       }
     }
@@ -235,12 +276,11 @@ export default function CameraRig() {
     c.prevVy = PlayerRef.velocity.y
     c.landFov *= Math.exp(-9 * dt)
     if (c.landFov < 0.02) c.landFov = 0
+    c.landDip *= Math.exp(-MOVE.cam.landing.recoverRate * dt)
+    if (c.landDip < 0.004) c.landDip = 0
 
-    const dipTarget =
-      PlayerAnim.landTimer > 0
-        ? THREE.MathUtils.mapLinear(PlayerAnim.landImpact, MOVE.landing.hardFallSpeed, MOVE.terminalFall, 0.06, MOVE.cam.landingDipMax)
-        : 0
-    c.dip += (dipTarget - c.dip) * (1 - Math.exp(-18 * dt))
+    const dipTarget = c.landDip * MOVE.cam.landingDipMax
+    c.dip += (dipTarget - c.dip) * (1 - Math.exp(-MOVE.cam.landing.dipRate * dt))
 
     // glide bob (sin 0.6 Hz, ±0.05 m) + a small periodic settle from the gait
     if (gliding) c.glideBobPhase += dt * Math.PI * 2 * MOVE.glide.bobHz
@@ -263,10 +303,14 @@ export default function CameraRig() {
     // wall-run: put the shoulder offset on the side AWAY from the wall so the
     // boom stops sweeping into the slab the player is running along
     if (c.wallT > 0.001) {
-      const side = PlayerAnim.wallSide || (state === 'wallrunL' ? -1 : 1)
-      const freeSide = -side * Math.abs(rightOff) * MOVE.cam.wallrunSideBias
+      const W = MOVE.cam.wallrun
+      const freeSide = -wallSide * Math.abs(rightOff) * MOVE.cam.wallrunSideBias
       rightOff = THREE.MathUtils.lerp(rightOff, freeSide, c.wallT)
+      backOff += W.back * c.wallT
+      upOff += W.up * c.wallT
     }
+    // melee swing: dolly the boom out so the arc is seen from outside
+    backOff += MOVE.cam.swing.back * c.swingT
 
     if (c.ultT > 0.001) {
       backOff = THREE.MathUtils.lerp(backOff, MOVE.cam.ult.back, c.ultT)
@@ -287,10 +331,42 @@ export default function CameraRig() {
     // -- collision-aware boom (sphere sweep) ---------------------------------------
     _boomDir.copy(_desired).sub(_head)
     const fullDist = _boomDir.length()
+    // [player-frame R2] the boom floor is raised during a wall-run: at 1.25 m
+    // the r2 capture had the frame filling half the plate with the camera
+    // effectively inside the slab
+    const boomFloor = THREE.MathUtils.lerp(
+      MOVE.cam.boomMin,
+      MOVE.cam.wallrun.boomMin,
+      c.wallT,
+    )
     let allowed = fullDist
     if (fullDist > 1e-4) {
       _boomDir.divideScalar(fullDist)
-      allowed = Math.min(fullDist, sweptBoom(_head, _boomDir, fullDist, MOVE.cam.boomRadius))
+      allowed = Math.min(
+        fullDist,
+        sweptBoom(_head, _boomDir, fullDist, MOVE.cam.boomRadius, MOVE.cam.boomHardMin),
+      )
+      // [player-frame R2] the boom floor must NOT be allowed to push the camera
+      // through a wall — that is exactly how the r2 wall-run shot ended up
+      // inside the slab. When there is not enough room behind the frame, the
+      // boom LIFTS over the head and re-sweeps instead of forcing the floor.
+      if (allowed < boomFloor) {
+        const lift = (boomFloor - allowed) * 0.85
+        _desired.copy(_head).addScaledVector(_look, -backOff).addScaledVector(_right, rightOff)
+        _desired.y += upOff + lift
+        if (c.wallT > 0.001 && PlayerRef.wallNormal.lengthSq() > 0.1) {
+          _desired.addScaledVector(PlayerRef.wallNormal, MOVE.cam.wallrunNormalPush * c.wallT)
+        }
+        _boomDir.copy(_desired).sub(_head)
+        const liftedDist = _boomDir.length()
+        if (liftedDist > 1e-4) {
+          _boomDir.divideScalar(liftedDist)
+          allowed = Math.min(
+            liftedDist,
+            sweptBoom(_head, _boomDir, liftedDist, MOVE.cam.boomRadius, MOVE.cam.boomHardMin),
+          )
+        }
+      }
     }
     _desired.copy(_head).addScaledVector(_boomDir, allowed)
 
@@ -347,7 +423,7 @@ export default function CameraRig() {
 
     // -- roll --------------------------------------------------------------------
     let rollTarget = 0
-    if (wallrunning) rollTarget = -PlayerAnim.wallSide * MOVE.wallrun.camRoll // tilt toward wall
+    if (wallrunning) rollTarget = -wallSide * MOVE.wallrun.camRoll // tilt toward wall
     else if (sliding) rollTarget = MOVE.cam.slideRoll
     else {
       const strafe = THREE.MathUtils.clamp(
@@ -362,7 +438,9 @@ export default function CameraRig() {
     camRollCurrent = c.roll
 
     // during the fly-in, pitch sweeps down→orbit and roll/shake fade in
-    const pitchOut = intro ? THREE.MathUtils.lerp(INTRO_PITCH, pitch, introEase) : pitch
+    const pitchOut = intro
+      ? THREE.MathUtils.lerp(INTRO_PITCH, pitchView, introEase)
+      : pitchView
     const rollOut = intro ? c.roll * introEase : c.roll
     camera.rotation.order = 'YXZ'
     camera.rotation.set(pitchOut + shX * shMul, yaw + shY * shMul, rollOut + shZ * shMul)
@@ -376,6 +454,8 @@ export default function CameraRig() {
     else if (gliding) kickTarget = MOVE.cam.fovKicks.glide
     else if (state === 'lunge') kickTarget = MOVE.cam.fovKicks.lunge
     kickTarget += MOVE.cam.ult.fov * c.ultT
+    // [player-frame R2] the gilt dash had no FOV response at all
+    if (CombatState.dashing) kickTarget += MOVE.cam.dashFov
     const kickRate = kickTarget > c.kick ? 14 : MOVE.cam.fovKickDecay
     c.kick += (kickTarget - c.kick) * (1 - Math.exp(-kickRate * dt))
     // event pulses (double jump / wall jump) decay exp(-6*dt)

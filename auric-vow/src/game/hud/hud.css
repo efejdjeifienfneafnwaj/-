@@ -25,8 +25,14 @@
   --hostile: #FF5A66;
   --vellum: #F4EFE3;
   --ash: #8A8FA3;
-  --relic: rgba(11, 13, 18, 0.62);
-  --relic-solid: rgba(9, 10, 14, 0.88);
+  /* [R2] 0.62 → 0.92. Every HUD backing has to hold its own value against a
+     blown ivory frame; a 62% plate over lit architecture turns the type into
+     a grey-on-grey smear, which is what the review saw. */
+  --relic: rgba(7, 9, 13, 0.92);
+  --relic-solid: rgba(6, 7, 11, 0.95);
+  /* the dark outer rim every cluster carries (applied as a drop-shadow
+     filter further down, because clip-path chamfers clip box-shadows) */
+  --plate-rim: drop-shadow(0 2px 9px rgba(0, 0, 0, 0.78));
   --chamfer: polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
   --chamfer-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 
@@ -757,10 +763,14 @@
 /* ---- the single mission plate (objective toast merged into the chip) -- */
 .mission-plate {
   position: relative;
-  min-width: 420px;
+  /* [R2] the 420px floor forced an em-dash filler into 13 of 20 capture
+     frames; the plate now sizes to its content and the distance span is
+     display:none when there is no objective to measure to */
+  min-width: 0;
+  max-width: 420px;
   padding: 7px 14px 8px;
   /* denser than the other plates: it sits over bright ivory architecture */
-  background: rgba(7, 9, 13, 0.78);
+  background: rgba(7, 9, 13, 0.92);
   border: 1px solid var(--gold-line);
   clip-path: var(--chamfer);
   box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.04);
@@ -774,7 +784,7 @@
 @keyframes mp-change {
   0% { transform: translateY(-9px); background: rgba(201, 162, 75, 0.38); }
   55% { background: rgba(201, 162, 75, 0.18); }
-  100% { transform: translateY(0); background: rgba(7, 9, 13, 0.78); }
+  100% { transform: translateY(0); background: rgba(7, 9, 13, 0.92); }
 }
 .mp-row {
   display: flex;
@@ -804,10 +814,11 @@
   border-left: 1px solid var(--gold-line);
   font-size: 15px;
   font-weight: 700;
-  color: var(--ash);
-  min-width: 62px;
+  color: var(--vellum);
   text-align: right;
 }
+/* no objective → the span and its divider leave the layout entirely */
+.mp-dist.off { display: none; }
 .mp-rule {
   height: 1px;
   margin: 6px 0 5px;
@@ -825,11 +836,18 @@
   letter-spacing: 0.22em;
   color: var(--ash);
 }
-.wc-pips { display: flex; gap: 6px; }
+.wc-pips {
+  display: flex;
+  gap: 6px;
+  /* [R2] the tray used to inherit the plate's inner glow, which bled a soft
+     halo behind the pips; the pips own their own contrast now */
+  filter: none;
+}
 .pip {
   width: 8px;
   height: 8px;
   transform: rotate(45deg);
+  background: rgba(4, 5, 9, 0.85);
   border: 1px solid var(--gold-line);
   transition: background 0.25s ease, border-color 0.25s ease;
 }
@@ -936,44 +954,60 @@
   height: 34px;
   background: linear-gradient(180deg, var(--gold-line), transparent);
 }
+/* [R2] the PURIFYING card was a rounded web-app panel floating in the
+   middle of the frame. It is now a world-anchored emissive ring gauge: no
+   box, no fill, just a gold arc burning over the Reliquary with its label
+   letterspaced underneath and a hairline leader down to the anchor. */
 .ch-plate {
   position: absolute;
-  left: -43px;
-  top: -86px;
-  width: 86px;
-  padding: 7px 0 6px;
+  left: -56px;
+  top: -122px;
+  width: 112px;
+  padding: 6px 0 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  background: var(--relic-solid);
-  border: 1px solid var(--gold-line);
-  clip-path: var(--chamfer-sm);
+  gap: 6px;
+  background: none;
+  border: none;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.9));
 }
-.ch-svg { width: 54px; height: 54px; }
-.ch-track { fill: none; stroke: rgba(138, 143, 163, 0.28); stroke-width: 4; }
+.ch-svg { width: 76px; height: 76px; overflow: visible; }
+.ch-track { fill: none; stroke: rgba(10, 12, 18, 0.8); stroke-width: 3; }
 .ch-arc {
   fill: none;
   stroke: var(--aureate);
-  stroke-width: 4;
+  stroke-width: 3.2;
   stroke-linecap: butt;
-  filter: drop-shadow(0 0 3px rgba(255, 184, 53, 0.7));
+  filter: drop-shadow(0 0 5px rgba(255, 184, 53, 0.85)) drop-shadow(0 0 14px rgba(255, 184, 53, 0.35));
 }
-.ch-tick { stroke: rgba(201, 162, 75, 0.75); stroke-width: 1.4; }
-.ch-dot { fill: var(--solar); }
+.ch-tick { stroke: rgba(201, 162, 75, 0.85); stroke-width: 1.2; }
+.ch-dot { fill: var(--solar); filter: drop-shadow(0 0 5px rgba(255, 243, 214, 0.9)); }
 .ch-pct {
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 700;
   fill: var(--vellum);
   text-anchor: middle;
   dominant-baseline: central;
+  paint-order: stroke fill;
+  stroke: rgba(3, 4, 7, 0.9);
+  stroke-width: 3px;
 }
 .ch-label {
   font-family: 'Cinzel', serif;
   font-weight: 600;
   font-size: 10px;
+  /* the box is gone, so the label needs its own padding and a dark rim to
+     survive a bright frame — and room not to clip its own letterspacing */
+  padding: 2px 9px 2px 12px;
   letter-spacing: 0.26em;
+  text-indent: 0.26em;
+  white-space: nowrap;
   color: var(--aureate);
+  background: rgba(6, 8, 12, 0.86);
+  border: 1px solid var(--gold-line);
+  clip-path: var(--chamfer-sm);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
 }
 
 /* ------------------------------------------------------------------ */
@@ -988,6 +1022,10 @@
   will-change: transform;
   transition: opacity 0.2s ease;
 }
+/* [R2] a filled glowing lozenge with an expanding ring reads as a mobile-game
+   quest pin. The marker is now a hairline outline diamond at ~0.5 opacity
+   with a 2–3% breathing pulse, sized down with distance by the rAF loop and
+   dimmed toward the centre of the frame so it never sits on the aim point. */
 .om-diamond {
   position: absolute;
   left: -9px;
@@ -996,22 +1034,24 @@
   height: 18px;
   transform: rotate(45deg);
   border: 1px solid var(--aureate);
-  background: rgba(255, 184, 53, 0.18);
-  box-shadow: 0 0 12px rgba(255, 184, 53, 0.5);
+  background: none;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  animation: om-breathe 2.6s ease-in-out infinite;
 }
+@keyframes om-breathe {
+  0%, 100% { transform: rotate(45deg) scale(1); }
+  50% { transform: rotate(45deg) scale(1.03); }
+}
+/* the light column down to the floor: a hairline the eye can follow */
 .om-ring {
   position: absolute;
-  left: -16px;
-  top: -16px;
-  width: 32px;
-  height: 32px;
-  transform: rotate(45deg);
-  border: 1px solid var(--aureate);
-  animation: om-pulse 1.4s ease-out infinite;
-}
-@keyframes om-pulse {
-  from { scale: 0.6; opacity: 0.9; }
-  to { scale: 1.5; opacity: 0; }
+  left: -0.5px;
+  top: 9px;
+  width: 1px;
+  height: 58px;
+  transform: none;
+  border: none;
+  background: linear-gradient(180deg, rgba(255, 184, 53, 0.55), rgba(255, 184, 53, 0));
 }
 .om-arrow {
   position: absolute;
@@ -1066,26 +1106,48 @@
   top: 0;
   opacity: 0;
   font-weight: 700;
-  font-size: 22px;
+  /* base size; DamageNumbers.tsx writes the log-ramped size per hit */
+  font-size: 30px;
   line-height: 1;
-  color: #F4EFE3;
-  -webkit-text-stroke: 2px rgba(3, 4, 6, 0.92);
+  padding: 3px 11px 4px;
+  color: #FFF6E6;
+  -webkit-text-stroke: 3px rgba(2, 3, 5, 0.95);
   paint-order: stroke fill;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  /* the scrim: without it a light number over blown ivory is unreadable,
+     which is what "hit feedback is never visible" meant in practice */
+  background: radial-gradient(
+    ellipse 62% 78% at 50% 52%,
+    rgba(3, 4, 7, 0.72) 0%,
+    rgba(3, 4, 7, 0.4) 52%,
+    rgba(3, 4, 7, 0) 78%
+  );
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
   will-change: transform, opacity;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .dmg-headshot,
 .dmg-ability {
-  font-size: 34px;
-  color: #FFB835;
-  text-shadow: 0 0 12px rgba(255, 184, 53, 0.55);
+  color: #FFC957;
+  text-shadow: 0 0 14px rgba(255, 184, 53, 0.65), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+/* a crit carries a hairline chevron over the number so it is not just bigger */
+.dmg-headshot::before,
+.dmg-ability::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 13px;
+  height: 5px;
+  margin-left: -6.5px;
+  background: #FFB835;
+  clip-path: polygon(50% 0, 100% 100%, 50% 62%, 0 100%);
+  opacity: 0.9;
 }
 .dmg-player {
-  font-size: 24px;
-  color: #FF6A60;
-  text-shadow: 0 0 10px rgba(255, 75, 62, 0.5);
+  color: #FF7A70;
+  text-shadow: 0 0 12px rgba(255, 75, 62, 0.6), 0 1px 2px rgba(0, 0, 0, 0.9);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1130,6 +1192,17 @@
   --vellum: #F4EFE3;
   --ash: #8A8FA3;
   --ember: #FF4B3E;
+  /* [R2] the title's type ramp lifted into shared tokens so the front end,
+     the pause screen and the results screens cannot drift apart */
+  --avs-ramp-hero: clamp(46px, 8.4vmin, 104px);
+  --avs-ramp-title: clamp(34px, 5.6vmin, 68px);
+  --avs-ramp-sub: clamp(12px, 1.5vmin, 17px);
+  --avs-ramp-caption: 12px;
+  --avs-track-hero: 0.2em;
+  --avs-track-sub: 0.56em;
+  --avs-track-caption: 0.34em;
+  --avs-hairline: 1px;
+  --avs-chamfer: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -1148,13 +1221,13 @@
   background:
     linear-gradient(
       180deg,
-      rgba(5, 6, 13, 0.92) 0%,
-      rgba(5, 6, 13, 0.46) 15%,
-      rgba(4, 5, 11, 0.84) 26%,
-      rgba(4, 5, 11, 0.88) 52%,
-      rgba(5, 6, 13, 0.52) 64%,
-      rgba(5, 6, 13, 0.88) 84%,
-      rgba(3, 4, 9, 0.97) 100%
+      rgba(5, 6, 13, 0.9) 0%,
+      rgba(5, 6, 13, 0.34) 15%,
+      rgba(4, 5, 11, 0.62) 26%,
+      rgba(4, 5, 11, 0.66) 52%,
+      rgba(5, 6, 13, 0.34) 64%,
+      rgba(5, 6, 13, 0.82) 84%,
+      rgba(3, 4, 9, 0.96) 100%
     ),
     radial-gradient(ellipse 80% 55% at 50% 58%, rgba(27, 36, 64, 0.3), transparent 70%);
 }
@@ -1213,10 +1286,10 @@
 .avs-title {
   font-family: 'Cinzel', serif;
   font-weight: 700;
-  font-size: clamp(46px, 8.4vmin, 104px);
+  font-size: var(--avs-ramp-hero);
   line-height: 0.98;
-  letter-spacing: 0.2em;
-  text-indent: 0.2em;
+  letter-spacing: var(--avs-track-hero);
+  text-indent: var(--avs-track-hero);
   margin: 0;
   background: linear-gradient(178deg, #FFFDF6 0%, var(--aureate) 44%, #8A6414 78%, #D9AE5A 100%);
   -webkit-background-clip: text;
@@ -1226,10 +1299,10 @@
 }
 .avs-sub {
   font-family: 'Cinzel', serif;
-  font-size: clamp(12px, 1.5vmin, 17px);
+  font-size: var(--avs-ramp-sub);
   font-weight: 600;
-  letter-spacing: 0.56em;
-  text-indent: 0.56em;
+  letter-spacing: var(--avs-track-sub);
+  text-indent: var(--avs-track-sub);
   color: #B9BDCC;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
 }
@@ -1259,6 +1332,34 @@
 .avs-btn:hover {
   background: rgba(201, 162, 75, 0.2);
   color: var(--solar);
+}
+/* [R2] ENGAGE is the one action on the screen — it gets a FILLED gold plate,
+   not another hairline outline competing with the wordmark rules. */
+.avs-btn.primary {
+  color: #120C02;
+  background: linear-gradient(180deg, #FFD684 0%, var(--aureate) 42%, #C98A16 100%);
+  border-color: rgba(255, 233, 180, 0.85);
+  box-shadow: 0 0 22px -4px rgba(255, 184, 53, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  font-weight: 700;
+}
+.avs-btn.primary:hover {
+  background: linear-gradient(180deg, #FFF0C4 0%, #FFC957 42%, #D99A22 100%);
+  color: #120C02;
+}
+/* the mission line is a caption, not a second button: no box, no border */
+.avs-caption {
+  margin-top: 4px;
+  font-family: 'Cinzel', serif;
+  font-size: var(--avs-ramp-caption);
+  font-weight: 600;
+  letter-spacing: var(--avs-track-caption);
+  text-indent: var(--avs-track-caption);
+  color: var(--ash);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.avs-caption b {
+  color: var(--vellum);
+  font-weight: 600;
 }
 .avs-btn.ghost {
   color: var(--ash);
@@ -1355,3 +1456,236 @@
 .avs-row.total { font-size: 19px; }
 .avs-row.total .v { color: var(--aureate); }
 .avs-actions { margin-top: 34px; display: flex; gap: 16px; }
+
+/* ================================================================== */
+/* [enemies-hud R2] additions                                          */
+/*                                                                     */
+/* Rules for everything below: chamfered clip-paths, 1 px gold         */
+/* hairlines, backings at rgba(7,9,13,0.92) with a dark outer rim so   */
+/* the chrome survives a blown ivory frame behind it, and no rounded   */
+/* rectangles anywhere.                                                */
+/* ================================================================== */
+
+/* ---- the mission plate, moved off the centre axis ------------------- */
+.missionblock {
+  position: absolute;
+  /* left-aligned under the radar (radar: 26px/24px, 140px + label) */
+  left: 26px;
+  top: 198px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  animation: hud-in 0.4s ease-out both;
+  animation-delay: 0.16s;
+}
+
+/* ---- shield break: its own screen-edge wash ------------------------- */
+.hud-shieldvig {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  box-shadow: inset 0 0 130px 30px rgba(191, 232, 255, 0.5);
+}
+.hud-shieldvig.flash {
+  animation: shield-break 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+@keyframes shield-break {
+  0% { opacity: 0.9; }
+  30% { opacity: 0.35; }
+  100% { opacity: 0; }
+}
+.vitals.broke { animation: vitals-jolt 0.34s ease-out both; }
+@keyframes vitals-jolt {
+  0% { transform: translateX(-5px); filter: brightness(2.1); }
+  40% { transform: translateX(2px); filter: brightness(1.3); }
+  100% { transform: translateX(0); filter: none; }
+}
+
+/* ---- shield numeric ------------------------------------------------- */
+.v-num.shield {
+  align-self: center;
+  line-height: 1;
+}
+.v-num.shield .n {
+  font-size: 15px;
+  color: var(--halo);
+}
+.v-num.shield .d { font-size: 10px; }
+/* the /200 denominator was 12px ash — too close in value to the numeral
+   it qualifies, so both read as data. It is now clearly subordinate. */
+.v-num .d {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(138, 143, 163, 0.62);
+  letter-spacing: 0.04em;
+}
+.v-num .n.chg { animation: num-chg 0.22s ease-out both; }
+@keyframes num-chg {
+  0% { transform: scale(1.3); filter: brightness(2.4); }
+  100% { transform: scale(1); filter: none; }
+}
+
+/* ---- ammo: mag and reserve in two weights --------------------------- */
+.ammo { font-size: 24px; }
+.ammo.low { color: var(--ember); }
+.ammo-res {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+  letter-spacing: 0.04em;
+}
+/* the equipped weapon is the lit glyph; the other sits back */
+.weapon-glyph { opacity: 0.32; transition: opacity 0.16s ease, stroke 0.16s ease; }
+.weapon-glyph.on { opacity: 0.95; stroke: var(--aureate); }
+.weapon.melee .weapon-glyph.on:not(.katana) { opacity: 0.32; stroke: var(--gold); }
+.weapon.melee .weapon-glyph.katana { opacity: 0.95; stroke: var(--aureate); }
+
+/* ---- ability cast: 1.0 → 1.25 → 1.0 over 180 ms + a gold rim -------- */
+.ability.cast .ab-face { animation: ab-cast 0.18s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+@keyframes ab-cast {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 184, 53, 0); }
+  45% { transform: scale(1.25); box-shadow: 0 0 0 2px rgba(255, 184, 53, 0.9), 0 0 16px rgba(255, 184, 53, 0.6); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 184, 53, 0); }
+}
+
+/* ---- reticle: hostile state ----------------------------------------- */
+.reticle.hostile .ret-svg .core { stroke: var(--hostile); }
+.reticle.hostile .ret-svg .dot { fill: var(--hostile); }
+
+/* ---- AUSPEX label gets a plate so it survives a bright frame -------- */
+.radar-label {
+  padding: 2px 10px 2px 13px;
+  background: rgba(7, 9, 13, 0.92);
+  border: 1px solid var(--gold-line);
+  clip-path: var(--chamfer-sm);
+  width: max-content;
+  margin: 0 auto;
+}
+
+/* ---- world-projected enemy nameplates ------------------------------- */
+.np-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.np {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  will-change: transform, opacity;
+  transition: opacity 0.12s linear;
+}
+.np-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+}
+.np-glyph {
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg);
+  background: var(--hostile);
+  box-shadow: 0 0 4px rgba(255, 90, 102, 0.8);
+}
+/* one silhouette idea per archetype, so the plate names the type at a glance */
+.np-drone .np-glyph { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); background: none; border: 1px solid var(--hostile); }
+.np-heavy .np-glyph { width: 9px; height: 9px; transform: none; clip-path: polygon(50% 0, 100% 30%, 100% 100%, 0 100%, 0 30%); }
+.np-name {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  color: #E7D9D9;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+.np-track {
+  position: relative;
+  width: 60px;
+  height: 4px;
+  background: rgba(5, 6, 10, 0.92);
+  border: 1px solid rgba(201, 162, 75, 0.45);
+  overflow: hidden;
+}
+.np-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: linear-gradient(180deg, #ff9aa2 0%, var(--hostile) 60%, #7c1620 100%);
+}
+.np-stag {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  transform-origin: left center;
+  background: var(--solar);
+  opacity: 0.85;
+}
+.np-heavy .np-track { width: 78px; height: 5px; }
+
+/* ---- reduced motion + narrow viewports for the new elements --------- */
+@media (prefers-reduced-motion: reduce) {
+  .om-diamond,
+  .ability.cast .ab-face,
+  .vitals.broke {
+    animation: none;
+  }
+}
+@media (max-width: 1280px), (max-height: 760px) {
+  .missionblock { top: 168px; }
+  .dmg { font-size: 26px; }
+  .np { width: 82px; }
+}
+
+/* ---- hitmarker tiers, now actually distinct ------------------------- */
+/* hit = thin vellum ticks · crit = gold, wider throw · ability = gold
+   ticks with no diagonal spray · kill = the full eight-point burst. The
+   tiers used to differ by 20 ms of duration, so every hit read the same. */
+.hitmarker.hm-ability .hm-a,
+.hitmarker.hm-ability .hm-b,
+.hitmarker.hm-ability .hm-c,
+.hitmarker.hm-ability .hm-d {
+  background: var(--aureate);
+  animation: hm-expand 0.14s ease-out both;
+}
+.hitmarker.hm-hit i { width: 12px; height: 12px; }
+.hitmarker.hm-crit i {
+  width: 17px;
+  height: 17px;
+  left: -8.5px;
+  top: -8.5px;
+  filter: drop-shadow(0 0 5px rgba(255, 184, 53, 0.7)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+}
+.hitmarker.hm-kill i {
+  width: 19px;
+  height: 19px;
+  left: -9.5px;
+  top: -9.5px;
+  filter: drop-shadow(0 0 7px rgba(255, 243, 214, 0.85)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+}
+
+/* ---- dark outer rim on every cluster -------------------------------- */
+/* A 1 px gold hairline over a blown frame disappears. These plates are all
+   chamfered with clip-path, which CLIPS an outer box-shadow — so the rim is
+   a drop-shadow FILTER on the cluster, which follows the clipped shape. */
+.leftcluster,
+.weaponcluster,
+/* NB: not .radar — its canvas repaints every frame and a filter on it would
+   force the whole plate to re-rasterise each time. It carries its own rim
+   through the ring's box-shadow instead. */
+.missionblock,
+.bossbar,
+.np,
+.channel-anchor,
+.obj-marker {
+  filter: var(--plate-rim);
+}

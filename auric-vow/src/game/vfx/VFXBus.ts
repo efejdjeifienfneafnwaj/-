@@ -67,6 +67,24 @@ export interface FlashOpts {
   life?: number
 }
 
+/**
+ * [vfx R2] Persistent surface mark (V19). Combat leaves nothing on the world
+ * today — every impact is a transient additive puff that is gone by the next
+ * capture step. A decal is a surface-aligned quad that holds for `life`
+ * seconds and fades on a long tail, so a fight reads as having happened.
+ */
+export interface DecalOpts {
+  position: THREE.Vector3
+  /** surface normal to lie against (defaults to +Y) */
+  normal?: THREE.Vector3
+  color?: number | string
+  /** metres across */
+  size?: number
+  life?: number
+  /** 0 = sooty subtractive scorch, 1 = additive energy burn */
+  energy?: number
+}
+
 export interface TrailHandle {
   push(p: THREE.Vector3): void
   end(): void
@@ -114,6 +132,19 @@ export interface FlashCmd {
   life: number
 }
 
+export interface DecalCmd {
+  x: number
+  y: number
+  z: number
+  nx: number
+  ny: number
+  nz: number
+  color: number
+  size: number
+  life: number
+  energy: number
+}
+
 export interface TrailOp {
   id: string
   end: boolean
@@ -126,6 +157,7 @@ const burstQueue: BurstCmd[] = []
 const ringQueue: RingCmd[] = []
 const flashQueue: FlashCmd[] = []
 const trailQueue: TrailOp[] = []
+const decalQueue: DecalCmd[] = []
 
 const tmpColor = new THREE.Color()
 
@@ -190,6 +222,26 @@ export const VFX = {
   },
 
   /**
+   * [vfx R2] Lay a persistent surface mark (scorch, energy burn). Consumed by
+   * Shockwaves.tsx, which owns the surface-FX pool.
+   */
+  decal(o: DecalOpts): void {
+    if (decalQueue.length > 16) return
+    decalQueue.push({
+      x: o.position.x,
+      y: o.position.y,
+      z: o.position.z,
+      nx: o.normal ? o.normal.x : 0,
+      ny: o.normal ? o.normal.y : 1,
+      nz: o.normal ? o.normal.z : 0,
+      color: toHex(o.color, COLORS.aureate),
+      size: o.size ?? 1,
+      life: o.life ?? 4,
+      energy: o.energy ?? 0.5,
+    })
+  },
+
+  /**
    * Acquire a ribbon-trail handle. `push()` a head position each frame while
    * the trail lives, then `end()` to release it (0.25s fade-out).
    * Reusing the same `id` after end() starts a fresh ribbon.
@@ -232,6 +284,11 @@ export function drainTrailOps(out: TrailOp[]): void {
   trailQueue.length = 0
 }
 
+export function drainDecals(out: DecalCmd[]): void {
+  for (let i = 0; i < decalQueue.length; i++) out.push(decalQueue[i])
+  decalQueue.length = 0
+}
+
 // ---------------------------------------------------------------------------
 // [vfx R1] Tracked lights — V17
 //
@@ -258,6 +315,14 @@ export interface TrackedLightSlot {
   intensity: number
   distance: number
   decay: number
+  /**
+   * [vfx R2] Higher priority can EVICT a lower-priority lease when the pool is
+   * exhausted. The measured failure this fixes: the ultimate's nova light —
+   * the single most important light event in the game — silently got `null`
+   * from `acquireLight` whenever a dash and a seven-javelin volley were
+   * already holding all six slots, so the nova lit nothing at all.
+   */
+  priority: number
 }
 
 export interface TrackedLightHandle {
@@ -278,12 +343,22 @@ export interface TrackedLightHandle {
 }
 
 class LightLease implements TrackedLightHandle {
-  /** generation this handle was issued for; a re-leased slot invalidates it */
-  gen = -1
+  /**
+   * Generation this handle was issued for; a re-leased slot invalidates it.
+   *
+   * A handle is issued FRESH per acquisition and never recycled. That is
+   * load-bearing, not incidental: when one shared handle object per slot was
+   * reused, evicting a lease mutated the very object the evicted owner still
+   * held, so its `gen` kept matching and `live()` stayed true. The evicted
+   * effect then went on driving — and eventually `release()`d — the light
+   * that had just been taken from it by a higher-priority event.
+   */
+  readonly gen: number
   private readonly slot: TrackedLightSlot
 
-  constructor(slot: TrackedLightSlot) {
+  constructor(slot: TrackedLightSlot, gen: number) {
     this.slot = slot
+    this.gen = gen
   }
 
   live(): boolean {
@@ -316,7 +391,6 @@ class LightLease implements TrackedLightHandle {
 }
 
 const lightSlots: TrackedLightSlot[] = []
-const lightLeases: LightLease[] = []
 
 for (let i = 0; i < VFXENERGY.trackedLights; i++) {
   const slot: TrackedLightSlot = {
@@ -329,33 +403,67 @@ for (let i = 0; i < VFXENERGY.trackedLights; i++) {
     intensity: 0,
     distance: 12,
     decay: 2,
+    priority: 0,
   }
   lightSlots.push(slot)
-  lightLeases.push(new LightLease(slot))
 }
+
+/** [vfx R2] lease priorities — a big event outranks a cosmetic one */
+export const LIGHT_PRIORITY = {
+  /** ambient / cosmetic: javelin in flight, dash streak */
+  cosmetic: 0,
+  /** ability body: Aegis shell, charge */
+  ability: 1,
+  /** the frame-defining event: the Auric Requiem nova */
+  event: 2,
+} as const
 
 /**
  * Lease a pooled PointLight for the lifetime of an effect.
- * Returns null when all {@link VFXENERGY.trackedLights} slots are in use.
+ *
+ * Returns null only when every slot is held at an equal or higher priority.
+ * A higher-priority request evicts the dimmest lower-priority lease; the
+ * evicted handle stops driving anything immediately (its generation no longer
+ * matches), so an effect that loses its light simply runs without one.
  */
 export function acquireLight(
   color: number | string,
   distance: number,
   decay = 2,
+  priority: number = LIGHT_PRIORITY.cosmetic,
 ): TrackedLightHandle | null {
+  let target = -1
   for (let i = 0; i < lightSlots.length; i++) {
-    const slot = lightSlots[i]
-    if (slot.leased) continue
-    slot.leased = true
-    slot.gen++
-    slot.color = toHex(color, COLORS.solarWhite)
-    slot.distance = distance
-    slot.decay = decay
-    slot.intensity = 0
-    lightLeases[i].gen = slot.gen
-    return lightLeases[i]
+    if (lightSlots[i].leased) continue
+    target = i
+    break
   }
-  return null
+  if (target < 0) {
+    // pool exhausted: take the dimmest strictly-lower-priority lease
+    let best = -1
+    let bestScore = Infinity
+    for (let i = 0; i < lightSlots.length; i++) {
+      const s = lightSlots[i]
+      if (s.priority >= priority) continue
+      const score = s.priority * 1e6 + s.intensity
+      if (score < bestScore) {
+        bestScore = score
+        best = i
+      }
+    }
+    if (best < 0) return null
+    target = best
+  }
+  const slot = lightSlots[target]
+  slot.leased = true
+  slot.gen++
+  slot.color = toHex(color, COLORS.solarWhite)
+  slot.distance = distance
+  slot.decay = decay
+  slot.intensity = 0
+  slot.priority = priority
+  // a fresh handle per acquisition — see LightLease.gen
+  return new LightLease(slot, slot.gen)
 }
 
 /** consumer-side read (Flashes.tsx only) */
@@ -394,9 +502,12 @@ export function resetVfx(): void {
   ringQueue.length = 0
   flashQueue.length = 0
   trailQueue.length = 0
+  decalQueue.length = 0
+  PostFxSignals.bloomLoad = 0
   for (const slot of lightSlots) {
     slot.leased = false
     slot.intensity = 0
+    slot.priority = 0
     // invalidate every outstanding handle: a stale one must not be able to
     // drive a slot that has since been re-leased by a different effect
     slot.gen++
@@ -427,6 +538,23 @@ export const PostFxSignals = {
   /** wall-clock window during which the ultimate grade is held */
   ultFrom: -1e9,
   ultUntil: -1e9,
+  /**
+   * [vfx R2] wall-clock window for the ultimate's CHARGE grade — a dimmer,
+   * desaturated, tighter-vignetted picture that the nova then punches out of.
+   * Held separately from `ult*` so charge and peak never blend into one look.
+   */
+  chargeFrom: -1e9,
+  chargeUntil: -1e9,
+  /**
+   * [vfx R2] Bloom governor load, 0..POSTFX.bloomGovernor.maxLoad.
+   * Effects that are about to cover a large fraction of the frame in additive
+   * energy raise this; PostFX divides bloom intensity by (1 + load) and bleeds
+   * it off. Without it a single screen-filling quad pins the whole bloom
+   * pyramid and every discrete source in frame disappears into the wash.
+   */
+  bloomLoad: 0,
+  /** [vfx R2] true while a full-screen front-end overlay owns the frame */
+  grainSuppressed: false,
 }
 
 /** kick the chromatic aberration — one shock, not a sustained offset */
@@ -437,6 +565,32 @@ export function caImpulse(amount = 1): void {
   if (elapsed < 0.05 && amount < PostFxSignals.caImpulseAmount) return
   PostFxSignals.caImpulseAt = t
   PostFxSignals.caImpulseAmount = Math.min(1, Math.max(0, amount))
+}
+
+/**
+ * [vfx R2] Raise the bloom governor. `amount` is roughly "fraction of the
+ * frame this effect is about to fill with additive energy"; 1.0 halves bloom.
+ */
+export function addBloomLoad(amount: number): void {
+  const cap = 4
+  PostFxSignals.bloomLoad = Math.min(cap, PostFxSignals.bloomLoad + Math.max(0, amount))
+}
+
+/** [vfx R2] suppress film grain (front-end screens: grain reads as artefact) */
+export function setGrainSuppressed(v: boolean): void {
+  PostFxSignals.grainSuppressed = v
+}
+
+/** [vfx R2] hold the ultimate CHARGE grade (dim, desaturated) for `durationSec` */
+export function ultChargeWindow(durationSec: number): void {
+  const t = nowSec()
+  PostFxSignals.chargeFrom = t
+  PostFxSignals.chargeUntil = Math.max(PostFxSignals.chargeUntil, t + durationSec)
+}
+
+/** [vfx R2] cut the charge grade short (the nova has fired) */
+export function endChargeWindow(): void {
+  PostFxSignals.chargeUntil = nowSec()
 }
 
 /** hold the ultimate grade (richer, slightly lifted) for `durationSec` */
