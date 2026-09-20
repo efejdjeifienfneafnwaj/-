@@ -47,6 +47,39 @@ const MAX_QUADS = 16 // 12 → 16: volley 7-hit frames + muzzle stream (fix1)
 /** a flash shorter than this can vanish between two fixed capture steps */
 const MIN_FLASH_LIFE = 0.08
 
+/**
+ * [vfx R5] SCREEN-SIZE FLOOR AND CEILING.
+ *
+ * A flash is authored in METRES, so its read depends entirely on how far away
+ * it happens to be. Both ends of that were broken in the review set:
+ *
+ *  • Far. A rifle impact 25 m down the arena spawns a 0.4 m star. At 720p and
+ *    a 70 degree lens that is under six pixels across before the halo, i.e.
+ *    it is gone. The panel's "no impact VFX appears anywhere" is partly this:
+ *    the events ARE firing, they are simply sub-pixel at engagement range.
+ *  • Near. The same star 1.2 m from the lens is a third of the frame of
+ *    additive white with the core authored at 2.4x, which pins the bloom
+ *    pyramid on its own.
+ *
+ * The quad now holds a constant ANGULAR size between a floor and a ceiling —
+ * the way a real lens artefact behaves, since a lens flare is a property of
+ * the optics and not of the distance to the source — and rolls its opacity
+ * off inside the ceiling so a point-blank hit reads as bright rather than as
+ * a white card.
+ */
+const FLASH_MIN_PX = 22
+const FLASH_MAX_PX = 300
+/**
+ * The anamorphic bar is drawn at 5.4-8.6x the star's own scale, so a star
+ * held up to the floor above would drag a bar of several hundred pixels
+ * behind it on a single rifle hit. The bar gets its own window: wide enough
+ * to read as a lens response, never wide enough to be the subject.
+ */
+const STREAK_MIN_PX = 60
+const STREAK_MAX_PX = 400
+/** metres under which a flash starts giving back opacity */
+const FLASH_NEAR_ROLLOFF = 2.2
+
 let starTex: THREE.CanvasTexture | null = null
 
 /**
@@ -143,6 +176,7 @@ const _c = new THREE.Color()
 /** Pooled flash lights + star quads + the leased tracked-light pool. */
 export default function Flashes() {
   const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
 
   const lights = useMemo<LightSlot[]>(
     () =>
@@ -248,6 +282,18 @@ export default function Flashes() {
     const ts = useGameStore.getState().timeScale
     const dt = Math.min(delta, 0.1) * ts
 
+    /*
+     * Metres of world size, per pixel of screen height, per metre of camera
+     * distance. `2 * tan(fov/2) / height` is the vertical extent of one pixel
+     * at unit distance; multiplying by the distance to a flash gives the world
+     * size that flash needs to hold a given pixel count.
+     */
+    const persp = camera as THREE.PerspectiveCamera
+    const pxToMetres =
+      persp.isPerspectiveCamera === true && size.height > 0
+        ? (2 * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2)) / size.height
+        : 1 / 720
+
     drainFlashes(drainBuffer)
     for (let i = 0; i < drainBuffer.length; i++) {
       const cmd = drainBuffer[i]
@@ -334,7 +380,17 @@ export default function Flashes() {
       q.group.quaternion.copy(camera.quaternion) // camera-facing billboard
       q.group.rotateZ(q.roll) // random roll about the view axis
       // the core snaps out fast; the halo lingers and keeps expanding
-      const s = q.baseScale * (0.55 + 1.25 * t)
+      let s = q.baseScale * (0.55 + 1.25 * t)
+      // [vfx R5] hold the flash between a floor and a ceiling in SCREEN space
+      const camD = camera.position.distanceTo(q.group.position)
+      const metresPerPx = camD * pxToMetres
+      s = THREE.MathUtils.clamp(s, FLASH_MIN_PX * metresPerPx, FLASH_MAX_PX * metresPerPx)
+      // ...and give opacity back as the source comes inside the near rolloff,
+      // so a point-blank impact is a bright small artefact and not a card
+      const nearK =
+        camD >= FLASH_NEAR_ROLLOFF
+          ? 1
+          : Math.max(0.22, (camD / FLASH_NEAR_ROLLOFF) * (camD / FLASH_NEAR_ROLLOFF))
       q.star.rotation.z = 0
       q.star.scale.set(s * q.aspect, s / q.aspect, 1)
       q.star2.rotation.z = q.roll2 - q.roll
@@ -344,12 +400,17 @@ export default function Flashes() {
       // an attack far faster than the decay, authored on the shape as well as
       // on the brightness
       q.streak.rotation.z = q.streakRoll - q.roll
-      q.streak.scale.set(s * (5.4 + 3.2 * t), s * 0.30 * (1 - t * 0.7), 1)
+      const streakW = THREE.MathUtils.clamp(
+        s * (5.4 + 3.2 * t),
+        STREAK_MIN_PX * metresPerPx,
+        STREAK_MAX_PX * metresPerPx,
+      )
+      q.streak.scale.set(streakW, streakW * 0.055 * (1 - t * 0.7), 1)
       const k = 1 - t
-      q.starMat.opacity = k * k * k
-      q.star2Mat.opacity = k * k * k * k * 0.8
-      q.haloMat.opacity = k * k * 0.5
-      q.streakMat.opacity = k * k * k * k * 0.85
+      q.starMat.opacity = k * k * k * nearK
+      q.star2Mat.opacity = k * k * k * k * 0.8 * nearK
+      q.haloMat.opacity = k * k * 0.5 * nearK
+      q.streakMat.opacity = k * k * k * k * 0.85 * nearK
     }
   })
 

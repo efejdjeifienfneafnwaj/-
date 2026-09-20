@@ -251,6 +251,51 @@ export const ARENA_BUTTRESS: [number, number] = [-30, 198.1]
 export const ARENA_AEDICULE_Z = 187.0
 
 /**
+ * R5 — arena deck services. VISUAL ONLY, and FLUSH.
+ *
+ * The arena deck is 60 x 60 m and every wide shot spends its bottom third on
+ * it, with nothing there but two inlaid rings. These are the sunk sump grates
+ * and the bolted access hatches that dress it. Everything placed from these
+ * tables lives between y 0.028 and y 0.05 — inside the deck's own top
+ * millimetres, lower than the gold inlay already lying on it — so nothing
+ * stands proud, nothing is walked into and `buildLevelColliders` is untouched.
+ *
+ * Positions are chosen to miss the mandala channel radii (8, 13, 18, 22 m) and
+ * the medallion ring radii (12, 16, 20 m), so the deck never resolves into a
+ * single concentric lattice.
+ *
+ * grate: [x, z, turned] — `turned` runs the bars along x instead of z.
+ * hatch: [x, z].
+ */
+export const ARENA_DECK_GRATES: [number, number, number][] = [
+  [-23.4, 177.6, 0],
+  [23.4, 177.6, 0],
+  [-23.4, 212.4, 0],
+  [23.4, 212.4, 0],
+  [0, 171.2, 1],
+  [0, 218.8, 1],
+]
+export const ARENA_DECK_HATCHES: [number, number][] = [
+  [-17.2, 190.4],
+  [18.6, 199.8],
+  [-9.8, 217.4],
+  [11.4, 172.6],
+]
+
+/**
+ * R5 — the arena's dark dado register. VISUAL ONLY.
+ *
+ * The height the wall changes value at, shared by the dado body, its panelled
+ * field and its cap moulding. It is recorded here rather than in
+ * `ShrineStation.tsx` because it is the number the enemy-art stream needs if
+ * it ever wants to know what value a trooper is seen against at play height:
+ * everything below this is umber, everything above it is ivory. It is a
+ * SURFACE height on a wall whose collider face does not move, so no collider
+ * reads it.
+ */
+export const ARENA_DADO_TOP = 2.3
+
+/**
  * Deep portal reveals at every zone threshold: [z of the wall face, half
  * opening width, head height, +1 if the room is on the +z side].
  * These sit in the existing wall openings — no collider is added or moved.

@@ -23,7 +23,7 @@
  * being an event the architecture is inside of.
  */
 import { useMemo } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { getGlyphSpriteTexture } from '../textures'
@@ -35,6 +35,23 @@ import { RefractionShell } from './EnergyShell'
 const MAX_RINGS = 10
 /** [vfx R2] persistent surface marks — see the DECALS section below */
 const MAX_DECALS = 12
+
+/**
+ * [vfx R5] SCREEN-SIZE FLOOR — the same measured problem as the spark floor
+ * in Particles.tsx and the flash floor in Flashes.tsx.
+ *
+ * An impact ring is authored at COMBATFX.impact.ringRadius = 0.5 m. The
+ * review's combat frames were captured at 20-25 m of engagement range, and
+ * 0.5 m at 25 m through a 70 degree lens at 720p is a TEN PIXEL disc whose
+ * visible band is a fraction of that. The panel is right that no impact VFX
+ * appears anywhere; the events are firing and are simply too small to see.
+ *
+ * Rings therefore hold a minimum apparent radius, capped at a multiple of
+ * their authored size so the floor can only ever rescue a small ring and
+ * never inflate a shockwave into the architecture.
+ */
+const RING_MIN_PX = 22
+const RING_MAX_GROWTH = 2.6
 
 /** CircleGeometry faces +Z; every orientation is measured from there. */
 const PLANE_NORMAL = new THREE.Vector3(0, 0, 1)
@@ -147,7 +164,7 @@ class RingWave {
     this.mesh.visible = true
   }
 
-  update(dt: number): void {
+  update(dt: number, minRadius: number): void {
     if (!this.active) return
     this.age += dt
     const t = this.age / this.life
@@ -157,7 +174,9 @@ class RingWave {
       return
     }
     this.material.uniforms.uT!.value = t
-    const s = this.maxRadius
+    // hold a minimum apparent size, but never grow past RING_MAX_GROWTH so a
+    // 0.5 m impact ring can be rescued and a 30 m nova front cannot be moved
+    const s = Math.min(this.maxRadius * RING_MAX_GROWTH, Math.max(this.maxRadius, minRadius))
     this.mesh.scale.set(s, s, s)
   }
 }
@@ -416,6 +435,8 @@ const distortBuffer: DistortCmd[] = []
 
 /** Pooled shockwave rings + persistent surface decals, drained from the bus. */
 export default function Shockwaves() {
+  const camera = useThree((s) => s.camera)
+  const size = useThree((s) => s.size)
   const waves = useMemo(() => {
     const tex = getGlyphSpriteTexture()
     return Array.from({ length: MAX_RINGS }, () => new RingWave(tex))
@@ -464,7 +485,17 @@ export default function Shockwaves() {
     }
     distortBuffer.length = 0
 
-    for (const w of waves) w.update(dt)
+    // metres of world size per pixel of screen height, per metre of distance
+    const persp = camera as THREE.PerspectiveCamera
+    const pxToMetres =
+      persp.isPerspectiveCamera === true && size.height > 0
+        ? (2 * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2)) / size.height
+        : 1 / 720
+    for (const w of waves) {
+      if (!w.active) continue
+      const camD = camera.position.distanceTo(w.mesh.position)
+      w.update(dt, RING_MIN_PX * pxToMetres * camD)
+    }
     for (const d of decals) d.update(realDt)
     for (const pr of pressures) pr.update(dt)
   })

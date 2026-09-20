@@ -115,6 +115,8 @@ export function initTextures() {
   getOrokinAOTexture()
   getOrokinRoughnessTexture()
   getOrokinAlbedoTexture()
+  getOrokinHeightTexture()
+  getEnemyPlateTextures()
   getMacroVariationTexture()
   getGoldAlbedoTexture()
   getGoldORMTexture()
@@ -141,6 +143,8 @@ export function initTextures() {
 let orokinNormal: THREE.CanvasTexture | null = null
 let orokinAO: THREE.CanvasTexture | null = null
 let orokinRough: THREE.CanvasTexture | null = null
+let orokinHeight: THREE.CanvasTexture | null = null
+let orokinHeightStats = { mean: 0.5, min: 0, max: 1, p05: 0, p95: 1 }
 let goldRough: THREE.CanvasTexture | null = null
 let goldNormal: THREE.CanvasTexture | null = null
 let detailNormal: THREE.CanvasTexture | null = null
@@ -519,10 +523,50 @@ function buildOrokinMaps() {
   const [aCanvas, aCtx] = makeCanvas(size)
   const [rCanvas, rCtx] = makeCanvas(size)
   const [cCanvas, cCtx] = makeCanvas(size)
+  const [hCanvas, hCtx] = makeCanvas(size)
   const nImg = nCtx.createImageData(size, size)
   const aImg = aCtx.createImageData(size, size)
   const rImg = rCtx.createImageData(size, size)
   const cImg = cCtx.createImageData(size, size)
+  // R5: the height field itself is now published as a map. A normal map says
+  // which way a surface tilts; it cannot say that one plate stands 3 cm proud
+  // of the one beside it, so at any grazing angle the relief flattens and the
+  // wall goes back to reading as a printed sheet. The parallax-occlusion
+  // raymarch in materials.applyWorldSurface marches THIS field, which is why
+  // it has to leave the bake as a texture rather than staying a Float32Array.
+  const hImg = hCtx.createImageData(size, size)
+  {
+    let hSum = 0
+    let hMin = 1
+    let hMax = 0
+    const hist = new Uint32Array(256)
+    for (let i = 0; i < h.length; i++) {
+      const v = h[i]
+      hSum += v
+      if (v < hMin) hMin = v
+      if (v > hMax) hMax = v
+      hist[Math.min(255, Math.max(0, Math.round(v * 255)))]++
+      const j = i * 4
+      hImg.data[j] = hImg.data[j + 1] = hImg.data[j + 2] = v * 255
+      hImg.data[j + 3] = 255
+    }
+    // 5th/95th percentile: the band the raymarch actually has to cover, which
+    // is what the height SCALE has to be tuned against — min/max are two bolt
+    // crowns and one pit floor and say nothing about the working depth.
+    let acc = 0
+    let p05 = 0
+    let p95 = 1
+    for (let b = 0; b < 256; b++) {
+      acc += hist[b]
+      if (p05 === 0 && acc >= h.length * 0.05) p05 = b / 255
+      if (acc >= h.length * 0.95) {
+        p95 = b / 255
+        break
+      }
+    }
+    orokinHeightStats = { mean: hSum / h.length, min: hMin, max: hMax, p05, p95 }
+    hCtx.putImageData(hImg, 0, 0)
+  }
 
   // The Sobel reads neighbours one TEXEL apart, so at double the sheet
   // resolution the same physical slope produces half the gradient. Scaling by
@@ -613,19 +657,35 @@ function buildOrokinMaps() {
   cCtx.putImageData(cImg, 0, 0)
   orokinAlbedoMean = albedoSum / (size * size)
 
-  // Authored staining on top of the per-texel field: dirt runs DOWN from
-  // ledges and bolt bores in straight-sided streaks. Drawn (not noised) so the
-  // runs have direction, which is what reads as weathering rather than dither.
+  // Authored staining on top of the per-texel field: dirt pooling against the
+  // uphill side of a lip, in straight-sided smudges.
+  //
+  // R5 — these used to be long vertical DRIP RUNS, and that was a layering
+  // mistake rather than a strength one. Gravity does not tile: the moment the
+  // tile permutation mirrors or (now) rotates a cell, a drawn run points
+  // sideways or upward and the surface reads as printed. Weathering that
+  // depends on which way is down belongs in the shader, keyed to world Y,
+  // where it is continuous across every mesh and immune to the permutation —
+  // see the avDrip term in materials.applyWorldSurface. What stays in the
+  // sheet is the direction-free half: short, wide smudges that read the same
+  // at any of the eight (now sixteen) tile orientations.
   cCtx.globalCompositeOperation = 'multiply'
   for (let i = 0; i < 52; i++) {
     const sx = hash2(i * 3.1 + 0.3, 1.7) * size
     const sy = hash2(i * 7.3 + 0.9, 5.9) * size * 0.72
-    const w = (5 + hash2(i + 0.7, 2.2) * 26) * S
-    const hgt = (40 + hash2(i * 1.9 + 1.3, 8.4) * 170) * S
-    const a = 0.12 + hash2(i * 5.5 + 2.1, 3.3) * 0.2
-    const g = cCtx.createLinearGradient(0, sy, 0, sy + hgt)
+    const w = (14 + hash2(i + 0.7, 2.2) * 44) * S
+    const hgt = (22 + hash2(i * 1.9 + 1.3, 8.4) * 62) * S
+    const a = 0.1 + hash2(i * 5.5 + 2.1, 3.3) * 0.16
+    const g = cCtx.createRadialGradient(
+      sx + w * 0.5,
+      sy + hgt * 0.5,
+      Math.min(w, hgt) * 0.12,
+      sx + w * 0.5,
+      sy + hgt * 0.5,
+      Math.max(w, hgt) * 0.5,
+    )
     g.addColorStop(0, `rgba(104,92,74,${a.toFixed(3)})`)
-    g.addColorStop(0.35, `rgba(126,114,96,${(a * 0.6).toFixed(3)})`)
+    g.addColorStop(0.55, `rgba(126,114,96,${(a * 0.55).toFixed(3)})`)
     g.addColorStop(1, 'rgba(255,255,255,0)')
     cCtx.fillStyle = g
     cCtx.fillRect(sx, sy, w, hgt)
@@ -648,6 +708,24 @@ function buildOrokinMaps() {
   orokinAO = mk(aCanvas)
   orokinRough = mk(rCanvas)
   orokinAlbedo = mk(cCanvas, true)
+  orokinHeight = mk(hCanvas)
+}
+
+/**
+ * The authored Orokin height field as a map (R = height, 0 = seam-trench
+ * floor, 1 = bolt crown). Marched by the parallax-occlusion loop in
+ * materials.applyWorldSurface so panel insets, louvre slots and bolt bores
+ * actually shift against the face as the camera moves.
+ */
+export function getOrokinHeightTexture(): THREE.CanvasTexture {
+  if (!orokinHeight) buildOrokinMaps()
+  return orokinHeight!
+}
+
+/** Measured stats of the Orokin height field (parallax scale tuning + QA). */
+export function getOrokinHeightStats() {
+  if (!orokinHeight) buildOrokinMaps()
+  return orokinHeightStats
 }
 
 /** Tiling Orokin panel normal map (seams, chamfers, fret, cartouche). */
@@ -796,9 +874,26 @@ export function getMacroMean(): number {
  */
 const GOLD_SIZE = 512
 
-/** authored roughness band: polished land → groove floor */
-const GOLD_ROUGH_LO = 0.055
-const GOLD_ROUGH_HI = 0.52
+/**
+ * Authored roughness band: polished land → groove floor.
+ *
+ * R5: 0.055–0.52 → 0.14–0.40, which is the band the panel asked for
+ * ("pull the gold trim ORM roughness to 0.12–0.30").
+ *
+ * 0.055 is a mirror, and a mirror is exactly why gold kept coming back as
+ * "either a black outline or a bloom blob": at that roughness a gold land
+ * reflects a near-delta image of the probe, so it is either pointing at the
+ * narrow bright bar — in which case it returns a value several stops over the
+ * bloom knee and blooms into a shapeless blob — or it is not, in which case it
+ * returns the probe's near-black floor and the trim renders as a dark outline
+ * against the ivory. There is no third state, and no amount of albedo or
+ * exposure work can create one. Widening the lobe to 0.14–0.40 gives the land
+ * a specular that covers tens of degrees, so it RAMPS across a curved run:
+ * bright at the facing angle, falling off smoothly to a warm mid, which is how
+ * a real gilded moulding reads and what lets the eye follow its form.
+ */
+const GOLD_ROUGH_LO = 0.14
+const GOLD_ROUGH_HI = 0.4
 
 function buildGoldHeight(): Float32Array {
   const size = GOLD_SIZE
@@ -960,8 +1055,12 @@ function buildGoldMaps() {
       // floor sits at ~0.5 and scatters. That contrast IS the metal read, and
       // unlike an environment reflection it does not depend on the probe.
       let rough = GOLD_ROUGH_HI - hv * (GOLD_ROUGH_HI - GOLD_ROUGH_LO)
-      rough += wear * 0.15 + pit * 0.34 + Math.max(0, -cav) * 0.55
-      rough = Math.min(0.92, Math.max(0.045, rough))
+      // R5: the additive terms are scaled back with the band. At the old
+      // amplitudes a worn groove floor added 0.15 + 0.55 on top of 0.52 and
+      // clipped to fully matte, which threw away the land/groove contrast the
+      // drawn sheet exists to provide — two thirds of the tile was one value.
+      rough += wear * 0.1 + pit * 0.22 + Math.max(0, -cav) * 0.38
+      rough = Math.min(0.62, Math.max(0.115, rough))
       roughSum += rough
       if (rough < roughMin) roughMin = rough
       if (rough > roughMax) roughMax = rough
@@ -1331,6 +1430,236 @@ export function getStripFalloffTexture(): THREE.CanvasTexture {
   stripFalloff.wrapS = stripFalloff.wrapT = THREE.ClampToEdgeWrapping
   stripFalloff.colorSpace = THREE.NoColorSpace
   return stripFalloff
+}
+
+// ---------------------------------------------------------------------------
+// R5 — shared ENEMY armour sheet (normal + packed ORM + albedo).
+//
+// The enemies have had no art pass in five rounds and render as flat-shaded
+// boxes; a single frame of that at melee range is what the panel said "ends
+// the comparison". This is the surface half of the fix, and it lives here
+// because it is a texture bake. Binding it to the Trooper / Heavy / Drone
+// materials is the enemy axis' job — see the note in my report.
+//
+// Deliberately NOT the Orokin sheet: the architecture is cast ceramic plating
+// at 1 m panels, an enemy is a fabricated combat shell at ~15 cm plates, and
+// reusing the wall trim on a body is its own kind of tell. Same authoring
+// discipline though — drawn rectilinear structure first (plate borders with
+// chamfers, a recessed joint channel, a vent louvre bank, a bolt row, a
+// weld/seam ladder), value noise only at the end as grain.
+// ---------------------------------------------------------------------------
+let enemyNormal: THREE.CanvasTexture | null = null
+let enemyORM: THREE.CanvasTexture | null = null
+let enemyAlbedo: THREE.CanvasTexture | null = null
+
+const ENEMY_SIZE = 512
+
+function buildEnemyMaps() {
+  const size = ENEMY_SIZE
+  const E = size / 512
+  const [canvas, ctx] = makeCanvas(size)
+
+  const bar = (x: number, y: number, w: number, h: number, v: number) => {
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h)))
+  }
+  const disc = (x: number, y: number, r: number, v: number) => {
+    ctx.fillStyle = `rgb(${v},${v},${v})`
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  const rivet = (x: number, y: number, r: number) => {
+    disc(x, y, r, 56)
+    disc(x, y, r * 0.64, 232)
+    disc(x - r * 0.13, y - r * 0.13, r * 0.4, 208)
+  }
+
+  const SHELL = 120 // the shell field the plates are bolted onto
+  const FACE = 198 // plate face
+  ctx.fillStyle = `rgb(${SHELL},${SHELL},${SHELL})`
+  ctx.fillRect(0, 0, size, size)
+
+  // recessed joint channel running the full tile in both axes — this is what
+  // splits the body into plates when the model is 30 px tall
+  const cell = size / 2
+  for (let i = 0; i < 2; i++) {
+    bar(i * cell - 9 * E, 0, 18 * E, size, 44)
+    bar(0, i * cell - 9 * E, size, 18 * E, 44)
+  }
+
+  /** one ~15 cm armour plate: chamfer border, face, clipped corner */
+  const plate = (x0: number, y0: number, w: number) => {
+    const m = 22 * E
+    // three-step chamfer into the face
+    for (let s = 0; s < 3; s++) {
+      const t = s / 2
+      const k = m - t * 12 * E
+      const v = Math.round(72 + t * (FACE - 72))
+      rr(ctx, x0 + k, y0 + k, w - k * 2, w - k * 2, (9 - t * 5) * E)
+      ctx.fillStyle = `rgb(${v},${v},${v})`
+      ctx.fill()
+    }
+    // clipped corner — asymmetry, so the plate has a readable "up"
+    ctx.fillStyle = `rgb(${SHELL},${SHELL},${SHELL})`
+    ctx.beginPath()
+    ctx.moveTo(x0 + w - m, y0 + m)
+    ctx.lineTo(x0 + w - m - 44 * E, y0 + m)
+    ctx.lineTo(x0 + w - m, y0 + m + 44 * E)
+    ctx.closePath()
+    ctx.fill()
+    // lit top lip / shaded bottom lip on the face
+    bar(x0 + m, y0 + m, w - m * 2, 4 * E, 244)
+    bar(x0 + m, y0 + w - m - 4 * E, w - m * 2, 4 * E, 62)
+  }
+
+  const inner = cell
+  for (let py = 0; py < 2; py++) {
+    for (let px = 0; px < 2; px++) {
+      const x0 = px * inner
+      const y0 = py * inner
+      plate(x0, y0, inner)
+      const q = py * 2 + px
+      const fx = x0 + 44 * E
+      const fy = y0 + 44 * E
+      const fw = inner - 88 * E
+      if (q === 0) {
+        // vent louvre bank — 5 slots with proud lower lips
+        for (let i = 0; i < 5; i++) {
+          const sy = fy + (i + 0.5) * (fw / 5) - fw / 14
+          bar(fx, sy, fw, fw / 11, 50)
+          bar(fx, sy + fw / 11, fw, 5 * E, 236)
+        }
+      } else if (q === 1) {
+        // sunken inspection hatch with a rivet ring
+        bar(fx + fw * 0.12, fy + fw * 0.12, fw * 0.76, fw * 0.76, 108)
+        bar(fx + fw * 0.12, fy + fw * 0.12, fw * 0.76, 4 * E, 56)
+        bar(fx + fw * 0.12, fy + fw * 0.86, fw * 0.76, 4 * E, 228)
+        for (let i = 0; i < 4; i++) {
+          rivet(fx + fw * (0.2 + 0.2 * i), fy + fw * 0.88, 7 * E)
+        }
+      } else if (q === 2) {
+        // weld ladder: stiffener ribs across the face
+        for (let i = 0; i < 6; i++) {
+          bar(fx, fy + i * (fw / 6) + fw / 24, fw, fw / 18, 224)
+          bar(fx, fy + i * (fw / 6) + fw / 24 + fw / 18, fw, 3 * E, 74)
+        }
+      } else {
+        // bolted strap crossing the plate, with a bore at its centre
+        bar(fx + fw * 0.34, fy, fw * 0.32, fw, 220)
+        bar(fx + fw * 0.34, fy, 4 * E, fw, 246)
+        bar(fx + fw * 0.66 - 4 * E, fy, 4 * E, fw, 92)
+        disc(fx + fw * 0.5, fy + fw * 0.5, fw * 0.14, 52)
+        disc(fx + fw * 0.5, fy + fw * 0.5, fw * 0.09, 150)
+        for (let i = 0; i < 2; i++) rivet(fx + fw * 0.5, fy + fw * (0.14 + 0.72 * i), 8 * E)
+      }
+    }
+  }
+
+  ctx.filter = `blur(${(0.5 * E).toFixed(2)}px)`
+  ctx.drawImage(canvas, 0, 0)
+  ctx.filter = 'none'
+
+  const d = ctx.getImageData(0, 0, size, size).data
+  const h = new Float32Array(size * size)
+  for (let i = 0; i < h.length; i++) {
+    const x = i % size
+    const y = (i / size) | 0
+    h[i] = Math.min(
+      1,
+      Math.max(
+        0,
+        d[i * 4] / 255 +
+          (vnoise((x * 0.3) / E, (y * 0.3) / E) - 0.5) * 0.05 +
+          (vnoise((x * 1.4) / E, (y * 1.4) / E) - 0.5) * 0.022,
+      ),
+    )
+  }
+  const hBlur = boxBlurWrap(h, size, Math.round(5 * E))
+
+  const [nCanvas, nCtx] = makeCanvas(size)
+  const [oCanvas, oCtx] = makeCanvas(size)
+  const [cCanvas, cCtx] = makeCanvas(size)
+  const nImg = nCtx.createImageData(size, size)
+  const oImg = oCtx.createImageData(size, size)
+  const cImg = cCtx.createImageData(size, size)
+  const at = (x: number, y: number) =>
+    h[(((y % size) + size) % size) * size + (((x % size) + size) % size)]
+  const strength = 2.6 * E
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4
+      const hv = h[y * size + x]
+      const cav = hv - hBlur[y * size + x]
+
+      let nx = (at(x - 1, y) - at(x + 1, y)) * strength
+      let ny = (at(x, y - 1) - at(x, y + 1)) * strength
+      const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1)
+      nImg.data[i] = (nx * inv * 0.5 + 0.5) * 255
+      nImg.data[i + 1] = (ny * inv * 0.5 + 0.5) * 255
+      nImg.data[i + 2] = inv * 255
+      nImg.data[i + 3] = 255
+
+      // ORM: R cavity AO, G roughness, B metalness
+      const ao = Math.min(1, Math.max(0.3, 1 + cav * 3.4))
+      let rough = 0.72 - hv * 0.3 + (vnoise((x * 0.6) / E, (y * 0.6) / E) - 0.5) * 0.14
+      rough = Math.min(0.95, Math.max(0.22, rough + Math.max(0, -cav) * 0.7))
+      // raised plate faces are the machined, part-metal armour; the shell
+      // field between them is a matte composite. One constant metalness over a
+      // whole body is the same authoring tell it is on architecture.
+      const metal = Math.min(0.85, Math.max(0.12, (hv - 0.42) * 1.6))
+      oImg.data[i] = ao * 255
+      oImg.data[i + 1] = rough * 255
+      oImg.data[i + 2] = metal * 255
+      oImg.data[i + 3] = 255
+
+      // albedo multiplier. The plate/shell VALUE split is the point: at 30 px
+      // it is the only thing giving the silhouette internal structure, and it
+      // is light-independent so it survives being backlit by the ult.
+      const plateT = Math.min(1, Math.max(0, (hv - 0.46) / 0.22))
+      const grime = Math.min(1, Math.max(0, -cav) * 2.6 + Math.max(0, (0.44 - hv) / 0.4) * 0.7)
+      const lum = Math.min(1, Math.max(0.2, 0.66 + plateT * 0.4 - grime * 0.36))
+      const warm = grime * 0.4
+      cImg.data[i] = lum * 255
+      cImg.data[i + 1] = lum * (1 - warm * 0.08) * 255
+      cImg.data[i + 2] = lum * (1 - warm * 0.2) * 255
+      cImg.data[i + 3] = 255
+    }
+  }
+  nCtx.putImageData(nImg, 0, 0)
+  oCtx.putImageData(oImg, 0, 0)
+  cCtx.putImageData(cImg, 0, 0)
+
+  const mk = (c: HTMLCanvasElement, srgb = false) => {
+    const t = new THREE.CanvasTexture(c)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    t.anisotropy = 8
+    t.needsUpdate = true
+    return t
+  }
+  enemyNormal = mk(nCanvas)
+  enemyORM = mk(oCanvas)
+  enemyAlbedo = mk(cCanvas, true)
+}
+
+/**
+ * Shared enemy armour maps. One tile is ~0.5 m of body, so a `repeat` of
+ * (bodyWidth/0.5, bodyHeight/0.5) on a Trooper box lands the plates at the
+ * ~15 cm the sheet is authored for.
+ *
+ * `orm` is packed R=cavity AO, G=roughness, B=metalness and can be bound to
+ * aoMap, roughnessMap and metalnessMap at once (three reads .r/.g/.b
+ * respectively), exactly as the gold set does.
+ */
+export function getEnemyPlateTextures(): {
+  map: THREE.CanvasTexture
+  normalMap: THREE.CanvasTexture
+  orm: THREE.CanvasTexture
+} {
+  if (!enemyNormal) buildEnemyMaps()
+  return { map: enemyAlbedo!, normalMap: enemyNormal!, orm: enemyORM! }
 }
 
 /**

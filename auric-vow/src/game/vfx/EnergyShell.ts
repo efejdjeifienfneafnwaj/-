@@ -82,6 +82,9 @@ uniform float uFresnelAmt;
 uniform float uFresnelPow;
 uniform float uVolume;
 uniform float uVolumePow;
+uniform float uBand;
+uniform float uBandAt;
+uniform float uBandWidth;
 uniform float uHotAmt;
 uniform float uHotPow;
 uniform float uGlyphAmt;
@@ -129,6 +132,21 @@ void main() {
   float vol = pow(ndv, uVolumePow);
   float shape = mix(1.0, rim, uFresnelAmt);
   shape = mix(shape, vol, uVolume);
+  // [vfx R5] SHELL band — a third falloff family, between the two above.
+  //
+  // 'volume' is brightest through the middle of the shape and 'rim' only at
+  // its outline, and NEITHER of them is what a detonation looks like. A
+  // released blast is HOLLOW: a bright wall of light with a dark middle, and
+  // on a sphere that is a gaussian in |N.V| centred between the two extremes
+  // rather than at either of them. A fresnel rim cannot stand in for it — on
+  // a 1.2 m sphere 3.6 m from the lens, pow(1-|N.V|, 3) puts its half-value
+  // inside the outer 2% of the disc radius, which rasterises as a six-pixel
+  // hairline. This band, at its default width, covers the outer 40% of the
+  // radius: a wall with a thickness, which is what the eye reads as a shell.
+  if (uBand > 0.001) {
+    float bx = (ndv - uBandAt) / max(1e-3, uBandWidth);
+    shape = mix(shape, exp(-bx * bx), uBand);
+  }
 
   // along-axis authoring: beams taper to nothing at the tail and (optionally)
   // at the head, so no energy element ever ends on a flat cut.
@@ -281,6 +299,10 @@ function layerMaterial(
       uFresnelPow: { value: profile === 'rim' ? power : 1 },
       uVolume: { value: profile === 'volume' ? 1 : 0 },
       uVolumePow: { value: profile === 'volume' ? power : 1 },
+      // hollow-shell crossfade, driven at runtime (see the SHELL band note)
+      uBand: { value: 0 },
+      uBandAt: { value: 0.55 },
+      uBandWidth: { value: 0.32 },
       uHotAmt: { value: shape.hot ?? fallback.hot },
       uHotPow: { value: shape.hotPow ?? fallback.hotPow },
       uGlyphAmt: { value: glyphAmt },

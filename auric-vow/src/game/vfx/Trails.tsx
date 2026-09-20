@@ -65,6 +65,31 @@ const STALL_SEC = 0.15
 const ORPHAN_SEC = 0.35
 /** grace period after begin() before the stall test is armed */
 const STALL_ARM_SEC = 0.25
+/**
+ * [vfx R5] UNCONDITIONAL CEILING (work order vfx-postfx #6).
+ *
+ * The stall and orphan tests above both depend on what the OWNER does: a
+ * ribbon whose emitter keeps pushing a head position faster than STALL_SPEED
+ * can live forever, and every owner in the game is a state machine that some
+ * other state machine can interrupt. The panel's report is a gold ribbon
+ * lying across the deck in four consecutive frames — i.e. something got past
+ * both tests. No streak in this game is a 1.2 s effect, so nothing legitimate
+ * is lost by making that a hard wall the owner cannot argue with.
+ *
+ * Measured on the wall clock, not on game time: a ribbon must not get four
+ * times its lifetime because it was cast during the ultimate's dilation.
+ */
+const MAX_LIFE_SEC = 1.2
+/**
+ * [vfx R5] Metres of camera distance under which a ribbon folds away
+ * completely (work order vfx-postfx #3). A camera-facing strip 0.15 m
+ * half-width is a body-scale slab at a metre from the lens, and the
+ * third-person boom passes THROUGH the dash path by construction — the
+ * player is running away from the camera and the ribbon is laid where the
+ * player was.
+ */
+const NEAR_FADE_END = 1.1
+const NEAR_FADE_START = 2.6
 
 const HEAD_COLOR = new THREE.Color(COLORS.solarWhite)
 const MID_COLOR = new THREE.Color(COLORS.aureate)
@@ -122,7 +147,7 @@ class Ribbon {
   private filled = 1
   /** smoothed emitter speed (m/s), drives the resampling distance */
   private speed = 0
-  /** seconds since begin() — the stall test is armed after STALL_ARM_SEC */
+  /** seconds since begin(), on the WALL clock — drives both age-outs */
   private age = 0
   /** seconds the smoothed speed has been under STALL_SPEED */
   private stalled = 0
@@ -274,6 +299,9 @@ class Ribbon {
         (this.stalled > STALL_SEC || this.sincePush > ORPHAN_SEC)
       ) {
         this.end()
+      } else if (this.age > MAX_LIFE_SEC) {
+        // [vfx R5] the wall: no owner can hold a streak open past this
+        this.end()
       }
     }
     if (this.ending) {
@@ -317,10 +345,22 @@ class Ribbon {
       _t2.copy(view).normalize()
       const endOn = Math.abs(_t1.dot(_t2))
       const facing = Math.max(0.05, 1 - endOn * endOn * endOn)
+      // [vfx R5] NEAR-PLANE FOLD. `view` is already (sample - camera), so its
+      // length is the distance this vertex pair sits from the lens. Folding
+      // the half-width AND the alpha on the same ramp means a ribbon the
+      // camera is about to pass through thins to a filament and then to
+      // nothing, instead of opening into a body-scale additive slab across
+      // the frame the way the dash streak does at the moment the boom
+      // overtakes the path the player just ran.
+      const nearK = THREE.MathUtils.clamp(
+        (view.length() - NEAR_FADE_END) / (NEAR_FADE_START - NEAR_FADE_END),
+        0,
+        1,
+      )
       // width: full just behind the head, tapering to a point at the tail.
       // sqrt keeps the body wide instead of pinching immediately.
       const taper = Math.sqrt(Math.max(0, 1 - t)) * (0.55 + 0.45 * Math.min(1, t * 6))
-      const halfW = BASE_HALF_WIDTH * taper * fade * (0.35 + 0.65 * facing)
+      const halfW = BASE_HALF_WIDTH * taper * fade * (0.35 + 0.65 * facing) * nearK
       const b = i * VPS * 3
       // left edge
       pos[b] = p.x + side.x * halfW
@@ -356,7 +396,7 @@ class Ribbon {
       // alpha: 0 at both edges, 1 at the spine; squared head→tail falloff.
       // Slots that have not been written yet collapse to nothing.
       const grown = i < this.filled ? 1 : 0
-      const along = (1 - t) * (1 - t) * fade * grown * facing
+      const along = (1 - t) * (1 - t) * fade * grown * facing * nearK * nearK
       const a2 = i * VPS
       alp[a2] = 0
       alp[a2 + 1] = along

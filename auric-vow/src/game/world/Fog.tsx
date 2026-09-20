@@ -43,6 +43,16 @@
  *
  * The patch is installed once at module load and verifies itself: if an anchor
  * does not match the stock chunk, nothing is written and three's own fog runs.
+ *
+ * R5 (light transport) — no structural change, three numbers. The veil's near
+ * value drops so the first few metres of air SUBTRACT more (fog is the only
+ * term in the renderer that can put a floor under the darks), its far value
+ * drops so a 60 m wall stops being lifted by the haze that is supposed to be
+ * describing its distance, and the vertical ramp is steepened and deepened so
+ * everything below the cornice is darker veil than it was. The arena's zone
+ * density is trimmed to 0.7× for the same reason: an interior should be
+ * clearer than the open canyon it opens off. See each constant for the
+ * arithmetic.
  */
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
@@ -84,9 +94,26 @@ const FOG_PHASE_POW = 6
  * The gap between the two is the frame's aerial-perspective value range, and
  * it is what lets a mid-distance column read as darker than the wall behind it
  * without either of them changing hue.
+ *
+ * R5 — 0.62 → 0.46 near, 1.28 → 1.10 far. Two separate reasons.
+ *
+ * The near end is the only term in the whole renderer that can put a FLOOR
+ * UNDER the darks. Everything else — the key, the apertures, the practicals,
+ * the probe — can only add. A recess 6 m from the lens has a few percent of
+ * fog over it, and at 0.62 that fog was still bright enough to be roughly
+ * neutral; at 0.46 it subtracts, so the recess goes down rather than sideways.
+ * This is the "the shadow end never reaches black" note, answered from the
+ * one place it can be answered without touching the grade.
+ *
+ * The far end is the "lavender fog is lifting the distance into the
+ * mid-tones" note. At 1.28 a 60 m arena wall sitting under 40 % fog was
+ * having its value RAISED by the veil — which, on the one wall in the level
+ * that already reads as wallpaper, removes the last bit of range the aperture
+ * rake has to work with. 1.10 still separates far from near by value, which
+ * is the cue aerial perspective is actually made of.
  */
-const FOG_NEAR_VALUE = 0.62
-const FOG_FAR_VALUE = 1.28
+const FOG_NEAR_VALUE = 0.46
+const FOG_FAR_VALUE = 1.1
 /** how far the thickest fog is pushed toward a desaturated cool at distance */
 const FOG_COOL_FAR = 0.45
 /** inscatter colour: the key, dimmed so the haze never out-values the deck */
@@ -161,8 +188,18 @@ const HEIGHT_FOG_INSTALLED = (() => {
 		// ---- aerial perspective --------------------------------------------
 		float fogSun = pow( max( dot( fogDir, vec3( ${f(KEY_DIR.x)}, ${f(KEY_DIR.y)}, ${f(KEY_DIR.z)} ) ), 0.0 ), ${f(FOG_PHASE_POW)} );
 		vec3 fogTint = mix( fogColor, vec3( ${f(FOG_SUN_COLOR.r)}, ${f(FOG_SUN_COLOR.g)}, ${f(FOG_SUN_COLOR.b)} ), fogSun * ${f(FOG_INSCATTER)} );
-		// and a vertical value ramp, so the veil itself is not one flat band
-		fogTint *= mix( 0.55, 1.0, clamp( ( vFogWorld.y + 6.0 ) / 24.0, 0.0, 1.0 ) );
+		// and a vertical value ramp, so the veil itself is not one flat band.
+		//
+		// R5 — the ramp used to run 0.55 → 1.0 over y −6 → 18, which put a
+		// surface at head height at 0.85 of full veil value: near enough to
+		// flat that the haze over a 10 m interior was one band after all. It
+		// now runs 0.28 → 1.0 over y −10 → 26, so the deck is at 0.48, the
+		// cornice at 0.68, the vault crown at 1.0 and anything that has
+		// fallen off the edge at 0.28. Every height below the cornice is
+		// darker than it was, which is the "height-restrict the lavender"
+		// half of the note — the veil is still lavender where you can see
+		// sky through it and nearly black where the level is.
+		fogTint *= mix( 0.28, 1.0, clamp( ( vFogWorld.y + 10.0 ) / 36.0, 0.0, 1.0 ) );
 
 		// ---- R4: let VALUE carry depth, not hue ----------------------------
 		// A single fog colour is a single value, so it lifts a near recess by
@@ -203,7 +240,19 @@ export default function Fog() {
       canyonA: { density: FOG.canyonDensity, color: new THREE.Color(FOG.color) } as FogZone,
       canyonB: { density: FOG.canyonDensity, color: new THREE.Color(SKY.horizon) } as FogZone,
       chamber: { density: 0.012, color: new THREE.Color('#141C36') } as FogZone,
-      arena: { density: FOG.arenaDensity, color: new THREE.Color(FOG.color) } as FogZone,
+      // R5 — the arena runs at 0.7× the authored `FOG.arenaDensity`.
+      //
+      // The zone table is this file's, the constant is the grade's, so the
+      // trim lives here rather than in config. Reason: the arena is 60 m
+      // corner to corner and ROOFED, and at 0.012 its far wall sits under
+      // 1 − exp(−(0.012·60)²) = 40 % veil. Forty per cent of anything is a
+      // value the wall did not earn, and this is the one wall in the level
+      // the panel singles out as "tiles like wallpaper with no lit falloff".
+      // At 0.0084 the same wall is under 23 %, which leaves the ridge-slot
+      // rake (see Lighting.tsx APERTURES) most of its range instead of
+      // handing a third of it to the haze. An interior should be clearer
+      // than the open canyon it opens off, not murkier.
+      arena: { density: FOG.arenaDensity * 0.7, color: new THREE.Color(FOG.color) } as FogZone,
       extraction: { density: 0.015, color: new THREE.Color(SKY.horizon) } as FogZone,
     }),
     [],

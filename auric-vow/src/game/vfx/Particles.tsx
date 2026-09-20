@@ -88,6 +88,8 @@ uniform float uTime;
 uniform float uBoost;
 uniform vec3 uCoolTint;
 uniform float uCool;
+uniform float uMinPx;
+uniform float uMaxPx;
 varying float vAlpha;
 varying vec3 vColor;
 varying float vAngle;
@@ -132,7 +134,29 @@ void main() {
   vAngle = vStretch > 0.02 && dl > 1e-5 ? atan(d.y, d.x) : spin;
 
   float s = aSize * (0.45 + 0.55 * t) * (0.35 + 0.65 * birth);
-  gl_PointSize = aLife > 0.0 ? s * (1.0 + vStretch) * uPixelScale / max(0.1, -mv.z) : 0.0;
+  float px = s * (1.0 + vStretch) * uPixelScale / max(0.1, -mv.z);
+  /*
+   * [vfx R5] THE SPARKS WERE SUB-PIXEL.
+   *
+   * MEASURED, not restyled. A rifle impact sprays particles authored at
+   * a size of 0.05-0.06 m. Point size in pixels is size * uPixelScale / depth,
+   * and uPixelScale at 720p with a 70 degree lens is height / (2 tan(fov/2))
+   * = 514. At the engagement range the review frames were captured at —
+   * 20-25 m from the lens to the enemy — that is 514 * 0.055 / 25 = 1.1
+   * PIXELS, faded by a birth ramp and a life ramp on top. The panel's "no
+   * impact VFX appears anywhere" is literally true at the pixel level: every
+   * impact in the review set fired correctly and rasterised into about one
+   * pixel each.
+   *
+   * A floor in SCREEN space is the fix — a spark is a bright point source and
+   * a lens gives every point source a minimum footprint whatever its
+   * distance. Alpha is trimmed as the clamp bites so a field of distant motes
+   * cannot add up to a haze, but only down to 0.45: the point is to be SEEN.
+   * The ceiling stops one near-camera ember owning a quarter of the frame.
+   */
+  float clamped = clamp(px, uMinPx, uMaxPx);
+  vAlpha *= clamp(px / max(1e-3, clamped), 0.45, 1.0);
+  gl_PointSize = aLife > 0.0 ? clamped : 0.0;
   gl_Position = clip0;
 }
 `
@@ -249,6 +273,10 @@ class ParticlePool {
         uBoost: { value: isSmoke ? SMOKE_BOOST : ADDITIVE_BOOST },
         uCoolTint: { value: new THREE.Vector3(...FAMILY_COOL[family]) },
         uCool: { value: isSmoke ? 0 : 1 },
+        // smoke is mass and must stay a real world size; the additive
+        // families are point SOURCES and get the screen-space floor
+        uMinPx: { value: isSmoke ? 0 : 3.0 },
+        uMaxPx: { value: isSmoke ? 4096 : 220 },
         uSoft: { value: isSmoke ? 0.55 : 1 },
         uAtlas: { value: getParticleAtlas() },
       },

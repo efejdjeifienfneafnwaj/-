@@ -81,8 +81,48 @@
  * lit material at all. The rig can never shade the other 851. Most are
  * legitimately unlit VFX, but it caps what any lighting work can achieve.
  *
+ *
+ * R5 (light transport). R4 established that a roofed room has to be lit by
+ * the openings the sun comes through, and then lit three of the level's four
+ * rooms that way. This round is mostly about the fourth.
+ * - THE ARENA. `lightReport` on the R4 build shows it: the arena is the room
+ *   the review set judges hardest (08_enemies, 11_ability_dash, 17_katana,
+ *   18_arena_wide — four of nineteen frames) and it had NO placed light of
+ *   any kind. Its 60 m walls were lit by the probe and a 0.066 hemisphere,
+ *   both directionless, which is the literal mechanism behind "the arena wall
+ *   tiles like wallpaper with no lit falloff" and behind a back wall that
+ *   carries one value from plinth to cornice. `ARENA_VAULT_OCULUS_BAYS` has
+ *   left the vault ridge open at z 190 and z 200 since R4 and nothing was
+ *   ever put behind it; both slots now carry an aperture key.
+ * - APERTURE SLOT POOL. The six openings are now DATA and the lights are a
+ *   two-deep pool that follows the camera into the room it is in, so the two
+ *   shadow passes the rig already paid for are spent where the player is.
+ *   That is what lets the canyon glazing cast — 03_sprint is an arcade under
+ *   a rib course and a gantry run with not one rung of shade on its deck —
+ *   and lets the arena pool be cut by its own megaliths. The pool exists
+ *   rather than six gated lights because `numSpotLights` and
+ *   `numSpotLightShadows` are program parameters; see APERTURE_SLOTS.
+ * - POOL BOUNCE. Each live aperture seats a decay-2 point light over the
+ *   patch of floor its shaft lands on. In a hall lit through a hole the pool
+ *   is the brightest surface by a wide margin and the wall above it is lit by
+ *   the floor, not by the sky; that 1/r² vertical ramp is the cue the arena
+ *   has never had, and unlike an ambient lift it cannot reach the far side of
+ *   the room.
+ * - CHARACTER KICKERS. The only light dedicated to the hero was a point light
+ *   1.15 m behind his pelvis, which wraps a convex mass in an even value —
+ *   the cue the eye reads as BULK, and half of why the panel keeps calling a
+ *   measured 8.14-head figure barrel-chested. A distant near-parallel warm
+ *   back-three-quarter kicker plus a cold counter-rim collapses the lit band
+ *   onto the silhouette boundary instead, which is the Warframe read and
+ *   which makes the same geometry look narrower. See KICKERS.
+ * - probe 0.26 → 0.20 with the specular features compensated, and the fog's
+ *   near value and height ramp both pulled down (Fog.tsx), because fog is the
+ *   only term in the renderer that can put a floor UNDER the darks.
+ *
  * Phase-driven lights (chamber/pad gold points) live in EnvironmentFX.
- * The player-follow rim light (design §2.3 #12) is owned by the player rig.
+ * The player-follow rim light (design §2.3 #12) is owned by the player rig;
+ * the camera-space KICKERS below are a separate instrument and deliberately
+ * so — see the note over KICKERS for why one cannot do the other's job.
  */
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
@@ -291,79 +331,495 @@ const APERTURES: {
   floorIrradiance: number
   /** metres from the aperture down to the floor it lands on */
   drop: number
-  /** whether this one renders a shadow map (the two oculi do) */
-  cast: boolean
+  /**
+   * Shadow-camera near plane, in metres ALONG THE RAY from the aperture. The
+   * default 1.5 over a 97 m far spends almost the whole depth range on the
+   * empty air between the vault and the first thing that can occlude, and a
+   * 24-bit depth buffer distributed hyperbolically over 1.5→97 has roughly a
+   * 60× coarser slope near the floor than one distributed over 14→97. That
+   * difference is the entire acne budget for the arena pool.
+   */
+  near?: number
+  /**
+   * Bounce: how much of this aperture's pool comes back up off the floor, as
+   * a fraction of `floorIrradiance` measured at 1 m. See `ApertureKeys` — the
+   * pool is by a wide margin the brightest surface in a roofed room, so the
+   * wall above it is lit by the floor, not by the sky, and that upward 1/r²
+   * ramp is the thing that stops a 60 m wall reading as wallpaper.
+   */
+  bounce?: number
+  /**
+   * How far the camera can be before this aperture drops out of the slot pool
+   * entirely. Sized so the fixture is already at nothing when it goes — at
+   * `cull` the spot's own distance cutoff has taken it past zero, so the
+   * hand-off between rooms is invisible.
+   */
+  cull?: number
 }[] = [
   // spawn oculus — the first interior the player stands in
-  { p: [0, 12, 7.5], angle: 0.46, floorIrradiance: 5.3, drop: 12, cast: true },
+  { p: [0, 12, 7.5], angle: 0.46, floorIrradiance: 5.3, drop: 12, bounce: 0.1 },
   // reliquary chamber oculus — the mission's hero room, and the one frame the
   // panel is most likely to judge. Its pool lands off-centre by design.
-  { p: [0, 17, 150], angle: 0.56, floorIrradiance: 6.2, drop: 17, cast: true },
-  // canyon glazing, two bays — these rake the deck the player sprints down
-  { p: [3.4, 10, 60], angle: 0.36, floorIrradiance: 3.9, drop: 10, cast: false },
-  { p: [3.4, 10, 100], angle: 0.36, floorIrradiance: 3.9, drop: 10, cast: false },
+  { p: [0, 17, 150], angle: 0.56, floorIrradiance: 6.2, drop: 17, bounce: 0.14 },
+  // canyon glazing, two bays — these rake the deck the player sprints down.
+  //
+  // R5: these CAST now. In 03_sprint the canyon is a roofed arcade whose
+  // floor carries no shadow at all, because the only light reaching it came
+  // through these two openings and they were shadowless — so the gantries,
+  // the transverse arches and the rib course overhead threw nothing. A lit
+  // corridor with no rungs of shade across it is the clearest possible signal
+  // that nothing in the frame is being transported, and it is the one the
+  // panel keeps reading as "untextured blockout". A slot's 1024 over a
+  // canyon bay's 11 m cone is 1.1 cm/texel, which resolves a rib comfortably.
+  // (irradiance left at R4's 3.9 on purpose: 4.3 was tried and measured +17
+  //  on the canyon's median, and the canyon is already the brightest room in
+  //  the level. What this round changes here is that the openings CAST, not
+  //  that they deliver more.)
+  { p: [3.4, 10, 60], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.08, cull: 62 },
+  { p: [3.4, 10, 100], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.08, cull: 62 },
+  // ---------------------------------------------------------------------
+  // ARENA VAULT RIDGE SLOTS — the room the review set judges hardest, and
+  // until R5 the only room in the level with NO placed light of any kind.
+  //
+  // `ARENA_VAULT_OCULUS_BAYS` in layout.ts leaves the ridge open at z 190 and
+  // z 200, so the arena has two real 10 m openings at the crown, 29.5 m over
+  // the deck, and nothing was ever put behind them. Everything in 08_enemies
+  // and 18_arena_wide is therefore lit by the probe and the hemisphere, both
+  // directionless by construction — which is exactly why the arena's back
+  // wall is one flat value from plinth to cornice and why every wide of it
+  // reads as wallpaper.
+  //
+  // At the key's 41.7° elevation a slot 29.5 m up throws its pool 44.3 m down
+  // the ray and lands it at x ≈ +20.6, z ≈ slot + 25.9. So the z=190 slot
+  // pools on the floor in the north-east quadrant and the z=200 slot runs
+  // past the deck and rakes the NORTH WALL — the wall that fills 08_enemies.
+  // That asymmetry is not staged: it is where a 41.7° sun through those two
+  // holes actually puts its light, and it leaves the west half of the room
+  // in shadow, which is the half the panel wants dark.
+  { p: [0, 29.5, 190], angle: 0.26, floorIrradiance: 6.4, drop: 29.5, near: 14, bounce: 0.2, cull: 88 },
+  { p: [0, 29.5, 200], angle: 0.26, floorIrradiance: 5.6, drop: 29.5, near: 14, bounce: 0.17, cull: 88 },
 ]
 
+/** how far past the floor the cone reaches; see the cutoff-window note below */
+const APERTURE_RANGE_MULT = 2.2
+
+/**
+ * How many spot lights actually exist for the six apertures above, and why
+ * this is a POOL rather than one light per opening.
+ *
+ * The naive version of this round's change — declare all six openings as six
+ * lights, switch the ones in other rooms off with `visible = false`, and flip
+ * `castShadow` with camera distance so only the near ones pay for a shadow
+ * pass — is a trap, and worth recording because it looks like the obviously
+ * correct optimisation.
+ * `numSpotLights` and `numSpotLightShadows` are both PROGRAM PARAMETERS in
+ * three's material cache (WebGLPrograms.getParameters), so either flag
+ * changing rebuilds the shader for every material in the scene. Walking from
+ * the canyon into the chamber would have hitched on a full program rebuild of
+ * ~500 materials, repeatedly, in the exact places the capture harness stops to
+ * take a picture.
+ *
+ * So the light COUNT is constant and the apertures are DATA. Two slots, both
+ * casting, both 1024², reassigned each frame to the two nearest live
+ * apertures — the same pattern TealPracticals and GoldPracticals have used
+ * since R2, with intensity rather than visibility carrying the transition.
+ * Two is exactly what the widest room needs (the canyon and the arena have
+ * two openings each), so the pool never thrashes inside a room; it only
+ * reassigns on a room change, and the fade takes the outgoing slot to zero
+ * before it moves.
+ *
+ * Cost is the reason this is two and not six, and the reason the map stayed
+ * at 1024. The shadow SAMPLER count is a hard limit, not a soft one: every
+ * lit material binds one sampler per shadow-casting light on top of its own
+ * six or seven maps, and WebGL2 only guarantees 16 fragment texture units.
+ * Two aperture shadows plus the two cascades is four — exactly what the R4
+ * rig already spent, at exactly the resolution it already spent it. So this
+ * round buys the canyon glazing and the arena ridge real cast shadows for no
+ * extra sampler, no extra pass and no extra depth-pass fill, purely by
+ * letting the two passes already paid for follow the player into the room he
+ * is standing in. 2048 was measured on the software renderer at +19 % frame
+ * time for a texel density the primary cascade does not itself have.
+ */
+const APERTURE_SLOTS = 2
+/** 2.3 cm/texel over the arena's 24 m pool — the same density as the primary
+ *  cascade — and 1.1 cm over a canyon bay's 11 m one */
+const APERTURE_MAP = 1024
+
+const _apCam = new THREE.Vector3()
+// Module-scope scratch, like the contact-blob buffers below: ApertureKeys is
+// a singleton and these are pure per-frame workspace, so they are not state.
+/** which aperture each slot currently serves, −1 for none */
+const _apSlot = new Int32Array(APERTURE_SLOTS).fill(-1)
+/** 0..1 fade, so a slot changing rooms passes through black rather than
+ *  sliding a 24 m pool across the level */
+const _apLevel = new Float32Array(APERTURE_SLOTS)
+const _apWantIdx = new Int32Array(APERTURE_SLOTS).fill(-1)
+const _apWantDist = new Float32Array(APERTURE_SLOTS).fill(Infinity)
+
 function ApertureKeys() {
+  const lights = useRef<(THREE.SpotLight | null)[]>([])
+  const bounces = useRef<(THREE.PointLight | null)[]>([])
+
   const rig = useMemo(
     () =>
       APERTURES.map((a) => {
         const path = a.drop / Math.max(KEY_DIR.y, 0.2)
+        // where the ray actually lands: the pool centre, and therefore both
+        // the spot's aim point and the seat of its bounce
+        const pool: [number, number, number] = [
+          a.p[0] - KEY_DIR.x * path,
+          a.p[1] - KEY_DIR.y * path,
+          a.p[2] - KEY_DIR.z * path,
+        ]
+        const range = path * APERTURE_RANGE_MULT
+        // three's distance cutoff is a smooth window, not a clip:
+        //   falloff = d^-decay · (1 − (d/cutoff)⁴)²
+        // At d = path and cutoff = 2.2·path the window term is 0.916, so the
+        // authored `floorIrradiance` is delivered to within a tenth of a stop
+        // and the number stays legible as an irradiance.
+        const cutoffWindow = (1 - (path / range) ** 4) ** 2
         return {
           ...a,
           path,
-          // aim the cone along the direction light actually travels, so the
-          // pool lands down-sun of the opening exactly where the cast shadows
-          // from the same direction say it should
-          target: [
-            a.p[0] - KEY_DIR.x * path,
-            a.p[1] - KEY_DIR.y * path,
-            a.p[2] - KEY_DIR.z * path,
-          ] as [number, number, number],
-          intensity: a.floorIrradiance * path,
-          // far enough past the floor that the cutoff window does not eat the
-          // pool, close enough that the light is cheap to cull
-          range: path * 2.2,
+          pool,
+          intensity: (a.floorIrradiance * path) / cutoffWindow,
+          range,
+          /** point-light intensity for the upward bounce off the pool */
+          bounceIntensity: (a.bounce ?? 0) * a.floorIrradiance,
+          bounceRange: Math.max(24, path * 0.9),
+          cull: a.cull ?? 70,
         }
       }),
     [],
   )
 
+  useFrame(({ camera }, dt) => {
+    _apCam.copy(camera.position)
+
+    // --- rank the live apertures by camera distance (insertion sort into a
+    //     preallocated APERTURE_SLOTS-wide buffer; nothing allocates) -----
+    for (let i = 0; i < APERTURE_SLOTS; i++) {
+      _apWantIdx[i] = -1
+      _apWantDist[i] = Infinity
+    }
+    for (let f = 0; f < rig.length; f++) {
+      const a = rig[f]
+      const d = Math.hypot(_apCam.x - a.p[0], _apCam.y - a.p[1], _apCam.z - a.p[2])
+      if (d > a.cull) continue
+      for (let i = 0; i < APERTURE_SLOTS; i++) {
+        if (d < _apWantDist[i]) {
+          for (let j = APERTURE_SLOTS - 1; j > i; j--) {
+            _apWantDist[j] = _apWantDist[j - 1]
+            _apWantIdx[j] = _apWantIdx[j - 1]
+          }
+          _apWantDist[i] = d
+          _apWantIdx[i] = f
+          break
+        }
+      }
+    }
+
+    // --- hold what we already have, so a slot is only reassigned when the
+    //     aperture it serves drops out of the wanted set -------------------
+    // Crossfade rate. This is only ever exercised on a room change, where the
+    // outgoing aperture is already past its own distance cutoff and therefore
+    // contributing nothing — the fade exists so a slot never SLIDES a 24 m
+    // pool across the level, not because the level change needs easing. 5 was
+    // the first guess and it takes ~1.2 s to hand over (out, then in), which
+    // is long enough that a capture harness stepping a dozen frames after a
+    // teleport measures a room at a fifth of its light. 18 hands over in
+    // ~0.2 s and is still ten frames at 60 Hz.
+    const k = 1 - Math.exp(-18 * dt)
+    for (let s = 0; s < APERTURE_SLOTS; s++) {
+      let keep = false
+      for (let i = 0; i < APERTURE_SLOTS; i++) {
+        if (_apWantIdx[i] === _apSlot[s] && _apSlot[s] >= 0) {
+          _apWantIdx[i] = -1 // claimed
+          keep = true
+          break
+        }
+      }
+      _apLevel[s] = THREE.MathUtils.lerp(_apLevel[s], keep ? 1 : 0, k)
+      if (!keep && _apLevel[s] < 0.06) {
+        _apLevel[s] = 0
+        _apSlot[s] = -1
+      }
+    }
+    // --- free slots take the first unclaimed wanted aperture --------------
+    for (let s = 0; s < APERTURE_SLOTS; s++) {
+      if (_apSlot[s] >= 0) continue
+      for (let i = 0; i < APERTURE_SLOTS; i++) {
+        if (_apWantIdx[i] < 0) continue
+        _apSlot[s] = _apWantIdx[i]
+        _apWantIdx[i] = -1
+        break
+      }
+    }
+
+    // --- write the lights -------------------------------------------------
+    for (let s = 0; s < APERTURE_SLOTS; s++) {
+      const l = lights.current[s]
+      const b = bounces.current[s]
+      const f = _apSlot[s]
+      if (f < 0) {
+        if (l) l.intensity = 0
+        if (b) b.intensity = 0
+        continue
+      }
+      const a = rig[f]
+      const lvl = _apLevel[s]
+      if (l) {
+        l.position.set(a.p[0], a.p[1], a.p[2])
+        l.target.position.set(a.pool[0], a.pool[1], a.pool[2])
+        l.target.updateMatrixWorld()
+        l.angle = a.angle
+        l.distance = a.range
+        l.intensity = a.intensity * lvl
+        l.userData.auricFloorIrradiance = a.floorIrradiance * lvl
+        // the near plane is the whole point of the per-aperture shadow
+        // tuning (see APERTURES.near) — a spot's depth buffer is hyperbolic,
+        // so 1.5 → 97 spends its precision on empty air
+        const near = a.near ?? 1.5
+        const cam = l.shadow.camera
+        if (cam.near !== near || cam.far !== a.range) {
+          cam.near = near
+          cam.far = a.range
+          cam.updateProjectionMatrix()
+        }
+      }
+      if (b) {
+        b.position.set(a.pool[0], a.pool[1] + 1.2, a.pool[2])
+        b.distance = a.bounceRange
+        b.intensity = a.bounceIntensity * lvl
+        b.userData.auricBounceAt1m = a.bounceIntensity * lvl
+      }
+    }
+  })
+
   return (
     <>
-      {rig.map((a, i) => (
+      {Array.from({ length: APERTURE_SLOTS }).map((_, i) => (
         <spotLight
           key={i}
-          position={a.p}
+          ref={(r) => {
+            lights.current[i] = r
+          }}
           color={LIGHTING.key.color}
-          intensity={a.intensity}
-          angle={a.angle}
+          intensity={0}
+          angle={0.4}
           // a hole in a roof has a soft edge because the sun is not a point;
           // this is the term that stops the pool reading as a stage gobo
           penumbra={0.55}
-          distance={a.range}
+          distance={40}
           decay={1.0}
-          castShadow={a.cast}
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
+          castShadow
+          shadow-mapSize-width={APERTURE_MAP}
+          shadow-mapSize-height={APERTURE_MAP}
           shadow-radius={1.4}
           shadow-camera-near={1.5}
-          shadow-camera-far={a.range}
+          shadow-camera-far={40}
           shadow-bias={-0.0004}
           shadow-normalBias={0.012}
           onUpdate={(l: THREE.SpotLight) => {
-            l.target.position.set(a.target[0], a.target[1], a.target[2])
-            l.target.updateMatrixWorld()
             if (!l.target.parent) l.parent?.add(l.target)
             // reported separately from the key: a spot's intensity is candela
             // over a 25 m throw, so summing it with a directional light's
             // irradiance would make every ratio meaningless. The bridge reads
             // `auricFloorIrradiance` instead, which IS in the key's units.
             l.userData.auricRole = 'aperture'
-            l.userData.auricFloorIrradiance = a.floorIrradiance
-            // these are the interiors' dominant source, so they are the LAST
-            // casters to be shed — losing them returns the room to flat ambient
-            l.userData.auricShadowTier = 2
+            l.userData.auricFloorIrradiance = 0
+            // Slot 0 is the LAST caster in the game to be shed — in a roofed
+            // room it is the only source that models form, and losing it
+            // returns the room to flat ambient. Slot 1 goes at tier 1 with
+            // the far cascade.
+            l.userData.auricShadowTier = i === 0 ? 2 : 1
+          }}
+        />
+      ))}
+      {/* ------------------------------------------------------------------
+          Pool bounce. One point light seated 1.2 m over each live aperture's
+          pool, in the pool's own colour, at decay 2.
+
+          This is the term a roofed room cannot do without and the rig has
+          never had. In a hall lit through a hole, the brightest surface by a
+          wide margin is the patch of floor the shaft lands on, and that patch
+          is what lights the walls: irradiance falls as 1/r² from the pool, so
+          a wall is bright at the plinth, a stop down at head height and dark
+          at the cornice. That gradient is the single cue that separates a
+          photographed interior from a probe-lit one, and its absence is the
+          literal reading the panel gives the arena — "tiles like wallpaper
+          with no lit falloff".
+
+          It is deliberately NOT a fill: at decay 2 it is 1/9 of its 1 m value
+          at 3 m and 1/400 at 20 m, so it can never flatten the far side of
+          the room the way an ambient term does. Non-casting, and it fades
+          with the aperture that motivates it.
+      ------------------------------------------------------------------- */}
+      {Array.from({ length: APERTURE_SLOTS }).map((_, i) => (
+        <pointLight
+          key={`b${i}`}
+          ref={(r) => {
+            bounces.current[i] = r
+          }}
+          color={LIGHTING.key.color}
+          intensity={0}
+          distance={30}
+          decay={2}
+          onUpdate={(l: THREE.PointLight) => {
+            l.userData.auricRole = 'bounce'
+            // reported at 1 m, in the key's units, for the same reason the
+            // aperture publishes its floor irradiance
+            l.userData.auricBounceAt1m = 0
+          }}
+        />
+      ))}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// CHARACTER KICKERS (R5) — the pair of lights that make the figure a shape
+//
+// The standing complaint about the hero is that he reads squat and barrel-
+// chested. Part of that is proportion and belongs to the rig, but a large
+// part of it is light transport and belongs here, because of how the figure
+// is currently lit: the only light dedicated to him is a point light 1.15 m
+// behind the pelvis at distance 3.6. A point source that close wraps — its
+// rays diverge across the body, so it lights the whole back of the torso at
+// roughly even value instead of edging it, and a broad even value on a convex
+// mass is exactly the cue the eye reads as BULK. It also puts its hottest
+// spot on whatever surface is nearest, which on a third-person rear view is
+// the middle of the back, i.e. the widest part of the silhouette.
+//
+// A kicker does the opposite. Put the source far enough away that its rays
+// are near-parallel across a 1.8 m figure and the lit band collapses onto the
+// true silhouette boundary — a constant-width edge that traces the outline of
+// the helmet crest, the pauldron, the outer arm and the calf, with the core
+// of the body left dark. That is the Warframe marketing look in one sentence,
+// and the narrow bright edge plus a dark core reads SLIMMER than the same
+// geometry lit flat, because the eye takes the lit band as the boundary.
+//
+// So: two spots, 7–8 m from the player, aimed at his chest, following him in
+// CAMERA SPACE so the rim is always on the far side of the figure from the
+// lens no matter which way he turns. Warm three-quarter back-left at full
+// strength; cold back-right at a third of it, for the second, cooler edge
+// that keeps the dark side from closing up. Neither casts.
+//
+//   - decay 1.0 with a 1.6× distance cutoff, the same convention the aperture
+//     keys use, so the authored number is the irradiance actually delivered
+//     at the subject rather than an opaque candela figure. The 1.6 is load-
+//     bearing and the arithmetic is in the `rig` memo below: it is what makes
+//     the cone die a couple of metres past him instead of painting the wall.
+//   - penumbra 0.92 and an aim point at chest height: the cone continues past
+//     the player and meets the deck a couple of metres beyond, and at that
+//     penumbra the spill is a soft warm ellipse rather than a travelling
+//     stage gobo. The ContactBlob sits inside it, so the figure gets a bright
+//     ground around a dark contact — which grounds him twice over.
+//   - killed while the player is dead or dissolved out, and faded out when
+//     the lens is closer than ~1.6 m, where the cone would be behind the near
+//     plane and the only thing it could light is the inside of the armour.
+// ---------------------------------------------------------------------------
+const KICKERS: {
+  /** ground azimuth off the camera→player axis, rad. 0 = straight behind. */
+  azim: number
+  /** elevation over the ground plane, rad */
+  elev: number
+  /** metres from the subject */
+  dist: number
+  color: string
+  /** irradiance delivered at the subject, in the same units as the key's */
+  subject: number
+  angle: number
+}[] = [
+  // warm three-quarter back rim — the one that draws the outline
+  { azim: 0.72, elev: 0.56, dist: 8.0, color: '#FFF0D4', subject: 6.6, angle: 0.2 },
+  // cold back rim on the other shoulder, a third of the warm one
+  { azim: -1.0, elev: 0.44, dist: 7.0, color: LIGHTING.coolRim.color, subject: 2.3, angle: 0.22 },
+]
+
+const _kickFwd = new THREE.Vector3()
+const _kickPos = new THREE.Vector3()
+
+function CharacterKickers() {
+  const lights = useRef<(THREE.SpotLight | null)[]>([])
+
+  const rig = useMemo(
+    () =>
+      KICKERS.map((k) => {
+        // Same cutoff-window compensation as the apertures, so `subject` is
+        // the irradiance the figure actually receives — but at 1.6× rather
+        // than the apertures' 2.2×, and the multiplier is the whole reason
+        // this reads as a character light instead of a followspot. three's
+        // cutoff is a smooth window, (1 − (d/cutoff)⁴)², so choosing where it
+        // closes chooses how far past the subject the cone survives:
+        //   2.2× — full value on a wall 3 m behind him (a travelling gobo)
+        //   1.25× — dead 2 m past him, but 5:1 across the 1.8 m figure
+        //   1.6× — 1.75:1 across the figure (under a stop, so he is evenly
+        //          rimmed) and about a fifth of the key on a wall 3 m behind
+        //          (reads as spill, which is what spill should read as)
+        const range = k.dist * 1.6
+        const cutoffWindow = (1 - (k.dist / range) ** 4) ** 2
+        return { ...k, range, intensity: (k.subject * k.dist) / cutoffWindow }
+      }),
+    [],
+  )
+
+  useFrame(({ camera }) => {
+    const p = PlayerRef.position
+    const dead = PlayerRef.state === 'dead'
+    // ground-plane direction from the lens to the figure; the kickers are
+    // placed relative to THIS, not to the world, so the rim stays on the far
+    // side of the silhouette through every turn the player makes
+    _kickFwd.set(p.x - camera.position.x, 0, p.z - camera.position.z)
+    const camDist = _kickFwd.length()
+    if (camDist < 1e-3) _kickFwd.set(0, 0, 1)
+    else _kickFwd.divideScalar(camDist)
+    // under ~1.6 m the boom is inside the figure and the cone would light the
+    // inside of the armour; fade rather than pop
+    const near = THREE.MathUtils.smoothstep(camDist, 1.6, 3.0)
+    const baseYaw = Math.atan2(_kickFwd.x, _kickFwd.z)
+
+    for (let i = 0; i < rig.length; i++) {
+      const l = lights.current[i]
+      if (!l) continue
+      const k = rig[i]
+      // intensity, never `visible`: `numSpotLights` is a program parameter,
+      // so hiding a light rebuilds every shader in the scene. Same reason the
+      // aperture pool above is a pool.
+      const gain = dead ? 0 : near
+      l.intensity = k.intensity * gain
+      if (gain <= 0.001) continue
+      const yaw = baseYaw + k.azim
+      const horiz = Math.cos(k.elev) * k.dist
+      _kickPos.set(
+        p.x + Math.sin(yaw) * horiz,
+        p.y + 1.05 + Math.sin(k.elev) * k.dist,
+        p.z + Math.cos(yaw) * horiz,
+      )
+      l.position.copy(_kickPos)
+      l.target.position.set(p.x, p.y + 1.05, p.z)
+      l.target.updateMatrixWorld()
+    }
+  })
+
+  return (
+    <>
+      {rig.map((k, i) => (
+        <spotLight
+          key={i}
+          ref={(r) => {
+            lights.current[i] = r
+          }}
+          color={k.color}
+          intensity={0}
+          angle={k.angle}
+          penumbra={0.92}
+          distance={k.range}
+          decay={1.0}
+          onUpdate={(l: THREE.SpotLight) => {
+            if (!l.target.parent) l.parent?.add(l.target)
+            l.userData.auricRole = 'rim'
+            l.userData.auricSubjectIrradiance = k.subject
           }}
         />
       ))}
@@ -393,6 +849,21 @@ function ApertureKeys() {
 // Cost: 20 taps per fragment on four small, mostly off-screen cones, back
 // faces only, depth-tested against the opaque scene. Nothing allocates.
 // ---------------------------------------------------------------------------
+/**
+ * Euler that lays a Y-axis cylinder along the key direction.
+ *
+ * The four R3 shafts are vertical because their drops are 10–17 m, where a
+ * 41.7° sun and a plumb line only disagree by a few metres. Over the arena's
+ * 29.5 m drop they disagree by 20 m of floor, which is a third of the room —
+ * enough for the visible shaft and the pool it is meant to explain to land in
+ * different halves. So the arena shafts are tilted to the actual ray.
+ */
+const ARENA_SHAFT_ROT = (() => {
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), KEY_DIR)
+  const e = new THREE.Euler().setFromQuaternion(q)
+  return [e.x, e.y, e.z] as [number, number, number]
+})()
+
 const GOD_RAYS: {
   p: [number, number, number]
   r: [number, number, number]
@@ -408,6 +879,24 @@ const GOD_RAYS: {
   { p: [0, 8.5, 150], r: [0, 0, 0], top: 6, bottom: 14, h: 17, power: 0.026 }, // chamber oculus
   { p: [3.4, 5.5, 60], r: [0, 0, -0.55], top: 1.6, bottom: 4.4, h: 12, power: 0.022 }, // canyon glass
   { p: [3.4, 5.5, 100], r: [0, 0, -0.55], top: 1.6, bottom: 4.4, h: 12, power: 0.022 }, // canyon glass
+  // R5 — the two arena ridge slots. Unlike the four above, these are laid
+  // along the key's ACTUAL travel direction rather than straight down (see
+  // ARENA_SHAFT_ROT): over a 44 m throw a vertical cone and a 41.7° one
+  // disagree by 20 m of floor, which would put the visible shaft and the pool
+  // it is supposed to explain in different halves of the room.
+  //
+  // SIZE AND POWER ARE MEASURED, and the first attempt was a real regression
+  // worth recording. A 30 m cone at bottom radius 12, standing 25 m from the
+  // arena camera, subtends ~50° — it is not a shaft at that size, it is a
+  // full-frame additive veil, and the probe read it as exactly that: every
+  // one of the eight horizontal bands in the arena frame rose by ~25/255
+  // together and the true-black fraction FELL from 31 % to 18 %. An additive
+  // element that lifts the whole histogram is the precise opposite of this
+  // axis's job. Halving the cone and cutting the power to 40 % puts the same
+  // two beams in the frame at a third of the screen area they had, with the
+  // knee at the end of SHAFT_FRAG capping what a glancing ray can accumulate.
+  { p: [5.5, 21.1, 197], r: ARENA_SHAFT_ROT, top: 4, bottom: 8, h: 24, power: 0.0035 },
+  { p: [5.5, 21.1, 207], r: ARENA_SHAFT_ROT, top: 4, bottom: 8, h: 24, power: 0.003 },
 ]
 
 /**
@@ -1069,10 +1558,24 @@ const ENV_H = MATERIALS.envMapResolution / 2
  * is crushed from 0.16 to 0.05. Net effect on a polished gold bevel: the
  * bright end of its reflection ramp is roughly where it was, the dark end is
  * three times darker, and the flat fill underneath is a third of what it was.
+ *
+ * R5: 0.26 → 0.20. Same argument one more turn of the crank, and it is only
+ * available because the arena finally has a motivated source of its own (see
+ * APERTURES). Until this round the arena had NO placed light at all, so the
+ * probe was not merely the dominant diffuse term in that room, it was the
+ * only one — which is why its 60 m walls carry one flat value from plinth to
+ * cornice and why nothing in 08_enemies or 18_arena_wide casts a shadow you
+ * can point at. With two ridge-slot keys and their pool bounce carrying the
+ * room, the probe can go back to being what an IBL is for: the colour of the
+ * sky in a reflection, and a floor under the darks.
  */
-const ENV_INTENSITY = 0.26
-/** compensating gain on the probe's narrow, high-radiance features */
-const ENV_SPEC_GAIN = 2.9
+const ENV_INTENSITY = 0.2
+/** compensating gain on the probe's narrow, high-radiance features.
+ *  R5: 2.9 → 3.7, which is exactly the 0.26/0.20 ratio applied to the sun
+ *  disc and the specular bars, so cutting the diffuse costs gold nothing at
+ *  the highlight — `scene.environmentIntensity` scales diffuse and specular
+ *  together, and these two terms occupy ~0.002 sr between them. */
+const ENV_SPEC_GAIN = 3.7
 
 function smoothstep01(e0: number, e1: number, x: number) {
   const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1)
@@ -1366,6 +1869,14 @@ export default function Lighting() {
 
       {/* 3–8 — teal practicals, nearest 4 modelled vein fixtures (corruption) */}
       <TealPracticals />
+
+      {/* 1d — CHARACTER KICKERS. A far, near-parallel warm back-three-quarter
+          rim plus a cold counter-rim, both following the figure in camera
+          space. See KICKERS above: the close point light the rig carries
+          wraps the torso and reads as bulk; a distant kicker collapses onto
+          the silhouette boundary and reads as edge. This is the light-transport
+          half of the "reads squat and barrel-chested" note. */}
+      <CharacterKickers />
 
       {/* 3b — gold architectural practicals, nearest 5 modelled fixtures.
           GOLD_FIXTURES has been exported since the R2 colour script and no

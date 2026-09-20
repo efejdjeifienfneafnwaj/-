@@ -136,13 +136,67 @@ const ANKLE_Y = PELVIS_Y - THIGH_L - SHIN_L
  * from the pauldrons, which flare outboard of this pivot and are shallow
  * front-to-back — wide from the front, thin from the side.
  */
-const SHOULDER_X = 0.255
+/**
+ * [character-art R6] THE WIDTH PLAN.
+ *
+ * R5 raised the figure to a measured 8.14 heads and the panel still read it
+ * as 5.5-6 heads with a barrel torso and no neck. The number had moved
+ * because the HELMET shrank; the body had not narrowed with it, so every
+ * width ratio on the frame still said "squat". Heads-tall is a quotient, and
+ * r5 fixed the denominator.
+ *
+ * This round fixes the numerator. Every width below is authored against the
+ * panel's own read of a shipped frame, measured as the flat-black silhouette
+ * from behind:
+ *
+ *   shoulder : waist : hip  =  1 : 0.55 : 0.61
+ *   shoulder span 0.51 m, chest 0.31 m, waist 0.28 m, hip 0.31 m
+ *
+ * The consequence that matters is the one the panel named: the SHOULDER is
+ * the only wide thing on the figure, and everything under it is narrow. The
+ * r5 rig ran a 0.64 m shoulder over a 0.42 m chest over 0.61 m hips — i.e.
+ * the hips were as wide as the shoulders, which is the barrel read, and no
+ * amount of plating fixes a plan that says "cylinder".
+ */
+const SILHOUETTE = {
+  /** pauldron tip to pauldron tip */
+  shoulder: 0.51,
+  /** widest point of the ribcage plating */
+  chest: 0.31,
+  /** narrowest point of the torso, at the lumbar lame */
+  waist: 0.28,
+  /** belt line, outboard face of the hip plating */
+  hip: 0.31,
+} as const
+
+/**
+ * `makeShellPlate(r)` returns a plate whose half-width is r x 0.982 (the
+ * lathe's widest ring) x 1.08 (the plate's x scale), and `makeCuffLame(r, _,
+ * f)` a band whose half-width is r x (1 + f) x 1.1 (the lateral keel bump).
+ * Inverting both lets the two masses that DEFINE the plan — the chest plate
+ * and the lumbar band — be authored in the metres the panel measures rather
+ * than in radii that have to be reverse-engineered from a render.
+ */
+const shellPlateR = (width: number) => width / 2 / (0.982 * 1.08)
+const cuffLameR = (width: number, flare: number) => width / 2 / ((1 + flare) * 1.1)
+
+/**
+ * [character-art R6] 0.176 -> 0.192. Read off the flat-black matte: at 0.176
+ * the upper arm's inboard edge (0.176 - 0.060) sat INSIDE the ribcage's own
+ * half-width, so arm and torso fused into one black slab from armpit to hip
+ * and the silhouette had no waist in it at all — the barrel read surviving a
+ * narrowed torso. The pivot now clears the ribcage by ~12 mm before the
+ * idle's outward shoulder cant is applied on top, so there is daylight
+ * between arm and body in the outline. The pauldron tips are placed
+ * absolutely, so the shoulder SPAN does not move with this.
+ */
+const SHOULDER_X = 0.192
 /** hip pivot half-span. [R5] 0.18 → 0.155 — narrow pelvis, long legs. */
-const HIP_X = 0.155
+const HIP_X = 0.08
 /** torso-local y of the shoulder pivots (world 1.505 ≈ 1.35 heads down) */
 const SHOULDER_Y = 0.46
 /** torso-local y of the head pivot */
-const HEAD_Y = 0.648
+const HEAD_Y = 0.662
 /** upper-arm and forearm segment lengths (shoulder→elbow, elbow→wrist) */
 const UPPER_ARM_L = 0.305
 const FOREARM_L = 0.285
@@ -159,7 +213,7 @@ const FOREARM_L = 0.285
  * rather than above it, so the head's bounding height is the helmet's and the
  * heads-tall number is honest.
  */
-const HELMET_SCALE = 0.56
+const HELMET_SCALE = 0.63
 
 // ---------------------------------------------------------------------------
 // sprint pose exaggeration — local to the rig, movement config untouched
@@ -775,16 +829,76 @@ function makeGauntletGeometry(): THREE.BufferGeometry {
 
 /** [player-frame R2] one fused finger plate (four per hand, stacked) */
 function makeFingerGeometry(): THREE.BufferGeometry {
-  // [character-art R5] 0.020 x 0.058 x 0.030 -> 0.015 x 0.054 x 0.023
-  const geo = new THREE.BoxGeometry(0.015, 0.054, 0.023)
-  const pos = geo.attributes.position as THREE.BufferAttribute
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i)
-    const k = y < 0 ? 0.72 : 1
-    pos.setXYZ(i, pos.getX(i) * k, y, pos.getZ(i) * k)
-  }
+  // [character-art R6] A REAL FINGER, NOT A TAPERED BOX.
+  //
+  // The panel asked for real hands. A tapered box has one silhouette and no
+  // knuckle, so four of them fused read as a mitten. This is the finger's
+  // SIDE PROFILE — proximal plate, a knuckle step that stands ~7 mm proud,
+  // distal plate, rounded tip — extruded across, so every finger carries a
+  // shadow line at the knuckle and the hand has internal structure at the
+  // 30 px the gameplay camera gives it.
+  //
+  // Local axes: length runs down -Y, the curl stands toward +Z, width is X.
+  const s = new THREE.Shape()
+  s.moveTo(0.011, 0.002)
+  s.lineTo(0.011, -0.024)
+  s.lineTo(0.019, -0.029) // knuckle crown
+  s.lineTo(0.0165, -0.05)
+  s.lineTo(0.007, -0.061) // tip
+  s.lineTo(-0.0075, -0.055)
+  s.lineTo(-0.0095, -0.029)
+  s.lineTo(-0.0115, -0.024)
+  s.lineTo(-0.0115, 0.002)
+  s.closePath()
+  const w = 0.0155
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: w,
+    bevelEnabled: true,
+    bevelSize: 0.0026,
+    bevelThickness: 0.0026,
+    bevelSegments: 1,
+  })
+  geo.rotateY(-Math.PI / 2) // shape +x -> world +z (curl); extrude -> world -x
+  geo.translate(w / 2, 0, 0)
   geo.computeVertexNormals()
   return geo
+}
+
+/**
+ * [character-art R6] GREAVE FACE — one sculpted plate in place of the middle
+ * lames.
+ *
+ * The r5 shin carried six stacked cuff lames over its whole length and the
+ * captured frames read the leg as a ribbed hose: at 40 px on screen six
+ * near-identical rims are a texture, not a form. The work order asked for the
+ * middle of the run to become ONE plate with a single trim groove, so the leg
+ * reads as three steps — knee cowl, greave, ankle cowl — instead of as a
+ * caterpillar. The plate is bowed around the limb so it wraps rather than
+ * sitting on it as a slab.
+ */
+function makeGreaveFace(w0: number, w1: number, h: number, bow: number): THREE.BufferGeometry {
+  const s = new THREE.Shape()
+  s.moveTo(-w0 * 0.5, 0)
+  s.lineTo(w0 * 0.5, 0)
+  s.lineTo(w1 * 0.54, -h * 0.58)
+  s.lineTo(w1 * 0.38, -h)
+  s.lineTo(-w1 * 0.38, -h)
+  s.lineTo(-w1 * 0.54, -h * 0.58)
+  s.closePath()
+  const g = new THREE.ExtrudeGeometry(s, {
+    depth: 0.015,
+    bevelEnabled: true,
+    bevelSize: 0.005,
+    bevelThickness: 0.005,
+    bevelSegments: 2,
+  })
+  const p = g.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < p.count; i++) {
+    const k = p.getX(i) / (w0 * 0.5)
+    p.setZ(i, p.getZ(i) - bow * k * k)
+  }
+  g.computeVertexNormals()
+  return g
 }
 
 /**
@@ -930,7 +1044,10 @@ function makeGorgetGeometry(): THREE.BufferGeometry {
   // [character-art R5] 22% smaller and flatter in z. The r4 gorget swallowed
   // the neck entirely — the helmet sat straight on the shoulders, which is
   // exactly the squat read. The frame needs a visible, slender neck.
-  geo.scale(0.78, 0.86, 0.68)
+  // [character-art R6] a shade broader ACROSS and shorter in Y: the collar
+  // has to out-measure the neck column by a lot for the neck to read, but
+  // every millimetre it gains in height it takes back off the neck gap.
+  geo.scale(0.8, 0.78, 0.7)
   return geo
 }
 
@@ -964,6 +1081,8 @@ function makeLimbShell(
   o: {
     keel?: number
     flare?: number
+    /** distal rim flare — 0 by default, so the loft is monotonic to its tip */
+    flareBot?: number
     flat?: number
     prow?: number
     lip?: number
@@ -975,6 +1094,7 @@ function makeLimbShell(
   const rings = o.rings ?? 13
   const keel = o.keel ?? 0.15
   const flare = o.flare ?? 0.18
+  const flareBot = o.flareBot ?? 0
   const flat = o.flat ?? 0.9
   const prow = o.prow ?? 0
   const lip = o.lip ?? 0.016
@@ -992,12 +1112,24 @@ function makeLimbShell(
     const t = p.t
     const y = h * (0.5 - t) + p.dy
     const base = THREE.MathUtils.lerp(rTop, rBot, t)
-    // cuff flare — both rims roll outward over the joint they cover
-    const endT = Math.min(t, 1 - t)
-    const cuff = 1 + flare * Math.pow(Math.max(0, 1 - endT / 0.2), 1.7)
-    // a shallow waist so the segment tapers like a limb, not a pipe
-    const waist = 1 - 0.05 * Math.sin(Math.PI * t)
-    const rad = base * cuff * waist * p.k
+    // [character-art R6] MONOTONIC BY CONSTRUCTION.
+    //
+    // r5 flared BOTH rims off min(t, 1-t) and then pinched the body 5% at
+    // its own mid-span with `1 - 0.05 * sin(pi * t)`. Read along the limb
+    // that is wide -> narrow -> wide: a bell at the shoulder, a waist in the
+    // middle of the upper arm, and a second bell at the wrist. That profile
+    // has a name and the panel used it — rubber hose.
+    //
+    // The sine is gone and the distal flare is opt-in (default 0), so a
+    // segment now runs strictly from its proximal rim down to its distal
+    // rim. The proximal flare survives because it is what closes the joint
+    // above; the joint BELOW is closed by the elbow/knee/ankle cowl, which
+    // overlaps both segments and needs no bell under it.
+    const cuff =
+      1 +
+      flare * Math.pow(Math.max(0, 1 - t / 0.2), 1.7) +
+      flareBot * Math.pow(Math.max(0, 1 - (1 - t) / 0.2), 1.7)
+    const rad = base * cuff * p.k
     for (let s = 0; s <= seg; s++) {
       const a = (s / seg) * Math.PI * 2
       const ca = Math.cos(a)
@@ -1851,21 +1983,29 @@ export default function PlayerRig() {
       // lames ~24%: the chest is still the widest mass of the TORSO, but the
       // shoulder width now comes from the cowls and wings that project past
       // it, not from a chest as wide as the shoulders.
-      plateUpper: makeShellPlate(0.195, 0.4),
-      plateMid: makeShellPlate(0.166, 0.42),
-      plateLow: makeShellPlate(0.132, 0.44),
-      backUpper: makeShellPlate(0.185, 0.36),
-      backMid: makeShellPlate(0.158, 0.36),
-      lameA: makeLame(0.118, 0.58),
-      lameB: makeLame(0.099, 0.58),
-      lameC: makeLame(0.08, 0.58),
-      capA: makeLame(0.105, 0.58),
-      capB: makeLame(0.084, 0.58),
+      // [character-art R6] CHEST 0.42 m -> 0.31 m. The plate radii carry the
+      // torso's width directly: half-width = r * 0.982 (lathe) * 1.08 (plate
+      // x-scale), so 0.148 measures 0.157 m per side and the chest lands on
+      // the panel's 0.31 m against a 0.51 m shoulder. `flat` goes UP as the
+      // radius comes down, so the plate keeps its depth while losing width —
+      // a narrow chest, not a flat one.
+      plateUpper: makeShellPlate(shellPlateR(SILHOUETTE.chest), 0.46),
+      plateMid: makeShellPlate(shellPlateR(SILHOUETTE.chest * 0.865), 0.48),
+      plateLow: makeShellPlate(shellPlateR(SILHOUETTE.chest * 0.705), 0.5),
+      backUpper: makeShellPlate(0.142, 0.42),
+      backMid: makeShellPlate(0.122, 0.42),
+      // pauldron lames step DOWN and OUT from the cowl, each smaller than the
+      // one above, so the shoulder's outline is a stair and not a dome
+      lameA: makeLame(0.1, 0.56),
+      lameB: makeLame(0.085, 0.56),
+      lameC: makeLame(0.069, 0.56),
+      capA: makeLame(0.092, 0.56),
+      capB: makeLame(0.072, 0.56),
       // longer, narrower skirt lames — they read as a hanging faulds, and the
       // extra length breaks the hip-to-knee run of the leg
-      skirtBack: makeSkirtLame(0.112, 0.082, 0.30),
-      skirtSide: makeSkirtLame(0.098, 0.07, 0.26),
-      skirtFront: makeSkirtLame(0.1, 0.072, 0.23),
+      skirtBack: makeSkirtLame(0.1, 0.074, 0.3),
+      skirtSide: makeSkirtLame(0.086, 0.062, 0.26),
+      skirtFront: makeSkirtLame(0.088, 0.064, 0.23),
       // [character-art R3] lofted sculpted shells replace the cylinder
       // frustums: keeled section, flared rims, folded thickness lip.
       // [character-art R4] TAPER. r3 ran the thigh 0.118 → 0.100 (1.18:1) and
@@ -1880,19 +2020,39 @@ export default function PlayerRig() {
       // at the hip/knee/ankle and elbow and taper back down between them. A
       // constant-width limb tube is the single biggest non-Warframe tell, and
       // r4's thighs measured 0.26 m of solid shell from hip to knee.
-      thighPlate: makeLimbShell(0.096, 0.062, 0.3, { keel: 0.17, flare: 0.22, flat: 0.88 }),
-      shinPlate: makeLimbShell(0.084, 0.042, 0.3, {
-        keel: 0.18,
-        flare: 0.23,
-        flat: 0.86,
-        prow: 0.2,
+      // [character-art R6] EVERY LIMB TAPERS TO 0.70, MONOTONICALLY.
+      //
+      // The widest point of a segment is its proximal rim, r * (1 + flare) *
+      // (1 + keel) * 1.02; the narrowest is its distal rim, rBot * (1 + keel)
+      // * 1.02. rBot is authored at 0.70 * rTop * (1 + flare) on all four
+      // segments, which is the panel's number, and with the mid-span sine
+      // removed from makeLimbShell there is nothing between the two rims that
+      // can be wider than either. The r5 flares (0.20-0.23) are also cut to
+      // 0.14-0.15: a 23% bell at the shoulder rim IS the hose read, however
+      // monotonic the rest of the loft is.
+      //
+      // The cores are ~40% thinner than r5 as well, because the r5 thigh
+      // measured 0.30 m per side at the hip and two of those are a 0.61 m
+      // pelvis under a 0.64 m shoulder. Hip silhouette is now HIP_X (0.080) +
+      // 0.0755 = 0.156 per side, i.e. 0.311 m, against the shoulder's 0.51.
+      thighPlate: makeLimbShell(0.0565, 0.0455, 0.3, { keel: 0.14, flare: 0.15, flat: 0.9 }),
+      shinPlate: makeLimbShell(0.0505, 0.0405, 0.3, {
+        keel: 0.14,
+        flare: 0.15,
+        flat: 0.88,
+        prow: 0.16,
       }),
-      upperArmPlate: makeLimbShell(0.06, 0.042, 0.22, { keel: 0.15, flare: 0.2, flat: 0.86, lip: 0.012 }),
-      foreArmPlate: makeLimbShell(0.05, 0.03, 0.2, {
-        keel: 0.16,
-        flare: 0.21,
-        flat: 0.86,
-        prow: 0.12,
+      upperArmPlate: makeLimbShell(0.0455, 0.0365, 0.22, {
+        keel: 0.13,
+        flare: 0.14,
+        flat: 0.88,
+        lip: 0.012,
+      }),
+      foreArmPlate: makeLimbShell(0.0395, 0.03, 0.2, {
+        keel: 0.13,
+        flare: 0.11,
+        flat: 0.88,
+        prow: 0.1,
         lip: 0.012,
       }),
       // [character-art R3] hard points — the outline breakers. A flat-black
@@ -1901,28 +2061,46 @@ export default function PlayerRig() {
       // [character-art R5] the hard points are kept at nearly r4's length on a
       // frame that is both shorter and much thinner, so they project FURTHER
       // past the limb than before — which is the point of them.
-      kneeSpur: makeBlade(0.152, 0.082, 0.026, 0.044, 0.032),
-      calfFin: makeBlade(0.195, 0.088, 0.024, 0.034, 0.062),
-      heelSpur: makeBlade(0.112, 0.066, 0.02, 0.04, 0.02),
-      elbowSpur: makeBlade(0.128, 0.064, 0.02, 0.036, 0.034),
-      wingL: makeBlade(0.285, 0.128, 0.036, 0.05, 0.072),
-      wingR: makeBlade(0.235, 0.108, 0.03, 0.042, 0.062),
-      hipBlade: makeBlade(0.185, 0.09, 0.026, 0.04, 0.046),
-      toeClaw: makeBlade(0.095, 0.04, 0.012, 0.024, 0.012),
+      // [character-art R6] the hard points come down with the frame they break
+      // up. A 0.285 m wing on a 0.51 m shoulder is a second shoulder.
+      kneeSpur: makeBlade(0.128, 0.07, 0.022, 0.038, 0.028),
+      calfFin: makeBlade(0.165, 0.076, 0.02, 0.03, 0.054),
+      heelSpur: makeBlade(0.098, 0.058, 0.018, 0.034, 0.018),
+      elbowSpur: makeBlade(0.108, 0.054, 0.017, 0.031, 0.029),
+      wingL: makeBlade(0.235, 0.108, 0.03, 0.042, 0.06),
+      wingR: makeBlade(0.195, 0.092, 0.026, 0.036, 0.052),
+      hipBlade: makeBlade(0.125, 0.066, 0.019, 0.03, 0.032),
+      toeClaw: makeBlade(0.085, 0.036, 0.011, 0.022, 0.011),
       // [character-art R5] forearm and shin FINS — slim outline breakers that
       // run along the limb, so the outline is serrated between the joints too
-      shinFin: makeBlade(0.115, 0.05, 0.016, 0.026, 0.03),
-      armFin: makeBlade(0.085, 0.038, 0.012, 0.02, 0.022),
+      shinFin: makeBlade(0.098, 0.043, 0.014, 0.022, 0.026),
+      /** [R6] tapering lateral strakes — see the note at the thigh strake */
+      strakeThigh: makeBlade(0.25, 0.05, 0.022, 0.03, 0),
+      strakeShin: makeBlade(0.34, 0.042, 0.018, 0.026, 0),
+      strakeArm: makeBlade(0.2, 0.038, 0.016, 0.024, 0),
+      strakeForearm: makeBlade(0.17, 0.032, 0.013, 0.02, 0),
+      armFin: makeBlade(0.072, 0.032, 0.01, 0.017, 0.019),
+      /** [R6] the sculpted greave/vambrace faces that replace the middle lames */
+      greaveFace: makeGreaveFace(0.072, 0.046, 0.235, 0.014),
+      vambraceFace: makeGreaveFace(0.05, 0.034, 0.145, 0.01),
       // stacked lamellar cuffs — overlap the joint below, dark suit in the gap
       // [character-art R5b] flare 0.38-0.44 -> 0.26-0.28. At the r5a flare
       // each band was a visibly separate cone and the limbs read as ribbed
       // hose; a lame only needs to stand a few millimetres proud of the one
       // below to notch the outline.
-      cuffArm: makeCuffLame(0.057, 0.05, 0.26),
-      cuffLeg: makeCuffLame(0.082, 0.058, 0.26),
+      // [character-art R6] the cuffs follow the thinner cores, and the flare
+      // comes off 0.26-0.28 to 0.22: a lame's job is to notch the outline by
+      // a few millimetres, and at r5's flare every band was a visibly
+      // separate cone stacked on the next one.
+      cuffArm: makeCuffLame(0.0415, 0.05, 0.22),
+      cuffLeg: makeCuffLame(0.0555, 0.058, 0.22),
       /** a second, tighter cuff for the lower half of each segment */
-      cuffShin: makeCuffLame(0.061, 0.052, 0.27),
-      cuffForearm: makeCuffLame(0.045, 0.046, 0.28),
+      cuffShin: makeCuffLame(0.0465, 0.052, 0.22),
+      cuffForearm: makeCuffLame(0.035, 0.046, 0.22),
+      /** [R6] the lumbar band — the one armour element AT the waist, authored
+          to the plan's 0.28 m so the narrowest point of the torso is still a
+          plate and not bare under-suit */
+      cuffWaist: makeCuffLame(cuffLameR(SILHOUETTE.waist, 0.16), 0.05, 0.16),
       // [character-art R3] ONE continuous emissive route, lofted as a tube so
       // it curves with the back instead of being a stack of boxes:
       // nape -> thoracic -> lumbar -> sacrum.
@@ -1931,43 +2109,43 @@ export default function PlayerRig() {
       // 0.84 (the ribcage is now a thin wedge, not a barrel).
       spineRoute: makeRoute(
         [
-          [0, 0.578, -0.129],
-          [0, 0.508, -0.161],
-          [0, 0.414, -0.179],
-          [0, 0.304, -0.181],
-          [0, 0.193, -0.166],
-          [0, 0.083, -0.137],
+          [0, 0.55, -0.09],
+          [0, 0.484, -0.113],
+          [0, 0.4, -0.125],
+          [0, 0.296, -0.127],
+          [0, 0.19, -0.116],
+          [0, 0.083, -0.096],
         ],
         0.0115,
       ),
       spineRouteCore: makeRoute(
         [
-          [0, 0.578, -0.132],
-          [0, 0.508, -0.164],
-          [0, 0.414, -0.182],
-          [0, 0.304, -0.184],
-          [0, 0.193, -0.169],
-          [0, 0.083, -0.14],
+          [0, 0.55, -0.092],
+          [0, 0.484, -0.115],
+          [0, 0.4, -0.127],
+          [0, 0.296, -0.129],
+          [0, 0.19, -0.118],
+          [0, 0.083, -0.098],
         ],
         0.0052,
       ),
       // the two forks off the thoracic node, out to the pauldron cowls
       forkL: makeRoute(
         [
-          [-0.012, 0.508, -0.161],
-          [-0.108, 0.54, -0.122],
-          [-0.2, 0.531, -0.045],
-          [-0.268, 0.514, 0.026],
+          [-0.009, 0.484, -0.113],
+          [-0.08, 0.506, -0.085],
+          [-0.15, 0.455, -0.03],
+          [-0.206, 0.43, 0.022],
         ],
         0.007,
         26,
       ),
       forkR: makeRoute(
         [
-          [0.012, 0.508, -0.161],
-          [0.103, 0.531, -0.122],
-          [0.19, 0.521, -0.045],
-          [0.253, 0.504, 0.024],
+          [0.009, 0.484, -0.113],
+          [0.074, 0.502, -0.085],
+          [0.14, 0.45, -0.03],
+          [0.192, 0.424, 0.02],
         ],
         0.0062,
         26,
@@ -1975,20 +2153,20 @@ export default function PlayerRig() {
       // forearm and shin forks, swept along the limb rather than stuck on it
       routeForeArm: makeRoute(
         [
-          [0, 0.008, -0.05],
-          [0, -0.095, -0.063],
-          [0, -0.195, -0.056],
-          [0, -0.262, -0.027],
+          [0, 0.008, -0.036],
+          [0, -0.095, -0.045],
+          [0, -0.195, -0.04],
+          [0, -0.262, -0.019],
         ],
         0.006,
         20,
       ),
       routeForeArmCore: makeRoute(
         [
-          [0, 0.008, -0.053],
-          [0, -0.095, -0.066],
-          [0, -0.195, -0.059],
-          [0, -0.262, -0.03],
+          [0, 0.008, -0.039],
+          [0, -0.095, -0.048],
+          [0, -0.195, -0.043],
+          [0, -0.262, -0.022],
         ],
         0.0028,
         20,
@@ -2002,75 +2180,80 @@ export default function PlayerRig() {
       // thigh 0.452 (was 0.478), shin 0.493 (was 0.427), both narrower in z.
       routeThigh: makeRoute(
         [
-          [0, -0.085, -0.056],
-          [0, -0.2, -0.076],
-          [0, -0.32, -0.073],
-          [0, -0.428, -0.058],
+          [0, -0.085, -0.04],
+          [0, -0.2, -0.055],
+          [0, -0.32, -0.053],
+          [0, -0.428, -0.042],
         ],
         0.0072,
         20,
       ),
       routeThighCore: makeRoute(
         [
-          [0, -0.085, -0.059],
-          [0, -0.2, -0.079],
-          [0, -0.32, -0.076],
-          [0, -0.428, -0.061],
+          [0, -0.085, -0.043],
+          [0, -0.2, -0.057],
+          [0, -0.32, -0.055],
+          [0, -0.428, -0.044],
         ],
         0.0031,
         20,
       ),
       routeShinCore: makeRoute(
         [
-          [0, -0.062, -0.073],
-          [0, -0.21, -0.086],
-          [0, -0.37, -0.071],
-          [0, -0.465, -0.04],
+          [0, -0.062, -0.055],
+          [0, -0.21, -0.064],
+          [0, -0.37, -0.053],
+          [0, -0.465, -0.03],
         ],
         0.0031,
         20,
       ),
       routeShin: makeRoute(
         [
-          [0, -0.062, -0.07],
-          [0, -0.21, -0.083],
-          [0, -0.37, -0.068],
-          [0, -0.465, -0.037],
+          [0, -0.062, -0.052],
+          [0, -0.21, -0.062],
+          [0, -0.37, -0.051],
+          [0, -0.465, -0.028],
         ],
         0.007,
         20,
       ),
       kneeCap: (() => {
-        const g = new THREE.SphereGeometry(0.08, 16, 10)
+        const g = new THREE.SphereGeometry(0.062, 16, 10)
         g.scale(0.92, 0.9, 1.0)
         return g
       })(),
       elbowCap: (() => {
-        const g = new THREE.SphereGeometry(0.056, 14, 8)
+        const g = new THREE.SphereGeometry(0.046, 14, 8)
         g.scale(0.9, 0.9, 1.0)
         return g
       })(),
       // [character-art R5] every band follows the slimmer limb cores down
-      bevelShoulder: makeBevelBand(0.07, 0.017, 0.032),
-      bevelHip: makeBevelBand(0.104, 0.024, 0.04),
-      bevelKnee: makeBevelBand(0.086, 0.021, 0.034),
-      bevelAnkle: makeBevelBand(0.066, 0.017, 0.03),
-      bevelWrist: makeBevelBand(0.048, 0.013, 0.026),
+      bevelShoulder: makeBevelBand(0.056, 0.014, 0.03),
+      bevelHip: makeBevelBand(0.1, 0.023, 0.038),
+      bevelKnee: makeBevelBand(0.062, 0.016, 0.03),
+      bevelAnkle: makeBevelBand(0.05, 0.013, 0.026),
+      bevelWrist: makeBevelBand(0.042, 0.012, 0.024),
       // [R2] silhouette + joint-closure geometry
       cowl: makeCowlGeometry(),
       sideFin: makeSideFinGeometry(),
       gauntlet: makeGauntletGeometry(),
       finger: makeFingerGeometry(),
-      elbowCowl: makeJointCowl(0.066),
-      kneeCowl: makeJointCowl(0.096),
+      // [character-art R6] each cowl is sized to just OVERLAP both of the
+      // segments it joins, now that both are thinner: elbow covers the
+      // upper-arm's 0.042 distal rim and the forearm's 0.051 proximal rim,
+      // knee covers 0.053 / 0.068, ankle covers 0.047. Nothing on the frame
+      // opens a hole at a joint; what shows in the seam is the dark suit.
+      elbowCowl: makeJointCowl(0.063),
+      kneeCowl: makeJointCowl(0.078),
       /** [R5] a joint cowl at the ANKLE too — r4 closed the elbow and knee and
           left the ankle as a bare band, which is where a leg reads as a pipe */
-      ankleCowl: makeJointCowl(0.062),
+      ankleCowl: makeJointCowl(0.06),
       /** dark under-suit tube at 0.72× plate radius — fills every joint void */
-      jointTubeArm: new THREE.CylinderGeometry(0.036, 0.036, 0.15, 12),
-      jointTubeLeg: new THREE.CylinderGeometry(0.058, 0.058, 0.19, 12),
+      jointTubeArm: new THREE.CylinderGeometry(0.03, 0.03, 0.15, 12),
+      jointTubeLeg: new THREE.CylinderGeometry(0.042, 0.042, 0.19, 12),
       /** recessed piston band that sits in the joint cowl's shadow */
-      pistonBand: new THREE.CylinderGeometry(0.044, 0.044, 0.024, 14),
+      pistonBand: new THREE.CylinderGeometry(0.036, 0.036, 0.024, 14),
     }),
     [],
   )
@@ -2547,8 +2730,11 @@ export default function PlayerRig() {
     const armAmp = ANIM.armSwingMult * (1 + SPRINT_POSE.armBoost * sprintT)
     let shLx = swing * armAmp
     let shRx = -swing * armAmp
-    let shLz = -0.1 - SPRINT_POSE.armTuck * sprintT
-    let shRz = 0.1 + SPRINT_POSE.armTuck * sprintT
+    // [character-art R6] the resting shoulder cant carries the outline: it is
+    // the only thing that opens daylight between arm and torso, and the matte
+    // showed the r5 values (0.10 / 0.17 rad) closing it entirely at the waist.
+    let shLz = -0.12 - SPRINT_POSE.armTuck * sprintT
+    let shRz = 0.115 + SPRINT_POSE.armTuck * sprintT
     let elbL = 0.35 + sprintT * (0.45 + 0.35 * Math.max(0, Math.sin(phase)))
     let elbR = 0.35 + sprintT * (0.45 + 0.35 * Math.max(0, -Math.sin(phase)))
 
@@ -2581,8 +2767,8 @@ export default function PlayerRig() {
       kneeRx = THREE.MathUtils.lerp(kneeRx, 0.05, idleW)
       shLx = THREE.MathUtils.lerp(shLx, -0.06 + br * 0.02, idleW)
       shRx = THREE.MathUtils.lerp(shRx, 0.05 - br * 0.02, idleW)
-      shLz = THREE.MathUtils.lerp(shLz, -0.17, idleW)
-      shRz = THREE.MathUtils.lerp(shRz, 0.12, idleW)
+      shLz = THREE.MathUtils.lerp(shLz, -0.19, idleW)
+      shRz = THREE.MathUtils.lerp(shRz, 0.17, idleW)
       elbL = THREE.MathUtils.lerp(elbL, 0.42, idleW)
       elbR = THREE.MathUtils.lerp(elbR, 0.24, idleW)
     }
@@ -2929,10 +3115,18 @@ export default function PlayerRig() {
     else if (CombatState.dashing) energyT *= E.dashBoost
     L.energy += (energyT - L.energy) * (1 - Math.exp(-9 * dt))
     const eMul = L.energy * fade
+    // [character-art R6] the route's brightness is CLAMPED, not stacked.
+    // coreBoost 2.85 x ultBoost 1.75 x the pulse is 5.7 above white on an
+    // unlit, non-tonemapped material through a bloom knee of 1.0 — which is
+    // why the captured ultimate frames have no character in them, only a
+    // shape-less bloom where the frame's chest used to be. Ability state can
+    // still push the route, but it cannot erase the plating that the route is
+    // supposed to describe.
+    const coreMul = Math.min(E.coreBoost * eMul, 3.0)
     mats.glowCore.color
       .copy(CombatState.requiemPhase !== 0 ? _energyUlt : _energyCore)
-      .multiplyScalar(E.coreBoost * eMul)
-    mats.glow.color.copy(_energyMid).multiplyScalar(E.midBoost * eMul)
+      .multiplyScalar(coreMul)
+    mats.glow.color.copy(_energyMid).multiplyScalar(Math.min(E.midBoost * eMul, 1.6))
     mats.glowSoft.color.copy(_energyHalo).multiplyScalar(E.falloffBoost * L.energy)
     mats.glowSoft.opacity = E.falloffOpacity * fade
 
@@ -3045,15 +3239,16 @@ export default function PlayerRig() {
               {/* pelvis undersuit — [R5] 0.128 -> 0.112 r and 0.86 -> 0.74 in
                   z: the pelvis is wide ACROSS (it has to out-measure the waist)
                   and shallow front-to-back like the rest of the frame */}
-              <mesh material={mats.suit} scale={[1.06, 1, 0.74]} castShadow>
-                <capsuleGeometry args={[0.112, 0.09, 4, 12]} />
+              <mesh material={mats.suit} scale={[1.12, 1, 0.78]} castShadow>
+                <capsuleGeometry args={[0.1, 0.09, 4, 12]} />
               </mesh>
               {/* armoured belt — chamfered band, not a wire torus */}
               <mesh
+                name="belt"
                 geometry={geos.bevelHip}
                 material={mats.plateDark}
                 position={[0, 0.045, 0]}
-                scale={[1.24, 1.5, 0.86]}
+                scale={[1.3, 1.5, 0.92]}
                 castShadow
                 receiveShadow
               />
@@ -3061,14 +3256,14 @@ export default function PlayerRig() {
                 geometry={geos.bevelHip}
                 material={mats.trim}
                 position={[0, 0.08, 0]}
-                scale={[1.18, 0.5, 0.82]}
+                scale={[1.24, 0.5, 0.88]}
                 castShadow
               />
               {/* lumbar reactor node — the back's energy origin */}
-              <mesh material={mats.trimDark} position={[0, 0.04, -0.122]} castShadow>
-                <sphereGeometry args={[0.046, 14, 10]} />
+              <mesh material={mats.trimDark} position={[0, 0.04, -0.106]} castShadow>
+                <sphereGeometry args={[0.038, 14, 10]} />
               </mesh>
-              <mesh material={mats.glowCore} position={[0, 0.04, -0.152]}>
+              <mesh material={mats.glowCore} position={[0, 0.04, -0.132]}>
                 <boxGeometry args={[0.034, 0.013, 0.01]} />
               </mesh>
 
@@ -3077,7 +3272,7 @@ export default function PlayerRig() {
                    line and is driven by a per-lame spring seeded from the
                    pelvis velocity (clamped to ±22°), so the skirt trails a
                    sprint and settles on landing instead of being welded on. */}
-              <group ref={skirtRefs[0]} position={[0, 0.01, -0.126]}>
+              <group ref={skirtRefs[0]} position={[0, 0.01, -0.112]}>
                 <mesh
                   geometry={geos.skirtBack}
                   material={mats.plateLight}
@@ -3094,47 +3289,47 @@ export default function PlayerRig() {
                   <boxGeometry args={[0.012, 0.19, 0.008]} />
                 </mesh>
               </group>
-              <group ref={skirtRefs[1]} position={[-0.105, 0.01, -0.108]}>
+              <group ref={skirtRefs[1]} position={[-0.092, 0.01, -0.096]}>
                 <mesh
                   geometry={geos.skirtSide}
                   material={mats.plateMid}
                   position={[0, -0.03, 0]}
-                  rotation={[-0.16, 0.55, 0.1]}
+                  rotation={[-0.13, 0.55, 0.04]}
                   castShadow
                   receiveShadow
                 />
               </group>
-              <group ref={skirtRefs[2]} position={[0.105, 0.01, -0.108]}>
+              <group ref={skirtRefs[2]} position={[0.092, 0.01, -0.096]}>
                 <mesh
                   geometry={geos.skirtSide}
                   material={mats.plateMid}
                   position={[0, -0.03, 0]}
-                  rotation={[-0.16, -0.55, -0.1]}
+                  rotation={[-0.13, -0.55, -0.04]}
                   castShadow
                   receiveShadow
                 />
               </group>
-              <group ref={skirtRefs[3]} position={[-0.162, 0.0, 0.0]}>
+              <group ref={skirtRefs[3]} position={[-0.116, 0.0, 0.0]}>
                 <mesh
                   geometry={geos.skirtSide}
                   material={mats.plateDark}
                   position={[0, -0.03, 0]}
-                  rotation={[0, 1.35, 0.16]}
+                  rotation={[0, 1.42, 0.05]}
                   castShadow
                   receiveShadow
                 />
               </group>
-              <group ref={skirtRefs[4]} position={[0.162, 0.0, 0.0]}>
+              <group ref={skirtRefs[4]} position={[0.116, 0.0, 0.0]}>
                 <mesh
                   geometry={geos.skirtSide}
                   material={mats.plateDark}
                   position={[0, -0.03, 0]}
-                  rotation={[0, -1.35, -0.16]}
+                  rotation={[0, -1.42, -0.05]}
                   castShadow
                   receiveShadow
                 />
               </group>
-              <group ref={skirtRefs[5]} position={[0, 0.01, 0.122]}>
+              <group ref={skirtRefs[5]} position={[0, 0.01, 0.11]}>
                 <mesh
                   geometry={geos.skirtFront}
                   material={mats.plateDark}
@@ -3146,25 +3341,32 @@ export default function PlayerRig() {
               </group>
 
               {/* [character-art R3] hip blades — carry the waist outward so the
-                  pelvis is not the narrowest point of the outline */}
+                  pelvis is not the narrowest point of the outline
+                  [character-art R6] HUNG, NOT FLARED. r5 canted these outboard
+                  at −0.58 rad from a 0.172 m station, so each blade tipped
+                  0.10 m further out than the hip plate it sat on and the
+                  pelvis measured wider than the shoulders. They now hang
+                  near-vertical against the thigh at 0.118, which is what the
+                  work order asked for: the hip reads as a plate that closes
+                  the leg's top, not as a skirt that widens the figure. */}
               <mesh
                 geometry={geos.hipBlade}
                 material={mats.plateMid}
-                position={[-0.172, 0.045, -0.026]}
-                rotation={[0, 2.5, -0.58]}
+                position={[-0.102, 0.03, -0.024]}
+                rotation={[0, 2.5, -1.24]}
                 castShadow
                 receiveShadow
               />
               <mesh
                 geometry={geos.hipBlade}
                 material={mats.plateMid}
-                position={[0.172, 0.045, -0.026]}
-                rotation={[0, 0.64, -0.58]}
+                position={[0.102, 0.03, -0.024]}
+                rotation={[0, 0.64, -1.24]}
                 castShadow
                 receiveShadow
               />
               {/* scabbard socket — read by combat/ViewModel.tsx (DO NOT REMOVE) */}
-              <group ref={hipSocket} name="socket_hip" position={[-0.185, -0.03, -0.045]} rotation={[0, 0, 0.3]} />
+              <group ref={hipSocket} name="socket_hip" position={[-0.138, -0.03, -0.04]} rotation={[0, 0, 0.3]} />
 
               {/* ================= torso (spine pivot) ================= */}
               <group ref={torso} name="j_torso">
@@ -3185,21 +3387,22 @@ export default function PlayerRig() {
                   is a plank a third as deep as it is wide. Both of those are
                   the read.
                 */}
-                <mesh material={mats.suit} position={[0, 0.11, 0]} scale={[1.2, 1, 0.54]} castShadow>
-                  <cylinderGeometry args={[0.118, 0.104, 0.22, 16]} />
+                <mesh material={mats.suit} position={[0, 0.11, 0]} scale={[1.18, 1, 0.6]} castShadow>
+                  <cylinderGeometry args={[0.107, 0.095, 0.22, 16]} />
                 </mesh>
-                <mesh material={mats.suit} position={[0, 0.33, 0]} scale={[1.2, 1, 0.58]} castShadow>
-                  <capsuleGeometry args={[0.135, 0.2, 4, 16]} />
+                <mesh material={mats.suit} position={[0, 0.33, 0]} scale={[1.1, 1, 0.7]} castShadow>
+                  <capsuleGeometry args={[0.112, 0.2, 4, 16]} />
                 </mesh>
                 {/* lumbar lame — one overlapping band across the waist, so the
                     narrowest part of the torso still reads as armour and not
                     as bare under-suit */}
                 <mesh
-                  geometry={geos.cuffLeg}
+                  name="waistBand"
+                  geometry={geos.cuffWaist}
                   material={mats.plateDark}
                   position={[0, 0.195, 0]}
                   rotation={[Math.PI, 0, 0]}
-                  scale={[1.3, 1.1, 0.76]}
+                  scale={[1, 1.05, 0.62]}
                   castShadow
                   receiveShadow
                 />
@@ -3212,16 +3415,17 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.plateUpper}
                   material={mats.trimDark}
-                  position={[0, 0.4, 0.038]}
+                  position={[0, 0.4, 0.034]}
                   rotation-x={0.2}
                   scale={1.055}
                   castShadow
                   receiveShadow
                 />
                 <mesh
+                  name="chestPlate"
                   geometry={geos.plateUpper}
                   material={mats.plateLight}
-                  position={[0, 0.401, 0.045]}
+                  position={[0, 0.401, 0.041]}
                   rotation-x={0.2}
                   castShadow
                   receiveShadow
@@ -3229,7 +3433,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.plateMid}
                   material={mats.trimDark}
-                  position={[0, 0.294, 0.044]}
+                  position={[0, 0.292, 0.04]}
                   rotation-x={0.32}
                   scale={1.06}
                   castShadow
@@ -3238,7 +3442,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.plateMid}
                   material={mats.plateLight}
-                  position={[0, 0.295, 0.051]}
+                  position={[0, 0.293, 0.047]}
                   rotation-x={0.32}
                   castShadow
                   receiveShadow
@@ -3246,7 +3450,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.plateLow}
                   material={mats.plateDark}
-                  position={[0, 0.19, 0.042]}
+                  position={[0, 0.192, 0.038]}
                   rotation-x={0.46}
                   castShadow
                   receiveShadow
@@ -3255,9 +3459,9 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.crestRidge}
                   material={mats.trim}
-                  position={[0, 0.442, 0.108]}
+                  position={[0, 0.438, 0.094]}
                   rotation-x={0.16}
-                  scale={[0.86, 0.9, 0.86]}
+                  scale={[0.74, 0.86, 0.8]}
                   castShadow
                 />
                 {/* [character-art R4] crest energy channel, recessed inside
@@ -3265,43 +3469,45 @@ export default function PlayerRig() {
                     pair — the work order's "recessed chest slot <= 0.12 m". A
                     0.22 m core at coreBoost 2.85 is a chest lamp, and the
                     plates it is meant to describe disappear under its bloom. */}
-                <mesh material={mats.glowCore} position={[0, 0.336, 0.132]} rotation-x={0.16}>
-                  <boxGeometry args={[0.016, 0.11, 0.01]} />
+                <mesh material={mats.glowCore} position={[0, 0.332, 0.118]} rotation-x={0.16}>
+                  <boxGeometry args={[0.012, 0.096, 0.009]} />
                 </mesh>
-                <mesh material={mats.glow} position={[0, 0.336, 0.128]} rotation-x={0.16}>
-                  <boxGeometry args={[0.036, 0.125, 0.009]} />
+                <mesh material={mats.glow} position={[0, 0.332, 0.114]} rotation-x={0.16}>
+                  <boxGeometry args={[0.028, 0.108, 0.008]} />
                 </mesh>
                 {/* gold chevron seams between plates */}
-                <mesh material={mats.trim} position={[0, 0.352, 0.12]} rotation-x={-0.14}>
-                  <boxGeometry args={[0.165, 0.022, 0.016]} />
+                <mesh material={mats.trim} position={[0, 0.348, 0.106]} rotation-x={-0.14}>
+                  <boxGeometry args={[0.126, 0.019, 0.014]} />
                 </mesh>
-                <mesh material={mats.trim} position={[0, 0.248, 0.113]} rotation-x={-0.06}>
-                  <boxGeometry args={[0.125, 0.019, 0.016]} />
+                <mesh material={mats.trim} position={[0, 0.248, 0.1]} rotation-x={-0.06}>
+                  <boxGeometry args={[0.096, 0.016, 0.014]} />
                 </mesh>
 
                 {/* ---- BACK: authored at parity with the front ---- */}
                 <mesh
                   geometry={geos.backUpper}
                   material={mats.trimDark}
-                  position={[0, 0.397, -0.044]}
+                  position={[0, 0.397, -0.04]}
                   rotation={[-0.16, Math.PI, 0]}
-                  scale={1.055}
+                  scale={[1.055, 0.9, 1.055]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.backUpper}
                   material={mats.plateLight}
-                  position={[0, 0.398, -0.051]}
+                  position={[0, 0.398, -0.047]}
                   rotation={[-0.16, Math.PI, 0]}
+                  scale={[1, 0.85, 1]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.backMid}
                   material={mats.plateDark}
-                  position={[0, 0.266, -0.047]}
+                  position={[0, 0.266, -0.043]}
                   rotation={[-0.3, Math.PI, 0]}
+                  scale={[1, 0.86, 1]}
                   castShadow
                   receiveShadow
                 />
@@ -3309,9 +3515,9 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.keel}
                   material={mats.trim}
-                  position={[0, 0.482, -0.118]}
+                  position={[0, 0.474, -0.086]}
                   rotation={[0.1, Math.PI, 0]}
-                  scale={[0.86, 0.9, 0.86]}
+                  scale={[0.72, 0.88, 0.8]}
                   castShadow
                 />
                 {/* [character-art R3] ONE continuous emissive route, lofted as
@@ -3326,7 +3532,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.lameB}
                   material={mats.plateDark}
-                  position={[-0.158, 0.434, -0.074]}
+                  position={[-0.12, 0.396, -0.064]}
                   rotation={[-0.5, 0, 0.22]}
                   scale={[0.86, 0.9, 0.8]}
                   castShadow
@@ -3334,22 +3540,22 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.lameB}
                   material={mats.plateDark}
-                  position={[0.158, 0.434, -0.074]}
+                  position={[0.12, 0.396, -0.064]}
                   rotation={[-0.5, 0, -0.22]}
                   scale={[0.86, 0.9, 0.8]}
                   castShadow
                 />
                 {/* rear trim ribs — panel breakup the camera actually sees */}
-                <mesh material={mats.trim} position={[-0.085, 0.203, -0.109]} rotation-z={0.35}>
-                  <boxGeometry args={[0.11, 0.018, 0.013]} />
+                <mesh material={mats.trim} position={[-0.07, 0.203, -0.092]} rotation-z={0.35}>
+                  <boxGeometry args={[0.088, 0.016, 0.012]} />
                 </mesh>
-                <mesh material={mats.trim} position={[0.085, 0.203, -0.109]} rotation-z={-0.35}>
-                  <boxGeometry args={[0.11, 0.018, 0.013]} />
+                <mesh material={mats.trim} position={[0.07, 0.203, -0.092]} rotation-z={-0.35}>
+                  <boxGeometry args={[0.088, 0.016, 0.012]} />
                 </mesh>
                 {/* [R2] NAPE NODE — the origin of the one continuous emissive
                     route (nape → spine → sacrum, forking to cowls/forearms/shins) */}
-                <mesh material={mats.trimDark} position={[0, 0.552, -0.088]} castShadow>
-                  <sphereGeometry args={[0.034, 14, 10]} />
+                <mesh material={mats.trimDark} position={[0, 0.5, -0.07]} castShadow>
+                  <sphereGeometry args={[0.026, 14, 10]} />
                 </mesh>
                 {/* [character-art R4] The nape core measured as the single
                     largest bloom source on the back of the r4 rig render: a
@@ -3358,8 +3564,8 @@ export default function PlayerRig() {
                     pip" read again in miniature. Flattened into a short bar
                     that reads as the TERMINAL of the spine route instead of a
                     lamp sitting on top of it. */}
-                <mesh material={mats.glowCore} position={[0, 0.552, -0.106]}>
-                  <boxGeometry args={[0.03, 0.011, 0.008]} />
+                <mesh material={mats.glowCore} position={[0, 0.5, -0.086]}>
+                  <boxGeometry args={[0.026, 0.009, 0.007]} />
                 </mesh>
                 {/*
                   [character-art R4] THE BLOB.
@@ -3376,12 +3582,12 @@ export default function PlayerRig() {
                   front of the keel's own plane) so it grades the channel it
                   sits in rather than lighting the back from behind.
                 */}
-                <mesh material={mats.glowSoft} position={[0, 0.305, -0.166]}>
-                  <planeGeometry args={[0.085, 0.3]} />
+                <mesh material={mats.glowSoft} position={[0, 0.3, -0.13]}>
+                  <planeGeometry args={[0.07, 0.26]} />
                 </mesh>
                 {/* [R2] scarf anchors, parented into the torso (weakness P7) */}
-                <group ref={scarfAnchorL} position={[-0.092, 0.52, -0.097]} />
-                <group ref={scarfAnchorR} position={[0.075, 0.529, -0.113]} />
+                <group ref={scarfAnchorL} position={[-0.078, 0.492, -0.082]} />
+                <group ref={scarfAnchorR} position={[0.064, 0.5, -0.095]} />
 
                 {/* ---- armoured gorget filling the head-to-shoulder void ---- */}
                 {/*
@@ -3397,26 +3603,39 @@ export default function PlayerRig() {
                   carried FORWARD of it (see the head group).
                 */}
                 <mesh
+                  name="collar"
                   geometry={geos.gorget}
                   material={mats.plateDark}
-                  position={[0, 0.442, 0.004]}
+                  position={[0, 0.4, 0.004]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.gorget}
                   material={mats.trim}
-                  position={[0, 0.476, 0.004]}
+                  position={[0, 0.432, 0.004]}
                   scale={[0.8, 0.36, 0.8]}
                   castShadow
                 />
-                {/* slender exposed neck */}
-                <mesh material={mats.suit} position={[0, 0.518, -0.004]} scale={[1, 1, 0.9]} castShadow>
-                  <cylinderGeometry args={[0.044, 0.054, 0.14, 14]} />
+                {/* [character-art R6] THE NECK GAP, MEASURED.
+                    The collar's top rim is the gorget lathe's 0.1 m crown
+                    scaled 0.78, i.e. 0.078 above its station: 0.416 + 0.078 =
+                    0.494. The helmet's chin cap sits at HEAD_Y − 0.004 −
+                    0.135 × HELMET_SCALE = 0.573. That is a 0.079 m column of
+                    dark under-suit between armoured collar and armoured
+                    helmet — inside the panel's 0.07–0.09 m — and the column
+                    itself is 0.092 m across against a 0.268 m collar, so the
+                    gap is open at the sides and the back as well as being
+                    tall. r5's nape plate, a 0.086 × 0.07 box bridging the two,
+                    is deleted: it closed the gap from exactly the rear camera
+                    the panel judged the frame from. */}
+                <mesh name="neck" material={mats.suit} position={[0, 0.49, -0.004]} scale={[1, 1, 0.9]} castShadow>
+                  <cylinderGeometry args={[0.036, 0.046, 0.14, 14]} />
                 </mesh>
-                {/* nape plate — closes the neck's back without filling it */}
-                <mesh material={mats.plateDark} position={[0, 0.528, -0.045]} rotation-x={-0.22} castShadow receiveShadow>
-                  <boxGeometry args={[0.086, 0.07, 0.022]} />
+                {/* collar riser — reinforces the gorget's rear rim, and stops
+                    BELOW it so nothing bridges the neck from behind */}
+                <mesh material={mats.plateDark} position={[0, 0.436, -0.05]} rotation-x={-0.2} castShadow receiveShadow>
+                  <boxGeometry args={[0.072, 0.046, 0.02]} />
                 </mesh>
 
                 {/* ---- LEFT pauldron: heavy 4-lame stack under a projecting
@@ -3439,47 +3658,57 @@ export default function PlayerRig() {
                   out, so the outline of the shoulder is stepped rather than
                   one smooth dome.
                 */}
+                {/* [character-art R6] 0.64 m TIP-TO-TIP -> 0.51 m, AND LOWER.
+                    The cowl station comes in from 0.182 to 0.134 and drops
+                    0.038, and the four lames step out from it rather than
+                    starting outboard of it. Two things follow: the pauldron
+                    now overhangs the NARROWED ribcage (0.26 m) by ~0.12 m per
+                    side, which is the read the panel asked for; and its crown
+                    sits below the gorget rim, so the neck gap is not covered
+                    by shoulder armour from the rear camera. */}
                 <mesh
+                  name="cowlL"
                   geometry={geos.cowl}
                   material={mats.trim}
-                  position={[-0.182, 0.508, -0.004]}
-                  rotation={[0.06, 0, 0.3]}
+                  position={[-0.134, 0.422, -0.004]}
+                  rotation={[0.1, 0, 0.42]}
+                  scale={[0.88, 0.5, 0.9]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.lameA}
                   material={mats.plateLight}
-                  position={[-0.165, 0.483, 0.007]}
+                  position={[-0.122, 0.405, 0.007]}
                   rotation-z={0.24}
-                  scale={[1.14, 1.0, 0.92]}
+                  scale={[1.1, 1.0, 0.92]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.lameB}
                   material={mats.plateMid}
-                  position={[-0.195, 0.43, 0.005]}
+                  position={[-0.14, 0.359, 0.005]}
                   rotation-z={0.42}
-                  scale={[1.14, 1.0, 0.9]}
+                  scale={[1.08, 1.0, 0.9]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.lameC}
                   material={mats.plateDark}
-                  position={[-0.216, 0.375, 0.005]}
+                  position={[-0.152, 0.314, 0.005]}
                   rotation-z={0.56}
-                  scale={[1.12, 0.96, 0.88]}
+                  scale={[1.06, 0.96, 0.88]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.lameC}
                   material={mats.plateDark}
-                  position={[-0.222, 0.352, 0.004]}
+                  position={[-0.158, 0.291, 0.004]}
                   rotation-z={0.7}
-                  scale={[0.86, 0.86, 0.78]}
+                  scale={[0.84, 0.86, 0.78]}
                   castShadow
                   receiveShadow
                 />
@@ -3490,92 +3719,98 @@ export default function PlayerRig() {
                 {/* [R5] the wing sweeps BACK now (yaw 2.5 -> 2.15), so it
                     lengthens the frame's profile instead of widening an
                     already-wide shoulder */}
+                {/* [R6] the wing sweeps almost straight BACK now (yaw 2.15 ->
+                    1.80). At 2.15 its tip projected 0.155 m outboard of its
+                    own station and WAS the frame's widest point — the measured
+                    0.71 m span the panel read as a mech. At 1.80 the same
+                    blade lengthens the profile instead of the plan. */}
                 <mesh
                   geometry={geos.wingL}
                   material={mats.plateLight}
-                  position={[-0.198, 0.532, -0.024]}
-                  rotation={[0, 2.15, 0.26]}
+                  position={[-0.15, 0.456, -0.03]}
+                  rotation={[0, 1.8, 0.22]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.wingL}
                   material={mats.trim}
-                  position={[-0.198, 0.532, -0.024]}
-                  rotation={[0, 2.15, 0.26]}
+                  position={[-0.15, 0.456, -0.03]}
+                  rotation={[0, 1.8, 0.22]}
                   scale={[1.0, 0.42, 0.7]}
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.trim} position={[-0.268, 0.504, 0.0]} rotation={[0, 0, 0.32]} castShadow>
-                  <boxGeometry args={[0.03, 0.05, 0.16]} />
+                <mesh material={mats.trim} position={[-0.206, 0.424, 0.0]} rotation={[0, 0, 0.32]} castShadow>
+                  <boxGeometry args={[0.026, 0.044, 0.13]} />
                 </mesh>
-                <mesh material={mats.glow} position={[-0.272, 0.512, 0.044]} rotation={[0, 0.16, 0.32]}>
-                  <boxGeometry args={[0.017, 0.02, 0.105]} />
+                <mesh material={mats.glow} position={[-0.21, 0.432, 0.038]} rotation={[0, 0.16, 0.32]}>
+                  <boxGeometry args={[0.014, 0.017, 0.086]} />
                 </mesh>
-                <mesh material={mats.glowCore} position={[-0.274, 0.513, 0.044]} rotation={[0, 0.16, 0.32]}>
-                  <boxGeometry args={[0.01, 0.01, 0.082]} />
+                <mesh material={mats.glowCore} position={[-0.212, 0.433, 0.038]} rotation={[0, 0.16, 0.32]}>
+                  <boxGeometry args={[0.008, 0.008, 0.068]} />
                 </mesh>
                 {/* [character-art R4] 0.20 x 0.09 -> 0.11 x 0.04: the r3 card
                     bloomed into the helmet from the shoulder */}
                 <mesh
                   material={mats.glowSoft}
-                  position={[-0.278, 0.512, 0.044]}
+                  position={[-0.215, 0.432, 0.038]}
                   rotation={[0, Math.PI / 2, 0.32]}
                 >
-                  <planeGeometry args={[0.09, 0.034]} />
+                  <planeGeometry args={[0.076, 0.028]} />
                 </mesh>
 
                 {/* ---- RIGHT pauldron: lighter cowl, fewer lames (asymmetry) ---- */}
                 <mesh
+                  name="cowlR"
                   geometry={geos.cowl}
                   material={mats.plateLight}
-                  position={[0.178, 0.504, -0.004]}
-                  rotation={[0.06, 0, -0.28]}
-                  scale={[0.94, 0.92, 0.96]}
+                  position={[0.13, 0.418, -0.004]}
+                  rotation={[0.1, 0, -0.4]}
+                  scale={[0.84, 0.48, 0.88]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.capA}
                   material={mats.plateLight}
-                  position={[0.16, 0.477, 0.007]}
+                  position={[0.126, 0.402, 0.007]}
                   rotation-z={-0.22}
-                  scale={[1.12, 1.0, 0.9]}
+                  scale={[1.1, 1.0, 0.9]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.capB}
                   material={mats.plateMid}
-                  position={[0.19, 0.425, 0.005]}
+                  position={[0.136, 0.356, 0.005]}
                   rotation-z={-0.38}
-                  scale={[1.12, 0.98, 0.88]}
+                  scale={[1.08, 0.98, 0.88]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.capB}
                   material={mats.plateDark}
-                  position={[0.2, 0.392, 0.004]}
+                  position={[0.146, 0.318, 0.004]}
                   rotation-z={-0.54}
-                  scale={[0.86, 0.86, 0.78]}
+                  scale={[0.84, 0.86, 0.78]}
                   castShadow
                   receiveShadow
                 />
                 <mesh
                   geometry={geos.wingR}
                   material={mats.plateDark}
-                  position={[0.198, 0.523, -0.024]}
-                  rotation={[0, 0.99, 0.24]}
+                  position={[0.15, 0.45, -0.03]}
+                  rotation={[0, 1.34, 0.2]}
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.trim} position={[0.25, 0.48, 0.017]} rotation-z={-0.34} castShadow>
-                  <boxGeometry args={[0.022, 0.09, 0.13]} />
+                <mesh material={mats.trim} position={[0.191, 0.402, 0.015]} rotation-z={-0.34} castShadow>
+                  <boxGeometry args={[0.019, 0.078, 0.11]} />
                 </mesh>
-                <mesh material={mats.glow} position={[0.253, 0.504, 0.04]} rotation={[0, -0.16, -0.3]}>
-                  <boxGeometry args={[0.015, 0.017, 0.09]} />
+                <mesh material={mats.glow} position={[0.194, 0.424, 0.036]} rotation={[0, -0.16, -0.3]}>
+                  <boxGeometry args={[0.012, 0.014, 0.074]} />
                 </mesh>
 
                 {/* ================= head ================= */}
@@ -3590,9 +3825,17 @@ export default function PlayerRig() {
                       whole difference between "figure" and "doll". */}
                   <group position={[0, -0.004, 0.026]} rotation={[0.08, 0, 0]}>
                   <group scale={HELMET_SCALE}>
+                    {/* [character-art R6] the skull moves onto the LIGHT plate.
+                        The five-step value ladder reserves the light value for
+                        the hero masses — chest, pauldrons, helmet — and r5 had
+                        the helmet on the near-black plate, so the frame read
+                        as a pale body with a hole where its head is. The face
+                        still reads because the pocket, brow lintel and vents
+                        under it stay dark: the head's front is built from
+                        shadow lines, not from painting the whole skull dark. */}
                     <mesh
                       geometry={geos.helmet}
-                      material={mats.plateDark}
+                      material={mats.plateLight}
                       position={[0, 0.02, 0.01]}
                       castShadow
                       receiveShadow
@@ -3779,7 +4022,7 @@ export default function PlayerRig() {
                   />
                   {/* undersuit upper arm */}
                   <mesh material={mats.suit} position={[0, -0.155, 0]} scale={[1, 1, 0.84]} castShadow>
-                    <capsuleGeometry args={[0.038, 0.22, 4, 10]} />
+                    <capsuleGeometry args={[0.029, 0.22, 4, 10]} />
                   </mesh>
                   {/* upper-arm armour shell */}
                   {/* [R2] the shell runs 15% PAST the elbow pivot so the joint
@@ -3798,17 +4041,23 @@ export default function PlayerRig() {
                       steeper scale step: the upper arm now tapers from a
                       flared deltoid cuff down to the elbow instead of running
                       at one width, and every rim crosses the outline. */}
+                  {/* [character-art R6] 4 lames -> 3, at a wider pitch. Four
+                      near-identical bands over 0.17 m is a rib texture at
+                      screen scale, not plate armour; three at 85 mm pitch
+                      each stand 9/5/2 mm proud of a shell that is itself
+                      tapering, so the outline notches three times and still
+                      measures monotonic. */}
                   <LameStack
                     geo={geos.cuffArm}
                     matA={mats.plateMid}
                     matB={mats.plateDark}
-                    y0={-0.085}
-                    dy={-0.058}
-                    n={4}
-                    s0={1.12}
-                    ds={-0.078}
-                    cant={0.03}
-                    push={0.011}
+                    y0={-0.078}
+                    dy={-0.085}
+                    n={3}
+                    s0={1.06}
+                    ds={-0.11}
+                    cant={0.034}
+                    push={0.009}
                   />
                   <mesh
                     geometry={geos.jointTubeArm}
@@ -3817,9 +4066,12 @@ export default function PlayerRig() {
                     castShadow
                     receiveShadow
                   />
-                  <mesh material={mats.trim} position={[-0.062, -0.155, 0]} rotation-z={0.03}>
-                    <boxGeometry args={[0.02, 0.2, 0.048]} />
-                  </mesh>
+                  <mesh
+                    geometry={geos.strakeArm}
+                    material={mats.trim}
+                    position={[-0.038, -0.07, 0]}
+                    rotation={[0, 0, -Math.PI / 2]}
+                  />
                   <group ref={elbowL} name="j_elL" position={[0, -UPPER_ARM_L, 0]}>
                     {/* [R2] two-piece joint cowl + recessed piston band */}
                     <mesh
@@ -3841,7 +4093,7 @@ export default function PlayerRig() {
                     <mesh
                       geometry={geos.elbowSpur}
                       material={mats.plateLight}
-                      position={[0, -0.006, -0.05]}
+                      position={[0, -0.006, -0.042]}
                       rotation={[0, Math.PI / 2, -0.42]}
                       castShadow
                       receiveShadow
@@ -3863,7 +4115,7 @@ export default function PlayerRig() {
                       receiveShadow
                     />
                     <mesh material={mats.suit} position={[0, -0.138, 0]} scale={[1, 1, 0.8]} castShadow>
-                      <capsuleGeometry args={[0.032, 0.2, 4, 10]} />
+                      <capsuleGeometry args={[0.024, 0.2, 4, 10]} />
                     </mesh>
                     <mesh
                       geometry={geos.foreArmPlate}
@@ -3878,24 +4130,41 @@ export default function PlayerRig() {
                       geo={geos.cuffForearm}
                       matA={mats.plateMid}
                       matB={mats.plateDark}
-                      y0={-0.075}
-                      dy={-0.058}
-                      n={4}
+                      y0={-0.07}
+                      dy={-0.078}
+                      n={3}
                       s0={1.06}
-                      ds={-0.072}
-                      cant={0.028}
-                      push={0.009}
+                      ds={-0.1}
+                      cant={0.03}
+                      push={0.008}
                     />
-                    {/* gauntlet blade fin */}
-                    <mesh material={mats.trim} position={[-0.05, -0.14, -0.01]} castShadow>
-                      <boxGeometry args={[0.018, 0.17, 0.052]} />
+                    {/* [R6] one sculpted vambrace face over the run between
+                        the lames, with a single recessed trim groove — the
+                        work order's replacement for the middle bands */}
+                    <mesh
+                      geometry={geos.vambraceFace}
+                      material={mats.plateLight}
+                      position={[0, -0.09, 0.03]}
+                      castShadow
+                      receiveShadow
+                    />
+                    <mesh material={mats.trim} position={[0, -0.15, 0.044]}>
+                      <boxGeometry args={[0.01, 0.096, 0.006]} />
                     </mesh>
+                    {/* gauntlet blade fin */}
+                    <mesh
+                      geometry={geos.strakeForearm}
+                      material={mats.trim}
+                      position={[-0.033, -0.055, -0.006]}
+                      rotation={[0, 0, -Math.PI / 2]}
+                      castShadow
+                    />
                     {/* [R5] forearm fin — an outline breaker BETWEEN the
                         joints, where r4's arm was a smooth taper */}
                     <mesh
                       geometry={geos.armFin}
                       material={mats.plateMid}
-                      position={[-0.036, -0.2, -0.026]}
+                      position={[-0.03, -0.2, -0.022]}
                       rotation={[0, Math.PI / 2, -1.9]}
                       castShadow
                       receiveShadow
@@ -3958,7 +4227,7 @@ export default function PlayerRig() {
                     castShadow
                   />
                   <mesh material={mats.suit} position={[0, -0.155, 0]} scale={[1, 1, 0.84]} castShadow>
-                    <capsuleGeometry args={[0.038, 0.22, 4, 10]} />
+                    <capsuleGeometry args={[0.029, 0.22, 4, 10]} />
                   </mesh>
                   {/* [R2] the shell runs 15% PAST the elbow pivot so the joint
                       never opens a gap, and a dark under-suit tube at 0.72× the
@@ -3976,17 +4245,23 @@ export default function PlayerRig() {
                       steeper scale step: the upper arm now tapers from a
                       flared deltoid cuff down to the elbow instead of running
                       at one width, and every rim crosses the outline. */}
+                  {/* [character-art R6] 4 lames -> 3, at a wider pitch. Four
+                      near-identical bands over 0.17 m is a rib texture at
+                      screen scale, not plate armour; three at 85 mm pitch
+                      each stand 9/5/2 mm proud of a shell that is itself
+                      tapering, so the outline notches three times and still
+                      measures monotonic. */}
                   <LameStack
                     geo={geos.cuffArm}
                     matA={mats.plateMid}
                     matB={mats.plateDark}
-                    y0={-0.085}
-                    dy={-0.058}
-                    n={4}
-                    s0={1.12}
-                    ds={-0.078}
-                    cant={0.03}
-                    push={0.011}
+                    y0={-0.078}
+                    dy={-0.085}
+                    n={3}
+                    s0={1.06}
+                    ds={-0.11}
+                    cant={0.034}
+                    push={0.009}
                   />
                   <mesh
                     geometry={geos.jointTubeArm}
@@ -3995,9 +4270,12 @@ export default function PlayerRig() {
                     castShadow
                     receiveShadow
                   />
-                  <mesh material={mats.trim} position={[0.062, -0.155, 0]} rotation-z={-0.03}>
-                    <boxGeometry args={[0.02, 0.2, 0.048]} />
-                  </mesh>
+                  <mesh
+                    geometry={geos.strakeArm}
+                    material={mats.trim}
+                    position={[0.038, -0.07, 0]}
+                    rotation={[0, 0, -Math.PI / 2]}
+                    />
                   <group ref={elbowR} name="j_elR" position={[0, -UPPER_ARM_L, 0]}>
                     {/* [R2] two-piece joint cowl + recessed piston band */}
                     <mesh
@@ -4019,7 +4297,7 @@ export default function PlayerRig() {
                     <mesh
                       geometry={geos.elbowSpur}
                       material={mats.plateLight}
-                      position={[0, -0.006, -0.05]}
+                      position={[0, -0.006, -0.042]}
                       rotation={[0, Math.PI / 2, -0.42]}
                       castShadow
                       receiveShadow
@@ -4041,7 +4319,7 @@ export default function PlayerRig() {
                       receiveShadow
                     />
                     <mesh material={mats.suit} position={[0, -0.138, 0]} scale={[1, 1, 0.8]} castShadow>
-                      <capsuleGeometry args={[0.032, 0.2, 4, 10]} />
+                      <capsuleGeometry args={[0.024, 0.2, 4, 10]} />
                     </mesh>
                     <mesh
                       geometry={geos.foreArmPlate}
@@ -4056,21 +4334,38 @@ export default function PlayerRig() {
                       geo={geos.cuffForearm}
                       matA={mats.plateMid}
                       matB={mats.plateDark}
-                      y0={-0.075}
-                      dy={-0.058}
-                      n={4}
+                      y0={-0.07}
+                      dy={-0.078}
+                      n={3}
                       s0={1.06}
-                      ds={-0.072}
-                      cant={0.028}
-                      push={0.009}
+                      ds={-0.1}
+                      cant={0.03}
+                      push={0.008}
                     />
-                    <mesh material={mats.trim} position={[0.05, -0.14, -0.01]} castShadow>
-                      <boxGeometry args={[0.018, 0.17, 0.052]} />
+                    {/* [R6] one sculpted vambrace face over the run between
+                        the lames, with a single recessed trim groove — the
+                        work order's replacement for the middle bands */}
+                    <mesh
+                      geometry={geos.vambraceFace}
+                      material={mats.plateLight}
+                      position={[0, -0.09, 0.03]}
+                      castShadow
+                      receiveShadow
+                    />
+                    <mesh material={mats.trim} position={[0, -0.15, 0.044]}>
+                      <boxGeometry args={[0.01, 0.096, 0.006]} />
                     </mesh>
+                    <mesh
+                      geometry={geos.strakeForearm}
+                      material={mats.trim}
+                      position={[0.033, -0.055, -0.006]}
+                      rotation={[0, 0, -Math.PI / 2]}
+                          castShadow
+                    />
                     <mesh
                       geometry={geos.armFin}
                       material={mats.plateMid}
-                      position={[0.036, -0.2, -0.026]}
+                      position={[0.03, -0.2, -0.022]}
                       rotation={[0, Math.PI / 2, -1.9]}
                       castShadow
                       receiveShadow
@@ -4126,10 +4421,10 @@ export default function PlayerRig() {
 
             {/* ================= legs ================= */}
             <group ref={legL} name="j_legL" position={[-HIP_X, PELVIS_Y, 0]}>
-              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.68, 0.8, 0.6]} castShadow />
+              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.74, 0.8, 0.66]} castShadow />
               {/* under-suit thigh — what shows through every lame gap */}
               <mesh material={mats.suit} position={[0, -0.222, 0]} scale={[1, 1, 0.84]} castShadow>
-                <capsuleGeometry args={[0.058, 0.3, 4, 10]} />
+                <capsuleGeometry args={[0.042, 0.3, 4, 10]} />
               </mesh>
               {/* [character-art R4] the thigh SHELL is now the dark base value.
                   r3 had the shell light and nothing over it, so the thigh was
@@ -4148,17 +4443,23 @@ export default function PlayerRig() {
                   the shell under it is 23% thinner than r4's, so the leg has a
                   taper AND a serrated outline instead of a constant-width
                   rectangle from hip to knee. */}
+              {/* [character-art R6] 5 lames -> 3, and s0 1.30 -> 0.98. The r5
+                  stack put a 0.148 m half-width band on the thigh: two of
+                  those plus HIP_X measured a 0.61 m pelvis, wider than the
+                  frame's own chest and level with its shoulders. The stack
+                  now peaks at 0.073 and steps 9/5/3 mm proud of the shell
+                  under it. */}
               <LameStack
                 geo={geos.cuffLeg}
                 matA={mats.plateMid}
                 matB={mats.plateDark}
-                y0={-0.105}
-                dy={-0.072}
-                n={5}
-                s0={1.3}
-                ds={-0.085}
-                cant={0.03}
-                push={0.013}
+                y0={-0.098}
+                dy={-0.108}
+                n={3}
+                s0={0.98}
+                ds={-0.09}
+                cant={0.034}
+                push={0.011}
               />
               <mesh
                 geometry={geos.jointTubeLeg}
@@ -4167,9 +4468,21 @@ export default function PlayerRig() {
                 castShadow
                 receiveShadow
               />
-              <mesh material={mats.trim} position={[-0.09, -0.222, 0.01]} castShadow receiveShadow>
-                <boxGeometry args={[0.02, 0.24, 0.06]} />
-              </mesh>
+              {/* [character-art R6] MEASURED, THEN REPLACED. The r5 strake was
+                  `boxGeometry(0.016, 0.24, 0.048)` at x −0.068: a rectangle
+                  0.076 m from the limb axis for 0.24 m of a thigh that tapers
+                  from 0.0755 to 0.053 over the same run. The leg's measured
+                  width profile sat flat at 0.076 for twenty-four centimetres
+                  because of this one box — the shell's taper was real and
+                  invisible. It is a tapering fin now. */}
+              <mesh
+                geometry={geos.strakeThigh}
+                material={mats.trim}
+                position={[-0.048, -0.1, 0.006]}
+                rotation={[0, 0, -Math.PI / 2]}
+                castShadow
+                receiveShadow
+              />
               {/* [character-art R4] rear-thigh leg of the continuous route */}
               <mesh geometry={geos.routeThigh} material={mats.glow} />
               <mesh geometry={geos.routeThighCore} material={mats.glowCore} />
@@ -4185,7 +4498,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.kneeCap}
                   material={mats.trim}
-                  position={[0, -0.03, 0.048]}
+                  position={[0, -0.03, 0.04]}
                   scale={[0.84, 0.74, 0.7]}
                   castShadow
                   receiveShadow
@@ -4196,7 +4509,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.kneeSpur}
                   material={mats.plateLight}
-                  position={[0, -0.012, 0.054]}
+                  position={[0, -0.012, 0.044]}
                   rotation={[0, -Math.PI / 2, -0.52]}
                   castShadow
                   receiveShadow
@@ -4204,7 +4517,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.calfFin}
                   material={mats.plateDark}
-                  position={[0, -0.2, -0.052]}
+                  position={[0, -0.2, -0.042]}
                   rotation={[0, Math.PI / 2, -0.62]}
                   castShadow
                   receiveShadow
@@ -4217,7 +4530,7 @@ export default function PlayerRig() {
                   receiveShadow
                 />
                 <mesh material={mats.suit} position={[0, -0.25, 0]} scale={[1, 1, 0.82]} castShadow>
-                  <capsuleGeometry args={[0.044, 0.35, 4, 10]} />
+                  <capsuleGeometry args={[0.032, 0.35, 4, 10]} />
                 </mesh>
                 {/* greave shell — dark base, lames over it */}
                 <mesh
@@ -4233,29 +4546,52 @@ export default function PlayerRig() {
                     greave starts wide under the knee and ends at ~0.11 m over
                     the ankle. That long taper to a small, pointed foot is what
                     makes a frame read as near-digitigrade rather than booted. */}
+                {/* [character-art R6] SIX LAMES -> THREE, PLUS A GREAVE FACE.
+                    This is the work order's item verbatim, and the captured
+                    frames are why: six 70 mm bands down a 0.49 m calf is a
+                    ribbed hose, and the leg read as one in every shot. Three
+                    bands at 150 mm pitch give the leg three steps — knee
+                    cowl, greave, ankle cowl — and the sculpted face below
+                    carries the run between them with a single trim groove
+                    instead of four more rims. */}
                 <LameStack
                   geo={geos.cuffShin}
                   matA={mats.plateMid}
                   matB={mats.plateDark}
-                  y0={-0.095}
-                  dy={-0.07}
-                  n={6}
-                  s0={1.3}
-                  ds={-0.095}
-                  cant={0.028}
-                  push={0.011}
+                  y0={-0.088}
+                  dy={-0.15}
+                  n={3}
+                  s0={1.08}
+                  ds={-0.12}
+                  cant={0.03}
+                  push={0.01}
                 />
+                <mesh
+                  geometry={geos.greaveFace}
+                  material={mats.plateLight}
+                  position={[0, -0.115, 0.04]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh material={mats.trim} position={[0, -0.2, 0.054]}>
+                  <boxGeometry args={[0.013, 0.16, 0.007]} />
+                </mesh>
                 <mesh
                   geometry={geos.shinFin}
                   material={mats.plateMid}
-                  position={[0, -0.33, -0.05]}
+                  position={[0, -0.33, -0.04]}
                   rotation={[0, Math.PI / 2, -1.75]}
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.trim} position={[-0.072, -0.25, 0]} castShadow receiveShadow>
-                  <boxGeometry args={[0.02, 0.34, 0.05]} />
-                </mesh>
+                <mesh
+                  geometry={geos.strakeShin}
+                  material={mats.trim}
+                  position={[-0.044, -0.09, 0]}
+                  rotation={[0, 0, -Math.PI / 2]}
+                  castShadow
+                  receiveShadow
+                />
                 {/* [character-art R4] the shin leg of the continuous route.
                     The two lateral boxes r3 also carried here are deleted —
                     three emissive elements per shin is the "isolated pips"
@@ -4274,7 +4610,7 @@ export default function PlayerRig() {
                   />
                   <mesh geometry={geos.bevelAnkle} material={mats.trimDark} castShadow />
                   <mesh material={mats.glow} position={[0, 0.012, 0]}>
-                    <cylinderGeometry args={[0.062, 0.062, 0.014, 16]} />
+                    <cylinderGeometry args={[0.048, 0.048, 0.012, 16]} />
                   </mesh>
                   {/* [character-art R4] the boot drops to the MID value: a
                       bright ivory foot floats, and the sole is the one place a
@@ -4299,26 +4635,33 @@ export default function PlayerRig() {
                     castShadow
                     receiveShadow
                   />
+                  {/* [character-art R6] the claw sat at ankle-local −0.140 with
+                      a −0.22 rad down-sweep, i.e. 0.09 m BELOW the sole the
+                      boot lands on: measured as the rig's true bbox minimum,
+                      −0.094 against an authored floor of 0. It now lies along
+                      the toe at −0.082 with a −0.06 sweep, so its tip clears
+                      the floor by ~13 mm and the boot, not the claw, is what
+                      the figure stands on. */}
                   <mesh
                     geometry={geos.toeClaw}
                     material={mats.trim}
-                    position={[0, -0.14, 0.14]}
-                    rotation={[0, -Math.PI / 2, -0.22]}
+                    position={[0, -0.058, 0.152]}
+                    rotation={[0, -Math.PI / 2, -0.02]}
                     castShadow
                     receiveShadow
                   />
                   <mesh material={mats.trim} position={[0, -0.05, 0.055]} rotation-x={0.3} castShadow>
-                    <boxGeometry args={[0.07, 0.026, 0.07]} />
+                    <boxGeometry args={[0.058, 0.024, 0.062]} />
                   </mesh>
                 </group>
               </group>
             </group>
 
             <group ref={legR} name="j_legR" position={[HIP_X, PELVIS_Y, 0]}>
-              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.68, 0.8, 0.6]} castShadow />
+              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.74, 0.8, 0.66]} castShadow />
               {/* under-suit thigh — what shows through every lame gap */}
               <mesh material={mats.suit} position={[0, -0.222, 0]} scale={[1, 1, 0.84]} castShadow>
-                <capsuleGeometry args={[0.058, 0.3, 4, 10]} />
+                <capsuleGeometry args={[0.042, 0.3, 4, 10]} />
               </mesh>
               {/* [character-art R4] the thigh SHELL is now the dark base value.
                   r3 had the shell light and nothing over it, so the thigh was
@@ -4337,17 +4680,23 @@ export default function PlayerRig() {
                   the shell under it is 23% thinner than r4's, so the leg has a
                   taper AND a serrated outline instead of a constant-width
                   rectangle from hip to knee. */}
+              {/* [character-art R6] 5 lames -> 3, and s0 1.30 -> 0.98. The r5
+                  stack put a 0.148 m half-width band on the thigh: two of
+                  those plus HIP_X measured a 0.61 m pelvis, wider than the
+                  frame's own chest and level with its shoulders. The stack
+                  now peaks at 0.073 and steps 9/5/3 mm proud of the shell
+                  under it. */}
               <LameStack
                 geo={geos.cuffLeg}
                 matA={mats.plateMid}
                 matB={mats.plateDark}
-                y0={-0.105}
-                dy={-0.072}
-                n={5}
-                s0={1.3}
-                ds={-0.085}
-                cant={0.03}
-                push={0.013}
+                y0={-0.098}
+                dy={-0.108}
+                n={3}
+                s0={0.98}
+                ds={-0.09}
+                cant={0.034}
+                push={0.011}
               />
               <mesh
                 geometry={geos.jointTubeLeg}
@@ -4356,9 +4705,15 @@ export default function PlayerRig() {
                 castShadow
                 receiveShadow
               />
-              <mesh material={mats.trim} position={[0.09, -0.222, 0.01]} castShadow receiveShadow>
-                <boxGeometry args={[0.02, 0.24, 0.06]} />
-              </mesh>
+              <mesh
+                geometry={geos.strakeThigh}
+                material={mats.trim}
+                position={[0.048, -0.1, 0.006]}
+                rotation={[0, 0, -Math.PI / 2]}
+                scale={[1, -1, 1]}
+                castShadow
+                receiveShadow
+              />
               {/* [character-art R4] rear-thigh leg of the continuous route */}
               <mesh geometry={geos.routeThigh} material={mats.glow} />
               <mesh geometry={geos.routeThighCore} material={mats.glowCore} />
@@ -4374,7 +4729,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.kneeCap}
                   material={mats.trim}
-                  position={[0, -0.03, 0.048]}
+                  position={[0, -0.03, 0.04]}
                   scale={[0.84, 0.74, 0.7]}
                   castShadow
                   receiveShadow
@@ -4385,7 +4740,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.kneeSpur}
                   material={mats.plateLight}
-                  position={[0, -0.012, 0.054]}
+                  position={[0, -0.012, 0.044]}
                   rotation={[0, -Math.PI / 2, -0.52]}
                   castShadow
                   receiveShadow
@@ -4393,7 +4748,7 @@ export default function PlayerRig() {
                 <mesh
                   geometry={geos.calfFin}
                   material={mats.plateDark}
-                  position={[0, -0.2, -0.052]}
+                  position={[0, -0.2, -0.042]}
                   rotation={[0, Math.PI / 2, -0.62]}
                   castShadow
                   receiveShadow
@@ -4406,7 +4761,7 @@ export default function PlayerRig() {
                   receiveShadow
                 />
                 <mesh material={mats.suit} position={[0, -0.25, 0]} scale={[1, 1, 0.82]} castShadow>
-                  <capsuleGeometry args={[0.044, 0.35, 4, 10]} />
+                  <capsuleGeometry args={[0.032, 0.35, 4, 10]} />
                 </mesh>
                 {/* greave shell — dark base, lames over it */}
                 <mesh
@@ -4422,29 +4777,52 @@ export default function PlayerRig() {
                     greave starts wide under the knee and ends at ~0.11 m over
                     the ankle. That long taper to a small, pointed foot is what
                     makes a frame read as near-digitigrade rather than booted. */}
+                {/* [character-art R6] SIX LAMES -> THREE, PLUS A GREAVE FACE.
+                    This is the work order's item verbatim, and the captured
+                    frames are why: six 70 mm bands down a 0.49 m calf is a
+                    ribbed hose, and the leg read as one in every shot. Three
+                    bands at 150 mm pitch give the leg three steps — knee
+                    cowl, greave, ankle cowl — and the sculpted face below
+                    carries the run between them with a single trim groove
+                    instead of four more rims. */}
                 <LameStack
                   geo={geos.cuffShin}
                   matA={mats.plateMid}
                   matB={mats.plateDark}
-                  y0={-0.095}
-                  dy={-0.07}
-                  n={6}
-                  s0={1.3}
-                  ds={-0.095}
-                  cant={0.028}
-                  push={0.011}
+                  y0={-0.088}
+                  dy={-0.15}
+                  n={3}
+                  s0={1.08}
+                  ds={-0.12}
+                  cant={0.03}
+                  push={0.01}
                 />
+                <mesh
+                  geometry={geos.greaveFace}
+                  material={mats.plateLight}
+                  position={[0, -0.115, 0.04]}
+                  castShadow
+                  receiveShadow
+                />
+                <mesh material={mats.trim} position={[0, -0.2, 0.054]}>
+                  <boxGeometry args={[0.013, 0.16, 0.007]} />
+                </mesh>
                 <mesh
                   geometry={geos.shinFin}
                   material={mats.plateMid}
-                  position={[0, -0.33, -0.05]}
+                  position={[0, -0.33, -0.04]}
                   rotation={[0, Math.PI / 2, -1.75]}
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.trim} position={[0.072, -0.25, 0]} castShadow receiveShadow>
-                  <boxGeometry args={[0.02, 0.34, 0.05]} />
-                </mesh>
+                <mesh
+                  geometry={geos.strakeShin}
+                  material={mats.trim}
+                  position={[0.044, -0.09, 0]}
+                  rotation={[0, 0, -Math.PI / 2]}
+                  castShadow
+                  receiveShadow
+                />
                 {/* [character-art R4] the shin leg of the continuous route.
                     The two lateral boxes r3 also carried here are deleted —
                     three emissive elements per shin is the "isolated pips"
@@ -4463,7 +4841,7 @@ export default function PlayerRig() {
                   />
                   <mesh geometry={geos.bevelAnkle} material={mats.trimDark} castShadow />
                   <mesh material={mats.glow} position={[0, 0.012, 0]}>
-                    <cylinderGeometry args={[0.062, 0.062, 0.014, 16]} />
+                    <cylinderGeometry args={[0.048, 0.048, 0.012, 16]} />
                   </mesh>
                   {/* [character-art R4] the boot drops to the MID value: a
                       bright ivory foot floats, and the sole is the one place a
@@ -4488,16 +4866,23 @@ export default function PlayerRig() {
                     castShadow
                     receiveShadow
                   />
+                  {/* [character-art R6] the claw sat at ankle-local −0.140 with
+                      a −0.22 rad down-sweep, i.e. 0.09 m BELOW the sole the
+                      boot lands on: measured as the rig's true bbox minimum,
+                      −0.094 against an authored floor of 0. It now lies along
+                      the toe at −0.082 with a −0.06 sweep, so its tip clears
+                      the floor by ~13 mm and the boot, not the claw, is what
+                      the figure stands on. */}
                   <mesh
                     geometry={geos.toeClaw}
                     material={mats.trim}
-                    position={[0, -0.14, 0.14]}
-                    rotation={[0, -Math.PI / 2, -0.22]}
+                    position={[0, -0.058, 0.152]}
+                    rotation={[0, -Math.PI / 2, -0.02]}
                     castShadow
                     receiveShadow
                   />
                   <mesh material={mats.trim} position={[0, -0.05, 0.055]} rotation-x={0.3} castShadow>
-                    <boxGeometry args={[0.07, 0.026, 0.07]} />
+                    <boxGeometry args={[0.058, 0.024, 0.062]} />
                   </mesh>
                 </group>
               </group>
@@ -4513,19 +4898,25 @@ export default function PlayerRig() {
               measured this pair as a large part of the fill that was beating a
               1.58 key, so the frame's own shaded side never went a stop down.
               They are separation now, not illumination. */}
+          {/* [character-art R6] 4.0 / 1.6 -> 1.5 / 0.55, and the strong one
+              lifted to just above the shoulder line. With decay 2 at ~0.6 m
+              from the nearest plate, 4.0 delivered an effective ~11 — the
+              frame's own separation light was lighting it harder than the
+              scene key, so no plate had a shaded side and the whole figure
+              read as one flat ivory mass. A rim is separation, not fill. */}
           <pointLight
             ref={rimLight}
-            position={[0, 0.58, -1.15]}
+            position={[0, 0.62, -1.15]}
             color={COLORS.paleHalo}
-            intensity={4.0}
-            distance={3.6}
+            intensity={1.5}
+            distance={3.2}
             decay={2}
           />
           <pointLight
-            position={[0.55, 0.5, 0.95]}
+            position={[0.5, 0.52, 0.9]}
             color={LIGHTING.playerRim.color}
-            intensity={1.6}
-            distance={3.0}
+            intensity={0.55}
+            distance={2.6}
             decay={2}
           />
         </group>

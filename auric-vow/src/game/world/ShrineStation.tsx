@@ -46,6 +46,9 @@ import {
   ARENA_WALL_RECESS,
   ARENA_BUTTRESS,
   ARENA_AEDICULE_Z,
+  ARENA_DECK_GRATES,
+  ARENA_DECK_HATCHES,
+  ARENA_DADO_TOP,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -370,6 +373,62 @@ function bakeContactAO(
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3))
   return g
+}
+
+/**
+ * R5 — piecewise vertical shading baked into vertex colour.
+ *
+ * `bakeContactAO` darkens a contact line. This bakes a whole VERTICAL CURVE
+ * into a surface, which is a different job: the panel's standing complaint
+ * about the arena is that its 60 m walls are "one flat value from plinth to
+ * cornice", i.e. there is no lit falloff. A room lit from its ridge slots and
+ * from pools on its own floor does not have a flat wall — it has a dark base
+ * where nothing reaches, a lit middle where the floor bounce lands, and a
+ * cove shadow under the projecting cornice. The interesting part is that that
+ * ramp is a property of the ROOM, not of the light: it is the same every frame
+ * because nothing in the arena moves, so it belongs in the mesh rather than in
+ * a light that has to be evaluated per fragment on a browser budget.
+ *
+ * `stops` is a list of [localY, multiplier] rows, bottom to top; values between
+ * rows are smoothstepped. Multiplied INTO any existing colour attribute, so it
+ * composes with `bakeContactAO` rather than overwriting it.
+ */
+function bakeGradient(src: THREE.BufferGeometry, stops: [number, number][]): THREE.BufferGeometry {
+  const g = src.clone()
+  const pos = g.attributes.position as THREE.BufferAttribute
+  const prev = g.attributes.color as THREE.BufferAttribute | undefined
+  const col = new Float32Array(pos.count * 3)
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i)
+    let v = stops[0][1]
+    if (y >= stops[stops.length - 1][0]) v = stops[stops.length - 1][1]
+    else {
+      for (let k = 0; k + 1 < stops.length; k++) {
+        if (y >= stops[k][0] && y < stops[k + 1][0]) {
+          const t = THREE.MathUtils.smoothstep(y, stops[k][0], stops[k + 1][0])
+          v = stops[k][1] + (stops[k + 1][1] - stops[k][1]) * t
+          break
+        }
+      }
+    }
+    const base = prev ? prev.getX(i) : 1
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = base * v
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+  return g
+}
+
+/**
+ * R5 — plain surface of revolution from a [y, radius] section.
+ *
+ * `flutedColumn` already lathes a profile; passing it zero flute depth gives a
+ * clean lathe, so the two share one tessellator and one seam convention rather
+ * than adding a second code path. Rows must be monotonically increasing in y
+ * (a row that steps back down flips the winding and the band disappears under
+ * front-side culling), so every profile below is written bottom to top.
+ */
+function latheProfile(profile: [number, number][], radial = 28): THREE.BufferGeometry {
+  return flutedColumn(profile, 1, 0, [0, 0], radial)
 }
 
 /** Bake a UV repeat into a geometry so one shared trim material can serve
@@ -2189,19 +2248,78 @@ function Reliquary() {
 const C_CRADLE = rosette(0, 1.5, 150, 1.6, 8, -0.5, [0.8, 1, 0.8])
 const C_CRADLE_OUTER = rosette(0, 1.1, 150, 2.4, 8, -0.9, [1.1, 1.2, 1.1])
 
+/**
+ * R5 — the votive krater.
+ *
+ * What this replaced: `RBOX` scaled [2, 1, 2] in `ivoryMaterial`, i.e. a pale
+ * chamfered cube with a gold slab on top. It is the "untextured white prop"
+ * the R5 panel called out in 11_ability_dash, and it deserved the note — a
+ * 2 m box at 1 m tall stands exactly at the near plane of a third-person
+ * combat shot, so it is one of the few pieces of level dressing the camera
+ * ever gets close enough to read, and there was nothing on it to read.
+ *
+ * Eight of these exist (four in the chamber, four in the arena) and they sit
+ * on a 2 x 1.1 x 2 collider from `layout.ts` that must not move. So the fix is
+ * entirely inside that footprint: a lathed krater section — square plinth,
+ * cast-gold torus at the foot, a scotia, an ogee body swelling to r 0.88, a
+ * necking bead and a flared lip — with two cast ears breaking the silhouette
+ * and the planting sunk in a dark bowl rather than glowing off a flat disc.
+ * Nothing here projects past |x - cx| = 0.93 or rises above y 1.06, both
+ * inside the AABB, so collision is bit-identical to before.
+ */
+const KRATER_PROFILE: [number, number][] = [
+  [0.26, 0.40],
+  [0.315, 0.47],
+  [0.355, 0.415],
+  [0.40, 0.445],
+  [0.45, 0.545],
+  [0.55, 0.675],
+  [0.66, 0.775],
+  [0.75, 0.838],
+  [0.82, 0.872],
+  [0.875, 0.878],
+  [0.905, 0.848],
+  [0.925, 0.862],
+  [0.965, 0.912],
+  [1.015, 0.925],
+  [1.045, 0.892],
+]
+const KRATER_BOWL = bakeContactAO(latheProfile(KRATER_PROFILE, 30), 0.26, 0.66, 0.40)
+/** chunky bead torus, unit radius — scale sets both radius and tube */
+const BEAD_RING = new THREE.TorusGeometry(1, 0.05, 8, 44)
+/** the two cast ears, as local offsets from the krater axis */
+const KRATER_EARS: { p: [number, number, number]; r: [number, number, number]; s: [number, number, number] }[] = [
+  { p: [0.78, 0.66, 0], r: [0, 0, -0.22], s: [0.3, 0.46, 0.17] },
+  { p: [-0.78, 0.66, 0], r: [0, 0, 0.22], s: [0.3, 0.46, 0.17] },
+]
+
 function Planter({ x, z, purify }: { x: number; z: number; purify?: boolean }) {
-  const petals = useMemo(() => rosette(x, 1.15, z, 0.8, 8, -0.55, [0.5, 0.8, 0.5]), [x, z])
+  const petals = useMemo(() => rosette(x, 1.1, z, 0.56, 8, -0.5, [0.42, 0.7, 0.42]), [x, z])
+  const ears = useMemo(
+    () => KRATER_EARS.map((e) => ({ p: [x + e.p[0], e.p[1], z + e.p[2]] as [number, number, number], r: e.r, s: e.s })),
+    [x, z],
+  )
   return (
     <group>
-      <mesh geometry={RBOX} material={ivoryMaterial()} position={[x, 0.5, z]} scale={[2, 1, 2]} receiveShadow castShadow />
-      <mesh geometry={BOX} material={goldMaterial()} position={[x, 1.02, z]} scale={[2.1, 0.08, 2.1]} />
-      <Instanced geometry={PETAL} material={goldMaterial()} items={petals} />
+      {/* square plinth + gold foot-ring: the krater stands ON something */}
+      <mesh geometry={PLINTH_BOX} material={umberMaterial()} position={[x, 0.13, z]} scale={[1.96, 0.26, 1.96]} receiveShadow castShadow />
+      <mesh geometry={RBOX} material={goldCastMaterial()} position={[x, 0.295, z]} scale={[1.66, 0.1, 1.66]} receiveShadow castShadow />
+      {/* the lathed body */}
+      <mesh geometry={KRATER_BOWL} material={ivoryContactMaterial()} position={[x, 0, z]} receiveShadow castShadow />
+      {/* necking bead + flared lip ring */}
+      <mesh geometry={BEAD_RING} material={goldPolishedMaterial()} position={[x, 0.895, z]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.855, 0.855, 0.7]} />
+      <mesh geometry={BEAD_RING} material={goldCastMaterial()} position={[x, 1.028, z]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.93, 0.93, 0.9]} receiveShadow castShadow />
+      {/* cast ears — the silhouette breakers */}
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={ears} castShadow />
+      {/* the planting sits in a dark bowl, not on a lit lid */}
+      <mesh geometry={CIRCLE} material={recessMaterial()} position={[x, 0.995, z]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.87, 0.87, 1]} receiveShadow />
+      <Instanced geometry={PETAL} material={goldMaterial()} items={petals} castShadow />
       <mesh
         geometry={CIRCLE}
         material={purify ? purifyVeinMaterial() : veinTealMaterial()}
-        position={[x, 1.1, z]}
+        position={[x, 1.012, z]}
         rotation={[-Math.PI / 2, 0, 0]}
-        scale={[0.7, 0.7, 1]}
+        scale={[0.5, 0.5, 1]}
       />
     </group>
   )
@@ -2369,8 +2487,8 @@ function ZoneC() {
 
       {/* teal vein clusters + corruption glyphs */}
       <Instanced geometry={BOX} material={veinTealMaterial()} items={C_VEINS} />
-      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-14.35, 2.4, 142]} rotation={[0, Math.PI / 2, 0]} scale={[2.4, 2.4, 1]} />
-      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[14.35, 2.4, 158]} rotation={[0, -Math.PI / 2, 0]} scale={[2.4, 2.4, 1]} />
+      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-14.92, 2.4, 142]} rotation={[0, Math.PI / 2, 0]} scale={[2.4, 2.4, 1]} />
+      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[14.92, 2.4, 158]} rotation={[0, -Math.PI / 2, 0]} scale={[2.4, 2.4, 1]} />
 
       {/* sockets + cables + Reliquary */}
       <Instanced geometry={CYL} material={goldMaterial()} items={C_SOCKETS} />
@@ -2434,7 +2552,7 @@ for (const w of D_WALLS) {
 // order asked for and what self-shadows under a low key.
 // ---------------------------------------------------------------------------
 const WALL_RECESS = ARENA_WALL_RECESS
-const DADO_TOP = 2.3
+const DADO_TOP = ARENA_DADO_TOP
 const ATTIC_BOT = 8.6
 
 /** pair centres — deliberately unequal, and different on all four walls.
@@ -2503,6 +2621,120 @@ const D_WALL_PIER: InstItem[] = []
   for (const z of D_PAIR_E) D_WALL_PIER.push({ p: [30 + R / 2, pierY, z], s: [R, pierH, pierW] })
   for (const x of D_PAIR_S) D_WALL_PIER.push({ p: [x, pierY, 165 - R / 2], s: [pierW, pierH, R] })
   for (const x of D_PAIR_N) D_WALL_PIER.push({ p: [x, pierY, 225 + R / 2], s: [pierW, pierH, R] })
+}
+
+/**
+ * R5 — the arena wall gets a LIT FALLOFF, baked.
+ *
+ * The one note every round has repeated about this room is that its 60 m walls
+ * "tile like wallpaper with no lit falloff": one flat value from plinth to
+ * cornice, so no amount of trim on any single bay reads as architecture. The
+ * obvious fix is lights, and the obvious fix is wrong here for two reasons —
+ * the aperture rig in `Lighting.tsx` is another stream's file, and a spot or
+ * rect-area light per bay is a per-fragment cost on a browser budget for
+ * something that never changes, because nothing in this room moves.
+ *
+ * The ramp is therefore baked into the wall's own vertex colour, through the
+ * `vertexColors` channel `ivoryContactMaterial` already carries. The curve is
+ * the one a roofed hall actually has: dark at the base where nothing reaches,
+ * brightest a little above eye line where the floor bounce and the ridge slots
+ * land, and falling again into the cove under the projecting cornice.
+ *
+ * Local y is the unit box's, so the stops below map to world height as
+ * `y * 10 + 5` for the 10 m field and `y * 6.3 + 5.45` for the pier register.
+ * Only 2.3 m upward is ever visible on the field (the dado stands in front of
+ * the rest), which is why the curve is authored across that band and not from
+ * the floor.
+ */
+const WALL_FIELD_BOX = bakeGradient(PANEL_BOX, [
+  [-0.5, 0.5],
+  [-0.3, 0.57],
+  [-0.16, 0.8],
+  [0.02, 1.0],
+  [0.22, 0.92],
+  [0.36, 0.62],
+  [0.5, 0.56],
+])
+const WALL_PIER_BOX = bakeGradient(PANEL_BOX, [
+  [-0.5, 0.58],
+  [-0.22, 0.86],
+  [0.06, 1.0],
+  [0.3, 0.92],
+  [0.5, 0.62],
+])
+
+/**
+ * R5 — the dado becomes a DARK register, panelled.
+ *
+ * Work order env-art #1 asked for the lower band to be darkened ~30 % "so
+ * enemy bodies at play height sit against a dark field". It was ivory, the
+ * same value as everything above it, which is why every combat frame in the
+ * review set has troopers silhouetted against a wall the same brightness as
+ * they are. It is now umber — the level's warm dark, already used for the base
+ * course — with real sunk panels between the piers and a projecting gold cap
+ * moulding at 2.3 m, so the register reads as joinery rather than as paint.
+ *
+ * Both are geometry INSIDE the wall's existing face: the panel backs are flush
+ * with it and the cap projects 0.18 m, which is less than the pilaster nosings
+ * already standing at 0.26 m. No collider is touched.
+ */
+const D_DADO_PANEL: InstItem[] = []
+const D_DADO_STILE: InstItem[] = []
+const D_DADO_CAP: InstItem[] = []
+const D_DADO_PLINTH: InstItem[] = []
+{
+  /** panel field between two pier centres, trimmed for the pier width */
+  const panelRun = (a: number, b: number) => {
+    const w = b - a - (PAIR_GAP * 2 + 2.3)
+    return w >= 1.4 ? [(a + b) / 2, w] : null
+  }
+  // long walls: panels between consecutive pair centres, plus the end returns
+  for (const sx of [1, -1]) {
+    const run = sx > 0 ? D_PAIR_E : D_PAIR_W
+    const face = sx * 29.97
+    const stile = sx * 29.9
+    for (let i = 0; i + 1 < run.length; i++) {
+      const r = panelRun(run[i], run[i + 1])
+      if (!r) continue
+      D_DADO_PANEL.push({ p: [face, 1.32, r[0]], s: [0.06, 1.5, r[1]] })
+      for (const e of [-1, 1]) {
+        D_DADO_STILE.push({ p: [stile, 1.32, r[0] + (e * r[1]) / 2], s: [0.12, 1.62, 0.13] })
+      }
+      D_DADO_STILE.push({ p: [stile, 0.53, r[0]], s: [0.12, 0.12, r[1] + 0.13] })
+      D_DADO_STILE.push({ p: [stile, 2.11, r[0]], s: [0.12, 0.12, r[1] + 0.13] })
+    }
+    // the swept profile's back plane is local x = 0, so the run is seated ON
+    // the dado face rather than 6 cm in front of it (which would show a slit)
+    D_DADO_CAP.push({ p: [sx * 30.0, 2.33, 195], r: [0, sx > 0 ? Math.PI : 0, 0], s: [1.6, 1.25, 59.8] })
+    D_DADO_PLINTH.push({ p: [sx * 29.93, 0.19, 195], s: [0.14, 0.38, 59.8] })
+  }
+  // end walls: the same course, split around the gate opening
+  for (const sz of [1, -1]) {
+    const wz = sz > 0 ? 225 : 165
+    const face = sz > 0 ? -1 : 1
+    const half = sz > 0 ? 4 : 3
+    const run = sz > 0 ? D_PAIR_N : D_PAIR_S
+    for (let i = 0; i + 1 < run.length; i++) {
+      const r = panelRun(run[i], run[i + 1])
+      if (!r || Math.abs(r[0]) < half + 1) continue
+      D_DADO_PANEL.push({ p: [r[0], 1.32, wz + face * 0.03], s: [r[1], 1.5, 0.06] })
+      for (const e of [-1, 1]) {
+        D_DADO_STILE.push({ p: [r[0] + (e * r[1]) / 2, 1.32, wz + face * 0.1], s: [0.13, 1.62, 0.12] })
+      }
+      D_DADO_STILE.push({ p: [r[0], 0.53, wz + face * 0.1], s: [r[1] + 0.13, 0.12, 0.12] })
+      D_DADO_STILE.push({ p: [r[0], 2.11, wz + face * 0.1], s: [r[1] + 0.13, 0.12, 0.12] })
+    }
+    for (const side of [-1, 1]) {
+      const x0 = side > 0 ? half : -30
+      const x1 = side > 0 ? 30 : -half
+      D_DADO_CAP.push({
+        p: [(x0 + x1) / 2, 2.33, wz],
+        r: [0, face > 0 ? -Math.PI / 2 : Math.PI / 2, 0],
+        s: [1.6, 1.25, x1 - x0],
+      })
+      D_DADO_PLINTH.push({ p: [(x0 + x1) / 2, 0.19, wz + face * 0.07], s: [x1 - x0, 0.38, 0.14] })
+    }
+  }
 }
 
 // arena wall detail: gold pilasters + obsidian panel lines + teal insets
@@ -2644,6 +2876,49 @@ for (const sz of [1, -1]) {
   }
 }
 /**
+ * R5 — a projecting hood over every screen bay.
+ *
+ * The arena's recessed field is where the "tiles like wallpaper" read lives:
+ * a 6 m band of one repeating tile with nothing crossing it. Trim applied FLAT
+ * onto that band cannot fix it, because a flat stripe on a flat plane is more
+ * of the same surface. What breaks a tiled field is something that stands off
+ * it far enough to put a hard horizontal band of its own shade across it.
+ *
+ * So each screen bay gets a cornice hood on two consoles, projecting 0.62 m
+ * from the face at 5.75 m — over the screen's head, under the coffer register,
+ * clear of the 1.8 m capsule by nearly four metres. It is derived from
+ * `D_SCREENS`, so it inherits the wall's irregular bay rhythm for free and
+ * appears only where a bay actually exists (the buttress bay has no screen and
+ * therefore gets no hood, which is the correct answer structurally as well).
+ */
+const D_BAY_HOOD: InstItem[] = []
+const D_BAY_HOOD_LIP: InstItem[] = []
+const D_BAY_CONSOLE: InstItem[] = []
+for (const sc of D_SCREENS) {
+  const [px, , pz] = sc.p
+  const w = (sc.s ?? [1, 1, 1])[0]
+  // long-wall screens sit at |x| = 29.82; an end-wall bay centre can reach
+  // |x| = 21.1, so the test has to be 29 and not 20
+  const onLongWall = Math.abs(px) > 29
+  if (onLongWall) {
+    const sx = px > 0 ? 1 : -1
+    D_BAY_HOOD.push({ p: [sx * 29.62, 5.78, pz], s: [0.78, 0.26, w + 1.0] })
+    D_BAY_HOOD_LIP.push({ p: [sx * 29.28, 5.62, pz], s: [0.12, 0.09, w + 1.04] })
+    for (const e of [-1, 1]) {
+      D_BAY_CONSOLE.push({ p: [sx * 29.78, 5.38, pz + (e * w) / 2], s: [0.5, 0.6, 0.42] })
+    }
+  } else {
+    const face = pz > 195 ? -1 : 1
+    const wz = pz > 195 ? 225 : 165
+    D_BAY_HOOD.push({ p: [px, 5.78, wz + face * 0.42], s: [w + 1.0, 0.26, 0.78] })
+    D_BAY_HOOD_LIP.push({ p: [px, 5.62, wz + face * 0.76], s: [w + 1.04, 0.09, 0.12] })
+    for (const e of [-1, 1]) {
+      D_BAY_CONSOLE.push({ p: [px + (e * w) / 2, 5.38, wz + face * 0.26], s: [0.42, 0.6, 0.5] })
+    }
+  }
+}
+
+/**
  * R4 — jittered copies of the two ornament runs that repeat most often in a
  * wide arena shot. The corbel course is 32 blocks at a dead 3.5 m pitch and
  * the vault bosses repeat per bay; a few percent of variation per instance is
@@ -2777,9 +3052,50 @@ const D_AED_FRAME: InstItem[] = [
   { p: [30.02, 5.2, AEDICULE_Z + 3.05], s: [0.5, 7.5, 0.5] },
 ]
 const D_AED_PLINTH: InstItem[] = [{ p: [29.9, 2.2, AEDICULE_Z], s: [0.9, 1.5, 2.4] }]
-const D_AED_FIGURE: InstItem[] = [
-  { p: [30.05, 5.4, AEDICULE_Z], r: [0, 0.4, 0], s: [0.85, 4.8, 1.5] },
-  { p: [30.05, 8.0, AEDICULE_Z], r: [0.18, 0.4, 0], s: [1.2, 1.2, 1.2] },
+/**
+ * R5 — the aedicule holds a VOTARY, not a mannequin.
+ *
+ * What stood here was two rounded boxes: a 4.8 m slab with a 1.2 m cube on
+ * top, lit, framed in gold and placed at the focus of the arena's east wall —
+ * a literal blockout mannequin in the one niche the room asks you to look at.
+ * It is now a lathed votive idol: a flared hem, a robe tapering with one fold,
+ * a shouldered mantle, a necking, a crested helm, a cast collar bead and a
+ * halo ring behind the head. All surface of revolution, one shared geometry,
+ * no boxes.
+ *
+ * The lathe is scaled 0.78 in x/z so its widest point sits at 0.61 m, which
+ * keeps the whole figure inside the footprint the two boxes used to occupy.
+ */
+const VOTARY_PROFILE: [number, number][] = [
+  [0.0, 0.72],
+  [0.16, 0.78],
+  [0.26, 0.7],
+  [0.9, 0.62],
+  [1.8, 0.55],
+  [2.6, 0.5],
+  [3.1, 0.52],
+  [3.35, 0.46],
+  [3.6, 0.56],
+  [3.85, 0.62],
+  [4.05, 0.58],
+  [4.2, 0.4],
+  [4.32, 0.3],
+  [4.4, 0.26],
+  [4.5, 0.34],
+  [4.75, 0.4],
+  [5.0, 0.36],
+  [5.18, 0.22],
+  [5.28, 0.08],
+]
+const VOTARY_GEO = bakeContactAO(latheProfile(VOTARY_PROFILE, 26), 0, 1.4, 0.42)
+const D_AED_FIGURE: InstItem[] = [{ p: [30.02, 2.95, AEDICULE_Z], r: [0, 0.4, 0], s: [0.78, 1, 0.78] }]
+const D_AED_COLLAR: InstItem[] = [
+  { p: [30.02, 6.72, AEDICULE_Z], r: [-Math.PI / 2, 0, 0], s: [0.49, 0.49, 1.1] },
+  { p: [30.02, 7.28, AEDICULE_Z], r: [-Math.PI / 2, 0, 0], s: [0.27, 0.27, 0.8] },
+]
+/** halo behind the helm, set into the aedicule back */
+const D_AED_HALO: InstItem[] = [
+  { p: [30.34, 7.58, AEDICULE_Z], r: [0, -Math.PI / 2, 0], s: [1.05, 1.05, 22] },
 ]
 
 /**
@@ -2939,6 +3255,57 @@ const D_PAVING: InstItem[] = []
     D_PAVING.push({ p: [x, 0.005, z], s: [10 + h1(i, 41) * 6, 0.01, 0.11] })
   }
 }
+/**
+ * R5 — deck services: sump grates and bolted access hatches.
+ *
+ * The bottom third of every arena wide is bare floor with two thin gold rings
+ * on it. Floor is the cheapest screen area in the level to dress and the most
+ * expensive to leave empty, because it is what the near plane of a
+ * third-person camera is pointed at. These are FLUSH — a sunk dark pan at
+ * y 0.028 with a gold grille over it at y 0.046, and hatch plates with a ring
+ * of studs — so nothing stands proud of the deck, no collider changes and the
+ * player runs straight over them.
+ *
+ * They sit in the four quadrant corners of the field, clear of the mandala
+ * radii (8/13/18/22 m) and the medallion rings (12/16/20 m) so the two systems
+ * never resolve into one lattice.
+ */
+const D_GRATE_PAN: InstItem[] = []
+const D_GRATE_BAR: InstItem[] = []
+const D_GRATE_KERB: InstItem[] = []
+const D_HATCH_PLATE: InstItem[] = []
+const D_HATCH_RING: InstItem[] = []
+const D_HATCH_STUD: InstItem[] = []
+{
+  for (const [gx, gz, turned] of ARENA_DECK_GRATES) {
+    const w = turned ? 1.9 : 3.5
+    const d = turned ? 3.5 : 1.9
+    D_GRATE_PAN.push({ p: [gx, 0.028, gz], s: [w, 0.012, d] })
+    // kerb is FOUR bars around the pan, not a plate over it
+    D_GRATE_KERB.push({ p: [gx, 0.052, gz - d / 2 - 0.09], s: [w + 0.36, 0.024, 0.18] })
+    D_GRATE_KERB.push({ p: [gx, 0.052, gz + d / 2 + 0.09], s: [w + 0.36, 0.024, 0.18] })
+    D_GRATE_KERB.push({ p: [gx - w / 2 - 0.09, 0.052, gz], s: [0.18, 0.024, d] })
+    D_GRATE_KERB.push({ p: [gx + w / 2 + 0.09, 0.052, gz], s: [0.18, 0.024, d] })
+    const n = turned ? 9 : 9
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n - 0.5
+      if (turned) D_GRATE_BAR.push({ p: [gx, 0.046, gz + t * d], s: [w - 0.1, 0.02, 0.1] })
+      else D_GRATE_BAR.push({ p: [gx + t * w, 0.046, gz], s: [0.1, 0.02, d - 0.1] })
+    }
+  }
+  for (const [hx, hz] of ARENA_DECK_HATCHES) {
+    D_HATCH_PLATE.push({ p: [hx, 0.03, hz], r: [-Math.PI / 2, 0, 0], s: [1.5, 1.5, 1] })
+    D_HATCH_RING.push({ p: [hx, 0.042, hz], r: [-Math.PI / 2, 0, 0], s: [1.42, 1.42, 3] })
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.2
+      D_HATCH_STUD.push({
+        p: [hx + Math.cos(a) * 1.24, 0.048, hz + Math.sin(a) * 1.24],
+        s: [0.16, 0.05, 0.16],
+      })
+    }
+  }
+}
+
 /** matching joint course on the chamber deck, at a tighter slab size */
 const C_PAVING: InstItem[] = []
 {
@@ -2950,16 +3317,104 @@ const C_PAVING: InstItem[] = []
   }
 }
 
-// pylons + teal vein strips
-const D_PYLON_ITEMS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 1.5, z], s: [1.2, 3, 1.2] }))
-const D_PYLON_CAPS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 3.1, z], s: [1.5, 0.25, 1.5] }))
-const D_PYLON_VEINS: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({ p: [x, 1.6, z + 0.63], s: [0.2, 2.6, 0.06] }))
+/**
+ * R5 — the arena pylons become a standing ORDER.
+ *
+ * These six are the closest level geometry a combat camera ever gets to, so
+ * they are read at full screen height in exactly the frames the panel judges
+ * hardest — and they were a rounded box with a gold slab on it, which is why
+ * 11_ability_dash and 17_katana have raw primitives in the near field. Their
+ * collider is a 1.2 x 3 x 1.2 AABB in `layout.ts` that cannot move, so the
+ * rebuild is authored to stay inside it: a tapered obsidian core in two
+ * stages, a lathed base of torus-scotia-fillet, four engaged colonnettes with
+ * beads at third points, a lathed necking and flared capital, and the teal
+ * vein sunk in a real channel on all four faces instead of one strip floating
+ * 3 cm off a flat side.
+ *
+ * Only the base and capital mouldings step past x/z ±0.6, by ≤0.12 m, and both
+ * do it either below 0.2 m or above 2.5 m — clear of the 1.8 m player capsule.
+ */
+const PYLON_BASE_PROFILE: [number, number][] = [
+  [0.0, 0.66],
+  [0.06, 0.66],
+  [0.09, 0.7],
+  [0.16, 0.71],
+  [0.22, 0.66],
+  [0.26, 0.6],
+  [0.3, 0.62],
+  [0.34, 0.585],
+]
+const PYLON_CAP_PROFILE: [number, number][] = [
+  [0.0, 0.54],
+  [0.05, 0.545],
+  [0.09, 0.5],
+  [0.16, 0.525],
+  [0.26, 0.6],
+  [0.36, 0.68],
+  [0.42, 0.72],
+  [0.46, 0.7],
+]
+const COLONNETTE_PROFILE: [number, number][] = [
+  [0.0, 0.1],
+  [0.04, 0.105],
+  [0.08, 0.085],
+  [0.62, 0.082],
+  [0.67, 0.102],
+  [0.72, 0.082],
+  [1.26, 0.082],
+  [1.31, 0.102],
+  [1.36, 0.082],
+  [1.88, 0.085],
+  [1.92, 0.105],
+  [1.96, 0.095],
+]
+const PYLON_BASE_GEO = latheProfile(PYLON_BASE_PROFILE, 26)
+const PYLON_CAP_GEO = latheProfile(PYLON_CAP_PROFILE, 26)
+const COLONNETTE_GEO = latheProfile(COLONNETTE_PROFILE, 14)
 
-// stepped moulding capping every pylon
-const D_PYLON_MOULD: InstItem[] = ARENA_PYLONS.map(([x, z]) => ({
-  p: [x, 2.95, z] as [number, number, number],
-  s: [1, 1, 1.35] as [number, number, number],
-}))
+// pylons: tapered obsidian core in two stages (the cover silhouette), lathed
+// base and capital, four engaged colonnettes, sunk vein channels
+const D_PYLON_ITEMS: InstItem[] = []
+const D_PYLON_UPPER: InstItem[] = []
+const D_PYLON_BASE: InstItem[] = []
+const D_PYLON_CAPITAL: InstItem[] = []
+const D_PYLON_COLONNETTE: InstItem[] = []
+const D_PYLON_VEINS: InstItem[] = []
+const D_PYLON_VEIN_CH: InstItem[] = []
+const D_PYLON_CAPS: InstItem[] = []
+const D_PYLON_MOULD: InstItem[] = []
+for (const [x, z] of ARENA_PYLONS) {
+  // two-stage tapered core. Deliberately narrower (1.03 / 0.90) than the 1.2 m
+  // collider so the four corner colonnettes stand PROUD of its flat faces —
+  // a rod buried inside the box it is meant to dress is the one mistake that
+  // would make this change cost geometry and return nothing.
+  D_PYLON_ITEMS.push({ p: [x, 1.02, z], s: [1.03, 1.36, 1.03] })
+  D_PYLON_UPPER.push({ p: [x, 2.0, z], s: [0.9, 0.64, 0.9] })
+  D_PYLON_BASE.push({ p: [x, 0, z] })
+  D_PYLON_CAPITAL.push({ p: [x, 2.3, z] })
+  for (const [cx, cz] of [
+    [0.44, 0.44],
+    [-0.44, 0.44],
+    [0.44, -0.44],
+    [-0.44, -0.44],
+  ] as [number, number][]) {
+    D_PYLON_COLONNETTE.push({ p: [x + cx, 0.34, z + cz] })
+  }
+  // vein on all four faces of the lower stage, sunk in a dark channel
+  for (const [nx, nz] of [
+    [0, 1],
+    [0, -1],
+    [1, 0],
+    [-1, 0],
+  ] as [number, number][]) {
+    const w: [number, number, number] = nz !== 0 ? [0.3, 1.2, 0.07] : [0.07, 1.2, 0.3]
+    const g: [number, number, number] = nz !== 0 ? [0.15, 1.0, 0.06] : [0.06, 1.0, 0.15]
+    D_PYLON_VEIN_CH.push({ p: [x + nx * 0.53, 1.02, z + nz * 0.53], s: w })
+    D_PYLON_VEINS.push({ p: [x + nx * 0.558, 1.02, z + nz * 0.558], s: g })
+  }
+  D_PYLON_CAPS.push({ p: [x, 3.06, z], s: [1.34, 0.2, 1.34] })
+  D_PYLON_MOULD.push({ p: [x, 2.88, z], s: [1, 1, 1.22] })
+}
 const D_CORNICE: InstItem[] = [
   { p: [-29.8, 9.5, 195], s: [1, 1, 59.6] },
   { p: [29.8, 9.5, 195], r: [0, Math.PI, 0], s: [1, 1, 59.6] },
@@ -3111,9 +3566,49 @@ const D_TYMPANUM: InstItem[] = [
   { p: [0, 20.4, 165.3], s: [60, 21, 0.7] },
   { p: [0, 20.4, 224.7], s: [60, 21, 0.7] },
 ]
+/** the lunette's own vertical fall-off — see WALL_FIELD_BOX for why this is
+ *  baked rather than lit. Local y maps to world `y * 21 + 20.4`. */
+const TYMPANUM_BOX = bakeGradient(PANEL_BOX, [
+  [-0.5, 0.78],
+  [-0.3, 0.92],
+  [-0.1, 1.0],
+  [0.16, 0.8],
+  [0.36, 0.54],
+  [0.5, 0.44],
+])
 const D_TYMPANUM_ROSE: InstItem[] = []
 const D_TYMPANUM_RING: InstItem[] = []
 const D_TYMPANUM_SPOKE: InstItem[] = []
+/**
+ * R5 — the end lunettes stop being flat slabs.
+ *
+ * In 18_arena_wide the largest single shape in the upper frame is one 60 x 21 m
+ * pale plate with a small wheel drawn on it: the one place in the arena where
+ * the eye has nothing to resolve. It now carries a real wheel window — a
+ * projecting gold archivolt with a course of 28 radiating voussoirs around it,
+ * each block alternating ivory and gold-edged so the ring reads as masonry at
+ * 40 m — and the plate itself is graded so it falls away toward the crown
+ * instead of holding one value across a third of the frame.
+ */
+const D_TYMPANUM_ARCHIVOLT: InstItem[] = []
+const D_TYMPANUM_VOUSSOIR: InstItem[] = []
+const D_TYMPANUM_VOUSSOIR_B: InstItem[] = []
+for (const [tz, face] of [[165.3, 1], [224.7, -1]] as [number, number][]) {
+  D_TYMPANUM_ARCHIVOLT.push({
+    p: [0, 18.5, tz + face * 0.6],
+    r: [0, face > 0 ? 0 : Math.PI, 0],
+    s: [9.6, 9.6, 16],
+  })
+  for (let i = 0; i < 28; i++) {
+    const a = (i / 28) * Math.PI * 2 + Math.PI / 28
+    const it: InstItem = {
+      p: [Math.cos(a) * 10.35, 18.5 + Math.sin(a) * 10.35, tz + face * 0.46],
+      r: [0, 0, a],
+      s: [1.55, 0.98, 0.52],
+    }
+    ;(i % 2 === 0 ? D_TYMPANUM_VOUSSOIR : D_TYMPANUM_VOUSSOIR_B).push(it)
+  }
+}
 for (const [tz, face] of [[165.3, 1], [224.7, -1]] as [number, number][]) {
   D_TYMPANUM_ROSE.push({
     p: [0, 18.5, tz + face * 0.38],
@@ -3299,6 +3794,15 @@ function ZoneD() {
       {/* R4 — flush slab joints: the 60x60 deck is paved on an irregular
           course instead of being one poured plane */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_PAVING} />
+      {/* R5 — flush deck services: sunk sump pans under gold grilles, and
+          bolted access hatches. Near-field floor detail for the third of the
+          frame an arena wide spends on bare deck. */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_GRATE_PAN} receiveShadow />
+      <Instanced geometry={BOX} material={umberMaterial()} items={D_GRATE_KERB} receiveShadow />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_GRATE_BAR} receiveShadow castShadow />
+      <Instanced geometry={CIRCLE} material={umberMaterial()} items={D_HATCH_PLATE} receiveShadow />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_HATCH_RING} receiveShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={D_HATCH_STUD} receiveShadow castShadow />
       {/* emissive radial-groove etching (fix2): concentric rings + rays from
           arena center, low-intensity gold so it never bloom-blows */}
       <mesh
@@ -3332,14 +3836,24 @@ function ZoneD() {
         <MassMesh
           key={i}
           spec={w}
-          geometry={PANEL_BOX}
+          geometry={w.y1 - w.y0 >= 8 ? WALL_FIELD_BOX : PANEL_BOX}
           material={ivoryContactMaterial()}
+          receiveShadow
           castShadow
         />
       ))}
-      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={D_WALL_DADO} castShadow />
-      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_WALL_PIER} castShadow />
-      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_WALL_ATTIC} castShadow />
+      {/* R5 — the dado is a DARK panelled register: umber ground, sunk panels
+          framed by projecting gold-edged stiles and rails, an obsidian skirting
+          at the contact line and a gold cap moulding at 2.3 m. Everything a
+          trooper is seen against at play height is now a value darker than the
+          trooper. */}
+      <Instanced geometry={PLINTH_BOX} material={umberMaterial()} items={D_WALL_DADO} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={obsidianMaterial()} items={D_DADO_PLINTH} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_DADO_PANEL} receiveShadow />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_DADO_STILE} receiveShadow castShadow />
+      <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={D_DADO_CAP} receiveShadow castShadow />
+      <Instanced geometry={WALL_PIER_BOX} material={ivoryContactMaterial()} items={D_WALL_PIER} receiveShadow castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_WALL_ATTIC} receiveShadow castShadow />
       {/* clerestory blind arcade on a 3.2 m pitch — coprime with the order
           below, so the two registers never stack into one grid */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_CLERE_RECESS} />
@@ -3368,6 +3882,12 @@ function ZoneD() {
           register, coffers above, a junction angle, corbel framing */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_SCREEN_BACK} />
       <Instanced geometry={SCREEN_WIDE} material={screenMaterial()} items={D_SCREENS} castShadow />
+      {/* R5 — cornice hood on two consoles over every screen bay: the one
+          thing that puts a hard horizontal band of shade across the tiled
+          field, because it stands 0.62 m off it. */}
+      <Instanced geometry={RBOX} material={ivoryContactMaterial()} items={D_BAY_CONSOLE} receiveShadow castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_BAY_HOOD} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={D_BAY_HOOD_LIP} receiveShadow castShadow />
       <Instanced geometry={BOX} material={recessMaterial()} items={D_COFFER_BACK} />
       <Instanced geometry={COFFER_PANEL} material={cofferMaterial()} items={D_COFFERS} castShadow />
       <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={D_LTRIM} />
@@ -3393,7 +3913,9 @@ function ZoneD() {
       <Instanced geometry={BOX} material={recessMaterial()} items={D_AED_BACK} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_AED_FRAME} />
       <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={D_AED_PLINTH} castShadow />
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_AED_FIGURE} castShadow />
+      <Instanced geometry={VOTARY_GEO} material={ivoryContactMaterial()} items={D_AED_FIGURE} receiveShadow castShadow />
+      <Instanced geometry={BEAD_RING} material={goldCastMaterial()} items={D_AED_COLLAR} receiveShadow castShadow />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_AED_HALO} receiveShadow />
 
       {/* perimeter practicals: a modelled bracket + hood + recessed lens at
           every fixture the pooled gold point lights ride, so each pool of
@@ -3452,8 +3974,12 @@ function ZoneD() {
       <Instanced geometry={BOX} material={goldMaterial()} items={D_OCULUS_FRAME} />
       {/* haunch course + end tympana with a recessed gold rose */}
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_VAULT_HAUNCH} castShadow />
-      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_TYMPANUM} />
-      <Instanced geometry={CIRCLE} material={recessMaterial()} items={D_TYMPANUM_ROSE} />
+      <Instanced geometry={TYMPANUM_BOX} material={ivoryContactMaterial()} items={D_TYMPANUM} receiveShadow />
+      <Instanced geometry={CIRCLE} material={recessMaterial()} items={D_TYMPANUM_ROSE} receiveShadow />
+      {/* radiating voussoir course + projecting archivolt around the wheel */}
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_TYMPANUM_VOUSSOIR} receiveShadow castShadow />
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={D_TYMPANUM_VOUSSOIR_B} receiveShadow castShadow />
+      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_TYMPANUM_ARCHIVOLT} receiveShadow />
       <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_TYMPANUM_RING} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_TYMPANUM_SPOKE} />
 
@@ -3511,9 +4037,18 @@ function ZoneD() {
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={D_SLAB_VEINS} />
 
       {/* cover: pylons, low walls, planters */}
+      {/* R5 — the pylons are a standing order, not a box: lathed base and
+          capital, four engaged colonnettes, a two-stage tapered core and the
+          vein sunk in a channel on every face. This is the near-field
+          geometry in every combat frame. */}
+      <Instanced geometry={PYLON_BASE_GEO} material={umberMaterial()} items={D_PYLON_BASE} receiveShadow castShadow />
       <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_PYLON_ITEMS} receiveShadow castShadow />
-      <Instanced geometry={BOX} material={goldMaterial()} items={D_PYLON_CAPS} />
-      <Instanced geometry={TRIM_RUN_FINE} material={goldPolishedMaterial()} items={D_PYLON_MOULD} />
+      <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_PYLON_UPPER} receiveShadow castShadow />
+      <Instanced geometry={COLONNETTE_GEO} material={goldCastMaterial()} items={D_PYLON_COLONNETTE} receiveShadow castShadow />
+      <Instanced geometry={PYLON_CAP_GEO} material={ivoryMaterial()} items={D_PYLON_CAPITAL} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_PYLON_CAPS} receiveShadow castShadow />
+      <Instanced geometry={TRIM_RUN_FINE} material={goldPolishedMaterial()} items={D_PYLON_MOULD} receiveShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_PYLON_VEIN_CH} receiveShadow />
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_PYLON_VEINS} />
       <Instanced geometry={RBOX} material={obsidianMaterial()} items={D_LOW_WALLS} receiveShadow castShadow />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_LOW_WALL_TOPS} />
@@ -3523,8 +4058,14 @@ function ZoneD() {
 
       {/* corruption set dressing */}
       <Instanced geometry={BOX} material={veinTealMaterial()} items={D_CORRUPTION} />
-      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-26, 3, 181.5]} rotation={[0, Math.PI / 3, 0]} scale={[3, 3, 1]} />
-      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[25, 2.5, 201]} rotation={[0, -Math.PI / 2.5, 0]} scale={[3, 3, 1]} />
+      {/* R5 — these two glyphs used to hang in mid-air 4-5 m off the arena
+          walls, yawed 60-70 deg to them, which is map weakness E3 and reads in
+          frame as a pale translucent rectangle floating in the room. A decal
+          that is not ON a surface is not a decal. They are now corruption
+          stains lying on the deck, above the inlay (y 0.022-0.05) and below
+          nothing, so they cannot float and cannot z-fight. */}
+      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[-23.6, 0.056, 181.5]} rotation={[-Math.PI / 2, 0, Math.PI / 3]} scale={[4.4, 4.4, 1]} receiveShadow />
+      <mesh geometry={PLANE} material={glyphDecalMaterial()} position={[22.8, 0.056, 201.5]} rotation={[-Math.PI / 2, 0, -Math.PI / 2.5]} scale={[4, 4, 1]} receiveShadow />
 
       {/* enemy spawn gates */}
       <Instanced geometry={CIRCLE} material={obsidianMaterial()} items={D_GATE_DISCS} />
@@ -3745,6 +4286,71 @@ const BANNERS: InstItem[] = [
   { p: [12, 6.5, 165.6], r: [0, 0, 0], s: [1.5, 6, 1] },
 ]
 
+/**
+ * R5 — the banners get hardware.
+ *
+ * Six of these hang in the chamber and the arena and every one of them is a
+ * single `PlaneGeometry` in `bannerMaterial`, which is a `ShaderMaterial` with
+ * no lighting term (map weakness E19). An unlit quad hanging in mid-air with
+ * nothing holding it up is indistinguishable from an untextured white prop —
+ * and it is one of the pale rectangles standing off the arena walls in the
+ * review set. The cloth itself is another stream's material, so what is fixed
+ * here is everything AROUND it: a cast rod on two wall brackets with turned
+ * finials at the ends, a weighted hem bar at the bottom, and a dark lit plaque
+ * seated on the wall behind, so the quad reads as cloth hung on ironwork in
+ * front of a board rather than as a floating plane.
+ *
+ * Derived from BANNERS so the two can never drift; the plane's own yaw gives
+ * the wall normal `(sin a, 0, cos a)`.
+ */
+const BANNER_ROD: InstItem[] = []
+const BANNER_FINIAL: InstItem[] = []
+const BANNER_BRACKET: InstItem[] = []
+const BANNER_WEIGHT: InstItem[] = []
+const BANNER_PLAQUE: InstItem[] = []
+for (const b of BANNERS) {
+  const a = (b.r ?? [0, 0, 0])[1]
+  const [w, h] = b.s ?? [1, 1, 1]
+  const nx = Math.sin(a)
+  const nz = Math.cos(a)
+  // the banner's width direction, perpendicular to the normal in the XZ plane
+  const ux = Math.cos(a)
+  const uz = -Math.sin(a)
+  const topY = b.p[1] + h / 2 + 0.2
+  const rodW = w + 0.55
+  BANNER_ROD.push({
+    p: [b.p[0] + nx * 0.1, topY, b.p[2] + nz * 0.1],
+    r: [0, a, Math.PI / 2],
+    s: [0.055, rodW, 0.055],
+  })
+  for (const e of [-1, 1]) {
+    BANNER_FINIAL.push({
+      p: [b.p[0] + nx * 0.1 + (ux * e * rodW) / 2, topY, b.p[2] + nz * 0.1 + (uz * e * rodW) / 2],
+      r: [0, a, 0],
+      s: [0.12, 0.2, 0.12],
+    })
+    BANNER_BRACKET.push({
+      p: [b.p[0] - nx * 0.24 + ux * e * 0.62, topY - 0.06, b.p[2] - nz * 0.24 + uz * e * 0.62],
+      r: [0, a, 0],
+      s: [0.15, 0.17, 0.86],
+    })
+  }
+  BANNER_WEIGHT.push({
+    p: [b.p[0] + nx * 0.07, b.p[1] - h / 2 - 0.06, b.p[2] + nz * 0.07],
+    r: [0, a, 0],
+    s: [w + 0.16, 0.13, 0.13],
+  })
+  // A stiff dark board hung from the SAME rod, 12 cm behind the cloth, rather
+  // than a plaque seated on the wall: the arena banners hang in front of the
+  // pierced screen bays, and a wall-seated plate there would have fought the
+  // screen's own backing board for the same 3 cm of depth.
+  BANNER_PLAQUE.push({
+    p: [b.p[0] - nx * 0.12, b.p[1], b.p[2] - nz * 0.12],
+    r: [0, a, 0],
+    s: [w + 0.34, h + 0.34, 0.09],
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Distant monoliths (layout.MONOLITHS, visual-only) — beveled bodies with
 // panel-line subdivision, gold trim insets, teal/gold emissive stripes and
@@ -3913,7 +4519,15 @@ export default function ShrineStation() {
       <ZoneC />
       <ZoneD />
       <ZoneE />
+      {/* R5 — banner hardware: plaque, rod, finials, brackets, hem bar. The
+          cloth is unlit by construction, so it needs lit geometry around it or
+          it reads as a floating white rectangle. */}
+      <Instanced geometry={PANEL_BOX} material={umberMaterial()} items={BANNER_PLAQUE} receiveShadow castShadow />
       <Instanced geometry={PLANE} material={bannerMaterial()} items={BANNERS} />
+      <Instanced geometry={CYL} material={goldCastMaterial()} items={BANNER_ROD} receiveShadow castShadow />
+      <Instanced geometry={OCTA} material={goldPolishedMaterial()} items={BANNER_FINIAL} receiveShadow castShadow />
+      <Instanced geometry={RBOX} material={goldMaterial()} items={BANNER_BRACKET} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={BANNER_WEIGHT} receiveShadow castShadow />
       {/* distant monoliths — beveled, trimmed, emissive-striped silhouettes */}
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_BODY} castShadow />
       <Instanced geometry={RBOX} material={ivoryMaterial()} items={MONO_SECOND} castShadow />

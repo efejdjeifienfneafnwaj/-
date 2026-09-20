@@ -24,6 +24,7 @@ import {
   getMacroMean,
   getGoldAlbedoTexture,
   getGoldORMTexture,
+  getOrokinHeightTexture,
 } from '../textures'
 
 let ivory: THREE.MeshStandardMaterial | null = null
@@ -128,8 +129,53 @@ type SurfaceOpts = {
    * draw a bright seam grid — the exact artefact this is meant to remove.
    */
   tileShuffle?: number
-  /** mirror in V as well as U. Off by default: it flips drawn gravity stains. */
+  /**
+   * Mirror in V as well as U.
+   *
+   * R5: this used to be off by default because it flipped the drawn gravity
+   * stains in the sheet. Those stains are gone — weathering that depends on
+   * which way is down now lives in the `drip` term below, in world space — so
+   * the flag is only about whether the extra permutation is worth the cost.
+   */
   shuffleFlipV?: boolean
+  /**
+   * Depth of the parallax-occlusion relief, IN METRES.
+   *
+   * 0 turns the raymarch off. This is the R5 answer to "all Orokin ornament is
+   * painted into canvas normal maps with no relief": a normal map can only
+   * say which way a surface tilts, so the moment the camera is off-axis — which
+   * down a colonnade is always — a 3 cm panel inset produces no displacement
+   * whatever and the wall flattens back to a printed sheet. The march steps
+   * along the view vector through the authored height field and returns the uv
+   * the eye would actually hit, so insets, louvre slots and bolt bores SLIDE
+   * against their frames as the player moves past. That motion parallax is the
+   * cue the eye uses for depth, and no amount of normal-map strength fakes it.
+   *
+   * Expressed in metres, not uv, so the same 3 cm reads as 3 cm whatever the
+   * material's tile size is.
+   *
+   * Cost is bounded by distance: the march fades out between 6 and 11 m and
+   * steps down from 14 taps to 6 across that band, so only near-field
+   * fragments — the ones where the flattening is actually visible — pay.
+   */
+  parallax?: number
+  /**
+   * Height field the march steps through. Defaults to the Orokin sheet's own.
+   * A material whose relief does NOT come from that sheet — the deck, whose
+   * panel and grate structure is baked from its own albedo — must pass its
+   * own, or the parallax will displace toward features the surface does not
+   * have and disagree with its normal map everywhere.
+   */
+  parallaxMap?: THREE.Texture | null
+  /**
+   * Strength of the world-space gravity staining (0 = off).
+   *
+   * Streaks running DOWN a vertical face, keyed to world Y, so they are
+   * continuous across every mesh that makes up a wall and — unlike the drawn
+   * runs this replaces — immune to the tile permutation. This is what lets a
+   * tile rotate 90° without a dirt run ending up horizontal.
+   */
+  drip?: number
 }
 
 const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
@@ -139,6 +185,9 @@ const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
   soot: 0.42,
   tileShuffle: 0,
   shuffleFlipV: false,
+  parallax: 0,
+  parallaxMap: null,
+  drip: 0.42,
 }
 
 /**
@@ -159,16 +208,26 @@ const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
  *              it is what the mip derivatives and the tangent frame use.
  * `avSheetUv`  the permuted lookup — discontinuous at every tile edge, which is
  *              exactly why nothing may take a derivative of it.
- * `avSheetFlip` mirror sign; the normal map must apply it to X/Y or a mirrored
- *              tile lights with its bevels inverted.
+ * `avSheetL`   R5: the permutation's LINEAR part as a 2×2 (a quarter-turn
+ *              times an optional mirror). It used to be a mirror sign alone,
+ *              which was enough to un-invert a bevel; now that tiles also
+ *              rotate, and now that the parallax march has to push a direction
+ *              vector through the same transform, the whole matrix is needed.
+ *              `avSheetLT` is its transpose — which, because every permutation
+ *              is orthogonal, is also its inverse. Gradient-like quantities
+ *              (the normal map's XY) transform by the transpose; direction-like
+ *              quantities (the parallax step) transform by the matrix itself.
+ * `avPomH`     height at the parallax hit, 0.5 when parallax is off.
  */
 const AV_SURFACE_PARS = /* glsl */ `
 vec2 avSurfUv;
 vec2 avSheetUv;
-vec2 avSheetFlip;
+mat2 avSheetL;
+mat2 avSheetLT;
 vec2 avSheetDx;
 vec2 avSheetDy;
 float avTileJitter;
+float avPomH;
 vec4 avCellHash( vec2 c ) {
   vec4 p = fract( vec4( c.xyxy ) * vec4( 0.1031, 0.1030, 0.0973, 0.1099 ) );
   p += dot( p, p.wzxy + 33.33 );
@@ -179,7 +238,7 @@ vec4 avSheetTex( sampler2D t ) {
 }
 vec3 avSheetNormal( sampler2D t ) {
   vec3 n = textureGrad( t, avSheetUv, avSheetDx, avSheetDy ).xyz * 2.0 - 1.0;
-  return vec3( n.xy * avSheetFlip, n.z );
+  return vec3( avSheetLT * n.xy, n.z );
 }
 `
 
@@ -261,6 +320,7 @@ function applyWorldSurface(
   const useMacro = o.macro > 0 || o.macroRough > 0
   const macroMean = getMacroMean().toFixed(4)
   const shuffle = o.tileShuffle > 0
+  const parallax = o.parallax
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${AV_VARYINGS}`)
@@ -292,7 +352,33 @@ function applyWorldSurface(
         // plinth and cleaner at the clerestory, and a top-to-bottom value ramp
         // is most of what stops a tall wall reading as one flat slab. Keyed to
         // WORLD y so it is continuous across every mesh that makes up the wall.
-        diffuseColor.rgb *= mix( ${(1 - o.soot * 0.62).toFixed(3)}, 1.06, clamp( vAvW.y / 16.0, 0.0, 1.0 ) );
+        //
+        // R5: deepened, and CURVED. A linear ramp spends most of its range
+        // between 8 m and 16 m, which is above everything the player fights in
+        // front of; raising it to the power of 1.35 moves the darkening down
+        // into the 0–5 m band where bodies actually stand, which is the
+        // "darken the lower band so enemies sit against a dark field" note
+        // answered from the surface side rather than with extra geometry.
+        diffuseColor.rgb *= mix( ${(1 - o.soot * 0.80).toFixed(3)}, 1.06,
+          pow( clamp( vAvW.y / 16.0, 0.0, 1.0 ), 1.35 ) );
+        ${
+          o.drip > 0
+            ? /* glsl */ `
+        // --- gravity staining, world space ---
+        // Sampled with a uv that is ~17× finer across the wall than it is up
+        // it, so one macro sample becomes a narrow vertical smear: dirt that
+        // has run. It is masked by the macro value already fetched, so the
+        // runs cluster in patches instead of striping the whole level, and by
+        // how vertical the face is, because nothing runs down a floor.
+        float avStreak = texture2D( avMacroMap,
+          vec2( ( vAvW.x + vAvW.z * 0.71 ) * 0.42, vAvW.y * 0.024 ) ).r;
+        float avDrip = clamp( ( avStreak - 0.60 ) * 3.2, 0.0, 1.0 )
+          * clamp( ( avMacro + 0.10 ) * 3.0, 0.0, 1.0 )
+          * ( 1.0 - abs( avUp ) ) * ${o.drip.toFixed(3)};
+        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.62, 0.585, 0.53 ), avDrip );
+        `
+            : 'float avDrip = 0.0;'
+        }
         `,
         )
         .replace(
@@ -300,10 +386,18 @@ function applyWorldSurface(
           /* glsl */ `
         #include <roughnessmap_fragment>
         roughnessFactor = clamp(
-          roughnessFactor + avMacro * ${o.macroRough.toFixed(3)} + avDust * 0.20,
+          roughnessFactor + avMacro * ${o.macroRough.toFixed(3)} + avDust * 0.20 + avDrip * 0.26,
           0.035, 1.0 );
         `,
         )
+    }
+
+    if (parallax > 0) {
+      shader.uniforms.avHeightMap = { value: o.parallaxMap ?? getOrokinHeightTexture() }
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>\n' + AV_VARYINGS,
+        '#include <common>\n' + AV_VARYINGS + '\nuniform sampler2D avHeightMap;',
+      )
     }
 
     if (aoBite > 0) {
@@ -378,29 +472,98 @@ function applyWorldSurface(
           if ( avBad ) { avSurfUv = vAvUv; avDx = dFdx( vAvUv ); avDy = dFdy( vAvUv ); }
           avSheetDx = clamp( avDx, -0.25, 0.25 );
           avSheetDy = clamp( avDy, -0.25, 0.25 );
+          avPomH = 0.5;
           ${
             shuffle
               ? /* glsl */ `
           vec2 avCell = floor( avSurfUv );
           vec4 avR = avCellHash( avCell );
-          // mirror in U (and optionally V). 1 - f maps 0→1 and 0.5→0.5, so a
-          // panel boundary always lands on a panel boundary and the seam
-          // trenches stay continuous across the cell edge.
-          vec2 avMir = vec2( step( 0.5, avR.x ), ${o.shuffleFlipV ? 'step( 0.5, avR.w )' : '0.0'} );
-          vec2 avF = fract( avSurfUv );
-          avF = mix( avF, 1.0 - avF, avMir );
-          // half-tile shift = one authored 1 m plate, so the four plates are
-          // dealt into different quadrants tile to tile
-          avF += step( 0.5, avR.yz ) * 0.5;
+          // R5 — QUARTER TURNS, on top of the mirror and the half-tile deal.
+          // The sheet's tile is square and its panel grid is 2×2, so a 90°
+          // rotation about the tile centre maps every panel boundary onto a
+          // panel boundary exactly as the mirror does: the seam trenches stay
+          // continuous across the cell edge and nothing tears. It multiplies
+          // the permutation count by four — 8 variants to 32 — which is the
+          // difference between a period the eye finds in a second and one it
+          // does not find at all across a 60 m wall.
+          //
+          // This only became safe once the drawn gravity runs came out of the
+          // albedo sheet (see textures.buildOrokinMaps): a rotated tile would
+          // otherwise have had its dirt running sideways.
+          float avQ = floor( avR.x * 3.999 );
+          vec2 avCS = floor( vec2( cos( avQ * 1.5707963 ), sin( avQ * 1.5707963 ) ) + 0.5 );
+          mat2 avRotM = mat2( avCS.x, avCS.y, -avCS.y, avCS.x );
+          vec2 avMir = vec2( step( 0.5, avR.y ), ${o.shuffleFlipV ? 'step( 0.5, avR.w )' : '0.0'} );
+          vec2 avSgn = 1.0 - 2.0 * avMir;
+          mat2 avMirM = mat2( avSgn.x, 0.0, 0.0, avSgn.y );
+          avSheetL = avMirM * avRotM;
+          avSheetLT = mat2( avSheetL[0][0], avSheetL[1][0], avSheetL[0][1], avSheetL[1][1] );
+          // rotate/mirror about the tile CENTRE, then deal the four authored
+          // 1 m plates into different quadrants with a half-tile shift
+          vec2 avF = avSheetL * ( fract( avSurfUv ) - 0.5 ) + 0.5;
+          avF += step( 0.5, avR.zw ) * 0.5;
           avSheetUv = avF;
-          avSheetFlip = 1.0 - 2.0 * avMir;
           avTileJitter = ( avR.x + avR.y + avR.z + avR.w ) * 0.5 - 1.0;
           `
               : /* glsl */ `
           avSheetUv = avSurfUv;
-          avSheetFlip = vec2( 1.0 );
+          avSheetL = mat2( 1.0, 0.0, 0.0, 1.0 );
+          avSheetLT = avSheetL;
           avTileJitter = 0.0;
           `
+          }
+          ${
+            parallax > 0
+              ? /* glsl */ `
+          // --- parallax occlusion march ---
+          //
+          // The tangent frame is ANALYTIC here, not derived. The uv is a
+          // world-plane projection onto the dominant axis, so the tangent and
+          // bitangent are literally two world axes — no dFdx reconstruction, no
+          // disagreement with the normal map, and no cost.
+          vec3 avVw = cameraPosition - vAvW;
+          float avVd = length( avVw );
+          avVw /= max( avVd, 1e-4 );
+          // fade out with distance: past ~11 m a 3 cm inset displaces well
+          // under a pixel, so the march is pure cost. Step count falls with it.
+          float avPomFade = 1.0 - smoothstep( 6.0, 11.0, avVd );
+          if ( avPomFade > 0.02 ) {
+            vec3 avTt, avBt;
+            if ( avAb.y > max( avAb.x, avAb.z ) ) {
+              avTt = vec3( 1.0, 0.0, 0.0 ); avBt = vec3( 0.0, 0.0, 1.0 );
+            } else if ( avAb.x > avAb.z ) {
+              avTt = vec3( 0.0, 0.0, 1.0 ); avBt = vec3( 0.0, 1.0, 0.0 );
+            } else {
+              avTt = vec3( 1.0, 0.0, 0.0 ); avBt = vec3( 0.0, 1.0, 0.0 );
+            }
+            vec2 avVt = vec2( dot( avVw, avTt ), dot( avVw, avBt ) );
+            float avVz = max( abs( dot( avVw, avNw ) ), 0.30 );
+            float avNum = floor( mix( 6.0, 14.0, avPomFade ) );
+            float avLayer = 1.0 / avNum;
+            // the step is a DIRECTION, so it goes through the permutation
+            // matrix itself; the normal's gradient goes through the transpose.
+            vec2 avStep = ( avSheetL * ( avVt / avVz ) )
+              * ${(parallax * uvScale).toFixed(6)} * avPomFade * avLayer;
+            float avCur = 1.0;
+            vec2 avPu = avSheetUv;
+            float avHs = textureGrad( avHeightMap, avPu, avSheetDx, avSheetDy ).r;
+            for ( int i = 0; i < 14; i ++ ) {
+              if ( float( i ) >= avNum || avHs >= avCur ) break;
+              avCur -= avLayer;
+              avPu -= avStep;
+              avHs = textureGrad( avHeightMap, avPu, avSheetDx, avSheetDy ).r;
+            }
+            // one secant refinement between the last two layers, so a 6-step
+            // march does not stair-step a straight machined edge into a comb
+            vec2 avPp = avPu + avStep;
+            float avHp = textureGrad( avHeightMap, avPp, avSheetDx, avSheetDy ).r
+              - ( avCur + avLayer );
+            float avHc = avHs - avCur;
+            avSheetUv = mix( avPu, avPp, clamp( avHc / max( avHc - avHp, 1e-5 ), 0.0, 1.0 ) );
+            avPomH = avHs;
+          }
+          `
+              : ''
           }
         }
         #ifdef USE_MAP
@@ -520,12 +683,23 @@ export function ivoryMaterial(): THREE.MeshStandardMaterial {
   // aoBite 0.6 → 0.42: the albedo map now carries its own cavity grime, and
   // at 0.6 on top of it the seams crushed to black.
   applyWorldSurface(ivory, 'av-ivory', 1 / TRIM_TILE_M, 0.36, 0.32, {
-    macro: 0.34,
-    macroRough: 0.18,
+    macro: 0.44,
+    macroRough: 0.22,
     // R4: the wall the panel called "one panel stamped in a perfect 20×8 grid"
     // is this material. Eight per-tile permutations of the sheet plus a ±7 %
     // per-tile value offset break the lattice without touching geometry.
-    tileShuffle: 0.07,
+    // R5: now thirty-two, with quarter turns added — and the per-tile VALUE
+    // offset goes 0.07 → 0.12, because on the arena back wall at 40 m the
+    // sheet is mipped down to a blur and the permutation buys nothing: a flat
+    // per-tile multiplier is the only part of the anti-tiling machinery that
+    // survives to that range, and that wall is the frame the panel keeps
+    // calling wallpaper.
+    tileShuffle: 0.12,
+    shuffleFlipV: true,
+    // 3.5 cm — a real Orokin plate inset. This is the material that makes up
+    // most of the level's wall area, so it is where the "painted ornament, no
+    // relief" note is won or lost.
+    parallax: 0.035,
   })
   return ivory
 }
@@ -553,9 +727,11 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
   })
   ivoryContact.normalScale.set(1.8, 1.8)
   applyWorldSurface(ivoryContact, 'av-ivory-contact', 1 / TRIM_TILE_M, 0.36, 0.32, {
-    macro: 0.34,
-    macroRough: 0.18,
-    tileShuffle: 0.07,
+    macro: 0.44,
+    macroRough: 0.22,
+    tileShuffle: 0.12,
+    shuffleFlipV: true,
+    parallax: 0.035,
   })
   return ivoryContact
 }
@@ -614,17 +790,30 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
     // environment probe at all, which is the point: envMapIntensity comes down
     // from 3.4, because a broad bright probe smeared across a featureless
     // surface is precisely what made it look like tinted rubber.
-    color: '#AE8438',
+    //
+    // R5 answers the note that gold is STILL "either a black outline or a
+    // bloom blob". That is a two-state read, and a two-state read is what a
+    // mirror gives you: at the old 0.045–0.09 land roughness the lobe was
+    // narrow enough that a surface either pointed at the probe's bright bar
+    // (several stops over the bloom knee → blob) or did not (probe floor →
+    // outline). The sheet's band moved to 0.115–0.62 (textures.GOLD_ROUGH_*),
+    // which spreads that energy over tens of degrees so a curved run RAMPS,
+    // and the probe gain comes down with it so the bright end lands under the
+    // knee instead of on top of it. The albedo goes up ~15 % to pay for the
+    // dimmer probe: a metal has no diffuse, so its base colour is its F0, and
+    // #AE8438 is a much darker gold than any real gilding.
+    color: '#C29A4E',
     map: getGoldAlbedoTexture(),
     metalness: 1.0,
     metalnessMap: orm,
-    // the map is authored at its final 0.045–0.92 band, so the multiplier is 1
-    roughness: 1.0,
+    // the map is authored at its final 0.115–0.62 band; 0.85 keeps the small
+    // polished ornament a touch tighter than the bulk trim
+    roughness: 0.85,
     roughnessMap: orm,
     aoMap: orm,
     aoMapIntensity: 1.25,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 2.6,
+    envMapIntensity: 2.0,
     anisotropy: 0.9,
     anisotropyRotation: 0,
   })
@@ -638,6 +827,9 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.08,
     dust: 0.16,
     soot: 0.3,
+    // gilding does stain, but a run of dirt down a mirror is a dielectric
+    // read; keep it to a hint that only breaks the specular
+    drip: 0.18,
   })
   return goldPolished
 }
@@ -652,20 +844,19 @@ export function goldCastMaterial(): THREE.MeshStandardMaterial {
   const orm = getGoldORMTexture()
   orm.channel = 0
   goldCast = new THREE.MeshPhysicalMaterial({
-    color: '#8E6C2C',
+    color: '#A8823A',
     map: getGoldAlbedoTexture(),
     metalness: 0.98,
     metalnessMap: orm,
-    // R4: 1.3 → 1.12. The ORM's own band already reaches 0.92 in the groove
-    // floors; multiplying that by 1.3 clipped two thirds of the sheet to fully
-    // matte and threw away the land/groove contrast that makes it read as
-    // metal. 1.12 gives ~0.05–1.0 with the polished lands intact.
-    roughness: 1.12,
+    // R5: 1.12 → 1.05 against the retargeted 0.115–0.62 band ⇒ ~0.12–0.65.
+    // The bulk trim is the widest lobe in the gold set, which is what a big
+    // cast run should be.
+    roughness: 1.05,
     roughnessMap: orm,
     aoMap: orm,
     aoMapIntensity: 1.25,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 2.2,
+    envMapIntensity: 1.8,
     // broader runs of cast metal, so a slightly softer lobe than the polished
     anisotropy: 0.6,
   })
@@ -675,6 +866,7 @@ export function goldCastMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.1,
     dust: 0.2,
     soot: 0.34,
+    drip: 0.22,
   })
   return goldCast
 }
@@ -713,6 +905,8 @@ export function recessMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.06,
     dust: 0.12,
     soot: 0.0,
+    // the true black has nowhere darker to go
+    drip: 0.0,
   })
   return recess
 }
@@ -735,7 +929,11 @@ export function umberMaterial(): THREE.MeshStandardMaterial {
     envMapIntensity: 1.2,
   })
   umber.normalScale.set(1.35, 1.35)
-  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.4, 0.28, { tileShuffle: 0.08 })
+  applyWorldSurface(umber, 'av-umber', 1 / TRIM_TILE_M, 0.4, 0.28, {
+    tileShuffle: 0.08,
+    shuffleFlipV: true,
+    parallax: 0.032,
+  })
   return umber
 }
 
@@ -818,14 +1016,15 @@ export function fretTrimMaterial(): THREE.MeshStandardMaterial {
   fretTrim = new THREE.MeshPhysicalMaterial({
     // matched to goldPolished: a filigree band is the same metal as the trim
     // it runs beside, and at #D8B25C it was reading as a painted stripe
-    color: '#AE8438',
+    color: '#C29A4E',
     metalness: 1.0,
-    roughness: 0.85,
+    roughness: 0.9,
     roughnessMap: getBrushedGoldRoughnessTexture(),
     normalMap: getBrushedGoldNormalTexture(),
     // R4: 3.0 → 2.4, matching the rest of the gold set. The machined sheet now
     // carries the specular; the probe only has to fill the dark side.
-    envMapIntensity: 2.4,
+    // R5: 2.4 → 1.9 with the rest of the gold set, as the lobe widened.
+    envMapIntensity: 1.9,
     // a filigree run is a long thin metal element: the highlight has to travel
     // along it, not sit as a dot in the middle of every cell
     anisotropy: 0.8,
@@ -847,17 +1046,35 @@ export function obsidianMaterial(): THREE.MeshStandardMaterial {
   obsidian = new THREE.MeshStandardMaterial({
     color: m.color,
     map: t.map,
-    metalness: m.metalness,
-    roughness: 0.34,
+    // R5 — metalness 0.6 → 0.20, roughness 0.34 → 0.44, env 2.0 → 1.25.
+    //
+    // This is the material on the canyon pylons, the low walls and the big
+    // curved wall masses, and in every wide frame it renders as a FLAT BLUE
+    // FIELD. The cause is not the colour, it is the metalness: a metal has no
+    // diffuse term at all, so at 0.6 the shader was throwing away 60 % of an
+    // albedo map that carries per-plate drift, seam grime and cavity, and
+    // replacing it with a near-mirror reflection of the sky — which is a
+    // smooth two-stop gradient. A smooth gradient reflected in a smooth
+    // surface is, by construction, a flat colour, and no amount of texture
+    // authoring can survive it. Dropping to 0.20 is also physically right:
+    // this is polished STONE, a dielectric, not a metal, and the previous
+    // value was a gloss knob being turned with the wrong parameter.
+    metalness: m.metalness * 0.34,
+    roughness: 0.44,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
     aoMap: t.aoMap,
-    // a polished dark stone is READ through its reflection; without this it is
-    // just a dark grey card
-    envMapIntensity: 2.0,
+    aoMapIntensity: 1.3,
+    // a polished dark stone is still READ through its reflection — just a
+    // broader, dimmer one that the surface detail can break up
+    envMapIntensity: 1.25,
   })
-  obsidian.normalScale.set(1.15, 1.15)
-  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.35, 0.3, { tileShuffle: 0.07 })
+  obsidian.normalScale.set(1.35, 1.35)
+  applyWorldSurface(obsidian, 'av-obsidian', 1 / TRIM_TILE_M, 0.35, 0.3, {
+    tileShuffle: 0.07,
+    shuffleFlipV: true,
+    parallax: 0.03,
+  })
   return obsidian
 }
 
@@ -1099,6 +1316,7 @@ let floorMapTex: THREE.CanvasTexture | null = null
 let floorRoughTex: THREE.CanvasTexture | null = null
 let floorNormalTex: THREE.CanvasTexture | null = null
 let floorAoTex: THREE.CanvasTexture | null = null
+let floorHeightTex: THREE.CanvasTexture | null = null
 let goldEdge: THREE.MeshStandardMaterial | null = null
 let grooveTex: THREE.CanvasTexture | null = null
 let groove: THREE.MeshBasicMaterial | null = null
@@ -1249,6 +1467,11 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     // and a cavity map off the same value structure, so panel seams and grate
     // wells darken under the key instead of only shading
     floorAoTex = cavityFromLuminance(alb, 5, 2.8)
+    // R5: and a height field off the same structure, for the parallax march.
+    // The deck is seen at a grazing angle in almost every frame, which is the
+    // exact geometry where a normal map alone gives nothing away — the grate
+    // wells now actually recede instead of being a darker painted square.
+    floorHeightTex = heightFromLuminance(alb, 0.02, 0.2)
   }
   const m = MATERIALS.deepRelic
   if (floorAoTex) floorAoTex.channel = 0
@@ -1281,6 +1504,13 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     // across the arena floor in a single frame
     tileShuffle: 0.08,
     shuffleFlipV: true,
+    // 2.5 cm of relief: a recessed grate well and a 3 mm seam. Marched against
+    // the deck's OWN height field, not the wall sheet's.
+    parallax: 0.025,
+    parallaxMap: floorHeightTex,
+    // a floor is horizontal, so the gravity streaks would be masked out
+    // anyway; spend the fetch somewhere it can be seen
+    drip: 0,
   })
   return floor
 }
@@ -1330,6 +1560,37 @@ function normalFromLuminance(src: HTMLCanvasElement, strength: number): THREE.Ca
  * in a crevice. Same principle as the trim sheet's bake, run on an authored
  * albedo whose value structure IS its relief.
  */
+/**
+ * Height field straight off a canvas' luminance, contrast-stretched so the
+ * parallax march has a full 0–1 band to work in.
+ *
+ * The deck's relief is authored as VALUE in its albedo — seams are dark, grate
+ * wells are darker, bolt heads are light — so its luminance already is its
+ * height field, the same assumption `normalFromLuminance` makes. Inverting
+ * that relationship would push the seams proud of the panels.
+ */
+function heightFromLuminance(src: HTMLCanvasElement, lo: number, hi: number): THREE.CanvasTexture {
+  const size = src.width
+  const d = src.getContext('2d')!.getImageData(0, 0, size, size).data
+  const out = document.createElement('canvas')
+  out.width = out.height = size
+  const octx = out.getContext('2d')!
+  const img = octx.createImageData(size, size)
+  for (let i = 0; i < size * size; i++) {
+    const j = i * 4
+    const l = (d[j] * 0.299 + d[j + 1] * 0.587 + d[j + 2] * 0.114) / 255
+    const v = Math.min(1, Math.max(0, (l - lo) / (hi - lo)))
+    img.data[j] = img.data[j + 1] = img.data[j + 2] = v * 255
+    img.data[j + 3] = 255
+  }
+  octx.putImageData(img, 0, 0)
+  const t = new THREE.CanvasTexture(out)
+  t.wrapS = t.wrapT = THREE.RepeatWrapping
+  t.colorSpace = THREE.NoColorSpace
+  t.anisotropy = 4
+  return t
+}
+
 function cavityFromLuminance(
   src: HTMLCanvasElement,
   radius: number,
@@ -1386,11 +1647,11 @@ export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
     // still the brightest gold in the level, but no longer near-white: these
     // are 3.5 cm lips seen edge-on, and at #EFCF8E they were a solid pale
     // line that flattened every nosing into a sticker
-    color: '#C79A45',
+    color: '#D8AE5C',
     map: getGoldAlbedoTexture(),
     metalness: 1.0,
     metalnessMap: orm,
-    roughness: 0.8, // × the 0.045–0.92 map ⇒ ~0.04–0.74, the narrowest ramp here
+    roughness: 0.8, // × the 0.115–0.62 map ⇒ ~0.09–0.50, the tightest ramp here
     roughnessMap: orm,
     // R4: a nosing with no cavity term is a sticker. The ORM's R channel bottoms
     // at 0.34 in the groove floors, which is what separates the lip from the
@@ -1398,7 +1659,7 @@ export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
     aoMap: orm,
     aoMapIntensity: 1.15,
     normalMap: getBrushedGoldNormalTexture(),
-    envMapIntensity: 2.8,
+    envMapIntensity: 2.1,
     // the strongest lobe in the level: a nosing is a 3.5 cm lip seen nearly
     // edge-on, and an anisotropic streak running ALONG it is exactly the
     // read that makes a metal edge legible at 20 m
@@ -1412,6 +1673,8 @@ export function goldEdgeMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.06,
     dust: 0.14,
     soot: 0.26,
+    // a 3.5 cm nosing is the one thing in the level that stays clean
+    drip: 0.1,
   })
   return goldEdge
 }

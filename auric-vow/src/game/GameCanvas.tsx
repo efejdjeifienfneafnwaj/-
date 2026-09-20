@@ -495,6 +495,12 @@ function QaBridge() {
         let fillSum = 0
         let apertureIrradiance = 0
         let apertureCount = 0
+        let apertureCasters = 0
+        let bounceAt1m = 0
+        let rimIrradiance = 0
+        let rimCount = 0
+        let ambientSum = 0
+        let practicalSum = 0
         let shadowCasters = 0
         // the denominators that matter: an unlit material has no lighting term,
         // so counting it in a shadow-participation ratio flatters the number
@@ -532,12 +538,42 @@ function QaBridge() {
             // floor below it, which IS comparable with the key.
             apertureIrradiance += (l.userData?.auricFloorIrradiance as number) ?? 0
             apertureCount++
-          } else fillSum += l.intensity
+            // "live" is what the aperture slot pool in Lighting.tsx has
+            // actually assigned this frame: the pool is two constant casting
+            // spots, and a slot serving no nearby opening sits at intensity
+            // 0, so counting `castShadow` would always read 2.
+            if (l.intensity > 0.001) apertureCasters++
+          } else if (role === 'bounce') {
+            // the pool's upward bounce. Reported at 1 m in the key's units
+            // for the same reason an aperture reports its floor irradiance —
+            // a decay-2 point light's `intensity` is a candela figure that
+            // means nothing next to a directional light's irradiance.
+            bounceAt1m += (l.userData?.auricBounceAt1m as number) ?? 0
+          } else if (role === 'rim') {
+            // character kickers: what the FIGURE receives, not the candela
+            rimIrradiance += (l.userData?.auricSubjectIrradiance as number) ?? 0
+            rimCount++
+          } else {
+            fillSum += l.intensity
+            // Split the fill, because summing it is what made `keyOverFill`
+            // uninterpretable: a decay-2 point light's `intensity` is candela
+            // and a hemisphere's is irradiance, so adding them compares a
+            // fixture 3 m away with the colour of the sky. The number that
+            // decides whether a shadow can read is the DIRECTIONLESS one —
+            // hemisphere plus the two non-key directionals — against the key.
+            const anyL = l as THREE.Light & {
+              isPointLight?: boolean
+              isSpotLight?: boolean
+            }
+            if (anyL.isPointLight || anyL.isSpotLight) practicalSum += l.intensity
+            else ambientSum += l.intensity
+          }
           lights.push({
             type: l.type,
             role,
             intensity: +l.intensity.toFixed(3),
             castShadow: l.castShadow === true,
+            visible: l.visible,
             mapSize: l.shadow ? l.shadow.mapSize.x : 0,
             radius: l.shadow ? l.shadow.radius : 0,
           })
@@ -562,10 +598,32 @@ function QaBridge() {
           litCastPct: +((100 * litCast) / Math.max(litMeshes, 1)).toFixed(1),
           shadowCasters,
           apertureCount,
+          /** how many of the two aperture slots are serving an opening this
+           *  frame. Every slot casts, so this is also the number of shadow-
+           *  mapped architectural sources lighting the room the camera is
+           *  standing in. */
+          apertureCasters,
           apertureIrradiance: +apertureIrradiance.toFixed(3),
+          bounceAt1m: +bounceAt1m.toFixed(3),
+          rimCount,
+          rimIrradiance: +rimIrradiance.toFixed(3),
           keyIntensity: +keyIntensity.toFixed(3),
           nonKeyIntensity: +fillSum.toFixed(3),
           keyOverFill: +(keyIntensity / Math.max(fillSum, 1e-6)).toFixed(3),
+          /** hemisphere + non-key directionals: the terms that are genuinely
+           *  directionless and therefore the ones a shadow competes with */
+          ambientIntensity: +ambientSum.toFixed(3),
+          /** point/spot fixtures, whose candela figures are NOT comparable
+           *  with a directional light's irradiance — reported apart so the
+           *  ratio above stops being a category error */
+          practicalIntensity: +practicalSum.toFixed(3),
+          /** key against the light-based directionless terms only. The probe
+           *  is the other directionless contributor and is deliberately NOT
+           *  folded in here: `environmentIntensity` is a unitless scale on a
+           *  radiance map, not an irradiance, so adding it to a hemisphere's
+           *  intensity would be the same category error this pair of fields
+           *  exists to undo. Read it beside `environmentIntensity`. */
+          keyOverAmbient: +(keyIntensity / Math.max(ambientSum, 1e-6)).toFixed(2),
           environmentIntensity: scene.environmentIntensity,
           hasEnvironment: scene.environment !== null,
           lights,

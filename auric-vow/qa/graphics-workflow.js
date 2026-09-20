@@ -163,6 +163,9 @@ ${a.owns.map((f) => '- ' + f).join('\n')}
 Five other specialists are working other axes in this same tree right now. Editing a file outside your list will destroy their work. If something you need lives elsewhere, put it in notDone naming the axis that should take it. src/game/config.ts is owned by post-color only.
 
 ## Required reading
+
+- **\`${ROOT}/qa/reference/warframe-target.jpg\`** — a real Warframe gameplay screenshot the player handed over saying: get the picture to this quality. Open it with the Read tool; you can see images. This is the bar, and it is a specific image, not an abstraction.
+- **\`${ROOT}/qa/reference/TARGET.md\`** — a written reading of that frame, with a checklist question for each axis at the end. Find yours and answer it honestly when you are done.
 ${SHOTS ? `- The captured frames in \`${SHOTS}\` — look at them. Read the PNGs with the Read tool; you can see images. This is what the panel judged.\n` : ''}${ORDER_PATH ? `- \`${ROOT}/${ORDER_PATH}\` — the panel's work order, including the section for your axis.\n` : ''}${DIAG_PATH ? `- \`${ROOT}/${DIAG_PATH}\` — measurements taken from the live scene graph, which correct the panel where it guessed.\n` : ''}- \`${ROOT}/${MAP_PATH}\` — technical map of the codebase.
 
 ${NOTES ? `## Standing notes\n\n${NOTES}\n` : ''}
@@ -174,7 +177,9 @@ ${NOTES ? `## Standing notes\n\n${NOTES}\n` : ''}
 4. Verify by measurement where you can. The built page exposes the live scene at \`window.__qa\` when opened with \`?qa=1\` (gl, scene, camera, setFixedDt, setShadows, teleport, lookAt, setPhase). To drive it yourself: \`cd ${ROOT} && npm run build\`, serve \`dist\`, and open it with Playwright — the chromium at /opt/pw-browsers is already installed and \`NODE_PATH=/opt/node22/lib/node_modules\` puts the playwright module on the path. Software rendering makes it about one frame per second, so step frames rather than waiting on wall time. Do NOT run npm run build if another specialist might be building at the same time — prefer \`npx tsc --noEmit -p tsconfig.app.json\` for checking, and build only if you are going to drive the page.
 5. Report what you changed file by file, and put the numbers you measured in the measured field. Do not claim work you did not do.
 
-The bar: a player shown a frame of this next to a frame of Warframe, unlabelled, should not be able to tell which is the AAA game. Anything less is a failing result, and "good for a web game" is a failing result.`,
+The bar is the reference image. A player shown a frame of ours beside \`${ROOT}/qa/reference/warframe-target.jpg\`, unlabelled, should not be able to say which is the shipped game. Anything less is a failing result, and "good for a web game" is a failing result.
+
+Before you report, capture the frame your axis most affects and put it beside the reference. If you cannot point at a specific way your frame is now closer, you have not finished.`,
       { label: `gfx:${a.key}`, phase: 'Render', schema: RESULT_SCHEMA }
     )
   )

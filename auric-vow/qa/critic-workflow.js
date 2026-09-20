@@ -10,6 +10,8 @@ export const meta = {
 const SHOTS = args && args.shotsDir ? args.shotsDir : '/home/user/-/auric-vow/qa/shots'
 const ROUND = args && args.round ? args.round : 1
 const ROOT = '/home/user/-/auric-vow'
+const REF = ROOT + '/qa/reference/warframe-target.jpg'
+const REF_NOTES = ROOT + '/qa/reference/TARGET.md'
 
 const CRIT_SCHEMA = {
   type: 'object',
@@ -20,7 +22,7 @@ const CRIT_SCHEMA = {
     blindTest: {
       type: 'string',
       description:
-        'Answer honestly: if these frames were shown side by side with a Warframe screenshot with no labels, would a player pick this one as the more expensive-looking game? Say which wins and why, in 2-4 sentences.',
+        'Answer honestly, against the supplied reference image specifically: shown one of our frames beside it with no labels, would a player reliably pick out the shipped game? Name which of our frames comes closest and what still gives it away, in 2-4 sentences.',
     },
     findings: {
       type: 'array',
@@ -79,7 +81,15 @@ const crits = await parallel(
     agent(
       `You are a senior art director at a AAA studio doing a hostile review pass. You are reviewing captured frames from a browser game built in Three.js / react-three-fiber called AURIC VOW — a Warframe-style ninja action game. The team claims it is AAA quality. Your job is to establish whether that claim is false.
 
-Read EVERY screenshot in ${SHOTS} (they are PNG files named 01_title.png onward; ${SHOTS}/state.json lists what each shot was meant to show). Use the Read tool on each image file — you can see images. Do not skip any.
+## The comparison is a real image, not your memory of one
+
+Open \`${REF}\` first. It is an actual Warframe gameplay screenshot that the player handed over with the instruction: get the picture to this quality. Read it with the Read tool — you can see images. \`${REF_NOTES}\` is a written reading of what is in it; read that too.
+
+Every judgement you make is against that specific frame. When you say something falls short, say what the reference does instead, as something visible in it.
+
+## Then read the build
+
+Read EVERY screenshot in ${SHOTS} (they are PNG files named 01_title.png onward; ${SHOTS}/state.json lists what each shot was meant to show). Do not skip any.
 
 Your review lens: **${l.key}**
 ${l.brief}
@@ -90,8 +100,8 @@ Rules for this review:
 - Be harsh. This is round ${ROUND}. Grade against shipped AAA, not against "good for a web game". "Good for WebGL" is a failing grade.
 - Every finding must name the screenshot that shows it and give a concrete implementation direction, not a wish. The codebase is at ${ROOT}; you may read source files under ${ROOT}/src to make your fix direction specific, but do NOT modify anything.
 - Assign each finding to exactly one area from: environment-art, player-frame, combat-feel, vfx-postfx, enemies-hud.
-- Return PASS only if you would genuinely be comfortable with these frames appearing in a Warframe marketing comparison. Otherwise FAIL.
-- The blind-test field is the important one. Answer it honestly.`,
+- Return PASS only if a player shown one of these frames beside \`${REF}\`, unlabelled, could not reliably say which is the shipped game. Otherwise FAIL.
+- The blind-test field is the important one. Answer it against the reference image specifically, and say which frame of ours comes closest and how far off it still is.`,
       { label: `critic:${l.key}`, phase: 'Critique', schema: CRIT_SCHEMA }
     )
   )
