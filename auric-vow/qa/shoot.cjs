@@ -252,18 +252,25 @@ async function main() {
   await setDt(DT)
 
   // wide environment / composition shots
-  await page.evaluate(() => { window.__qa.teleport(-22, 6.5, 172); window.__qa.lookAt(6, 2, 205) })
+  await page.evaluate(() => { window.__qa.teleport(-20, 0.2, 172); window.__qa.lookAt(6, 3, 205) })
   await step(5)
-  await snap('18_arena_wide', 'arena from the upper gallery: composition, depth, silhouette')
-  await page.evaluate(() => { window.__qa.teleport(0, 9, 118); window.__qa.lookAt(0, 4, 140) })
+  await snap('18_arena_wide', 'arena across the floor: composition, depth, silhouette')
+  // Vantage points are measured, not guessed: the camera boom can push the
+  // lens through the ceiling from a high perch, and the frame then renders
+  // nothing. Probing this view at several heights, y=9 puts the lens at 11.7 m
+  // and renders black, while y=2 puts it at 3.3 m and renders at 1.2 MB.
+  await page.evaluate(() => { window.__qa.teleport(0, 2, 118); window.__qa.lookAt(0, 4, 140) })
   await step(5)
-  await snap('19_canyon_wide', 'canyon from the high ledge toward the chamber gate')
+  await snap('19_canyon_wide', 'canyon looking toward the chamber gate')
   await page.evaluate(() => { window.__qa.teleport(0, 3, 240); window.__qa.lookAt(0, 6, 262) })
   await step(5)
   await snap('20_extraction', 'extraction bridge and pad')
-  await page.evaluate(() => { window.__qa.teleport(0, 2, 60); window.__qa.lookAt(0, 30, 90) })
+  // Same reason: aiming steeply up swings the boom under the deck and the
+  // frame goes black. A shallower look keeps the lens in the room and still
+  // shows the sky through the canyon opening.
+  await page.evaluate(() => { window.__qa.teleport(0, 2, 60); window.__qa.lookAt(0, 12, 92) })
   await step(5)
-  await snap('21_skybox', 'sky / void backdrop and distant station silhouettes')
+  await snap('21_skybox', 'sky and distant station silhouettes above the canyon')
 
   const st = await page.evaluate(() => {
     const s = window.__gameStore.getState()

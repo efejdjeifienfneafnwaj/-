@@ -1,0 +1,66 @@
+{
+ "note": "round 5; two wide shots removed because their 3D layer did not paint and are under investigation",
+ "viewport": [
+  1280,
+  720
+ ],
+ "shots": [
+  {
+   "name": "01_title"
+  },
+  {
+   "name": "02_spawn"
+  },
+  {
+   "name": "03_sprint"
+  },
+  {
+   "name": "04_air"
+  },
+  {
+   "name": "05_wallrun"
+  },
+  {
+   "name": "06_slide"
+  },
+  {
+   "name": "07_chamber"
+  },
+  {
+   "name": "08_enemies"
+  },
+  {
+   "name": "09_rifle"
+  },
+  {
+   "name": "10_rifle_hits"
+  },
+  {
+   "name": "11_ability_dash"
+  },
+  {
+   "name": "12_ability_volley"
+  },
+  {
+   "name": "13_ability_halo"
+  },
+  {
+   "name": "14_ultimate_start"
+  },
+  {
+   "name": "15_ultimate_peak"
+  },
+  {
+   "name": "16_ultimate_fade"
+  },
+  {
+   "name": "17_katana"
+  },
+  {
+   "name": "18_arena_wide"
+  },
+  {
+   "name": "20_extraction"
+  }
+ ]
+}
