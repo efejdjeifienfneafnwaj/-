@@ -113,6 +113,19 @@ What AAA looks like here and this does not: no effect is one primitive. Each is 
 The blind test the critics run is specifically brutal on this: flat single-layer additive shapes are the tell they name first.`,
   },
   {
+    key: 'camera-framing',
+    owns: ['src/game/player/CameraRig.tsx', 'src/game/player/movementConfig.ts'],
+    charter: `How every frame is composed. This axis changes the picture more than any other single thing, because it decides what is in the shot at all.
+
+Compare the reference image to ours and the framing difference is immediate. In the reference the character sits low and left, off-axis, at roughly 45% of the frame height, with a railing and a machine mass between the lens and the character at the left edge. In ours the character is centred, small, level and unobstructed, with nothing between the lens and the subject. That is why ours reads as a viewer and the reference reads as a game.
+
+What to build: an over-the-shoulder boom with a real lateral offset, the look target biased off-centre and up, a persistent slight roll signed by lateral velocity, a tighter field of view, and a boom distance that puts the character at 40 to 45% of frame height rather than 22%.
+
+You also own the boom's collision, which is a standing blocker: a sphere-cast from the head to the desired lens position, clamped to the first hit minus a skin, fast pull-in and slow push-out. Measurement on an earlier build showed the lens leaving the room entirely from a high perch or a steep upward look, and the frame going black. A wall-run needs its own camera state that pushes the lens out along the wall normal so the character is actually in shot.
+
+Verify by capturing and measuring: what fraction of frame height does the character occupy, is the horizon level, and is there anything in the near field.`,
+  },
+  {
     key: 'enemy-art',
     owns: [
       'src/game/enemies/Trooper.tsx',
