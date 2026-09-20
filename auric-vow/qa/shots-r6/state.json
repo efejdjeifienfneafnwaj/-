@@ -1,0 +1,140 @@
+{
+  "state": {
+    "phase": "EXTERMINATE",
+    "hp": 200,
+    "shield": 150,
+    "energy": 92.26500000000014,
+    "kills": 4,
+    "tier": 0,
+    "programs": 182,
+    "textures": 119,
+    "geometries": 643
+  },
+  "aimed": {
+    "count": 8,
+    "ground": 4,
+    "target": [
+      8,
+      "trooper",
+      true,
+      [
+        0.23260179932248437,
+        0,
+        168.15757064998343
+      ]
+    ],
+    "standoff": 11
+  },
+  "shots": [
+    {
+      "name": "01_title",
+      "note": "title screen over the live world backdrop",
+      "bytes": 684876
+    },
+    {
+      "name": "02_spawn",
+      "note": "third-person view at the spawn dais looking down the canyon",
+      "bytes": 1682909
+    },
+    {
+      "name": "03_sprint",
+      "note": "sprinting down the traversal canyon",
+      "bytes": 1463948
+    },
+    {
+      "name": "04_air",
+      "note": "mid-air after a jump (glide/air control)",
+      "bytes": 1418451
+    },
+    {
+      "name": "05_wallrun",
+      "note": "wall-run along the gold-veined canyon slab",
+      "bytes": 1522083
+    },
+    {
+      "name": "06_slide",
+      "note": "power slide across the reliquary chamber floor",
+      "bytes": 1199040
+    },
+    {
+      "name": "07_chamber",
+      "note": "the Null Reliquary chamber (mission objective)",
+      "bytes": 1345600
+    },
+    {
+      "name": "08_enemies",
+      "note": "combat arena framed on a live ground enemy: 8",
+      "bytes": 1169078
+    },
+    {
+      "name": "09_rifle",
+      "note": "rifle firing: muzzle flash, tracers, impacts",
+      "bytes": 1280476
+    },
+    {
+      "name": "10_rifle_hits",
+      "note": "sustained fire with hit feedback and damage numbers",
+      "bytes": 1252387
+    },
+    {
+      "name": "11_ability_dash",
+      "note": "Gilt Dash (Q): blink-dash with afterimages",
+      "bytes": 1211604
+    },
+    {
+      "name": "12_ability_volley",
+      "note": "Sunspike Volley (E): homing javelin fan",
+      "bytes": 1245122
+    },
+    {
+      "name": "13_ability_halo",
+      "note": "Aegis Halo (1): ringed gold barrier",
+      "bytes": 1406466
+    },
+    {
+      "name": "14_ultimate_start",
+      "note": "Auric Requiem (4): nova ignition",
+      "bytes": 1379054
+    },
+    {
+      "name": "15_ultimate_peak",
+      "note": "Auric Requiem at full expansion with slow-mo grade",
+      "bytes": 1230010
+    },
+    {
+      "name": "16_ultimate_fade",
+      "note": "Auric Requiem dissipating",
+      "bytes": 1242435
+    },
+    {
+      "name": "17_katana",
+      "note": "katana slash arc",
+      "bytes": 1248158
+    },
+    {
+      "name": "18_arena_wide",
+      "note": "arena across the floor: composition, depth, silhouette",
+      "bytes": 1363487
+    },
+    {
+      "name": "19_canyon_wide",
+      "note": "canyon looking toward the chamber gate",
+      "bytes": 1130411
+    },
+    {
+      "name": "20_extraction",
+      "note": "extraction bridge and pad",
+      "bytes": 972048
+    },
+    {
+      "name": "21_skybox",
+      "note": "sky and distant station silhouettes above the canyon",
+      "bytes": 1434150
+    }
+  ],
+  "viewport": [
+    1280,
+    720
+  ],
+  "fixedDt": 0.03333333333333333
+}
