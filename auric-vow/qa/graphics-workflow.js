@@ -90,6 +90,8 @@ What AAA looks like here and this does not: a silhouette that reads as one desig
 
 Verify the silhouette the way a character artist does: render the rig in flat black against white and look at the outline alone. If it reads as a person-shaped blob, the plating is not doing its job.
 
+The last round raised the figure to a measured 8.14 heads, and the panel still read it as 5.5 to 6 heads with a barrel torso and no neck. Trust the panel over the metric: the number moved because the helmet shrank, but the torso did not narrow with it, so the body still reads squat. This round is about WIDTH and the neck, not height. The panel's own numbers: chest about 0.30 m against a 0.51 m shoulder span, waist about 0.55 of the shoulder half-span, a 0.07 to 0.09 m dark gap between helmet base and shoulder, and shoulder:waist:hip reading about 1 : 0.55 : 0.6 from behind. Limbs should taper monotonically to about 0.7 at the wrist and ankle — the panel found a sine bulge at the waist of the arm loft that reads as rubber hose.
+
 Keep PlayerSockets (rightHand, leftHand, hip) exported and populated — the weapons parent to them.`,
   },
   {
@@ -109,6 +111,24 @@ Keep PlayerSockets (rightHand, leftHand, hip) exported and populated — the wea
 What AAA looks like here and this does not: no effect is one primitive. Each is a hot white core that clips to white, a saturated mid body, a wide soft outer falloff, sparks or debris with velocity-aligned stretch, a real light that illuminates the surrounding architecture and the character's plates, and a distortion or pressure element. Timing is authored on curves with an attack far faster than the decay, and there is secondary motion after the main event. Particles are soft sprites with a gradient, never hard-edged quads or flat squares.
 
 The blind test the critics run is specifically brutal on this: flat single-layer additive shapes are the tell they name first.`,
+  },
+  {
+    key: 'enemy-art',
+    owns: [
+      'src/game/enemies/Trooper.tsx',
+      'src/game/enemies/Drone.tsx',
+      'src/game/enemies/Heavy.tsx',
+      'src/game/enemies/dissolve.ts',
+      'src/game/enemies/EnemyRegistry.ts',
+      'src/game/enemies/EnemyProjectiles.tsx',
+    ],
+    charter: `Enemy models and their death — the weakest thing on screen now that the level has been through four rounds and the enemies have not.
+
+What AAA looks like here and this does not: hostiles built from the same material tier as the hero and the level, with a normal-mapped shell, panel breakup, a readable silhouette per archetype, and a rim term so they separate from the architecture at distance. A death that is a performance — a stagger, a fall with weight, a dissolve whose edge colour belongs to the palette and whose shader does not paint the body in raw placeholder colour.
+
+The specific failure the panel called out, and it ended the comparison for them: a cluster of untextured boxes blotched magenta and pink fills the bottom third of the katana frame. That is an enemy at melee range, mid-dissolve, drawn in flat primitives with a dissolve edge in a colour that appears nowhere else in the game. It is the single most damaging object in the review set.
+
+Fix the material tier first, then the silhouette, then the death. Give each archetype a distinct read: the trooper lean and upright, the heavy wide and low, the drone compact and airborne.`,
   },
   {
     key: 'post-color',
