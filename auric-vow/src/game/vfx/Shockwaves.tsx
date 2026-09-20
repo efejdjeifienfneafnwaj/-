@@ -51,6 +51,7 @@ uniform float uT;
 uniform vec3 uColor;
 uniform vec3 uCore;
 uniform float uWidth;
+uniform float uGain;
 uniform float uGlyph;
 uniform sampler2D uGlyphTex;
 varying vec2 vUv;
@@ -83,7 +84,8 @@ void main() {
   vec3 col = mix(uColor, uCore, clamp(hot, 0.0, 1.0));
   // the filament is the only part authored above the bloom knee
   col *= 1.0 + hot * 1.9;
-  gl_FragColor = vec4(col, alpha);
+  // [vfx R4] per-spawn master gain — see RingOpts.intensity
+  gl_FragColor = vec4(col * uGain, alpha * uGain);
 }
 `
 
@@ -104,6 +106,7 @@ class RingWave {
         uColor: { value: new THREE.Color(1, 1, 1) },
         uCore: { value: new THREE.Color('#FFF3D6') },
         uWidth: { value: 0.08 },
+        uGain: { value: 1 },
         uGlyph: { value: 0 },
         uGlyphTex: { value: glyphTex },
       },
@@ -139,6 +142,7 @@ class RingWave {
       0.012,
       0.34,
     )
+    this.material.uniforms.uGain!.value = cmd.intensity
     this.material.uniforms.uGlyph!.value = 0
     this.mesh.visible = true
   }

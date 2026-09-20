@@ -57,6 +57,16 @@ export interface RingOpts {
    * a floor disc floating in mid-air.
    */
   normal?: THREE.Vector3
+  /**
+   * [vfx R4] Master gain, default 1. The ring shader authors its leading edge
+   * at up to 2.9x so a shockwave front CLIPS — which is right for a
+   * detonation and wrong for the cosmetic ground ring a cast drops at the
+   * player's feet. Measured on a driven capture, the volley's launch ring
+   * bloomed into a white band across the lower third of the frame: a flat
+   * single-layer additive shape at 2 m from the lens. Callers whose ring is
+   * punctuation rather than the event itself pass a fraction here.
+   */
+  intensity?: number
 }
 
 export interface FlashOpts {
@@ -137,6 +147,7 @@ export interface RingCmd {
   nx: number
   ny: number
   nz: number
+  intensity: number
 }
 
 export interface FlashCmd {
@@ -233,6 +244,7 @@ export const VFX = {
       nx: o.normal ? o.normal.x : 0,
       ny: o.normal ? o.normal.y : 1,
       nz: o.normal ? o.normal.z : 0,
+      intensity: Math.max(0, o.intensity ?? 1),
     })
   },
 

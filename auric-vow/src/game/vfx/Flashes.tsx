@@ -14,6 +14,21 @@
  *   Transient survival — every flash gets a minimum 0.08 s lifetime so it
  *         cannot fall entirely between two 33 ms capture steps.
  *
+ * [vfx R4] THE PROGRAM EXPLOSION. Both light pools used to be switched with
+ * `light.visible`, which is the single most expensive thing you can do to a
+ * three.js scene. `WebGLRenderer.projectObject` returns early on an invisible
+ * object, so an invisible light is not pushed into the render state at all,
+ * and `NUM_POINT_LIGHTS` is a #define baked into the program cache key of
+ * EVERY material in the scene. Twelve pooled lights blinking on and off
+ * therefore generate up to thirteen compiled variants of every material the
+ * level owns — which is what a live program count of 601 against 107 three
+ * rounds ago looks like, and each new variant is a synchronous compile in the
+ * middle of the frame the effect fires on.
+ *
+ * The lights are now permanently visible and idle at intensity 0. A
+ * zero-intensity point light costs one loop iteration in the fragment shader
+ * and nothing else; a recompile of the whole material set costs the frame.
+ *
  * [vfx R3] A flash is now FOUR cards, not two: the star, a second smaller star
  * at its own roll, the soft halo, and an anamorphic bar that snaps to full
  * width on frame one and collapses vertically as it dies. The bar is the
@@ -133,7 +148,8 @@ export default function Flashes() {
     () =>
       Array.from({ length: MAX_LIGHTS }, () => {
         const light = new THREE.PointLight(0xffffff, 0, 8, 2)
-        light.visible = false
+        // [vfx R4] NEVER toggled invisible — see THE PROGRAM EXPLOSION below
+        light.visible = true
         return { light, active: false, age: 0, life: 0.1, base: 0 }
       }),
     [],
@@ -144,7 +160,7 @@ export default function Flashes() {
     () =>
       trackedLightSlots().map(() => {
         const l = new THREE.PointLight(0xffffff, 0, 12, 2)
-        l.visible = false
+        l.visible = true
         return l
       }),
     [],
@@ -247,7 +263,6 @@ export default function Flashes() {
       l.light.distance = cmd.distance
       l.light.intensity = cmd.intensity
       l.light.position.set(cmd.x, cmd.y, cmd.z)
-      l.light.visible = true
       // quad slot
       const q = quads.find((s) => !s.active) ?? quads[0]
       q.active = true
@@ -280,7 +295,6 @@ export default function Flashes() {
       const t = l.age / l.life
       if (t >= 1) {
         l.active = false
-        l.light.visible = false
         l.light.intensity = 0
         continue
       }
@@ -295,7 +309,6 @@ export default function Flashes() {
       const l = tracked[i]
       if (!l) continue
       const on = s.leased && s.intensity > 0.001
-      l.visible = on
       if (!on) {
         l.intensity = 0
         continue

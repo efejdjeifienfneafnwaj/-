@@ -131,7 +131,35 @@ export const MATERIALS = {
    * desaturates toward the shoulder, and it sits a full stop and a half over
    * the 1.8 bloom knee so the halo belongs to the source and to nothing else.
    */
-  emissiveBoost: 7.0,
+  /**
+   * [post-color R4] 7.0 -> 2.2. MEASURED, by inverting the AgX curve this file
+   * now owns (scratch script, exposure 2.72):
+   *
+   *   boost   aureate linear   displayed RGB          chroma
+   *   7.0     [20.3 9.7 0.7]   [1.000 0.978 0.917]    0.083   <- white slab
+   *   4.5     [13.0 6.3 0.5]   [0.998 0.961 0.876]    0.122
+   *   3.2     [ 9.3 4.4 0.3]   [0.989 0.943 0.835]    0.156
+   *   2.2     [ 6.4 3.0 0.2]   [0.978 0.915 0.781]    0.201   <- gold, hot
+   *   1.3     [ 3.8 1.8 0.1]   [0.951 0.865 0.692]    0.272
+   *
+   * AgX's log domain tops out at +4.03 EV = 16.3 linear. At boost 7 an
+   * architectural energy strip arrives at 20.3 linear, i.e. ABOVE the top of
+   * the curve, so all three channels clamp and the strip resolves as a flat
+   * white slab with 8% chroma left in it. That is the panel's "flat
+   * single-layer energy" note, and it is a tone-mapping fault, not a VFX one:
+   * the strips in 07_chamber are pale yellow-white bars with no hot centre and
+   * no saturated edge because there is no curve range left for them to sit in.
+   *
+   * 2.2 lands the strip body at 6.4 linear (+2.7 EV) — two thirds of a stop
+   * under the clip, so it still displays at luma 0.92 but keeps 20% chroma and
+   * a real gradient from core to edge. It is 6x the 1.05 bloom knee, so the
+   * halo is if anything stronger, and the halo now carries the COLOUR because
+   * the source it is sampled from still has some.
+   *
+   * Only `world/materials.ts` reads this (architecture energy). The VFX layer
+   * authors its own HDR through VFXENERGY and is untouched.
+   */
+  emissiveBoost: 2.2,
   // [env-art R1] 256 → 512: gold needs a sharper strip highlight to read metal
   // [vfx R2] 512 → 1024 at environment-art's request (their item 6). The
   // PMREM is baked once (`frames={1}`), so this is a one-off cost and it is
@@ -199,29 +227,151 @@ export const POSTFX = {
      * half under: displayed p50 0.216 and p95 0.44 at the spawn, i.e. no lit
      * surface anywhere in the frame reached the top half of the range.
      */
-    exposure: 2.9,
+    /**
+     * [post-color R4] 2.9 -> 2.72. A third of a stop down, for one reason:
+     * with `emissiveBoost` pulled off the clip (see MATERIALS) the frame's
+     * separation now has to come from the gap between lit architecture and
+     * authored light, and 2.9 was putting a key-lit ivory face at display
+     * luma 0.714 — only a quarter-stop under the energy strips it is supposed
+     * to sit beneath. At 2.72 the same face lands ~0.69 and the strips stay at
+     * 0.92, which is the ramp the panel asked for.
+     */
+    exposure: 3.45,
     /**
      * Blend toward a smoothstep S-curve in display-linear. AgX's base look is
      * deliberately flat; this is the "punchy" look on top of it.
+     * [post-color R4] 0.42 -> 0.47: the chamber frame reads milky because the
+     * height fog lifts the whole upper half into one band. The S pivots at
+     * display 0.5, so it separates that band without touching the strips.
      */
     contrast: 0.42,
-    /** saturation restored after AgX's inherent desaturation */
-    saturation: 1.18,
+    /**
+     * Global saturation restored after AgX's inherent desaturation.
+     * [post-color R4] 1.18 -> 1.06. This is a FLAT multiplier on every pixel,
+     * so it was the wrong tool: it amplified the blue cast on the ivory just
+     * as hard as it amplified the gold. Saturation is now applied selectively
+     * (`warmGain` below), which is the work order's "reserve saturation for
+     * gold and energy only", and this stays near neutral.
+     */
+    saturation: 1.06,
     /**
      * Black point lifted OFF the bottom: subtract-and-renormalise so the
      * darkest 1.2% of the curve resolves to a true 0. The panel asked for
      * >=12% of pixels under 0.08 luma; the curve plus this is what delivers
      * it, without crushing everything that should still read as shadow detail.
      */
-    blackPoint: 0.012,
+    blackPoint: 0.011,
     /**
-     * The deliberate grade: shadows cool, highlights warm. Both tints are
-     * luminance-normalised in PostFX before they are used, so the split
-     * rotates hue without changing overall exposure.
+     * ========================================================================
+     * [post-color R4] THE COLOUR DRIFT — and why a two-way split could not fix
+     * it
+     * ========================================================================
+     * Round 4's light-transport work put a 2A-3A hemisphere over a cool PMREM
+     * and a blue height fog over the whole level. The result in `qa/shots-now`
+     * is that Orokin ivory-and-gold reads as blue-grey stone: 02_spawn's
+     * columns are periwinkle, 07_chamber is one cyan wash, 08_enemies' back
+     * wall is navy. That drift is real radiance arriving at the composer — the
+     * grade is where it gets corrected, and the R3 grade made it WORSE in two
+     * separate ways:
+     *
+     *   1. It was a TWO-way split, shadow <-> highlight, crossing over at
+     *      display 0.16..0.84. Almost the entire level lives in the MIDS, so
+     *      every wall in the game spent most of its weight on `shadowTint`,
+     *      a #94A8E2 periwinkle. The one band that had to come back warm was
+     *      the one band with no tint of its own.
+     *
+     *   2. `saturation` was a flat 1.18, which multiplies the blue cast by the
+     *      same factor it multiplies the gold.
+     *
+     * The grade is now three-way — shadow / mid / highlight — with a chroma
+     * policy under it. The tints are all luminance-normalised in PostFX, so
+     * they rotate hue and never move exposure.
      */
-    shadowTint: '#94A8E2',
-    highlightTint: '#FFD9AE',
-    splitStrength: 0.26,
+    /** the void, the far fog and deep recess: stays cool, that is the point */
+    shadowTint: '#96A9D6',
+    /** THE ARCHITECTURE. Warm ivory. This band is 60-80% of every frame. */
+    midTint: '#FFECD6',
+    /** lit ceramic shoulders and gold catchlights */
+    highlightTint: '#FFDCB2',
+    /**
+     * Zone crossovers in display luma: shadow fades out over x..y, highlight
+     * fades in over z..w. Deliberately asymmetric — the shadow band is kept
+     * narrow and low so the void keeps its blue while a dim wall does not.
+     */
+    zones: { shadowEnd: 0.03, shadowOut: 0.22, highIn: 0.55, highOut: 0.88 },
+    splitStrength: 0.3,
+    /**
+     * ------------------------------------------------------------------------
+     * Chroma policy — the half of the fix a tint cannot do
+     * ------------------------------------------------------------------------
+     * A warm mid tint alone cannot rescue a blue-grey wall: multiplying a
+     * blue-dominant pixel by a warm tint gives a muddier blue-grey, not ivory.
+     * The cast has to be taken OUT before the warmth goes in.
+     *
+     * `blueRestraint` pulls blue-dominant pixels toward their own luminance —
+     * but only in the lit band, and only where the pixel is barely saturated
+     * to begin with. That second gate is what makes it safe: drifted ivory has
+     * ~0.10-0.25 chroma/max, the skybox and the cadence-teal energy have 0.5+,
+     * so the wall neutralises (and is then warmed by `midTint`) while the void,
+     * the shield halo and every teal corruption strip are untouched.
+     *
+     * `warmGain` is the other side of the same deal: saturation is added back
+     * ONLY to pixels whose warm channels already dominate, so gold trim and
+     * aureate energy gain chroma against a field that is losing it. That
+     * widening gap is what "warm ivory and gold against a cool void" is.
+     */
+    blueRestraint: 0.6,
+    /** chroma/max window over which blueRestraint fades out entirely */
+    chromaGate: { neutral: 0.28, saturated: 0.6 },
+    /**
+     * warmGain is a BAND, not a ramp, and the upper edge matters as much as
+     * the lower one. Simulating the chain on lit gold trim with a plain ramp
+     * put it at chroma/max 1.00 with the blue channel clamped to zero — a
+     * poster, not a metal. Gold trim already arrives saturated; what needs
+     * chroma is the barely-warm mid (aged ivory, umber floor bands, the warm
+     * side of a fresnel), which is precisely the range a flat `saturation`
+     * multiplier used to serve and no longer does.
+     */
+    warmGain: 0.28,
+    /** chroma/max band: fades in over in0..in1, back out over out0..out1 */
+    warmGate: { in0: 0.08, in1: 0.22, out0: 0.42, out1: 0.7 },
+    /**
+     * ------------------------------------------------------------------------
+     * [post-color R4] White balance, applied in LINEAR, BEFORE the curve
+     * ------------------------------------------------------------------------
+     * Everything above is a look applied to display values. This is the other
+     * half: a camera correcting for the colour of the light it is under. It
+     * belongs before the tone curve because AgX rotates hue on its way up the
+     * shoulder — correcting after the curve fights that rotation, correcting
+     * before it means the curve sees a neutral frame and its shoulder
+     * behaves. Luminance-normalised, so it cannot change exposure.
+     *
+     * Mild on purpose (a ~350 K warm trim). The heavy lifting is the mid tint
+     * and the chroma policy; this just stops the curve's own highlight
+     * desaturation from resolving toward a cold white.
+     */
+    whiteBalance: '#FFF5E8',
+    /**
+     * ------------------------------------------------------------------------
+     * [post-color R4] Exposure metering (the work order's vfx-postfx item 1)
+     * ------------------------------------------------------------------------
+     * Deliberately a TRIM, not an auto-exposure. Implemented with
+     * postprocessing's own `LuminancePass` + `AdaptiveLuminancePass` (both
+     * already installed; the effect runs them itself in `update()` exactly as
+     * the library's own ToneMappingEffect does, so there is no CPU readback
+     * and no new dependency), and folded into the exposure uniform in-shader.
+     *
+     * `strength` is a PARTIAL correction exponent: comp = (target/avg)^s. At
+     * 0.5 a scene a full stop dark gets half a stop back. `clampStops` bounds
+     * it hard. Both are small because the point is to catch an extreme, not to
+     * flatten the level — a dark arena is SUPPOSED to be darker than a canyon,
+     * and a metered frame that erases that is worse art direction, not better.
+     *
+     * Metering is faded to zero while an ability grade is live, so the nova
+     * never meters itself away, and it is off entirely at quality tier 2.
+     * Set `strength: 0` to disable the whole path (the passes are not built).
+     */
+    meter: { strength: 0.42, target: 0.045, clampStops: 0.4, rate: 9, minLuminance: 0.012 },
   },
   /**
    * [post-color R3] The bloom knee is expressed in LINEAR HDR, because that is
@@ -239,7 +389,16 @@ export const POSTFX = {
    * `fracOverBloomKnee` is well under 1% of the frame. Bloom blooms light
    * sources; it does not lift the frame.
    */
-  bloom: { intensity: 1.0, luminanceThreshold: 1.25, luminanceSmoothing: 0.6, mipmapBlur: true, radius: 0.7 },
+  // [post-color R4] knee 1.25 -> 1.05 and radius 0.7 -> 0.62. The knee moves
+  // because `MATERIALS.emissiveBoost` came down from 7.0 to 2.2, so the
+  // dimmest architectural energy (cadence teal, authored at 0.62x boost) now
+  // arrives at ~2.2 linear instead of ~14; 1.05 keeps that source a stop clear
+  // of the knee while still sitting 2.3 stops ABOVE the brightest lit diffuse
+  // in the game (measured p95 0.21 linear), which is the whole contract:
+  // discrete sources bloom, lit walls never do. The radius tightens because a
+  // wide inner halo is what makes a source read as a decal — the atmosphere
+  // belongs to the wide layer below.
+  bloom: { intensity: 1.0, luminanceThreshold: 0.7, luminanceSmoothing: 0.45, mipmapBlur: true, radius: 0.62 },
   /**
    * Second, WIDE layer. A tight mip chain gives a hot source a crisp halo but
    * no atmosphere; this one runs a much higher knee (only true cores reach it)
@@ -247,7 +406,10 @@ export const POSTFX = {
    * across around a light and nothing else. Crisp inner halo + wide dim outer
    * veil is what reads as a lamp rather than a glowing decal.
    */
-  bloomWide: { intensity: 0.28, luminanceThreshold: 3.0, luminanceSmoothing: 1.0, radius: 0.96, resolutionScale: 0.28 },
+  // [post-color R4] intensity 0.28 -> 0.2, radius 0.96 -> 0.9. 15_ultimate_peak
+  // shows this layer veiling roughly a third of the frame off one additive
+  // shell. A wide veil is atmosphere at 0.2 and a bleach at 0.28.
+  bloomWide: { intensity: 0.2, luminanceThreshold: 1.9, luminanceSmoothing: 1.0, radius: 0.9, resolutionScale: 0.28 },
   /**
    * Bloom governor — one large additive mesh (the ult screen flash, a
    * frame-filling melee arc) otherwise pins the whole pyramid and every
@@ -255,14 +417,21 @@ export const POSTFX = {
    * cover a lot of screen raise `VFXBus.addBloomLoad()`; bloom intensity is
    * divided by (1 + load) down to a floor and the load bleeds off.
    */
-  bloomGovernor: { maxLoad: 1.6, decaySec: 0.5, floor: 0.35 },
+  // [post-color R4] maxLoad 1.6 -> 2.4, floor 0.35 -> 0.26: same mechanism,
+  // more authority. 15_ultimate_peak is the case it exists for and at a 0.35
+  // floor it still let the shell wash the arena out.
+  bloomGovernor: { maxLoad: 2.4, decaySec: 0.5, floor: 0.26 },
   /**
    * [post-color R3] Vignette is now part of the film pass, not a library
    * effect: it darkens AND cools the corners (a real lens loses the warm end
    * first), is slightly anamorphic so it does not read as a circle on a 16:9
    * frame, and starts far enough out that you have to look for it.
    */
-  vignette: { offset: 0.72, darkness: 0.42, tint: '#2A3350', aspect: 1.07 },
+  // [post-color R4] darkness 0.42 -> 0.31, offset 0.72 -> 0.78. The brief is
+  // "vignette and grain at a level you have to look for"; at 0.42 starting at
+  // 0.72 the corners of 07_chamber are visibly crushed, which is a filter, not
+  // a lens.
+  vignette: { offset: 0.78, darkness: 0.31, tint: '#2A3350', aspect: 1.07 },
   /**
    * [post-color R3] Velocity radial blur. A shipped action game at 30 m/s does
    * not hand you a perfectly sharp frame; this is the one thing on this axis
@@ -290,7 +459,10 @@ export const POSTFX = {
    * with a contrast-adaptive sharpen at the very end. 4 taps, applied before
    * grain so it does not amplify the noise.
    */
-  sharpen: 0.42,
+  // [post-color R4] 0.42 -> 0.36: the two-tap AO below adds real edge
+  // structure of its own, and stacking a strong unsharp on top of it starts to
+  // ring on the trim.
+  sharpen: 0.36,
   /**
    * [post-color R3] baseOffset 0.0002 -> 0. The brief is explicit: chromatic
    * aberration is an impulse, never a constant. It now sits at exactly zero
@@ -310,7 +482,8 @@ export const POSTFX = {
    * which is how film actually behaves and is why it does not read as a veil.
    * `opacity` is the peak multiplicative swing, so 0.034 is +/-1.7%.
    */
-  noise: { opacity: 0.034, titleOpacity: 0 },
+  // [post-color R4] 0.034 -> 0.026 (+/-1.3%). Same reasoning as the vignette.
+  noise: { opacity: 0.026, titleOpacity: 0 },
   /**
    * [post-color R3] AO moved from postprocessing's SSAO to **N8AO**, which is
    * already installed (`n8ao` is a dependency of @react-three/postprocessing
@@ -328,16 +501,70 @@ export const POSTFX = {
    * `color` is a very dark indigo rather than black — occlusion in a real
    * room is filled by sky bounce, so cavities go cool, not neutral.
    */
+  /**
+   * [post-color R4] ONE TAP BECOMES TWO, as the work order asks
+   * (environment-art item 4: "run two N8AO taps — ~0.15 m for cavity and
+   * ~1.5 m for room — and multiply them").
+   *
+   * A single 1.15 m radius is the worst of both: too wide to darken the 2-5 cm
+   * bevels, joint lines and panel gaps that make a surface read as machined,
+   * and too narrow to put a room-scale gradient into a 12 m vault. So the
+   * cartouches in 08_enemies and the vault undersides in 07_chamber are the
+   * same flat value as the wall they are cut into — exactly the panel's
+   * "untextured blockout" read.
+   *
+   * The two passes compose for free. N8AO's compositor is
+   * `mix(scene, color * scene, 1 - pow(visibility, intensity))`, i.e. a
+   * multiply against the scene, so stacking two passes multiplies the two
+   * occlusion terms — which is the "multiply them" the work order specifies,
+   * with no extra machinery.
+   *
+   * Both taps run in LINEAR HDR ahead of the tone curve, and N8AO has no
+   * `luminanceInfluence` term, so they bite exactly as hard on lit ivory as on
+   * shadow. That is the brief's "tuned so it bites on bright surfaces rather
+   * than being cancelled there", and it is why this is N8AO and not SSAO.
+   *
+   * `intensity` is an EXPONENT on the visibility term (`pow(texel.r,
+   * intensity)` in the compositor), not a linear gain, so the two values below
+   * are much lower than the single 3.4 they replace and still compose harder.
+   */
   ao: {
-    /** world-space metres — cavity scale, not a contact hint */
-    radius: 1.15,
-    distanceFalloff: 0.7,
-    intensity: 3.4,
-    samples: 16,
-    denoiseSamples: 4,
-    denoiseRadius: 12,
-    color: '#0A0F1E',
-    /** quality tier 1: half-res, fewer samples, same look */
+    /**
+     * Contact and cavity. Small radius, hard falloff, near-neutral colour: a
+     * 3 cm joint line has no sky above it to tint it, it is just dark.
+     */
+    cavity: {
+      radius: 0.26,
+      /** 0.26 × 1.3 × 0.2 = 0.068 m depth window — contact, not room */
+      distanceFalloff: 1.3,
+      intensity: 2.0,
+      samples: 16,
+      denoiseSamples: 4,
+      denoiseRadius: 8,
+      color: '#090A0E',
+    },
+    /**
+     * Room scale. Wide radius, soft falloff, cool indigo — occlusion at this
+     * scale IS filled by sky bounce, so a vault underside goes cool, not
+     * neutral. Cheaper samples because it is a low-frequency term.
+     */
+    room: {
+      radius: 2.6,
+      /**
+       * n8ao computes `dfu = radius * distanceFalloff * 0.2` and weights a
+       * sample by `smoothstep(0, 1, dfu / |Δdepth|)`, so distanceFalloff is a
+       * fraction of the radius, not a metre value. The room tap needs a LOOSE
+       * window (a wall 2 m away has to count as an occluder), hence 1.2 =
+       * 0.62 m here against the cavity tap's 1.3 = 0.068 m.
+       */
+      distanceFalloff: 1.2,
+      intensity: 1.05,
+      samples: 8,
+      denoiseSamples: 2,
+      denoiseRadius: 16,
+      color: '#0B1124',
+    },
+    /** quality tier 1: cavity tap only, half-res, fewer samples */
     lowSamples: 8,
     lowDenoiseSamples: 2,
   },

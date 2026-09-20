@@ -2,7 +2,55 @@
  * AURIC VOW — PostFX.tsx
  *
  * Post stack, in order:
- *   N8AO → Bloom (tight) → Bloom (wide) → AuricTone → SMAA → AuricFilm
+ *   N8AO (cavity) → N8AO (room) → Bloom (tight) → Bloom (wide) → AuricTone →
+ *   SMAA → AuricFilm
+ *
+ * =============================================================================
+ * [post-color R4] WHAT CHANGED THIS ROUND
+ * =============================================================================
+ * R3 built the display transform (below, still true and still load-bearing).
+ * R4's job was the COLOUR, because round 4's light-transport work put a cool
+ * PMREM, a cool hemisphere and a blue height fog over the level and the frames
+ * in `qa/shots-now` read as blue-grey stone rather than Orokin ivory and gold.
+ *
+ * Four things:
+ *
+ * 1. THE GRADE IS NOW THREE-WAY. R3 split shadow ↔ highlight with a crossover
+ *    at display 0.16..0.84. Almost this entire game lives in the MIDS, so every
+ *    wall spent most of its weight on a #94A8E2 periwinkle shadow tint: the one
+ *    band that had to come back warm was the one band with no tint of its own.
+ *    There is now a `midTint` (warm ivory) between them, with the shadow band
+ *    pulled narrow and low so the VOID keeps its blue while a dim wall does not.
+ *
+ * 2. A CHROMA POLICY UNDER IT. A warm tint alone cannot rescue a blue-grey
+ *    wall — multiplying a blue-dominant pixel by a warm tint gives a muddier
+ *    blue-grey. So `blueRestraint` pulls blue-dominant pixels toward their own
+ *    luminance FIRST, gated on low saturation (drifted ivory sits at ~0.10-0.25
+ *    chroma/max; the skybox, the shield halo and the cadence-teal strips sit at
+ *    0.5+ and are untouched), and `warmGain` then adds saturation back only
+ *    where the warm channels already dominate. Global `saturation` came down
+ *    1.18 → 1.06 because a flat multiplier amplified the cast as hard as the
+ *    gold. That widening gap IS "warm ivory and gold against a cool void".
+ *
+ * 3. AO IS TWO TAPS. 0.26 m for contact and cavity, 2.6 m for the room. N8AO's
+ *    compositor is a multiply against the scene, so two passes in series ARE
+ *    the multiplied AO the work order asked for, with no extra machinery. One
+ *    1.15 m tap was too wide to darken a 3 cm joint line and too narrow to put
+ *    a gradient into a 12 m vault, which is why carved cartouches read as the
+ *    same flat value as the wall they are cut into.
+ *
+ * 4. `MATERIALS.emissiveBoost` 7.0 → 2.2. Measured against this file's own AgX:
+ *    AgX's log domain tops out at +4.03 EV = 16.3 linear, and at boost 7 an
+ *    architectural energy strip arrived at 20.3 linear — ABOVE the top of the
+ *    curve, so all three channels clamped and the strip resolved as a flat
+ *    white slab with 8% chroma left in it. That is the panel's "flat
+ *    single-layer energy" note and it was a tone-mapping fault, not a VFX one.
+ *
+ * Plus exposure metering as a TRIM (see `POSTFX.tone.meter`), built from
+ * postprocessing's own LuminancePass + AdaptiveLuminancePass run inside this
+ * effect's `update()` exactly as the library's ToneMappingEffect does — no CPU
+ * readback on the render path, no new dependency, and faded to zero while an
+ * ability grade owns the frame so the nova never meters itself away.
  *
  * =============================================================================
  * [post-color R3] THE FINDING
@@ -97,6 +145,62 @@
  * the panel's "≥12% under 0.08, 2–4% over 0.95" target is measured against).
  *
  * =============================================================================
+ * MEASURED (round 4, 960×540, quality tier 0, by driving the built page)
+ * =============================================================================
+ * `window.__qa.postReport()` / `frameHistogram()` / `meterReport()`.
+ *
+ * The metering trim, which is the whole point of calibrating `meter.target`
+ * to a number the scene actually produces rather than a guess:
+ *
+ *   shot         metered avg   trim      effective exposure (authored 3.45)
+ *   spawn          0.0528     -0.10 EV        3.23
+ *   chamber        0.0288     +0.27 EV        4.16
+ *   arena          0.0638     -0.21 EV        2.98
+ *   arena wide     0.0358     +0.14 EV        3.80
+ *
+ * It lifts the dark chamber, holds the spawn, stops the bright arena down. A
+ * ±0.27 EV spread is a trim; it does not flatten the level, which is the
+ * intent. (The first calibration pass had `target: 0.2` against a real average
+ * of 0.046 and the trim sat pinned at its +0.45 EV ceiling in all four shots —
+ * a hidden constant exposure offset. Measuring it is what caught that.)
+ *
+ * Linear HDR handed to the composer, and what crosses the 0.7 bloom knee:
+ *
+ *   shot          p50     p95     p99     max        frac > knee
+ *   spawn        0.014   0.280   0.498    367          0.43 %
+ *   chamber      0.006   0.120   0.536     10.5        0.73 %
+ *   arena        0.006   0.330   0.439  94649          0.48 %
+ *   arena wide   0.005   0.321   0.694     19.1        0.97 %
+ *
+ * The knee moved 1.25 → 0.7 on this measurement: lit diffuse tops out at
+ * p95 0.33 linear, and with `emissiveBoost` down to 2.2 an architectural
+ * aureate strip arrives at ~1.18 linear, so the old 1.25 knee sat ABOVE the
+ * light sources it was supposed to catch and bloom was doing almost nothing
+ * (frac over knee 0.0006 at the spawn). At 0.7 it is a stop over the brightest
+ * lit surface and 0.75 EV under the dimmest authored source: the frac over the
+ * knee rose 7× and is still under 1 % of the frame. Bloom blooms sources.
+ *
+ * Displayed luma after the whole stack, against the R3 build on the same
+ * hooks and the same camera positions:
+ *
+ *   shot            mean         p50          p95          < 0.08
+ *   spawn       0.357→0.228  0.386→0.158  0.659→0.757   9.6 %→31.3 %
+ *   chamber     0.239→0.127  0.178→0.031  0.725→0.666  30.2 %→58.3 %
+ *   arena       0.275→0.217  0.198→0.023  0.720→0.785  30.6 %→55.0 %
+ *
+ * The median falls hard and the p95 rises: that is the value ramp the panel
+ * said the build did not have — the frame stopped being one lifted mid-band.
+ * `> 0.95` stays at 0.02-0.12 % against the panel's 2-4 % ask, and that is a
+ * deliberate refusal: the brief for this axis is a curve that HOLDS highlights
+ * rather than clipping them to paper, and 2-4 % of a frame over 0.95 has to
+ * come from emissive AREA and specular hits, which belong to vfx-energy and
+ * surface-materials, not from blowing the shoulder here.
+ *
+ * Cost of the second AO tap, timed on the same page at 960×540 under
+ * SwiftShader: 12.74 s/frame with the cavity tap alone, 14.04 s/frame with
+ * both — the room tap is half-res at 8 samples and costs ~10 %.
+ *
+ * =============================================================================
  * MEASURED (round 3, 960×540, quality tier 0, via those two hooks)
  * =============================================================================
  * Linear HDR handed to the composer — this is what the bloom knee sits above:
@@ -135,9 +239,19 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { EffectComposer, Bloom, SMAA, N8AO } from '@react-three/postprocessing'
-import { BlendFunction, Effect } from 'postprocessing'
+import { AdaptiveLuminancePass, BlendFunction, Effect, LuminancePass } from 'postprocessing'
 import type { BloomEffect, EffectComposer as EffectComposerImpl } from 'postprocessing'
-import { Color, FloatType, NoToneMapping, Uniform, Vector2, WebGLRenderTarget } from 'three'
+import {
+  Color,
+  FloatType,
+  LinearMipmapLinearFilter,
+  NoToneMapping,
+  Uniform,
+  Vector2,
+  Vector4,
+  WebGLRenderTarget,
+} from 'three'
+import type { WebGLRenderer } from 'three'
 import { POSTFX } from './config'
 import { useGameStore, selectQualityTier } from './store'
 import { PostFxSignals, caImpulse, nowSec } from './vfx/VFXBus'
@@ -152,11 +266,19 @@ const QS = typeof window !== 'undefined' ? new URLSearchParams(window.location.s
  * only thing that materially changes capture wall-clock time.
  */
 const AO_DISABLED = QS?.has('noao') ?? false
+/**
+ * `?noroomao=1` drops only the wide room-scale AO tap and keeps the cavity
+ * tap, which is the one that carries the machined read. Useful for bisecting
+ * capture cost on the software rasteriser without losing the look entirely.
+ */
+const AO_ROOM_DISABLED = QS?.has('noroomao') ?? false
 const QA_MODE = QS?.has('qa') ?? false
 
 const CA = POSTFX.chromaticAberration
 const GRADE = POSTFX.grade
-const AO = POSTFX.ao
+const AO_CAVITY = POSTFX.ao.cavity
+const AO_ROOM = POSTFX.ao.room
+const AO_LOW = POSTFX.ao
 const GOV = POSTFX.bloomGovernor
 const WIDE = POSTFX.bloomWide
 const TONE = POSTFX.tone
@@ -230,9 +352,25 @@ uniform float auricSaturation;
 uniform float auricBlackPoint;
 uniform float auricSplit;
 uniform vec3 auricShadowTint;
+uniform vec3 auricMidTint;
 uniform vec3 auricHighTint;
+uniform vec4 auricZones;      // shadowEnd, shadowOut, highIn, highOut
+uniform vec3 auricWhiteBalance;
+uniform vec4 auricChroma;     // blueRestraint, gateNeutral, gateSaturated, warmGain
+uniform vec4 auricWarmGate;   // in0, in1, out0, out1
 uniform vec2 auricCa;
 uniform vec2 auricBlur;
+#ifdef AURIC_METER
+// AdaptiveLuminancePass writes packDepthToRGBA(adaptedLuminance) into a 1x1
+// RGBA8 target, so it is read back with the template's own unpackRGBAToFloat
+// (== three's unpackRGBAToDepth), exactly as the library's ToneMappingEffect
+// does. The 8-bit pack also CLAMPS the metered frame at 1.0 per pixel, which
+// is a feature here: a nova core cannot drag the average up by 30x.
+uniform lowp sampler2D auricLuminance;
+uniform vec4 auricMeter;      // strength, target, clampStops, mix
+#endif
+
+const vec3 AURIC_LUMA = vec3( 0.2126, 0.7152, 0.0722 );
 
 ${AGX_GLSL}
 
@@ -270,15 +408,74 @@ void mainImage( const in vec4 inputColor, const in vec2 uv, out vec4 outputColor
     }
   }
 
-  // --- display transform ----------------------------------------------------
-  c = auricAgX( max( c, 0.0 ) * auricExposure );
+  // --- exposure -------------------------------------------------------------
+  // Authored exposure, trimmed by the metered average when metering is on.
+  // PARTIAL correction (comp = (target/avg)^strength) inside a hard stop
+  // clamp, and faded out by auricMeter.w while an ability grade owns the
+  // frame, so the nova never meters itself back to neutral.
+  float ev = auricExposure;
+#ifdef AURIC_METER
+  if ( auricMeter.x > 0.001 && auricMeter.w > 0.001 ) {
+    float avg = max( unpackRGBAToFloat( texture2D( auricLuminance, vec2( 0.5 ) ) ), 1e-4 );
+    float comp = pow( auricMeter.y / avg, auricMeter.x );
+    comp = clamp( comp, exp2( -auricMeter.z ), exp2( auricMeter.z ) );
+    ev *= mix( 1.0, comp, auricMeter.w );
+  }
+#endif
 
-  // --- look -----------------------------------------------------------------
-  // split tone: cool shadow, warm highlight. Both tints arrive normalised to
-  // luminance 1 so this rotates hue without moving exposure.
-  float l = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
-  vec3 tint = mix( auricShadowTint, auricHighTint, smoothstep( 0.16, 0.84, l ) );
+  // --- display transform ----------------------------------------------------
+  // White balance FIRST, in linear, before the curve: AgX rotates hue on its
+  // way up the shoulder, so a cast removed after the curve is fighting that
+  // rotation. auricWhiteBalance is luminance-normalised and cannot move
+  // exposure.
+  c = auricAgX( max( c, 0.0 ) * auricWhiteBalance * ev );
+
+  // --- look: three-way split tone -------------------------------------------
+  // shadow / MID / highlight. The mid band is the one that matters: it is
+  // 60-80% of every frame in this game (the architecture), and a two-way
+  // split gave it no tint of its own, so it inherited the cool shadow end and
+  // the whole level drifted blue.
+  float l = dot( c, AURIC_LUMA );
+  float wS = 1.0 - smoothstep( auricZones.x, auricZones.y, l );
+  float wH = smoothstep( auricZones.z, auricZones.w, l );
+  float wM = max( 0.0, 1.0 - wS - wH );
+  vec3 tint = auricShadowTint * wS + auricMidTint * wM + auricHighTint * wH;
   c = mix( c, c * tint, auricSplit );
+  c = clamp( c, 0.0, 1.0 );
+
+  // --- look: chroma policy --------------------------------------------------
+  // A warm tint alone cannot rescue a blue-grey wall — multiplying a
+  // blue-dominant pixel by a warm tint gives a muddier blue-grey. The cast has
+  // to come out before the warmth goes in.
+  float l2 = dot( c, AURIC_LUMA );
+  float mx = max( c.r, max( c.g, c.b ) );
+  float mn = min( c.r, min( c.g, c.b ) );
+  float chroma = max( mx - mn, 1e-4 );
+  float satv = chroma / max( mx, 1e-4 );
+
+  // blue restraint: pull blue-dominant pixels toward their own luminance, but
+  // ONLY in the lit band and ONLY where they are barely saturated. Drifted
+  // ivory sits at ~0.10-0.25 chroma/max; the skybox, the shield halo and every
+  // cadence-teal strip sit at 0.5+ and are left alone.
+  float blue = clamp( ( c.b - max( c.r, c.g ) ) / chroma, 0.0, 1.0 );
+  float blueW = blue * ( 1.0 - smoothstep( auricChroma.y, auricChroma.z, satv ) ) * ( 1.0 - wS );
+  c = mix( c, vec3( l2 ), blueW * auricChroma.x );
+
+  // warm gain: saturation is added back ONLY where the warm channels already
+  // dominate, so gold trim and aureate energy gain chroma against a field that
+  // is losing it. Flat ivory is below the gate and stays ivory.
+  mx = max( c.r, max( c.g, c.b ) );
+  mn = min( c.r, min( c.g, c.b ) );
+  chroma = max( mx - mn, 1e-4 );
+  satv = chroma / max( mx, 1e-4 );
+  float warm = clamp( ( max( c.r, c.g ) - c.b ) / chroma, 0.0, 1.0 );
+  // a BAND: barely-warm mids gain chroma, already-saturated gold does not get
+  // pushed until its blue channel clips
+  float warmW =
+    warm *
+    smoothstep( auricWarmGate.x, auricWarmGate.y, satv ) *
+    ( 1.0 - smoothstep( auricWarmGate.z, auricWarmGate.w, satv ) );
+  c = max( vec3( l2 ) + ( c - vec3( l2 ) ) * ( 1.0 + warmW * auricChroma.w ), 0.0 );
 
   // filmic S about the middle of the display range
   c = clamp( c, 0.0, 1.0 );
@@ -287,9 +484,10 @@ void mainImage( const in vec4 inputColor, const in vec2 uv, out vec4 outputColor
   // black point — subtract and renormalise so the toe resolves to a true 0
   c = max( c - auricBlackPoint, 0.0 ) / max( 1e-4, 1.0 - auricBlackPoint );
 
-  // saturation restored after AgX's inherent desaturation
-  float l2 = dot( c, vec3( 0.2126, 0.7152, 0.0722 ) );
-  c = max( mix( vec3( l2 ), c, auricSaturation ), 0.0 );
+  // residual global saturation (near neutral — the selective terms above are
+  // where this grade spends its chroma)
+  float l3 = dot( c, AURIC_LUMA );
+  c = max( mix( vec3( l3 ), c, auricSaturation ), 0.0 );
 
   outputColor = vec4( c, inputColor.a );
 }
@@ -353,23 +551,134 @@ void mainImage( const in vec4 inputColor, const in vec2 uv, out vec4 outputColor
 }
 `
 
-/** exposure → AgX → split tone → filmic S → black point → saturation */
+const METER = TONE.meter
+const METER_ON = METER.strength > 0 && !(QS?.has('nometer') ?? false)
+
+/**
+ * exposure (metered) → AgX → three-way split tone → chroma policy → filmic S →
+ * black point → saturation.
+ *
+ * The metering half is modelled directly on postprocessing's own
+ * `ToneMappingEffect`: an `Effect` is allowed to render its own private passes
+ * inside `update()`, which is called with the live input buffer before the
+ * fullscreen pass runs. So a `LuminancePass` renders the pre-curve HDR frame
+ * into a 256² mipmapped target, an `AdaptiveLuminancePass` reads that target's
+ * 1×1 mip and temporally adapts it into a 1×1 target, and that texture is bound
+ * straight into this shader. Nothing is read back to the CPU, nothing is
+ * allocated per frame, and both classes ship with the installed
+ * `postprocessing` — no dependency is added.
+ */
 class AuricToneEffect extends Effect {
+  private readonly luminancePass: LuminancePass | null = null
+  private readonly adaptivePass: AdaptiveLuminancePass | null = null
+  private readonly luminanceRT: WebGLRenderTarget | null = null
+
   constructor() {
+    const uniforms = new Map<string, Uniform>([
+      ['auricExposure', new Uniform(TONE.exposure)],
+      ['auricContrast', new Uniform(TONE.contrast)],
+      ['auricSaturation', new Uniform(TONE.saturation)],
+      ['auricBlackPoint', new Uniform(TONE.blackPoint)],
+      ['auricSplit', new Uniform(TONE.splitStrength)],
+      ['auricShadowTint', new Uniform(normalisedTint(TONE.shadowTint))],
+      ['auricMidTint', new Uniform(normalisedTint(TONE.midTint))],
+      ['auricHighTint', new Uniform(normalisedTint(TONE.highlightTint))],
+      [
+        'auricZones',
+        new Uniform(
+          new Vector4(
+            TONE.zones.shadowEnd,
+            TONE.zones.shadowOut,
+            TONE.zones.highIn,
+            TONE.zones.highOut,
+          ),
+        ),
+      ],
+      ['auricWhiteBalance', new Uniform(normalisedTint(TONE.whiteBalance))],
+      [
+        'auricChroma',
+        new Uniform(
+          new Vector4(
+            TONE.blueRestraint,
+            TONE.chromaGate.neutral,
+            TONE.chromaGate.saturated,
+            TONE.warmGain,
+          ),
+        ),
+      ],
+      [
+        'auricWarmGate',
+        new Uniform(
+          new Vector4(
+            TONE.warmGate.in0,
+            TONE.warmGate.in1,
+            TONE.warmGate.out0,
+            TONE.warmGate.out1,
+          ),
+        ),
+      ],
+      ['auricCa', new Uniform(new Vector2(CA.baseOffset, CA.modulationOffset))],
+      ['auricBlur', new Uniform(new Vector2(0, BLUR.centreClear))],
+    ])
+
+    let luminanceRT: WebGLRenderTarget | null = null
+    let luminancePass: LuminancePass | null = null
+    let adaptivePass: AdaptiveLuminancePass | null = null
+    if (METER_ON) {
+      luminanceRT = new WebGLRenderTarget(1, 1, {
+        minFilter: LinearMipmapLinearFilter,
+        depthBuffer: false,
+      })
+      luminanceRT.texture.generateMipmaps = true
+      luminanceRT.texture.name = 'AuricLuminance'
+      luminancePass = new LuminancePass({ renderTarget: luminanceRT })
+      adaptivePass = new AdaptiveLuminancePass(luminancePass.texture, {
+        minLuminance: METER.minLuminance,
+        adaptationRate: METER.rate,
+      })
+      // 256² → mip level 8 is the 1×1 average
+      luminancePass.resolution.setPreferredSize(256, 256)
+      ;(adaptivePass.fullscreenMaterial as unknown as { mipLevel1x1: number }).mipLevel1x1 = 8
+      uniforms.set('auricLuminance', new Uniform(adaptivePass.texture))
+      uniforms.set(
+        'auricMeter',
+        new Uniform(new Vector4(METER.strength, METER.target, METER.clampStops, 1)),
+      )
+    }
+
     super('AuricToneEffect', TONE_FRAG, {
       blendFunction: BlendFunction.SRC,
-      uniforms: new Map<string, Uniform>([
-        ['auricExposure', new Uniform(TONE.exposure)],
-        ['auricContrast', new Uniform(TONE.contrast)],
-        ['auricSaturation', new Uniform(TONE.saturation)],
-        ['auricBlackPoint', new Uniform(TONE.blackPoint)],
-        ['auricSplit', new Uniform(TONE.splitStrength)],
-        ['auricShadowTint', new Uniform(normalisedTint(TONE.shadowTint))],
-        ['auricHighTint', new Uniform(normalisedTint(TONE.highlightTint))],
-        ['auricCa', new Uniform(new Vector2(CA.baseOffset, CA.modulationOffset))],
-        ['auricBlur', new Uniform(new Vector2(0, BLUR.centreClear))],
-      ]),
+      defines: METER_ON ? new Map([['AURIC_METER', '1']]) : undefined,
+      uniforms,
     })
+
+    this.luminanceRT = luminanceRT
+    this.luminancePass = luminancePass
+    this.adaptivePass = adaptivePass
+  }
+
+  /** the live metered average, for `window.__qa.meterReport()` — may be null */
+  get adaptiveLuminance(): AdaptiveLuminancePass | null {
+    return this.adaptivePass
+  }
+
+  override initialize(renderer: WebGLRenderer, alpha: boolean, frameBufferType: number): void {
+    this.adaptivePass?.initialize(renderer, alpha, frameBufferType)
+  }
+
+  override update(renderer: WebGLRenderer, inputBuffer: WebGLRenderTarget, deltaTime?: number): void {
+    if (!this.luminancePass || !this.adaptivePass) return
+    // metering is faded out, not switched off, so the passes keep adapting and
+    // the frame after an ability does not jump
+    this.luminancePass.render(renderer, inputBuffer, null, deltaTime)
+    this.adaptivePass.render(renderer, null, null, deltaTime)
+  }
+
+  override dispose(): void {
+    this.luminancePass?.dispose()
+    this.adaptivePass?.dispose()
+    this.luminanceRT?.dispose()
+    super.dispose()
   }
 }
 
@@ -498,6 +807,7 @@ export default function PostFX() {
       vig: film.uniforms.get('auricVigDarkness')!,
       grain: film.uniforms.get('auricGrain')!,
       grainTime: film.uniforms.get('auricGrainTime')!,
+      meter: tone.uniforms.get('auricMeter') ?? null,
     }),
     [tone, film],
   )
@@ -604,11 +914,57 @@ export default function PostFX() {
       }
     }
 
+    /**
+     * Metered exposure, read back from the 1×1 adaptive target. This is the
+     * one place a readback is acceptable — it is a QA hook, never the render
+     * path, which drives the trim entirely on the GPU.
+     */
+    w.__qa.meterReport = () => {
+      const pass = tone.adaptiveLuminance
+      if (!pass) return { metering: false, exposure: U.exposure.value }
+      const rt = (pass as unknown as { renderTargetAdapted?: WebGLRenderTarget })
+        .renderTargetAdapted
+      const mv = U.meter?.value as Vector4 | undefined
+      let avg: number | null = null
+      if (rt) {
+        try {
+          const buf = new Uint8Array(4)
+          gl.readRenderTargetPixels(rt, 0, 0, 1, 1, buf)
+          // inverse of three's packDepthToRGBA (UnpackFactors4)
+          const d = 255 / 256
+          avg =
+            (buf[0] / 255) * d +
+            (buf[1] / 255) * (d / 256) +
+            (buf[2] / 255) * (d / 65536) +
+            (buf[3] / 255) / 16777216
+        } catch {
+          avg = null
+        }
+      }
+      const comp =
+        avg && avg > 1e-4 && mv
+          ? Math.min(
+              Math.pow(2, mv.z),
+              Math.max(Math.pow(2, -mv.z), Math.pow(mv.y / avg, mv.x)),
+            )
+          : 1
+      return {
+        metering: true,
+        authoredExposure: TONE.exposure,
+        meteredAverage: avg,
+        compensation: +comp.toFixed(4),
+        compensationStops: +(Math.log2(comp)).toFixed(4),
+        meterMix: mv ? +mv.w.toFixed(4) : null,
+        effectiveExposure: +(TONE.exposure * (1 + (comp - 1) * (mv?.w ?? 0))).toFixed(4),
+      }
+    }
+
     return () => {
       delete w.__qa?.postReport
       delete w.__qa?.frameHistogram
+      delete w.__qa?.meterReport
     }
-  }, [gl, scene, camera, U])
+  }, [gl, scene, camera, U, tone])
 
   useFrame((_, dt) => {
     /*
@@ -707,6 +1063,17 @@ export default function PostFX() {
     // single cheapest way to make three beats out of one ability
     const vigTarget = VIG.darkness + GRADE.ultVignette * u + GRADE.chargeVignette * c
 
+    // --- metering authority -------------------------------------------------
+    // The trim is faded out while an ability grade owns the frame (the ult and
+    // its charge are AUTHORED exposure moves — a meter fighting them turns
+    // three pictures back into one) and off entirely at tier 2, where the
+    // luminance passes do not run.
+    if (U.meter) {
+      const wanted = qualityTier === 2 ? 0 : 1 - Math.max(u, c)
+      const mv = U.meter.value as Vector4
+      mv.w += (wanted - mv.w) * Math.min(1, realDt * 6)
+    }
+
     expNow.current += (expTarget - expNow.current) * bk
     satNow.current += (satTarget - satNow.current) * bk
     conNow.current += (conTarget - conNow.current) * bk
@@ -766,20 +1133,77 @@ export default function PostFX() {
       multisampling={0}
       mergeMode="none"
       enableNormalPass={false}
+      /*
+       * autoClear={false} — THE BLACK FRAMES, measured rather than assumed.
+       *
+       * Round 3 banked four all-black captures and the round 3 diagnosis put
+       * them down to a missing `preserveDrawingBuffer`. That flag is now set
+       * (GameCanvas `QA_CAPTURE`) and 18_arena_wide STILL comes back black,
+       * both from the lead's harness (errors.log: "BLANK FRAMES (3D layer did
+       * not paint): 18_arena_wide 42837B") and from this axis driving the
+       * built page itself. So it was measured from both ends at that camera:
+       *
+       *   window.__qa.postReport()     scene p95 0.322 linear, max 45.7  — fine
+       *   window.__qa.frameHistogram() displayed mean 0.212, max 0.990   — fine
+       *   page.screenshot()            35 KB of pure black               — not
+       *
+       * frameHistogram() runs `composer.render()` and then reads the DEFAULT
+       * framebuffer, so the composer demonstrably produces a correct frame at
+       * that exact camera. What is black is the drawing buffer at the instant
+       * Playwright grabs it.
+       *
+       * The reason is the clear. `renderer.render()` clears its target before
+       * drawing, so the last pass — the only one that targets the screen —
+       * blanks the visible buffer and then spends the rest of a 14-second
+       * software-rasterised frame filling it back in. `preserveDrawingBuffer`
+       * cannot help with that: the buffer IS preserved, it has just been
+       * cleared. A screenshot landing in that window captures the clear.
+       *
+       * Every pass in this chain draws a full-screen quad, and the one pass
+       * that renders the scene (postprocessing's RenderPass) clears its own
+       * target explicitly through its `clearPass` rather than relying on
+       * `gl.autoClear`. So the clear is pure overhead here, and dropping it
+       * means the visible buffer is overwritten in place and never passes
+       * through black. A mid-frame screenshot then captures the PREVIOUS
+       * frame, which is a slightly stale render instead of a blank one.
+       *
+       * 14 s/frame is a software-rasteriser artefact, but the window exists on
+       * real hardware too and is worth closing on principle.
+       */
+      autoClear={false}
     >
       {/* contact + cavity occlusion first, so bloom and the tone curve see the
           darkened cavities rather than compositing over a flat frame */}
       {aoOn ? (
         <N8AO
-          aoRadius={AO.radius}
-          distanceFalloff={AO.distanceFalloff}
-          intensity={AO.intensity}
-          aoSamples={qualityTier === 0 ? AO.samples : AO.lowSamples}
-          denoiseSamples={qualityTier === 0 ? AO.denoiseSamples : AO.lowDenoiseSamples}
-          denoiseRadius={AO.denoiseRadius}
+          aoRadius={AO_CAVITY.radius}
+          distanceFalloff={AO_CAVITY.distanceFalloff}
+          intensity={AO_CAVITY.intensity}
+          aoSamples={qualityTier === 0 ? AO_CAVITY.samples : AO_LOW.lowSamples}
+          denoiseSamples={
+            qualityTier === 0 ? AO_CAVITY.denoiseSamples : AO_LOW.lowDenoiseSamples
+          }
+          denoiseRadius={AO_CAVITY.denoiseRadius}
           halfRes={qualityTier !== 0}
           depthAwareUpsampling
-          color={AO.color}
+          color={AO_CAVITY.color}
+        />
+      ) : null}
+      {/* second tap: room scale. N8AO multiplies the scene by its occlusion
+          colour, so two passes in series ARE the multiplied AO the work order
+          asks for. Tier 0 only — tier 1 keeps the cavity tap, which is the one
+          that carries the machined read. */}
+      {aoOn && qualityTier === 0 && !AO_ROOM_DISABLED ? (
+        <N8AO
+          aoRadius={AO_ROOM.radius}
+          distanceFalloff={AO_ROOM.distanceFalloff}
+          intensity={AO_ROOM.intensity}
+          aoSamples={AO_ROOM.samples}
+          denoiseSamples={AO_ROOM.denoiseSamples}
+          denoiseRadius={AO_ROOM.denoiseRadius}
+          halfRes
+          depthAwareUpsampling
+          color={AO_ROOM.color}
         />
       ) : null}
       {qualityTier < 2 ? (

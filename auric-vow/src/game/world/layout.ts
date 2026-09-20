@@ -214,6 +214,43 @@ export const CANYON_GANTRY_Y = 16.4
 export const CANYON_PENDANT_X: number[] = [-3.2, 3.4]
 
 /**
+ * R4 — arena wall rhythm. VISUAL ONLY.
+ *
+ * The round-3 panel read the arena as "one panel stamped in a perfect 20×8
+ * grid". Half of that is the material (fixed on the surfacing side); the other
+ * half was that every applied element sat on the same 6 m metronome, on all
+ * four walls, mirrored left to right. These are the pair centres of the
+ * coupled colonnade that replaced it — deliberately unequal, and a DIFFERENT
+ * run on each of the four walls, with one wide bay off-centre on the west side
+ * where the hero buttress lands.
+ *
+ * Nothing here is read by `buildLevelColliders`. The wall field behind these
+ * bays is set back into the wall's own 1 m thickness (outward only), so no
+ * surface the player can touch moves and every collider below is unchanged.
+ */
+export const ARENA_BAY_PAIRS = {
+  west: [170.6, 180.4, 191.2, 205.0, 214.4, 221.8],
+  east: [168.8, 177.4, 187.0, 198.2, 209.4, 217.2, 223.4],
+  south: [-23.6, -15.0, -8.8, 8.8, 15.0, 23.6],
+  north: [-22.2, -16.4, -9.4, 9.4, 18.0, 24.2],
+} as const
+/** half separation of a coupled pair, and the wall-field set-back */
+export const ARENA_PAIR_GAP = 1.15
+export const ARENA_WALL_RECESS = 0.5
+
+/**
+ * The arena's asymmetric hero mass: a canted buttress corbelled off the west
+ * wall in the wide bay, leaning out over the floor and crossing the top of
+ * frame from most of the room. Everything that projects starts above 2.75 m,
+ * clear of the 1.8 m player capsule, so it is visual only like the rest of
+ * this block. [wall x, z].
+ */
+export const ARENA_BUTTRESS: [number, number] = [-30, 198.1]
+/** its non-matching answer on the east wall — a framed aedicule sunk in the
+ *  wall recess, at a z that deliberately does not mirror the buttress */
+export const ARENA_AEDICULE_Z = 187.0
+
+/**
  * Deep portal reveals at every zone threshold: [z of the wall face, half
  * opening width, head height, +1 if the room is on the +z side].
  * These sit in the existing wall openings — no collider is added or moved.

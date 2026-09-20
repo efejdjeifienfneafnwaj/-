@@ -123,9 +123,13 @@ You also own the shared POSTFX and MATERIALS blocks in src/game/config.ts. Nobod
   },
 ]
 
+/** Optional subset: re-run only these axes (used after an interrupted round). */
+const ONLY = args && args.only ? new Set(args.only) : null
+const ACTIVE = ONLY ? AXES.filter((a) => ONLY.has(a.key)) : AXES
+
 phase('Render')
 const results = await parallel(
-  AXES.map((a) => () =>
+  ACTIVE.map((a) => () =>
     agent(
       `You are a rendering specialist on AURIC VOW, a Three.js / react-three-fiber Warframe-style ninja action game at ${ROOT}. The player has looked at the build and said the graphics are the biggest problem, and that raising them to AAA is now the highest priority. An independent art-director panel has failed the build twice, most recently at 27/100, saying it reads as an untextured blockout.
 
@@ -157,7 +161,7 @@ The bar: a player shown a frame of this next to a frame of Warframe, unlabelled,
 )
 
 const ok = results.filter(Boolean)
-log(`${ok.length}/${AXES.length} axes reported, ${ok.reduce((n, r) => n + (r.changes || []).length, 0)} file changes`)
+log(`${ok.length}/${ACTIVE.length} axes reported, ${ok.reduce((n, r) => n + (r.changes || []).length, 0)} file changes`)
 
 phase('Verify')
 const verify = await agent(

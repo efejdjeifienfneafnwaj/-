@@ -41,6 +41,11 @@ import {
   CANYON_GANTRY_Y,
   CANYON_PENDANT_X,
   PORTALS,
+  ARENA_BAY_PAIRS,
+  ARENA_PAIR_GAP,
+  ARENA_WALL_RECESS,
+  ARENA_BUTTRESS,
+  ARENA_AEDICULE_Z,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -682,6 +687,29 @@ function annulus(inner: number, outer: number, seg = 96): THREE.BufferGeometry {
 }
 const MANDALA_CHANNEL = annulus(0.955, 1.0)
 const MANDALA_INLAY = annulus(0.966, 0.99)
+/**
+ * R4 — the medallion rings, flattened (work order env-art #10).
+ *
+ * They were `RING_GEO` (a 6-sided torus tube) scaled to a 0.24 m section and
+ * lifted 0.15 m off the deck, which is why the panel called them "matte rope
+ * crossing the near field": a hexagonal tube standing proud of a floor is a
+ * cable, not an inlay. They are now flush ribbons — a wide dark channel cut
+ * into the deck with a narrower polished band sunk inside it — so the near
+ * field reads as gilding in stone and the rings pick up a grazing specular
+ * ramp instead of a dull cylindrical terminator.
+ */
+const MEDAL_CHANNEL = annulus(0.9966, 1.0034, 256)
+const MEDAL_INLAY = annulus(0.99785, 1.00215, 256)
+/** flush lozenge for the medallion's radial petals, in its own sunk channel */
+const MEDAL_PETAL = (() => {
+  const s = new THREE.Shape()
+  s.moveTo(0, -1)
+  s.bezierCurveTo(0.62, -0.58, 0.62, 0.58, 0, 1)
+  s.bezierCurveTo(-0.62, 0.58, -0.62, -0.58, 0, -1)
+  const g = new THREE.ShapeGeometry(s, 18)
+  g.rotateX(-Math.PI / 2)
+  return g
+})()
 /** column collars + fret bands sized to the fluted profile */
 const COLUMN_FRET_LO = repeatUv(new THREE.CylinderGeometry(0.775, 0.775, 0.42, 30, 1, true), 5)
 const COLUMN_FRET_HI = repeatUv(new THREE.CylinderGeometry(0.655, 0.655, 0.34, 28, 1, true), 4)
@@ -898,6 +926,70 @@ function MassMesh({
       castShadow={castShadow}
     />
   )
+}
+
+/**
+ * R4 — deterministic per-instance variation.
+ *
+ * The panel's verdict on the last build was that a wall "reads as one panel
+ * stamped in a perfect 20×8 grid". Two things make that read, and they are
+ * independent: the MATERIAL repeating one tile (fixed on the surfacing side
+ * with a per-tile shuffle), and the GEOMETRY sitting on a perfect lattice.
+ * This is the geometry half. `h1` is a stable hash so the level is identical
+ * on every load — nothing here uses Math.random, which would make two players'
+ * screenshots of the same wall differ.
+ */
+function h1(i: number, salt = 0): number {
+  const x = Math.sin(i * 127.1 + salt * 311.7 + 0.5) * 43758.5453
+  return x - Math.floor(x)
+}
+
+/**
+ * Per-instance jitter for repeated ornament. Wall-mounted panels are hung a
+ * few centimetres proud of their backing, so rotating them out of plane would
+ * poke them through the wall; `yaw`/`pitch` are therefore meant for free
+ * blocks (corbels, bosses, fragments) and `scale`/`lift` for applied panels.
+ * Returns a NEW array — the source tables stay pristine so anything else
+ * deriving from them (fixtures, collider-adjacent data) is unaffected.
+ */
+function jitterItems(
+  items: InstItem[],
+  opts: { yaw?: number; pitch?: number; scale?: number; lift?: number; slide?: number; salt?: number },
+): InstItem[] {
+  const { yaw = 0, pitch = 0, scale = 0, lift = 0, slide = 0, salt = 0 } = opts
+  return items.map((it, i) => {
+    const r = it.r ?? [0, 0, 0]
+    const s = it.s ?? [1, 1, 1]
+    const a = h1(i, salt) * 2 - 1
+    const b = h1(i, salt + 7) * 2 - 1
+    const c = h1(i, salt + 13) * 2 - 1
+    return {
+      p: [it.p[0] + c * slide, it.p[1] + b * lift, it.p[2] + a * slide],
+      r: [r[0] + b * pitch, r[1] + a * yaw, r[2] + c * pitch * 0.5],
+      s: [s[0] * (1 + a * scale), s[1] * (1 + b * scale * 0.7), s[2] * (1 + c * scale)],
+    } as InstItem
+  })
+}
+
+/**
+ * Coupled-column rhythm. `centres` are the pair centres and `gap` the half
+ * separation, so a run of six centres yields twelve shafts in six tight pairs.
+ * Classical bays are almost never a single repeat distance; the metronome
+ * spacing is precisely what makes a procedural hall read as a blockout.
+ */
+function coupledRun(centres: number[], gap: number): number[] {
+  const out: number[] = []
+  for (const c of centres) out.push(c - gap, c + gap)
+  return out
+}
+
+/** midpoints of consecutive entries — the bay centres a column run leaves */
+function bayCentres(run: number[], minWidth: number): number[] {
+  const out: number[] = []
+  for (let i = 0; i + 1 < run.length; i++) {
+    if (run[i + 1] - run[i] >= minWidth) out.push((run[i] + run[i + 1]) / 2)
+  }
+  return out
 }
 
 /** Petal rosette: n flattened petals in a ring, tilted open like a flower. */
@@ -1819,6 +1911,47 @@ const C_WALLS: BoxSpec[] = [
   { x0: 15, y0: 0, z0: 135, x1: 16, y1: 10, z1: 165 },
   { x0: -16, y0: 0, z0: 135, x1: -15, y1: 10, z1: 165 },
 ]
+/**
+ * R4 — the chamber wall field is set back into its own thickness for the same
+ * reason the arena's is (see WALL_RECESS): the bays become real recesses that
+ * the screens hang in front of, and the dado / attic bands that stay at the
+ * face give the wall three registers instead of one 10 m plane. Outward only —
+ * the chamber's collider boxes in layout.ts are untouched.
+ */
+const C_WALL_FIELD: BoxSpec[] = [
+  { x0: -15, y0: 0, z0: 134, x1: -3, y1: 10, z1: 135 - 0.42 },
+  { x0: 3, y0: 0, z0: 134, x1: 15, y1: 10, z1: 135 - 0.42 },
+  { x0: -15, y0: 0, z0: 165 + 0.42, x1: -3, y1: 10, z1: 166 },
+  { x0: 3, y0: 0, z0: 165 + 0.42, x1: 15, y1: 10, z1: 166 },
+  { x0: 15 + 0.42, y0: 0, z0: 135, x1: 16, y1: 10, z1: 165 },
+  { x0: -16, y0: 0, z0: 135, x1: -15 - 0.42, y1: 10, z1: 165 },
+]
+/** chamber dado / attic bands + piers, standing at the original wall face */
+const C_WALL_DADO: InstItem[] = []
+const C_WALL_ATTIC: InstItem[] = []
+const C_WALL_PIER: InstItem[] = []
+{
+  const R = 0.42
+  for (const sx of [1, -1]) {
+    C_WALL_DADO.push({ p: [sx * (15 + R / 2), 1.1, 150], s: [R, 2.2, 30] })
+    C_WALL_ATTIC.push({ p: [sx * (15 + R / 2), 9.3, 150], s: [R, 1.4, 30] })
+    for (const z of [141, 147.5, 152.5, 159]) {
+      C_WALL_PIER.push({ p: [sx * (15 + R / 2), 5.7, z], s: [R, 6.9, 2.5] })
+    }
+  }
+  for (const [wz, face] of [[135, -1], [165, 1]] as [number, number][]) {
+    for (const s of [1, -1]) {
+      const x0 = s > 0 ? 3 : -15
+      const x1 = s > 0 ? 15 : -3
+      C_WALL_DADO.push({ p: [(x0 + x1) / 2, 1.1, wz + face * (R / 2)], s: [x1 - x0, 2.2, R] })
+      C_WALL_ATTIC.push({ p: [(x0 + x1) / 2, 9.3, wz + face * (R / 2)], s: [x1 - x0, 1.4, R] })
+    }
+    for (const x of [-9, 9]) {
+      C_WALL_PIER.push({ p: [x, 5.7, wz + face * (R / 2)], s: [2.5, 6.9, R] })
+    }
+  }
+}
+
 /** dark plinth course at the foot of every chamber/arena wall — the contact
  *  line that keeps 10 m walls from floating on the floor */
 const C_BASE: InstItem[] = [
@@ -1968,6 +2101,9 @@ for (const sx of [1, -1]) {
     C_CORBELS.push({ p: [sx * 14.5, 8.85, z], s: [1.1, 0.6, 1.1] })
   }
 }
+/** R4 — per-instance jitter on the chamber's 18-block corbel course */
+const C_CORBELS_J = jitterItems(C_CORBELS, { yaw: 0.08, scale: 0.08, lift: 0.055, salt: 11 })
+
 /** gold L-angle around the chamber floor/wall joint: [pos, yaw, length] */
 const C_LTRIM: InstItem[] = [
   { p: [-14.98, 0.005, 150], r: [0, 0, 0], s: [1, 1, 29.6] },
@@ -2140,6 +2276,7 @@ function ZoneC() {
       <mesh geometry={BOX} material={goldEdgeMaterial()} position={[0, 0.022, 135.33]} scale={[29.8, 0.006, 0.035]} />
       <mesh geometry={BOX} material={goldEdgeMaterial()} position={[0, 0.022, 164.67]} scale={[29.8, 0.006, 0.035]} />
       <Instanced geometry={BOX} material={umberMaterial()} items={C_FLOOR_UMBER} receiveShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={C_PAVING} />
 
       {/* dome + oculus */}
       <mesh geometry={DOME_AO} material={domeMat} position={[0, 0, 150]} receiveShadow />
@@ -2187,7 +2324,7 @@ function ZoneC() {
           the subdivided PANEL_BOX and the contact-AO ivory, so a 10 m wall has
           a grounded dark band at its foot even with the SSAO pass off — and
           they cast, so the colonnade finally throws shadows across the floor. */}
-      {C_WALLS.map((w, i) => (
+      {C_WALL_FIELD.map((w, i) => (
         <MassMesh
           key={i}
           spec={w}
@@ -2196,6 +2333,11 @@ function ZoneC() {
           castShadow
         />
       ))}
+      {/* R4 — dado, piers and attic band at the original face, so the bays
+          between them are real 0.42 m recesses rather than appliqué */}
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={C_WALL_DADO} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={C_WALL_PIER} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={C_WALL_ATTIC} castShadow />
       <Instanced geometry={RBOX} material={umberMaterial()} items={C_BASE} receiveShadow />
       <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={C_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={C_WALL_TRIM} />
@@ -2223,7 +2365,7 @@ function ZoneC() {
       {/* gold L-angle covering every floor-to-wall joint */}
       <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={C_LTRIM} />
       {/* corbel brackets under the cornice — upper-corner framing mass */}
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={C_CORBELS} />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={C_CORBELS_J} castShadow />
 
       {/* teal vein clusters + corruption glyphs */}
       <Instanced geometry={BOX} material={veinTealMaterial()} items={C_VEINS} />
@@ -2267,19 +2409,110 @@ for (const w of D_WALLS) {
   D_WALL_TRIM.push({ p: [c[0], 10.1, c[2]], s: [Math.max(s[0], 0.4), 0.2, Math.max(s[2], 0.4)] })
 }
 
+// ---------------------------------------------------------------------------
+// R4 — the arena wall gets a RHYTHM and three REGISTERS.
+//
+// Two separate faults produced "one panel stamped in a perfect 20×8 grid":
+//
+//  1. Every applied element sat on the same 6 m metronome, on all four walls,
+//     mirrored left to right. A hall whose every bay is identical and whose
+//     two long walls are reflections of each other cannot read as architecture
+//     no matter how good the trim on any one bay is.
+//  2. The wall FIELD was flush with the face, so the ornament was a layer of
+//     appliqué on an unbroken 60 m plane with nothing behind it to shadow into.
+//
+// The fix for (1) is a coupled rhythm — columns in tight pairs, pair spacing
+// irregular, with ONE deliberately wide bay off-centre — and a different run
+// on each of the four walls, so no two walls in frame repeat each other.
+//
+// The fix for (2) is that the wall field is now pushed 0.5 m OUTWARD into the
+// wall's own thickness. Nothing moves inward, so no surface the player can
+// touch changes and `buildLevelColliders` is untouched: the bays simply become
+// real 0.5 m recesses between piers that stay at the original face. That gives
+// three registers — a solid dado to 2.3 m, the recessed bay order to 8.6 m,
+// and a solid attic/clerestory band up to the cornice — which is what the work
+// order asked for and what self-shadows under a low key.
+// ---------------------------------------------------------------------------
+const WALL_RECESS = ARENA_WALL_RECESS
+const DADO_TOP = 2.3
+const ATTIC_BOT = 8.6
+
+/** pair centres — deliberately unequal, and different on all four walls.
+ *  Authored in layout.ts beside the collider table it must stay clear of. */
+const D_PAIR_W = ARENA_BAY_PAIRS.west as readonly number[] as number[]
+const D_PAIR_E = ARENA_BAY_PAIRS.east as readonly number[] as number[]
+const D_PAIR_S = ARENA_BAY_PAIRS.south as readonly number[] as number[]
+const D_PAIR_N = ARENA_BAY_PAIRS.north as readonly number[] as number[]
+const PAIR_GAP = ARENA_PAIR_GAP
+
+const D_COL_Z_W = coupledRun(D_PAIR_W, PAIR_GAP)
+const D_COL_Z_E = coupledRun(D_PAIR_E, PAIR_GAP)
+const D_COL_X_S = coupledRun(D_PAIR_S, PAIR_GAP)
+const D_COL_X_N = coupledRun(D_PAIR_N, PAIR_GAP)
+
+/** bay centres: midpoints of adjacent PAIRS, only where the gap is worth a
+ *  screen. The 13.8 m gap on the west wall yields the room's one wide bay. */
+const D_BAY_Z_W = bayCentres(D_PAIR_W, 5)
+const D_BAY_Z_E = bayCentres(D_PAIR_E, 5)
+const D_BAY_X_S = bayCentres(D_PAIR_S, 5).filter((x) => Math.abs(x) > 5.5)
+const D_BAY_X_N = bayCentres(D_PAIR_N, 5).filter((x) => Math.abs(x) > 5.5)
+
+/** the recessed field: every wall box with its inner face pushed OUT by
+ *  WALL_RECESS. Lintels over the gate openings stay at the face. */
+const D_WALL_FIELD: BoxSpec[] = [
+  { x0: -30, y0: 0, z0: 164, x1: -3, y1: 10, z1: 165 - WALL_RECESS },
+  { x0: 3, y0: 0, z0: 164, x1: 30, y1: 10, z1: 165 - WALL_RECESS },
+  { x0: -30, y0: 0, z0: 225 + WALL_RECESS, x1: -4, y1: 10, z1: 226 },
+  { x0: 4, y0: 0, z0: 225 + WALL_RECESS, x1: 30, y1: 10, z1: 226 },
+  { x0: 30 + WALL_RECESS, y0: 0, z0: 165, x1: 31, y1: 10, z1: 225 },
+  { x0: -31, y0: 0, z0: 165, x1: -30 - WALL_RECESS, y1: 10, z1: 225 },
+  { x0: -3, y0: 8, z0: 164, x1: 3, y1: 10, z1: 165 },
+  { x0: -4, y0: 8, z0: 225, x1: 4, y1: 10, z1: 226 },
+]
+
+/** dado (0 → 2.3) and attic (8.6 → 10) bands standing at the ORIGINAL face,
+ *  so the recess between them reads as a cut register and not as a set-back */
+const D_WALL_DADO: InstItem[] = []
+const D_WALL_ATTIC: InstItem[] = []
+const D_WALL_PIER: InstItem[] = []
+{
+  const R = WALL_RECESS
+  const dadoH = DADO_TOP
+  const atticH = 10 - ATTIC_BOT
+  // long walls: one continuous run each
+  for (const sx of [1, -1]) {
+    const cx = sx * (30 + R / 2)
+    D_WALL_DADO.push({ p: [cx, dadoH / 2, 195], s: [R, dadoH, 60] })
+    D_WALL_ATTIC.push({ p: [cx, ATTIC_BOT + atticH / 2, 195], s: [R, atticH, 60] })
+  }
+  // end walls: split around the gate openings
+  for (const [wz, face, half] of [[165, -1, 3], [225, 1, 4]] as [number, number, number][]) {
+    const cz = wz + face * (R / 2)
+    for (const s of [1, -1]) {
+      const x0 = s > 0 ? half : -30
+      const x1 = s > 0 ? 30 : -half
+      D_WALL_DADO.push({ p: [(x0 + x1) / 2, dadoH / 2, cz], s: [x1 - x0, dadoH, R] })
+      D_WALL_ATTIC.push({ p: [(x0 + x1) / 2, ATTIC_BOT + atticH / 2, cz], s: [x1 - x0, atticH, R] })
+    }
+  }
+  // piers: one per COUPLE, carrying the pair of engaged shafts in front of it
+  const pierW = PAIR_GAP * 2 + 1.5
+  const pierH = ATTIC_BOT - DADO_TOP
+  const pierY = (ATTIC_BOT + DADO_TOP) / 2
+  for (const z of D_PAIR_W) D_WALL_PIER.push({ p: [-(30 + R / 2), pierY, z], s: [R, pierH, pierW] })
+  for (const z of D_PAIR_E) D_WALL_PIER.push({ p: [30 + R / 2, pierY, z], s: [R, pierH, pierW] })
+  for (const x of D_PAIR_S) D_WALL_PIER.push({ p: [x, pierY, 165 - R / 2], s: [pierW, pierH, R] })
+  for (const x of D_PAIR_N) D_WALL_PIER.push({ p: [x, pierY, 225 + R / 2], s: [pierW, pierH, R] })
+}
+
 // arena wall detail: gold pilasters + obsidian panel lines + teal insets
 const D_WALL_PILASTERS: InstItem[] = []
 const D_WALL_BANDS: InstItem[] = []
 const D_WALL_INSETS: InstItem[] = []
-for (let z = 171; z <= 219; z += 6) {
-  D_WALL_PILASTERS.push({ p: [29.91, 5, z], s: [0.16, 10, 0.6] })
-  D_WALL_PILASTERS.push({ p: [-29.91, 5, z], s: [0.16, 10, 0.6] })
-}
-for (let x = -24; x <= 24; x += 6) {
-  if (Math.abs(x) < 5) continue // keep the gate openings clear
-  D_WALL_PILASTERS.push({ p: [x, 5, 165.09], s: [0.6, 10, 0.16] })
-  D_WALL_PILASTERS.push({ p: [x, 5, 224.91], s: [0.6, 10, 0.16] })
-}
+for (const z of D_COL_Z_E) D_WALL_PILASTERS.push({ p: [29.91, 5, z], s: [0.16, 10, 0.6] })
+for (const z of D_COL_Z_W) D_WALL_PILASTERS.push({ p: [-29.91, 5, z], s: [0.16, 10, 0.6] })
+for (const x of D_COL_X_S) D_WALL_PILASTERS.push({ p: [x, 5, 165.09], s: [0.6, 10, 0.16] })
+for (const x of D_COL_X_N) D_WALL_PILASTERS.push({ p: [x, 5, 224.91], s: [0.6, 10, 0.16] })
 // horizontal obsidian panel-line bands (chair-rail + cornice, split at gates)
 D_WALL_BANDS.push({ p: [29.94, 7.4, 195], s: [0.1, 0.4, 60] })
 D_WALL_BANDS.push({ p: [-29.94, 7.4, 195], s: [0.1, 0.4, 60] })
@@ -2341,14 +2574,28 @@ const D_SCONCE_FIXTURES: [number, number, number][] = []
 
 // east / west long walls
 for (const sx of [1, -1]) {
-  // screen + coffer bays, skipping the z where the corruption insets sit
-  for (const z of [171.5, 177.5, 189, 195, 213, 219]) {
-    D_SCREEN_BACK.push({ p: [sx * 29.9, 3.2, z], s: [0.22, 5.0, 5.4] })
-    D_SCREENS.push({ p: [sx * 29.76, 3.2, z], r: [0, sx * Math.PI / 2, 0], s: [5.1, 4.7, 1] })
-    D_COFFER_BACK.push({ p: [sx * 29.9, 8.1, z], s: [0.22, 2.8, 3.2] })
-    D_COFFERS.push({ p: [sx * 29.76, 8.1, z], r: [0, sx * Math.PI / 2, 0], s: [3.0, 2.6, 1] })
+  const bays = sx > 0 ? D_BAY_Z_E : D_BAY_Z_W
+  const cols = sx > 0 ? D_COL_Z_E : D_COL_Z_W
+  // Screen + coffer bays now sit in the CENTRE of each recessed bay the
+  // coupled colonnade leaves, so their spacing inherits the wall's irregular
+  // rhythm instead of imposing a second, conflicting 6 m lattice on top of it.
+  // Their backing boards are sunk into the 0.5 m recess, so a screen is a
+  // pierced plate hung 0.6 m in front of a dark cavity rather than 7 cm in
+  // front of a lit plane — that depth is what makes it self-shadow.
+  for (let i = 0; i < bays.length; i++) {
+    const z = bays[i]
+    // The bay the hero buttress lands in carries NO screen: a corbel course
+    // springing through a pierced plate is a junction no building has, and a
+    // solid bay under a buttress is the correct answer as well as the one that
+    // makes the buttress read as structure rather than applied ornament.
+    if (sx < 0 && Math.abs(z - ARENA_BUTTRESS[1]) < 3.2) continue
+    const w = i % 2 === 0 ? 5.1 : 4.2
+    D_SCREEN_BACK.push({ p: [sx * 30.24, 3.2, z], s: [0.52, 5.4, w + 0.6] })
+    D_SCREENS.push({ p: [sx * 29.82, 3.2, z], r: [0, sx * Math.PI / 2, 0], s: [w, 4.7, 1] })
+    D_COFFER_BACK.push({ p: [sx * 30.24, 8.1, z], s: [0.52, 2.8, w * 0.62 + 0.4] })
+    D_COFFERS.push({ p: [sx * 29.82, 8.1, z], r: [0, sx * Math.PI / 2, 0], s: [w * 0.6, 2.6, 1] })
   }
-  for (let z = 171; z <= 219; z += 6) {
+  for (const z of cols) {
     D_PILASTER_NOSING.push({ p: [sx * 29.74, 5, z], s: [0.2, 10, 0.42] })
     D_PILASTER_NOSING_LIP.push({ p: [sx * 29.62, 5, z], s: [0.1, 10, 0.2] })
   }
@@ -2372,13 +2619,17 @@ for (const sz of [1, -1]) {
   /** the wall's INTERIOR face; `face` points into the room from it */
   const wz = sz > 0 ? 225 : 165
   const face = sz > 0 ? -1 : 1
-  for (const x of [-22, -16, -10, 10, 16, 22]) {
-    D_SCREEN_BACK.push({ p: [x, 3.2, wz + face * 0.11], s: [5.4, 5.0, 0.22] })
-    D_SCREENS.push({ p: [x, 3.2, wz + face * 0.25], r: [0, sz > 0 ? Math.PI : 0, 0], s: [5.1, 4.7, 1] })
-    D_COFFER_BACK.push({ p: [x, 8.1, wz + face * 0.11], s: [3.2, 2.8, 0.22] })
-    D_COFFERS.push({ p: [x, 8.1, wz + face * 0.25], r: [0, sz > 0 ? Math.PI : 0, 0], s: [3.0, 2.6, 1] })
+  const bays = sz > 0 ? D_BAY_X_N : D_BAY_X_S
+  const cols = sz > 0 ? D_COL_X_N : D_COL_X_S
+  for (let i = 0; i < bays.length; i++) {
+    const x = bays[i]
+    const w = i % 2 === 0 ? 5.1 : 4.2
+    D_SCREEN_BACK.push({ p: [x, 3.2, wz - face * 0.24], s: [w + 0.6, 5.4, 0.52] })
+    D_SCREENS.push({ p: [x, 3.2, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w, 4.7, 1] })
+    D_COFFER_BACK.push({ p: [x, 8.1, wz - face * 0.24], s: [w * 0.62 + 0.4, 2.8, 0.52] })
+    D_COFFERS.push({ p: [x, 8.1, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w * 0.6, 2.6, 1] })
   }
-  for (const x of [-24, -18, -12, 12, 18, 24]) {
+  for (const x of cols) {
     D_PILASTER_NOSING.push({ p: [x, 5, wz + face * 0.16], s: [0.42, 10, 0.2] })
     D_PILASTER_NOSING_LIP.push({ p: [x, 5, wz + face * 0.28], s: [0.2, 10, 0.1] })
   }
@@ -2392,6 +2643,15 @@ for (const sz of [1, -1]) {
     D_SCONCE_FIXTURES.push([x, 6.0, wz + face * 1.3])
   }
 }
+/**
+ * R4 — jittered copies of the two ornament runs that repeat most often in a
+ * wide arena shot. The corbel course is 32 blocks at a dead 3.5 m pitch and
+ * the vault bosses repeat per bay; a few percent of variation per instance is
+ * what stops the eye resolving them into a lattice, and it is free (the
+ * matrices are written once at mount either way).
+ */
+const D_CORBELS_J = jitterItems(D_CORBELS, { yaw: 0.085, scale: 0.085, lift: 0.06, salt: 3 })
+
 /** R3 — engaged fluted colonnade on the arena's four walls. Column axis y 0.5
  *  to 9.5, so the capitals land under the cornice and the shafts carry the
  *  vault's springing corbels visually down to the deck. */
@@ -2400,22 +2660,29 @@ const D_COLUMN_PLINTH: InstItem[] = []
 const D_COLUMN_CAP: InstItem[] = []
 const D_COLUMN_NECK: InstItem[] = []
 for (const sx of [1, -1]) {
-  for (let z = 171; z <= 219; z += 6) {
-    D_COLUMN.push({ p: [sx * 29.45, 5, z], s: [0.62, 1.05, 0.62] })
-    D_COLUMN_PLINTH.push({ p: [sx * 29.6, 0.42, z], s: [1.5, 0.84, 1.55] })
-    D_COLUMN_CAP.push({ p: [sx * 29.6, 9.72, z], s: [1.5, 0.42, 1.6] })
-    D_COLUMN_NECK.push({ p: [sx * 29.5, 8.62, z], s: [1.18, 0.16, 1.24] })
-  }
+  // R4 — coupled pairs on an irregular rhythm, different on each long wall.
+  // Alternate shafts of a pair carry a slightly different diameter (±4 %) so
+  // even a pair is not a mirror of itself at gameplay distance.
+  const cols = sx > 0 ? D_COL_Z_E : D_COL_Z_W
+  cols.forEach((z, i) => {
+    const k = i % 2 === 0 ? 1.0 : 0.955
+    D_COLUMN.push({ p: [sx * 29.45, 5, z], s: [0.62 * k, 1.05, 0.62 * k] })
+    D_COLUMN_PLINTH.push({ p: [sx * 29.6, 0.42, z], s: [1.5, 0.84, 1.5 * k + 0.05] })
+    D_COLUMN_CAP.push({ p: [sx * 29.6, 9.72, z], s: [1.5, 0.42, 1.55 * k + 0.05] })
+    D_COLUMN_NECK.push({ p: [sx * 29.5, 8.62, z], s: [1.18, 0.16, 1.2 * k + 0.04] })
+  })
 }
 for (const sz of [1, -1]) {
   const wz = sz > 0 ? 225 : 165
   const face = sz > 0 ? -1 : 1
-  for (const x of [-24, -18, -12, 12, 18, 24]) {
-    D_COLUMN.push({ p: [x, 5, wz + face * 0.55], s: [0.62, 1.05, 0.62] })
-    D_COLUMN_PLINTH.push({ p: [x, 0.42, wz + face * 0.4], s: [1.55, 0.84, 1.5] })
-    D_COLUMN_CAP.push({ p: [x, 9.72, wz + face * 0.4], s: [1.6, 0.42, 1.5] })
-    D_COLUMN_NECK.push({ p: [x, 8.62, wz + face * 0.5], s: [1.24, 0.16, 1.18] })
-  }
+  const cols = sz > 0 ? D_COL_X_N : D_COL_X_S
+  cols.forEach((x, i) => {
+    const k = i % 2 === 0 ? 1.0 : 0.955
+    D_COLUMN.push({ p: [x, 5, wz + face * 0.55], s: [0.62 * k, 1.05, 0.62 * k] })
+    D_COLUMN_PLINTH.push({ p: [x, 0.42, wz + face * 0.4], s: [1.5 * k + 0.05, 0.84, 1.5] })
+    D_COLUMN_CAP.push({ p: [x, 9.72, wz + face * 0.4], s: [1.55 * k + 0.05, 0.42, 1.5] })
+    D_COLUMN_NECK.push({ p: [x, 8.62, wz + face * 0.5], s: [1.2 * k + 0.04, 0.16, 1.18] })
+  })
 }
 
 /**
@@ -2427,7 +2694,7 @@ for (const sz of [1, -1]) {
  */
 const D_PILASTER_FLANK: InstItem[] = []
 for (const sx of [1, -1]) {
-  for (let z = 171; z <= 219; z += 6) {
+  for (const z of sx > 0 ? D_COL_Z_E : D_COL_Z_W) {
     for (const dz of [-0.36, 0.36]) {
       D_PILASTER_FLANK.push({ p: [sx * 29.82, 5, z + dz], s: [0.14, 9.6, 0.12] })
     }
@@ -2436,10 +2703,104 @@ for (const sx of [1, -1]) {
 for (const sz of [1, -1]) {
   const wz = sz > 0 ? 225 : 165
   const face = sz > 0 ? -1 : 1
-  for (const x of [-24, -18, -12, 12, 18, 24]) {
+  for (const x of sz > 0 ? D_COL_X_N : D_COL_X_S) {
     for (const dx of [-0.36, 0.36]) {
       D_PILASTER_FLANK.push({ p: [x + dx, 5, wz + face * 0.24], s: [0.12, 9.6, 0.14] })
     }
+  }
+}
+
+/**
+ * R4 — the arena's asymmetric hero mass, and a clerestory on its own rhythm.
+ *
+ * The work order asked for "ONE off-centre asymmetric hero mass (canted
+ * buttress or inset apse)". This is the canted buttress: a three-step corbel
+ * course springing off the west wall in the room's one wide bay, carrying a
+ * pier that leans ~7° out over the floor, banded in gold and crowned with a
+ * projecting hood that crosses the top of frame from most of the arena. Its
+ * counterweight on the east wall is deliberately NOT the same object — it is
+ * a flat gold-framed aedicule sunk into the recess at a different z — so the
+ * two long walls never read as a mirror pair.
+ *
+ * Everything that projects into the room starts at y 2.75, above the 1.8 m
+ * player capsule, so nothing the player can walk into changes and no collider
+ * in layout.ts is touched.
+ */
+const BUTTRESS = ARENA_BUTTRESS // west wall, the wide bay
+const BUTT_LEAN = 0.12 // ≈7°
+const D_BUTT_CORBEL: InstItem[] = []
+const D_BUTT_SHAFT: InstItem[] = []
+const D_BUTT_BAND: InstItem[] = []
+const D_BUTT_HOOD: InstItem[] = []
+const D_BUTT_FIN: InstItem[] = []
+{
+  const [bx, bz] = BUTTRESS
+  // corbel course: three stones stepping out and up, each wider than the last
+  const steps: [number, number, number][] = [
+    [2.95, 0.7, 3.4],
+    [3.85, 1.15, 3.9],
+    [4.75, 1.65, 4.4],
+  ]
+  for (const [y, out, w] of steps) {
+    D_BUTT_CORBEL.push({ p: [bx + out / 2, y, bz], s: [out + 0.5, 0.86, w] })
+  }
+  // canted pier: two stacked segments, each leaning a little further out
+  D_BUTT_SHAFT.push({ p: [bx + 1.75, 7.4, bz], r: [0, 0, -BUTT_LEAN], s: [2.5, 5.6, 3.9] })
+  D_BUTT_SHAFT.push({ p: [bx + 2.55, 11.6, bz], r: [0, 0, -BUTT_LEAN * 1.7], s: [2.1, 3.2, 3.3] })
+  for (const [y, w, h] of [[5.9, 4.2, 0.34], [9.1, 4.0, 0.26], [13.1, 3.7, 0.5]] as [number, number, number][]) {
+    const out = 1.55 + (y - 5.9) * 0.2
+    D_BUTT_BAND.push({ p: [bx + out, y, bz], s: [2.8, h, w] })
+  }
+  // crowning hood — the piece that actually crosses the top of frame
+  D_BUTT_HOOD.push({ p: [bx + 3.0, 13.9, bz], r: [0, 0, -0.06], s: [4.6, 1.15, 5.0] })
+  D_BUTT_HOOD.push({ p: [bx + 3.2, 15.0, bz], r: [0, 0, -0.06], s: [3.2, 1.0, 3.4] })
+  // vertical fins on the pier flanks, tapering as they rise
+  for (let i = 0; i < 4; i++) {
+    const t = i / 3
+    const dz = (i < 2 ? -1 : 1) * (1.35 - (i % 2) * 0.62)
+    D_BUTT_FIN.push({
+      p: [bx + 1.5 + t * 0.55, 6.6 + t * 2.4, bz + dz],
+      r: [0, 0, -BUTT_LEAN],
+      s: [0.36, 4.4 - t * 1.1, 0.3],
+    })
+  }
+}
+
+/** east-wall aedicule: flat, framed, sunk in the recess — the asymmetric
+ *  answer to the buttress rather than its mirror */
+const AEDICULE_Z = ARENA_AEDICULE_Z
+const D_AED_BACK: InstItem[] = [{ p: [30.48, 5.2, AEDICULE_Z], s: [0.44, 7.4, 6.2] }]
+const D_AED_FRAME: InstItem[] = [
+  { p: [30.02, 8.95, AEDICULE_Z], s: [0.5, 0.55, 6.6] }, // head
+  { p: [30.02, 1.45, AEDICULE_Z], s: [0.5, 0.5, 6.6] }, // sill
+  { p: [30.02, 5.2, AEDICULE_Z - 3.05], s: [0.5, 7.5, 0.5] }, // jambs
+  { p: [30.02, 5.2, AEDICULE_Z + 3.05], s: [0.5, 7.5, 0.5] },
+]
+const D_AED_PLINTH: InstItem[] = [{ p: [29.9, 2.2, AEDICULE_Z], s: [0.9, 1.5, 2.4] }]
+const D_AED_FIGURE: InstItem[] = [
+  { p: [30.05, 5.4, AEDICULE_Z], r: [0, 0.4, 0], s: [0.85, 4.8, 1.5] },
+  { p: [30.05, 8.0, AEDICULE_Z], r: [0.18, 0.4, 0], s: [1.2, 1.2, 1.2] },
+]
+
+/**
+ * Clerestory blind arcade. It runs at a 3.2 m pitch that is deliberately
+ * coprime with the colonnade below, so the two registers never line up into
+ * a single stamped grid — which is exactly what the panel saw.
+ */
+/** jittered copies of the repeated arena ornament (see `jitterItems`) */
+const D_CLERE_ARCH: InstItem[] = []
+const D_CLERE_RECESS: InstItem[] = []
+for (const sx of [1, -1]) {
+  for (let z = 167.6; z <= 222.4; z += 3.2) {
+    D_CLERE_RECESS.push({ p: [sx * 30.18, 9.28, z], s: [0.36, 1.18, 2.2] })
+    D_CLERE_ARCH.push({ p: [sx * 29.93, 9.28, z], r: [0, sx * Math.PI / 2, 0], s: [1.2, 1.15, 1] })
+  }
+}
+for (const [wz, face] of [[165, 1], [225, -1]] as [number, number][]) {
+  for (let x = -27.8; x <= 27.8; x += 3.2) {
+    if (Math.abs(x) < 4.6) continue
+    D_CLERE_RECESS.push({ p: [x, 9.28, wz - face * 0.18], s: [2.2, 1.18, 0.36] })
+    D_CLERE_ARCH.push({ p: [x, 9.28, wz + face * 0.07], r: [0, face > 0 ? 0 : Math.PI, 0], s: [1.2, 1.15, 1] })
   }
 }
 
@@ -2518,20 +2879,75 @@ for (let i = 0; i < 4; i++) {
   })
 }
 
-// floor medallion: concentric gold rings + radial petals (r 20)
-const D_MEDAL_RINGS: InstItem[] = [20, 16, 12].map((r) => ({
-  p: [0, 0.04, 195] as [number, number, number],
-  r: [Math.PI / 2, 0, 0] as [number, number, number],
-  s: [r, r, 12] as [number, number, number],
+// ---------------------------------------------------------------------------
+// Floor medallion — R4: gilding sunk into the deck, not rope laid on it.
+//
+// These three rings used to be 6-sided torus tubes standing 0.15 m proud of
+// the floor, and they cross the near field of every arena frame the panel
+// judged; "matte rope" was the exact phrase. They are now a flush pair per
+// ring — a 0.07 m wide dark channel cut 6 mm into the deck with a 0.045 m
+// polished band sunk inside it — sitting 13 mm and 20 mm above the floor
+// plane, low enough that they never break the deck's silhouette and thin
+// enough that at grazing angle they read as a specular line rather than a
+// cylinder. Same treatment for the twelve radial petals, which are now shaped
+// lozenges in their own sunk channels instead of extruded blocks.
+// ---------------------------------------------------------------------------
+const MEDAL_RADII = [20, 16, 12]
+const D_MEDAL_CHANNEL: InstItem[] = MEDAL_RADII.map((r) => ({
+  p: [0, 0.013, 195] as [number, number, number],
+  r: [-Math.PI / 2, 0, 0] as [number, number, number],
+  s: [r, r, 1] as [number, number, number],
 }))
+const D_MEDAL_RINGS: InstItem[] = MEDAL_RADII.map((r) => ({
+  p: [0, 0.02, 195] as [number, number, number],
+  r: [-Math.PI / 2, 0, 0] as [number, number, number],
+  s: [r, r, 1] as [number, number, number],
+}))
+const D_MEDAL_PETAL_CH: InstItem[] = []
 const D_MEDAL_PETALS: InstItem[] = []
 for (let i = 0; i < 12; i++) {
   const a = (i / 12) * Math.PI * 2
-  D_MEDAL_PETALS.push({
-    p: [Math.cos(a) * 17, 0.05, 195 + Math.sin(a) * 17],
-    r: [0, Math.PI / 2 - a, 0],
-    s: [1.4, 0.35, 1.6],
-  })
+  const p: [number, number, number] = [Math.cos(a) * 17, 0.014, 195 + Math.sin(a) * 17]
+  const rot: [number, number, number] = [0, Math.PI / 2 - a, 0]
+  D_MEDAL_PETAL_CH.push({ p, r: rot, s: [0.92, 1, 1.72] })
+  D_MEDAL_PETALS.push({ p: [p[0], 0.021, p[2]], r: rot, s: [0.74, 1, 1.5] })
+}
+
+/**
+ * R4 — the deck is paved, not poured.
+ *
+ * The arena floor is the single largest surface the player looks at and it was
+ * one unbroken 60×60 plane with a medallion painted on it. Real stone floors
+ * are laid in slabs, and the 1–2 cm joint between slabs is what gives a big
+ * floor its scale: it catches the key at grazing angle and goes dark under
+ * anything standing on it. These are flush recessed joints on an IRREGULAR
+ * pitch (a regular one would just be graph paper), skipping the medallion
+ * plaza where the inlay already carries the read. Nothing stands proud of the
+ * deck, so nothing about movement or collision changes.
+ */
+const D_PAVING: InstItem[] = []
+{
+  const zJoints = [168.5, 173.2, 176.4, 181.6, 186.1, 189.8, 200.2, 204.6, 208.1, 213.7, 217.4, 221.9]
+  const xJoints = [-26.4, -22.1, -18.6, -13.2, -9.4, 9.4, 13.2, 18.6, 22.1, 26.4]
+  for (const z of zJoints) D_PAVING.push({ p: [0, 0.005, z], s: [59.4, 0.01, h1(z) * 0.06 + 0.1] })
+  for (const x of xJoints) D_PAVING.push({ p: [x, 0.005, 195], s: [h1(x, 5) * 0.06 + 0.1, 0.01, 59.4] })
+  // short cross-joints inside the outer field so the slab courses break bond
+  for (let i = 0; i < 18; i++) {
+    const z = 167 + h1(i, 31) * 56
+    const s = i % 2 === 0 ? -1 : 1
+    const x = s * (24 + h1(i, 37) * 5)
+    D_PAVING.push({ p: [x, 0.005, z], s: [10 + h1(i, 41) * 6, 0.01, 0.11] })
+  }
+}
+/** matching joint course on the chamber deck, at a tighter slab size */
+const C_PAVING: InstItem[] = []
+{
+  for (const z of [138.4, 142.9, 146.2, 154.1, 157.8, 162.3]) {
+    C_PAVING.push({ p: [0, 0.005, z], s: [29.4, 0.01, 0.1] })
+  }
+  for (const x of [-12.1, -8.4, 8.4, 12.1]) {
+    C_PAVING.push({ p: [x, 0.005, 150], s: [0.1, 0.01, 29.4] })
+  }
 }
 
 // pylons + teal vein strips
@@ -2880,6 +3296,9 @@ function ZoneD() {
       {/* floor + medallion */}
       <MassMesh spec={{ x0: -30, y0: -1, z0: 165, x1: 30, y1: 0, z1: 225 }} material={floorMaterial()} />
       <Instanced geometry={BOX} material={umberMaterial()} items={D_FLOOR_UMBER} receiveShadow />
+      {/* R4 — flush slab joints: the 60x60 deck is paved on an irregular
+          course instead of being one poured plane */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_PAVING} />
       {/* emissive radial-groove etching (fix2): concentric rings + rays from
           arena center, low-intensity gold so it never bloom-blows */}
       <mesh
@@ -2896,15 +3315,20 @@ function ZoneD() {
       <Instanced geometry={MANDALA_INLAY} material={goldPolishedMaterial()} items={D_MANDALA_INLAY} />
       <Instanced geometry={BOX} material={recessMaterial()} items={D_MANDALA_SPOKE_CH} />
       <Instanced geometry={BOX} material={goldPolishedMaterial()} items={D_MANDALA_SPOKE_IN} />
-      {/* the rings and petals are GILDED INLAY, not energy — lit metal, so the
-          arena floor stops reading as a flat orange decal. Only the small
-          centre disc stays emissive, and EnvironmentFX still pulses it. */}
-      <Instanced geometry={RING_GEO} material={goldPolishedMaterial()} items={D_MEDAL_RINGS} />
-      <Instanced geometry={PETAL} material={goldMaterial()} items={D_MEDAL_PETALS} />
+      {/* the rings and petals are GILDED INLAY, not energy and not rope — a
+          sunk channel with a polished band flush inside it, so the near field
+          of every arena frame reads as gilding in stone. */}
+      <Instanced geometry={MEDAL_CHANNEL} material={recessMaterial()} items={D_MEDAL_CHANNEL} />
+      <Instanced geometry={MEDAL_INLAY} material={goldPolishedMaterial()} items={D_MEDAL_RINGS} />
+      <Instanced geometry={MEDAL_PETAL} material={recessMaterial()} items={D_MEDAL_PETAL_CH} />
+      <Instanced geometry={MEDAL_PETAL} material={goldPolishedMaterial()} items={D_MEDAL_PETALS} />
       <mesh geometry={CIRCLE} material={medallionMaterial()} position={[0, 0.04, 195]} rotation={[-Math.PI / 2, 0, 0]} scale={[2.2, 2.2, 1]} />
 
-      {/* walls + trim + panel detail — R2: contact-AO panel walls that cast */}
-      {D_WALLS.map((w, i) => (
+      {/* walls in three registers — R4. The FIELD is set 0.5 m back into the
+          wall's own thickness; the dado, the piers and the attic band stand at
+          the original face, so every bay is a real recess that self-shadows
+          under a low key instead of a flat plane wearing appliqué. */}
+      {D_WALL_FIELD.map((w, i) => (
         <MassMesh
           key={i}
           spec={w}
@@ -2913,6 +3337,13 @@ function ZoneD() {
           castShadow
         />
       ))}
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={D_WALL_DADO} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_WALL_PIER} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_WALL_ATTIC} castShadow />
+      {/* clerestory blind arcade on a 3.2 m pitch — coprime with the order
+          below, so the two registers never stack into one grid */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_CLERE_RECESS} />
+      <Instanced geometry={COFFER_PANEL} material={cofferMaterial()} items={D_CLERE_ARCH} />
       <Instanced geometry={RBOX} material={umberMaterial()} items={D_BASE} receiveShadow />
       <Instanced geometry={TRIM_RUN} material={goldMaterial()} items={D_CORNICE} />
       <Instanced geometry={BOX} material={goldMaterial()} items={D_WALL_TRIM} />
@@ -2940,7 +3371,29 @@ function ZoneD() {
       <Instanced geometry={BOX} material={recessMaterial()} items={D_COFFER_BACK} />
       <Instanced geometry={COFFER_PANEL} material={cofferMaterial()} items={D_COFFERS} castShadow />
       <Instanced geometry={L_TRIM_RUN} material={goldMaterial()} items={D_LTRIM} />
-      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_CORBELS} />
+      {/* corbel course, jittered: ±8 % in size, ±6 cm in height, ±5° in yaw.
+          A cornice of 32 identical blocks at a perfect pitch is the single
+          most obvious stamp in a wide shot; this costs nothing at runtime. */}
+      <Instanced
+        geometry={RBOX}
+        material={ivoryMaterial()}
+        items={D_CORBELS_J}
+        castShadow
+      />
+
+      {/* R4 — the arena's asymmetric hero mass: a canted buttress corbelled
+          off the west wall in the wide bay, leaning out over the floor, and
+          its non-matching answer on the east wall (a framed aedicule sunk in
+          the recess with a figure on a plinth). */}
+      <Instanced geometry={RBOX} material={ivoryContactMaterial()} items={D_BUTT_CORBEL} castShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_BUTT_SHAFT} castShadow />
+      <Instanced geometry={BOX} material={goldPolishedMaterial()} items={D_BUTT_BAND} />
+      <Instanced geometry={RBOX} material={goldCastMaterial()} items={D_BUTT_HOOD} castShadow />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_BUTT_FIN} castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_AED_BACK} />
+      <Instanced geometry={BOX} material={goldMaterial()} items={D_AED_FRAME} />
+      <Instanced geometry={PLINTH_BOX} material={ivoryContactMaterial()} items={D_AED_PLINTH} castShadow />
+      <Instanced geometry={RBOX} material={ivoryMaterial()} items={D_AED_FIGURE} castShadow />
 
       {/* perimeter practicals: a modelled bracket + hood + recessed lens at
           every fixture the pooled gold point lights ride, so each pool of
