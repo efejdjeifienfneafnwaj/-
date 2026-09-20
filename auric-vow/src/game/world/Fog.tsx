@@ -53,6 +53,28 @@
  * density is trimmed to 0.7× for the same reason: an interior should be
  * clearer than the open canyon it opens off. See each constant for the
  * arithmetic.
+ *
+ * R7 (light transport) — the veil's HUE, and only its hue. The panel's second
+ * named difference between our frames and the reference is that the reference
+ * contains no blue pixel and ours are indigo-skied with periwinkle distance.
+ * Fog is a very large part of that and it is easy to miss, because a fog
+ * colour does not look like a light: in the canyon, at density 0.02, a wall at
+ * 60 m sits under 1 − exp(−(0.02·60)²) = 76 % veil, so three quarters of every
+ * distant pixel down the game's longest sightline is literally `FOG.color`.
+ * Measured over the central crop of each frame, pixels with B > R + 4:
+ * reference 1.8 %, our canyon 11.4 %, our spawn 24.7 %.
+ *
+ * Two things changed, both here rather than in config.ts (which is
+ * post-color's, and where the blue is not wrong as a SKY colour — only as the
+ * colour of the air):
+ *   - the zone palette (FOG_VEIL / FOG_HAZE / FOG_INTERIOR / FOG_VOID) is warm
+ *     ash and ochre, matched in LUMINANCE to the indigo constants it replaces
+ *     so nothing about the value structure moves.
+ *   - the far-distance push INVERTS. It used to drive the thickest fog toward
+ *     vec3(0.72, 0.86, 1.25), i.e. bluer with distance. In the reference the
+ *     background warms toward the haze and loses contrast; it now pushes
+ *     toward vec3(1.2, 1.0, 0.76). See FOG_COOL_FAR / FOG_FAR_PUSH.
+ * No density, no height ramp and no value constant is touched.
  */
 import { useMemo, useRef } from 'react'
 import * as THREE from 'three'
@@ -69,8 +91,13 @@ import { KEY_DIR } from './Lighting'
  * frame's darks, and it has to be authored below them, not through them.
  */
 const VALUE_FLOOR = SKY.fogValueFloor
-/** extra darkening applied as the camera descends into the void */
-const VOID_TINT = new THREE.Color(SKY.voidTint)
+/**
+ * Extra darkening applied as the camera descends into the void.
+ * R7 — the void below the deck: warm near-black rather than SKY.voidTint's
+ *  blue-black '#05060E'. A fall should read as absence of light, not as a
+ *  different colour of light. */
+const FOG_VOID = '#0A0806'
+const VOID_TINT = new THREE.Color(FOG_VOID)
 
 // ---------------------------------------------------------------------------
 // Height-fog / inscattering parameters, baked into the shader as literals
@@ -114,10 +141,47 @@ const FOG_PHASE_POW = 6
  */
 const FOG_NEAR_VALUE = 0.46
 const FOG_FAR_VALUE = 1.1
-/** how far the thickest fog is pushed toward a desaturated cool at distance */
+/**
+ * How far the thickest fog is pushed toward its distance hue.
+ *
+ * R7 — the DIRECTION of this push inverts, and that is the change this round
+ * is about. It used to drive the far end toward `vec3(0.72, 0.86, 1.25)` — a
+ * blue multiplier on the veil's own luma — on the theory that distance is
+ * carried by cooling. The reference frame does the opposite: read it and the
+ * background WARMS toward the haze, losing contrast as it goes, and there is
+ * no blue pixel in it anywhere (measured: 1.8 % of pixels have B > R + 4,
+ * against 11.4 % in our canyon and 24.7 % at our spawn). A cool far push on a
+ * 76 %-fogged canyon wall is not a subtle grade note, it is the single
+ * largest blue-producing term in the frame after the dome itself.
+ * See FOG_FAR_PUSH.
+ */
 const FOG_COOL_FAR = 0.45
+/**
+ * The hue the thickest fog is pushed toward, as a multiplier on its own luma.
+ * Warm ochre dust, not cold air: the reference's distance is a pale warm
+ * grey-ochre that the structure dissolves into.
+ */
+const FOG_FAR_PUSH = new THREE.Vector3(1.2, 1.0, 0.76)
 /** inscatter colour: the key, dimmed so the haze never out-values the deck */
 const FOG_SUN_COLOR = new THREE.Color(LIGHTING.key.color).multiplyScalar(0.72)
+
+// ---------------------------------------------------------------------------
+// R7 — the veil's own palette, owned here rather than read from config.
+//
+// `FOG.color` is `COLORS.veilBlue` '#1B2440' and the zone table also reached
+// for `SKY.horizon` '#0C1330' and a hand-written '#141C36'. In the canyon,
+// where density is 0.02, a wall at 60 m sits under 1 − exp(−(0.02·60)²) =
+// 76 % veil — so three quarters of every distant pixel in the game's longest
+// sightline IS this colour. Matched in luminance to the constants they
+// replace (sRGB luma of veilBlue is 36/255; of FOG_VEIL, 38/255), so what
+// changes is hue alone. config.ts is post-color's and is untouched.
+// ---------------------------------------------------------------------------
+/** base veil — warm ash, replaces COLORS.veilBlue */
+const FOG_VEIL = '#2C251C'
+/** the warmer ochre haze deeper down the canyon, replaces SKY.horizon */
+const FOG_HAZE = '#463726'
+/** interior veil under the reliquary dome, replaces '#141C36' */
+const FOG_INTERIOR = '#241E17'
 
 const f = (n: number) => (Number.isInteger(n) ? n.toFixed(1) : String(n))
 
@@ -214,7 +278,7 @@ const HEIGHT_FOG_INSTALLED = (() => {
 		float fogNearLift = clamp( fogFactor, 0.0, 1.0 );
 		fogTint *= mix( ${f(FOG_NEAR_VALUE)}, ${f(FOG_FAR_VALUE)}, fogNearLift * fogNearLift );
 		float fogCool = dot( fogTint, vec3( 0.2126, 0.7152, 0.0722 ) );
-		fogTint = mix( fogTint, vec3( fogCool ) * vec3( 0.72, 0.86, 1.25 ), fogNearLift * ${f(FOG_COOL_FAR)} );
+		fogTint = mix( fogTint, vec3( fogCool ) * vec3( ${f(FOG_FAR_PUSH.x)}, ${f(FOG_FAR_PUSH.y)}, ${f(FOG_FAR_PUSH.z)} ), fogNearLift * ${f(FOG_COOL_FAR)} );
 
 		gl_FragColor.rgb = mix( gl_FragColor.rgb, fogTint, clamp( fogFactor, 0.0, 1.0 ) );
 	#else
@@ -236,10 +300,10 @@ export default function Fog() {
 
   const zones = useMemo(
     () => ({
-      spawn: { density: 0.01, color: new THREE.Color(FOG.color) } as FogZone,
-      canyonA: { density: FOG.canyonDensity, color: new THREE.Color(FOG.color) } as FogZone,
-      canyonB: { density: FOG.canyonDensity, color: new THREE.Color(SKY.horizon) } as FogZone,
-      chamber: { density: 0.012, color: new THREE.Color('#141C36') } as FogZone,
+      spawn: { density: 0.01, color: new THREE.Color(FOG_VEIL) } as FogZone,
+      canyonA: { density: FOG.canyonDensity, color: new THREE.Color(FOG_VEIL) } as FogZone,
+      canyonB: { density: FOG.canyonDensity, color: new THREE.Color(FOG_HAZE) } as FogZone,
+      chamber: { density: 0.012, color: new THREE.Color(FOG_INTERIOR) } as FogZone,
       // R5 — the arena runs at 0.7× the authored `FOG.arenaDensity`.
       //
       // The zone table is this file's, the constant is the grade's, so the
@@ -252,13 +316,13 @@ export default function Fog() {
       // rake (see Lighting.tsx APERTURES) most of its range instead of
       // handing a third of it to the haze. An interior should be clearer
       // than the open canyon it opens off, not murkier.
-      arena: { density: FOG.arenaDensity * 0.7, color: new THREE.Color(FOG.color) } as FogZone,
-      extraction: { density: 0.015, color: new THREE.Color(SKY.horizon) } as FogZone,
+      arena: { density: FOG.arenaDensity * 0.7, color: new THREE.Color(FOG_VEIL) } as FogZone,
+      extraction: { density: 0.015, color: new THREE.Color(FOG_HAZE) } as FogZone,
     }),
     [],
   )
 
-  const targetColor = useMemo(() => new THREE.Color(FOG.color), [])
+  const targetColor = useMemo(() => new THREE.Color(FOG_VEIL), [])
 
   // pre-scale every zone colour once (no per-frame allocation)
   useMemo(() => {
@@ -311,5 +375,5 @@ export default function Fog() {
     fog.color.lerp(targetColor, k)
   })
 
-  return <fogExp2 ref={fogRef} attach="fog" args={[FOG.color, FOG.arenaDensity]} />
+  return <fogExp2 ref={fogRef} attach="fog" args={[FOG_VEIL, FOG.arenaDensity]} />
 }

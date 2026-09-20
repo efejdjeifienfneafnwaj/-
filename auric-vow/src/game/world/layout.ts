@@ -381,3 +381,169 @@ export function buildLevelColliders(): void {
 
   // NOTE: no kill-z collider — void falls are handled by the game loop.
 }
+
+// ---------------------------------------------------------------------------
+// R7 — SERVICE GREEBLE + SOFT MATERIAL FAMILY. VISUAL ONLY.
+//
+// Nothing below is read by `buildLevelColliders`, and every run is authored
+// either ABOVE the 1.8 m player capsule or tight enough to a wall face that it
+// sits inside the projection the pilaster nosings already have. No collider
+// coordinate in this file changed to make room for any of it.
+//
+// Why it exists: the reference frame has no square metre of flat anything —
+// conduit runs, bolted flanges, vents, cable trays, handrails and growth cross
+// every ordered surface at angles that do not agree with the architecture. Our
+// arena had a beautifully regular Orokin order and NOTHING crossing it, which
+// is why a 200 px crop of its wall resolved to one repeated element.
+//
+// The z/x positions below are deliberately COPRIME with ARENA_BAY_PAIRS: a
+// service run that happens to land on a pier centre reads as more architecture
+// rather than as something bolted on afterwards.
+// ---------------------------------------------------------------------------
+
+/**
+ * Arena horizontal conduit runs on the long walls.
+ * [side(+1 east / −1 west), y, z0, z1, radius, dropAtEnd(0 none / −1 z0 / +1 z1)]
+ */
+export const ARENA_PIPE_LONG: [number, number, number, number, number, number][] = [
+  [-1, 7.35, 166.4, 189.7, 0.145, 1],
+  [-1, 7.05, 191.6, 213.2, 0.145, 1],
+  [-1, 6.62, 172.8, 204.1, 0.075, -1],
+  [-1, 4.15, 199.4, 223.6, 0.098, -1],
+  [-1, 3.62, 166.9, 182.3, 0.075, 1],
+  [1, 7.62, 167.8, 196.4, 0.145, -1],
+  [1, 7.28, 198.9, 222.7, 0.145, 1],
+  [1, 6.9, 176.2, 211.4, 0.075, 1],
+  [1, 4.42, 168.6, 190.8, 0.098, 1],
+  [1, 3.48, 203.7, 221.9, 0.075, -1],
+]
+
+/**
+ * Arena conduit runs on the two end walls.
+ * [side(+1 north z225 / −1 south z165), y, x0, x1, radius, dropAtEnd]
+ */
+export const ARENA_PIPE_END: [number, number, number, number, number, number][] = [
+  [-1, 7.18, -28.4, -6.2, 0.13, -1],
+  [-1, 6.48, 7.4, 26.8, 0.085, 1],
+  [-1, 3.92, -24.1, -9.6, 0.075, 1],
+  [1, 7.44, -26.6, -8.1, 0.13, 1],
+  [1, 6.72, 6.8, 28.2, 0.085, -1],
+  [1, 4.08, 10.2, 27.4, 0.075, -1],
+]
+
+/**
+ * Vent louvre boxes recessed into the arena wall field.
+ * [wall(0 west / 1 east / 2 south / 3 north), along, y, width, height]
+ */
+export const ARENA_VENTS: [number, number, number, number, number][] = [
+  [0, 174.9, 5.15, 2.3, 1.55],
+  [0, 196.3, 4.4, 1.7, 1.25],
+  [0, 218.6, 5.6, 2.9, 1.4],
+  [1, 171.4, 4.75, 2.6, 1.3],
+  [1, 193.8, 5.5, 1.9, 1.6],
+  [1, 211.2, 4.25, 2.4, 1.2],
+  [2, -18.7, 5.3, 2.2, 1.45],
+  [2, 12.9, 4.6, 1.8, 1.2],
+  [3, -11.4, 5.05, 2.5, 1.35],
+  [3, 21.6, 5.7, 2.0, 1.5],
+]
+
+/**
+ * Sagging catenary cable spans. [x0,y0,z0, x1,y1,z1, sag].
+ * All anchors are ≥ 3.9 m so no span can be walked into; the deepest sag on
+ * the longest run still clears the capsule by more than a metre.
+ */
+export const CABLE_SPANS: [number, number, number, number, number, number, number][] = [
+  // arena — long diagonals crossing the top of frame
+  [-29.4, 8.1, 172.2, -29.4, 8.1, 186.4, 1.15],
+  [-29.4, 7.8, 188.6, -29.4, 7.8, 205.1, 1.35],
+  [29.4, 8.3, 169.6, 29.4, 8.3, 184.9, 1.2],
+  [29.4, 7.9, 201.3, 29.4, 7.9, 219.8, 1.5],
+  [-28.9, 6.9, 178.4, -20.2, 6.6, 178.4, 0.95],
+  [28.9, 7.1, 207.6, 20.4, 6.7, 207.6, 0.9],
+  [-19.6, 6.35, 168.2, 19.6, 6.35, 168.2, 2.2],
+  [-19.6, 6.35, 222.4, 19.6, 6.35, 222.4, 2.2],
+  [-7.2, 7.4, 193.0, -28.6, 8.2, 187.2, 1.6],
+  // chamber — hung across the dome springing
+  [-14.6, 7.6, 141.8, 14.6, 7.6, 141.8, 2.4],
+  [-14.6, 7.6, 158.6, 14.6, 7.6, 158.6, 2.4],
+  [-14.6, 5.9, 149.0, -3.4, 6.4, 149.0, 0.85],
+  [14.6, 5.9, 151.4, 3.4, 6.4, 151.4, 0.85],
+  // canyon — strung between the wall cornices, crossing the run
+  [-5.7, 6.4, 44.0, 5.7, 6.4, 47.2, 1.05],
+  [-5.7, 6.9, 68.5, 5.7, 6.9, 65.4, 1.15],
+  [-5.7, 6.2, 96.8, 5.7, 6.2, 99.6, 1.0],
+  [-5.7, 6.7, 120.4, 5.7, 6.7, 117.1, 1.2],
+  // extraction bridge
+  [-3.9, 5.4, 231.2, 3.9, 5.4, 233.8, 0.8],
+  [-3.9, 5.4, 244.6, 3.9, 5.4, 241.9, 0.8],
+]
+
+/**
+ * Growth clumps — the second, SOFT material family. [x, y, z, scale, yaw].
+ * Placed at wall/floor junctions and on upward ledges where damp collects,
+ * concentrated at the aperture bays. The reference frame's only saturated hue
+ * is the green growing over the metal; this is our equivalent, and it is the
+ * single largest reason that image does not read as a CAD render.
+ */
+export const GROWTH_CLUMPS: [number, number, number, number, number][] = [
+  // arena floor/wall junction — west
+  [-29.3, 0, 168.6, 1.25, 0.4], [-29.4, 0, 176.9, 0.9, 1.9], [-29.2, 0, 184.2, 1.45, 2.8],
+  [-29.5, 0, 197.4, 1.05, 0.9], [-29.3, 0, 209.8, 1.3, 3.6], [-29.4, 0, 219.1, 0.85, 5.1],
+  // arena — east
+  [29.3, 0, 171.2, 1.15, 3.3], [29.4, 0, 182.6, 1.5, 4.7], [29.2, 0, 194.8, 0.95, 1.2],
+  [29.5, 0, 206.3, 1.35, 2.1], [29.3, 0, 216.7, 1.1, 5.6],
+  // arena — end walls, dense at the gate apertures
+  [-4.6, 0, 165.4, 1.6, 0.7], [4.9, 0, 165.4, 1.35, 2.4],
+  [-5.4, 0, 224.6, 1.5, 4.1], [5.2, 0, 224.6, 1.7, 1.5],
+  [-15.8, 0, 165.4, 0.9, 3.0], [17.2, 0, 224.6, 1.0, 5.4],
+  // arena galleries — growth on the upward ledge faces
+  [-17.4, 6, 167.6, 1.2, 1.1], [11.8, 6, 168.3, 0.95, 4.4],
+  [-9.2, 6, 221.8, 1.1, 2.6], [15.6, 6, 222.4, 1.3, 0.3],
+  // chamber junctions
+  [-14.5, 0, 140.2, 1.2, 2.2], [14.5, 0, 146.8, 1.05, 4.9], [-14.5, 0, 158.4, 1.4, 0.6],
+  [14.5, 0, 161.6, 0.9, 3.8], [-6.2, 0, 135.5, 1.5, 1.4], [6.6, 0, 164.5, 1.25, 5.0],
+  // canyon deck edges + wall foot
+  [-5.6, 0, 16.4, 1.1, 1.8], [5.6, 0, 19.2, 0.95, 4.2], [-5.6, 0, 26.8, 1.3, 0.5],
+  [-5.6, 0, 86.4, 1.4, 3.1], [5.6, 0, 87.8, 1.15, 1.0],
+  [-5.6, 7, 126.2, 1.05, 2.7], [5.0, 7, 128.4, 1.2, 5.3],
+]
+
+/**
+ * Debris crates and stacked containers — 1 m scale references, the thing a
+ * procedural hall never has. [x, z, yaw, count]. All sit on existing deck and
+ * are ≤ 1.1 m tall, so they read as steppable dressing rather than cover; none
+ * is registered as a collider (see the note at the top of this block).
+ */
+export const CRATE_CLUSTERS: [number, number, number, number][] = [
+  [-26.4, 173.8, 0.31, 3],
+  [27.1, 181.2, -0.52, 2],
+  [-24.8, 206.4, 0.18, 4],
+  [25.6, 214.9, 0.74, 2],
+  [-12.6, 167.4, -0.24, 3],
+  [13.9, 223.1, 0.46, 2],
+  [-13.8, 138.6, 0.62, 2],
+  [13.4, 162.2, -0.35, 3],
+  [-4.2, 27.1, 0.28, 2],
+  [4.4, 86.8, -0.61, 3],
+]
+
+/**
+ * Handrail runs — the reference's most repeated near-camera element.
+ * [x0, y, z0, x1, z1]. Rails stand on existing platform edges; the posts are
+ * 1.05 m and the rail 1.0 m, both above the gallery/ledge tops they sit on.
+ */
+export const HANDRAIL_RUNS: [number, number, number, number, number][] = [
+  // arena galleries — the fronts the camera looks past
+  [-20, 6, 169.9, 20, 169.9],
+  [-20, 6, 220.1, 20, 220.1],
+  // arena low walls get a rail on one side only (asymmetry)
+  [-11, 1.2, 186.3, -3, 186.3],
+  [5, 1.2, 204.3, 13, 204.3],
+  // canyon high ledge + spire crown
+  [-5, 8, 124.3, 5, 124.3],
+  [1.7, 8, 103.3, 6.3, 103.3],
+  // extraction bridge — both sides, the corridor the extraction shot looks down
+  [-4.1, 0, 226.5, -4.1, 251.5],
+  [4.1, 0, 226.5, 4.1, 251.5],
+]

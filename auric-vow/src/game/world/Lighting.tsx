@@ -119,6 +119,68 @@
  *   near value and height ramp both pulled down (Fog.tsx), because fog is the
  *   only term in the renderer that can put a floor UNDER the darks.
  *
+ * R6/R7 (light transport). Two findings, both measured against the reference
+ * frame (`qa/reference/warframe-target.jpg`) rather than against a memory of
+ * what AAA looks like, and they pull in OPPOSITE directions to R4/R5.
+ *
+ * 1. THE BLUE IS THIS FILE'S. The panel's second-most damaging note is that
+ *    the reference contains no blue pixel and ours are indigo-skied with
+ *    periwinkle shadows. Measured over the central 80 % × 78 % of each frame
+ *    (the render minus the HUD gutters), the fraction of pixels with B > R+4:
+ *
+ *        reference      1.8 %        warm pixels 96.3 %
+ *        02_spawn      24.7 %        warm pixels 61.9 %
+ *        08_enemies    23.7 %        warm pixels 29.1 %
+ *        03_sprint     11.4 %        warm pixels 73.6 %
+ *
+ *    Every directionless term in the rig was authored blue and is therefore
+ *    the literal colour of a wall in a probe-lit room: the hemisphere's
+ *    `skyColor` '#2A3A6E', the probe's sky gradient (SKY.zenith '#070915' /
+ *    SKY.horizon '#0C1330'), the `coolRim` directional '#8FA3E8', the cold
+ *    character kicker, and the fog veil. None of them can be fixed by tinting
+ *    warm in post, because post cannot separate the wall from the sky. So the
+ *    RIG now owns its own ambient palette — see AMBIENT_* below — and reads
+ *    the blue constants in config.ts only where a blue is genuinely wanted
+ *    (nowhere, as it turns out). config.ts itself is untouched: it belongs to
+ *    post-color, and these are properties of the light rig.
+ *
+ * 2. R4 AND R5 CUT THE AMBIENT PAST THE REFERENCE, AND KEPT GOING. Same
+ *    measurement, the value histogram:
+ *
+ *                      p05   p50   p95   true black (<16/255)
+ *        reference      25    62   147      1.7 %
+ *        03_sprint       0    82   199     20.4 %
+ *        07_chamber      0    13   204     52.7 %
+ *        08_enemies      0    16    84     49.7 %
+ *
+ *    The reference is a DAYLIT scene with a great deal of bounce: its darkest
+ *    5 % still sits at 25/255 and under 2 % of it is black. Two of our four
+ *    interiors are half pure black with a 95th percentile of 84. That is not
+ *    contrast, it is underexposure, and it is the direct result of three
+ *    consecutive rounds each cutting the only terms that reach a roofed room
+ *    (probe 0.82 → 0.26 → 0.20, hemisphere ×0.55, fill ×0.6). A shadow cannot
+ *    read as a shape when the plane next to it is also black.
+ *    So the bounce goes back in — warm, motivated and falling off:
+ *      - the probe's DIFFUSE doubles (0.20 → 0.40) while its sun disc and
+ *        specular bars are held at exactly their old absolute radiance by the
+ *        compensating cut in ENV_SPEC_GAIN, so gold's highlight does not move.
+ *      - the hemisphere becomes a warm ash skylight at 0.26 rather than an
+ *        indigo trace at 0.066.
+ *      - every aperture's pool bounce roughly doubles.
+ *      - DECK BOUNCE (new): the interreflection a rasteriser has none of, as
+ *        two wide non-casting spots that follow the player — one aimed UP
+ *        from under the deck he is standing on (floor → wall, which is the
+ *        one instrument in the rig that lights a wall's PLINTH harder than
+ *        its cornice, and whose absence is why the arena reads as wallpaper)
+ *        and one aimed DOWN from over the room's ceiling (vault → floor,
+ *        which is why an interior deck is a mid value in a photograph and
+ *        pure black in ours). Both are scaled by ENCLOSURE, a z-keyed table
+ *        of how much sky each room can see, so the roofed rooms get the
+ *        trapped light and the open canyon — which after the lift above
+ *        already measures 7.0 % black against the reference's 1.7 % — does
+ *        not get lifted any further.
+ *    The key is untouched, so a shadow is still a ~3.3-stop event.
+ *
  * Phase-driven lights (chamber/pad gold points) live in EnvironmentFX.
  * The player-follow rim light (design §2.3 #12) is owned by the player rig;
  * the camera-space KICKERS below are a separate instrument and deliberately
@@ -127,7 +189,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { LIGHTING, MATERIALS, COLORS, SKY } from '../config'
+import { LIGHTING, MATERIALS, COLORS } from '../config'
 import { TEAL_FIXTURES, GOLD_FIXTURES } from './ShrineStation'
 import { PlayerRef } from '../player/PlayerRef'
 import { EnemyRegistry } from '../enemies/EnemyRegistry'
@@ -205,8 +267,22 @@ const CASCADE = {
     // The constant depth bias takes over the rest of the acne budget.
     bias: -0.00022,
     normalBias: 0.005,
-    /** PCSS penumbra scale, in units of 7 texels at maximum opening */
-    radius: 1.15,
+    /**
+     * PCSS penumbra scale, in units of 7 texels at maximum opening.
+     *
+     * R7: 1.15 → 1.85. At 2.34 cm/texel, 1.15 capped the widest penumbra at
+     * 1.15 × 7 × 2.34 cm = 18.8 cm, which is a fairly hard edge for a source
+     * the size of a sun seen through atmosphere and much too hard for the one
+     * seen through a 10 m hole in a vault. The reference's shadows are soft
+     * and deep — TARGET.md calls them exactly that — and a shadow with a wide
+     * penumbra reads as DEEPER than the same shadow with a hard one, because
+     * the eye takes the gradient as occlusion rather than as an edge. 1.85
+     * opens the far end to 30 cm. The contact end is unchanged: the filter
+     * lerps from 0.85 texels at zero receiver separation regardless of this
+     * number, so a boot still meets the deck on a razor edge. Free — the tap
+     * count does not change.
+     */
+    radius: 1.85,
     share: 0.86,
   },
   far: {
@@ -251,18 +327,83 @@ const CASCADE = {
  * the whole histogram sliding.
  */
 const KEY_GAIN = 1.62
-/** the hemisphere is the colour the shadow side is allowed to be, not a light */
-const HEMI_GAIN = 0.55
 /** camera-locked fill removes every shadow the player can see; keep it a trace */
 const CAMERA_FILL_GAIN = 0.6
 /** practical pools should read as pools, not as a second ambient */
 const PRACTICAL_GAIN = 0.62
 
+// ---------------------------------------------------------------------------
+// R7 — THE RIG'S AMBIENT PALETTE
+//
+// Every constant below replaces a blue one in config.ts. config.ts is not
+// edited: it belongs to post-color, and in any case the blue there is not
+// wrong as a SKY colour — what is wrong is that the sky colour was also being
+// used as the colour of the light in rooms that cannot see the sky.
+//
+// Hue discipline, because "warm the ambient" is easy to overdo in the other
+// direction: these are matched in LUMINANCE to the constants they replace
+// (sRGB luma of #2A3A6E is 58/255; of AMBIENT_SKY, 61/255), so what changes
+// here is hue alone. The intensity change is separate and argued at
+// HEMI_INTENSITY. A saturated orange ambient would be exactly as wrong as a
+// saturated indigo one — the reference's ambient is a desaturated warm ash
+// with a mean chroma of 29/255 against our 68.
+// ---------------------------------------------------------------------------
+/** hemisphere up-hemisphere: warm ash daylight, replaces '#2A3A6E' indigo */
+const AMBIENT_SKY = '#4A3F31'
+/** hemisphere down-hemisphere: the colour a dusty ochre deck bounces up */
+const AMBIENT_GROUND = '#241C12'
+/**
+ * The colour of light leaving the deck — see DeckBounce. Warmer and a little
+ * more saturated than AMBIENT_GROUND because this is a single bounce off a
+ * lit ivory/ochre floor rather than the integrated sum of everything below
+ * the horizon, and a single bounce carries the floor's own albedo.
+ */
+const AMBIENT_GROUND_BOUNCE = '#C7A377'
+/**
+ * The colour of light coming back DOWN off a vault — see DeckBounce. Cooler
+ * and paler than the deck bounce because a coffered ivory ceiling is a
+ * lighter, less saturated surface than a dirty deck, and because in a roofed
+ * room it is the second bounce rather than the first.
+ */
+const AMBIENT_VAULT_BOUNCE = '#BFB39C'
+/**
+ * The second, cooler edge on the far side of a form — but cool RELATIVE TO
+ * THE KEY (#FFE3B3), not blue in absolute terms. This replaces '#8FA3E8' in
+ * all three places it was used: the anti-axis rim directional, the cold
+ * character kicker, and the probe's second specular bar. Periwinkle is the
+ * single most identifiable non-reference hue in our frames and all three of
+ * those instruments were painting with it.
+ */
+const COUNTER_RIM = '#C2BDB4'
+
+/**
+ * The probe's sky, ground and void. Same argument as AMBIENT_SKY and the same
+ * luminance discipline: an IBL built from a night-indigo gradient makes every
+ * upward-facing surface in the level indigo, including the ones under a roof
+ * that can see no sky at all. The visible dome (Skybox.tsx, SKY.* in config)
+ * is deliberately NOT changed to match — it is allowed to be the colour of a
+ * void sky, because the player looks at it directly, once, through an opening.
+ * What lights a room is this.
+ */
+const PROBE_ZENITH = '#15120E'
+const PROBE_HORIZON = '#3A2E22'
+const PROBE_VOID = '#0D0A07'
+
+/**
+ * Hemisphere intensity, absolute rather than a gain on config.
+ *
+ * 0.12 × HEMI_GAIN 0.55 = 0.066 was the R5 value, against a key of 6.13. That
+ * is 1/93 — far enough below the key that it is not a fill, it is a rounding
+ * error, and in a roofed room where the key never arrives it was one of only
+ * two terms doing anything at all. 0.26 is 1/24 of the key, so a shadowed
+ * plane still sits about 3.3 stops under a lit one (which is the brief's
+ * "three-to-four stop event"), but a recess reads as dark warm ash instead of
+ * as the zero it currently measures.
+ */
+const HEMI_INTENSITY = 0.26
+
 /** far cascade tint — the key colour pulled most of the way to the sky */
-const FAR_TINT = new THREE.Color(LIGHTING.key.color).lerp(
-  new THREE.Color(LIGHTING.hemisphere.skyColor),
-  0.55,
-)
+const FAR_TINT = new THREE.Color(LIGHTING.key.color).lerp(new THREE.Color(AMBIENT_SKY), 0.55)
 
 /**
  * The primary cascade's depth map and world→shadow matrix, published once a
@@ -356,11 +497,21 @@ const APERTURES: {
    */
   cull?: number
 }[] = [
+  // R7 — every `bounce` below roughly doubles. The fractions were authored in
+  // R5 as a cautious first pass (0.08–0.2 of the pool's own irradiance
+  // returned at 1 m) and the measurement since says they were about half of
+  // what a real interior returns: a dusty ivory deck has an albedo north of
+  // 0.4, and the light leaving it is not one bounce but the sum of a series.
+  // This is also the term that is safe to raise, because at decay 2 it is
+  // 1/100 of its 1 m value at 10 m — it cannot reach the far side of a room
+  // the way the probe or the hemisphere can.
+  //
   // spawn oculus — the first interior the player stands in
-  { p: [0, 12, 7.5], angle: 0.46, floorIrradiance: 5.3, drop: 12, bounce: 0.1 },
+  { p: [0, 12, 7.5], angle: 0.46, floorIrradiance: 5.3, drop: 12, bounce: 0.2 },
   // reliquary chamber oculus — the mission's hero room, and the one frame the
   // panel is most likely to judge. Its pool lands off-centre by design.
-  { p: [0, 17, 150], angle: 0.56, floorIrradiance: 6.2, drop: 17, bounce: 0.14 },
+  // 07_chamber measures 52.7 % pure black against the reference's 1.7 %.
+  { p: [0, 17, 150], angle: 0.56, floorIrradiance: 6.2, drop: 17, bounce: 0.28 },
   // canyon glazing, two bays — these rake the deck the player sprints down.
   //
   // R5: these CAST now. In 03_sprint the canyon is a roofed arcade whose
@@ -375,8 +526,8 @@ const APERTURES: {
   //  on the canyon's median, and the canyon is already the brightest room in
   //  the level. What this round changes here is that the openings CAST, not
   //  that they deliver more.)
-  { p: [3.4, 10, 60], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.08, cull: 62 },
-  { p: [3.4, 10, 100], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.08, cull: 62 },
+  { p: [3.4, 10, 60], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.17, cull: 62 },
+  { p: [3.4, 10, 100], angle: 0.36, floorIrradiance: 3.9, drop: 10, bounce: 0.17, cull: 62 },
   // ---------------------------------------------------------------------
   // ARENA VAULT RIDGE SLOTS — the room the review set judges hardest, and
   // until R5 the only room in the level with NO placed light of any kind.
@@ -396,8 +547,16 @@ const APERTURES: {
   // That asymmetry is not staged: it is where a 41.7° sun through those two
   // holes actually puts its light, and it leaves the west half of the room
   // in shadow, which is the half the panel wants dark.
-  { p: [0, 29.5, 190], angle: 0.26, floorIrradiance: 6.4, drop: 29.5, near: 14, bounce: 0.2, cull: 88 },
-  { p: [0, 29.5, 200], angle: 0.26, floorIrradiance: 5.6, drop: 29.5, near: 14, bounce: 0.17, cull: 88 },
+  //
+  // R7: `bounce` 0.2 → 0.4 and 0.17 → 0.34, the largest bounce fractions in
+  // the table, and deliberately so. Both pools land at x ≈ +20.6 — that is
+  // where a 41.7° sun through a ridge slot at x = 0 and y = 29.5 physically
+  // puts its light, and it is against the EAST wall, 20 m from where the
+  // fighting happens. So the arena's only dominant source lights a corner,
+  // and the rest of the room has to be lit by that corner. Which is exactly
+  // what a real vault does: the pool is the room's second source.
+  { p: [0, 29.5, 190], angle: 0.26, floorIrradiance: 6.8, drop: 29.5, near: 14, bounce: 0.4, cull: 88 },
+  { p: [0, 29.5, 200], angle: 0.26, floorIrradiance: 6.0, drop: 29.5, near: 14, bounce: 0.34, cull: 88 },
 ]
 
 /** how far past the floor the cone reaches; see the cutoff-window note below */
@@ -615,7 +774,9 @@ function ApertureKeys() {
           castShadow
           shadow-mapSize-width={APERTURE_MAP}
           shadow-mapSize-height={APERTURE_MAP}
-          shadow-radius={1.4}
+          /* an aperture is a 10 m hole: a large area source, and therefore
+             the softest shadow in the rig */
+          shadow-radius={2.2}
           shadow-camera-near={1.5}
           shadow-camera-far={40}
           shadow-bias={-0.0004}
@@ -678,6 +839,236 @@ function ApertureKeys() {
 }
 
 // ---------------------------------------------------------------------------
+// DECK BOUNCE (R7) — the one instrument that lights a plinth harder than a
+// cornice, and the answer to "the arena wall tiles like wallpaper"
+//
+// Every other light in this rig comes from above. The key is a 41.7° sun, the
+// aperture keys come down through holes in the roof, the practicals hang on
+// walls, the hemisphere's bright half is its sky half. So every vertical
+// surface in the level receives the same irradiance at the skirting as at the
+// cornice, which is the literal mechanism behind a 60 m wall carrying one flat
+// value top to bottom. A photograph of an interior never looks like that,
+// because in a real room the brightest surface is the FLOOR and the wall above
+// it is lit by the floor, falling off all the way up to the cornice.
+//
+// The aperture pool bounces (see APERTURES.bounce) do this correctly but only
+// where an aperture's shaft physically lands — in the arena that is a patch
+// against the east wall, 20 m from where the fighting happens. This term does
+// it wherever the player is.
+//
+// Shape matters, and it is why this is a SPOT AIMED STRAIGHT UP rather than
+// the obvious point light on the deck:
+//   - an omnidirectional point light would throw as much light DOWN through
+//     the deck and out at the level's understructure as it throws up, and
+//     would put its hottest value straight back onto the floor it is meant to
+//     be leaving — a travelling bright disc at the player's feet, which is
+//     the exact tell that says "character light".
+//   - an upward spot at angle 1.32 rad with penumbra 1.0 is a cosine-weighted
+//     upward hemisphere instead. It has no downward lobe at all, and with the
+//     apex seated under the deck (see below) its brightest direction is
+//     straight up the wall rather than across the floor. It lights walls,
+//     overhangs, the undersides of gantries and the underside of the player's
+//     own armour — precisely the set of surfaces real floor bounce reaches,
+//     and the set this rig has never lit.
+//
+// DECAY AND SEAT DEPTH, which together are the whole difference between this
+// reading as bounce and reading as a lamp on the floor:
+//   - decay is 1, not the physical 2. An inverse-square law describes a POINT
+//     source, and the bounce patch is an area source several metres across; a
+//     lambertian disc of radius R delivers irradiance ∝ R²/(R² + h²), which
+//     is flat close up and only becomes 1/r² far away. Decay 1 is the honest
+//     middle of that, and decay 2 would have put 30 key-units on the player's
+//     own boots half a metre from the apex.
+//   - the apex is seated BELOW the deck, not on it, for the same reason: it
+//     is the standard way to stand a point light in for a disc, since the
+//     disc's effective source sits about its own radius behind the plane. It
+//     also removes the 1/r singularity from every position the player can
+//     occupy, which a light seated ON the floor he is standing on cannot do.
+//
+// The resulting ramp on a near wall: 0.30 key units at the plinth (1 m over
+// the deck), 0.15 at 4 m, 0.065 at the cornice at 8 m. That is 2.2 stops of
+// vertical falloff on a surface that currently has none, and it is gone
+// entirely past DECK_BOUNCE_RANGE, so it cannot touch the far wall.
+// Non-casting — bounce has no shadow.
+// ---------------------------------------------------------------------------
+/** metres from the bounce apex at which DECK_BOUNCE_AT is delivered. With the
+ *  apex 2 m under the deck this is a point 1 m over it — a wall's plinth. */
+const DECK_BOUNCE_REF = 3
+/** irradiance at DECK_BOUNCE_REF, in the key's units (key ≈ 6.13), at full
+ *  enclosure. See ENCLOSURE — outdoors this is scaled to a fraction. */
+const DECK_BOUNCE_AT = 0.42
+/** cutoff; past this the term is zero, so it can never flatten a far wall */
+const DECK_BOUNCE_RANGE = 16
+/** apex depth below the deck — negative, and see the note above for why */
+const DECK_BOUNCE_SEAT = -2
+/** how far below the player we look for a deck before keeping the last one */
+const DECK_PROBE = 9
+/** frames between floor probes — the deck does not move fast */
+const DECK_PROBE_EVERY = 5
+
+// ---------------------------------------------------------------------------
+// ENCLOSURE — how much of the sky the room the player is in can see, and the
+// reason the bounce terms are not simply global.
+//
+// Interreflection is the whole difference between a roofed room and an open
+// one, and it is the term a rasteriser has none of. Light that leaves the deck
+// of the reliquary dome hits the vault and comes back; light that leaves the
+// deck of the open canyon leaves. That is why the measured frames split the
+// way they do: after the R7 ambient lift the canyon sits at 7.0 % pure black
+// with a median of 95 (the reference is 1.7 % and 62 — near enough), while the
+// chamber is still 50.8 % black. Raising a GLOBAL term further would fix the
+// chamber by overshooting the canyon, which is already a little hot.
+//
+// So the enclosure of the room is data. It is keyed on z, like APERTURES and
+// GOD_RAYS in this same file, and the ceiling heights are the level's real
+// ones: the spawn oculus at y 12, the canyon gantry course at y 16.4 (an
+// arcade — roofed in strips, open between them, hence 0.45), the reliquary
+// dome at y 17, the arena vault ridge at y 29.5 and the extraction bridge
+// vaults at y 12. Blended over a 10 m band at each boundary so walking from
+// the canyon into the chamber is a ramp rather than a step.
+// ---------------------------------------------------------------------------
+const ENCLOSURE: { z: number; ceil: number; amount: number }[] = [
+  { z: 5, ceil: 12, amount: 0.85 }, // spawn hall, oculus overhead
+  { z: 75, ceil: 16.4, amount: 0.45 }, // canyon arcade: gantry strips, open between
+  { z: 150, ceil: 17, amount: 1.0 }, // reliquary dome
+  { z: 195, ceil: 29.5, amount: 1.0 }, // arena vault
+  { z: 245, ceil: 12, amount: 0.7 }, // extraction bridge vaults
+]
+/** how much of the deck bounce survives in the open (z outside the table) */
+const ENCLOSURE_FLOOR = 0.3
+/** irradiance the vault bounce lands on the deck at full enclosure */
+const VAULT_BOUNCE_AT = 0.26
+
+const _deckOrigin = new THREE.Vector3()
+const _deckDown = new THREE.Vector3(0, -1, 0)
+
+/** linear interpolation across the ENCLOSURE table on z */
+function enclosureAt(z: number, out: { ceil: number; amount: number }) {
+  const t = ENCLOSURE
+  if (z <= t[0].z) {
+    out.ceil = t[0].ceil
+    out.amount = t[0].amount
+    return
+  }
+  const last = t[t.length - 1]
+  if (z >= last.z) {
+    out.ceil = last.ceil
+    out.amount = last.amount
+    return
+  }
+  for (let i = 0; i < t.length - 1; i++) {
+    const a = t[i]
+    const b = t[i + 1]
+    if (z > b.z) continue
+    const k = (z - a.z) / (b.z - a.z)
+    out.ceil = a.ceil + (b.ceil - a.ceil) * k
+    out.amount = a.amount + (b.amount - a.amount) * k
+    return
+  }
+}
+
+function DeckBounce() {
+  const up = useRef<THREE.SpotLight>(null!)
+  const down = useRef<THREE.SpotLight>(null!)
+  const groundY = useRef(0)
+  const frame = useRef(0)
+  const encl = useMemo(() => ({ ceil: 16, amount: 0.5 }), [])
+  /** smoothed enclosure, so a zone boundary is never a lighting cut */
+  const level = useRef(0.5)
+
+  /** the same cutoff-window compensation the apertures and kickers use, so
+   *  DECK_BOUNCE_AT is the irradiance actually delivered at DECK_BOUNCE_REF */
+  const upIntensity = useMemo(() => {
+    const w = (1 - (DECK_BOUNCE_REF / DECK_BOUNCE_RANGE) ** 4) ** 2
+    // decay 1 -> irradiance is I/d, so the authored figure is I = at * ref
+    return (DECK_BOUNCE_AT * DECK_BOUNCE_REF) / w
+  }, [])
+
+  useFrame((_, dt) => {
+    const u = up.current
+    const d = down.current
+    if (!u || !d) return
+    const p = PlayerRef.position
+    frame.current++
+    if (frame.current % DECK_PROBE_EVERY === 0) {
+      _deckOrigin.set(p.x, p.y + 0.6, p.z)
+      const hit = raycastLevel(_deckOrigin, _deckDown, DECK_PROBE, ['floor'])
+      if (hit) groundY.current = hit.point.y
+      else groundY.current = p.y
+    }
+    // while the player is airborne the deck below him is still the surface
+    // that is bouncing, so the seat stays on the ground rather than riding up
+    // with him — but it is clamped so a long fall does not strand it.
+    const gy = THREE.MathUtils.clamp(groundY.current, p.y - DECK_PROBE, p.y + 0.5)
+
+    enclosureAt(p.z, encl)
+    const k = 1 - Math.exp(-3 * dt)
+    level.current = THREE.MathUtils.lerp(level.current, encl.amount, k)
+    const e = level.current
+
+    // --- floor -> wall (up) ----------------------------------------------
+    u.position.set(p.x, gy + DECK_BOUNCE_SEAT, p.z)
+    u.target.position.set(p.x, gy + DECK_BOUNCE_SEAT + 1, p.z)
+    u.target.updateMatrixWorld()
+    const upGain = ENCLOSURE_FLOOR + (1 - ENCLOSURE_FLOOR) * e
+    u.intensity = upIntensity * upGain
+    u.userData.auricBounceAt1m = DECK_BOUNCE_AT * DECK_BOUNCE_REF * upGain
+
+    // --- vault -> floor (down): the return trip, and the reason an interior
+    //     deck is a mid value in a photograph and pure black in ours. The
+    //     apex sits 2 m ABOVE the ceiling for the same area-source reason the
+    //     up-bounce sits 2 m below the deck.
+    const h = Math.max(encl.ceil, 4)
+    const apex = gy + h + 2
+    const dist = h + 2
+    const range = dist * 1.8
+    const w = (1 - (dist / range) ** 4) ** 2
+    d.position.set(p.x, apex, p.z)
+    d.target.position.set(p.x, apex - 1, p.z)
+    d.target.updateMatrixWorld()
+    d.distance = range
+    d.intensity = e > 0.002 ? ((VAULT_BOUNCE_AT * dist) / w) * e : 0
+    d.userData.auricBounceAt1m = VAULT_BOUNCE_AT * dist * e
+  })
+
+  return (
+    <>
+      <spotLight
+        ref={up}
+        color={AMBIENT_GROUND_BOUNCE}
+        intensity={0}
+        // ~75.6°: a cosine-weighted upward hemisphere, brightest straight up
+        // the wall rather than across the floor
+        angle={1.32}
+        penumbra={1}
+        distance={DECK_BOUNCE_RANGE}
+        // area source, not a point — see the note over DECK_BOUNCE_REF
+        decay={1}
+        onUpdate={(l: THREE.SpotLight) => {
+          if (!l.target.parent) l.parent?.add(l.target)
+          l.userData.auricRole = 'bounce'
+          l.userData.auricBounceAt1m = 0
+        }}
+      />
+      <spotLight
+        ref={down}
+        color={AMBIENT_VAULT_BOUNCE}
+        intensity={0}
+        angle={1.32}
+        penumbra={1}
+        distance={40}
+        decay={1}
+        onUpdate={(l: THREE.SpotLight) => {
+          if (!l.target.parent) l.parent?.add(l.target)
+          l.userData.auricRole = 'bounce'
+          l.userData.auricBounceAt1m = 0
+        }}
+      />
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // CHARACTER KICKERS (R5) — the pair of lights that make the figure a shape
 //
 // The standing complaint about the hero is that he reads squat and barrel-
@@ -734,7 +1125,7 @@ const KICKERS: {
   // warm three-quarter back rim — the one that draws the outline
   { azim: 0.72, elev: 0.56, dist: 8.0, color: '#FFF0D4', subject: 6.6, angle: 0.2 },
   // cold back rim on the other shoulder, a third of the warm one
-  { azim: -1.0, elev: 0.44, dist: 7.0, color: LIGHTING.coolRim.color, subject: 2.3, angle: 0.22 },
+  { azim: -1.0, elev: 0.44, dist: 7.0, color: COUNTER_RIM, subject: 2.3, angle: 0.22 },
 ]
 
 const _kickFwd = new THREE.Vector3()
@@ -1568,14 +1959,29 @@ const ENV_H = MATERIALS.envMapResolution / 2
  * can point at. With two ridge-slot keys and their pool bounce carrying the
  * room, the probe can go back to being what an IBL is for: the colour of the
  * sky in a reflection, and a floor under the darks.
+ *
+ * R7: 0.20 → 0.40, and this reverses the direction R4 and R5 were pushing.
+ * Their argument — that a directionless term cannot model form — is correct
+ * and is why the APERTURES exist. What it does not license is taking the only
+ * light that reaches an unlit corner down to nothing: measured on the R6
+ * build, 07_chamber is 52.7 % pure black and 08_enemies is 49.7 % with a 95th
+ * percentile of 84/255, against a reference frame that is 1.7 % black with a
+ * 5th percentile of 25/255 and a 95th of 147. The reference is a daylit scene
+ * with a lot of bounce, and ours had had its bounce removed three rounds
+ * running. The key is untouched, so the key/ambient ratio is still 24:1.
+ *
+ * The specular half of the probe is held EXACTLY where R5 left it: the sun
+ * disc and the two specular bars are multiplied by ENV_SPEC_GAIN, and that
+ * constant drops by the same factor the intensity rises (0.20 × 3.7 = 0.74 =
+ * 0.40 × 1.85), so a gold bevel's highlight does not move by a single bit
+ * while the diffuse doubles. `scene.environmentIntensity` scales both, which
+ * is exactly why the compensation has to be in the authored radiance.
  */
-const ENV_INTENSITY = 0.2
-/** compensating gain on the probe's narrow, high-radiance features.
- *  R5: 2.9 → 3.7, which is exactly the 0.26/0.20 ratio applied to the sun
- *  disc and the specular bars, so cutting the diffuse costs gold nothing at
- *  the highlight — `scene.environmentIntensity` scales diffuse and specular
- *  together, and these two terms occupy ~0.002 sr between them. */
-const ENV_SPEC_GAIN = 3.7
+const ENV_INTENSITY = 0.4
+/** compensating gain on the probe's narrow, high-radiance features — see the
+ *  ENV_INTENSITY note: this is the term that keeps the sun disc's absolute
+ *  radiance fixed across a change of probe gain. 0.20 × 3.7 ≡ 0.40 × 1.85. */
+const ENV_SPEC_GAIN = 1.85
 
 function smoothstep01(e0: number, e1: number, x: number) {
   const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1)
@@ -1586,11 +1992,11 @@ function buildEnvEquirect(): THREE.DataTexture {
   const data = new Float32Array(ENV_W * ENV_H * 4)
   // THREE.Color parses sRGB hex into the linear working space, which is the
   // space PMREM wants, so these components go straight into the buffer.
-  const zenith = new THREE.Color(SKY.zenith)
-  const horizon = new THREE.Color(SKY.horizon)
-  const voidC = new THREE.Color(SKY.voidTint)
+  const zenith = new THREE.Color(PROBE_ZENITH)
+  const horizon = new THREE.Color(PROBE_HORIZON)
+  const voidC = new THREE.Color(PROBE_VOID)
   const warm = new THREE.Color(LIGHTING.key.color)
-  const cool = new THREE.Color(LIGHTING.coolRim.color)
+  const cool = new THREE.Color(COUNTER_RIM)
   const gold = new THREE.Color(COLORS.regalGold)
   const teal = new THREE.Color(COLORS.cadenceTeal)
 
@@ -1843,22 +2249,27 @@ export default function Lighting() {
         }}
       />
 
-      {/* 2 — cool indigo hemisphere fill. At 0.12 against a 3.78 key this is
-          not a light, it is the colour the shadow side is allowed to be. */}
-      <hemisphereLight
-        args={[
-          LIGHTING.hemisphere.skyColor,
-          LIGHTING.hemisphere.groundColor,
-          LIGHTING.hemisphere.intensity * HEMI_GAIN,
-        ]}
-      />
+      {/* 2 — WARM ASH SKYLIGHT. R7: this used to be an indigo trace at 0.066,
+          and it was one of only two terms reaching a roofed interior, which
+          is how the arena's walls ended up mauve and half the chamber ended
+          up at pure zero. It is now a warm desaturated skylight at 0.26 —
+          1/24 of the key, so a shadow is still a ~3.3-stop event, but the
+          shadow side is dark warm ash rather than black periwinkle. */}
+      <hemisphereLight args={[AMBIENT_SKY, AMBIENT_GROUND, HEMI_INTENSITY]} />
 
-      {/* camera-side warm fill + halved cool rim, re-aimed across the axis so
-          it separates silhouettes instead of back-lighting the whole level */}
+      {/* DECK BOUNCE — interreflection. Floor → wall and vault → floor, both
+          following the player and both scaled by how enclosed his room is.
+          See the note over DeckBounce for the shape argument (why these are
+          upward/downward spots with their apexes outside the room rather
+          than point lights) and for ENCLOSURE. */}
+      <DeckBounce />
+
+      {/* camera-side warm fill + halved counter-rim, re-aimed across the axis
+          so it separates silhouettes instead of back-lighting the whole level */}
       <CameraFill />
       <directionalLight
         position={[70, 34, 210]}
-        color={LIGHTING.coolRim.color}
+        color={COUNTER_RIM}
         intensity={LIGHTING.coolRim.intensity}
         onUpdate={(l: THREE.DirectionalLight) => {
           l.target.position.set(-10, 2, 140)

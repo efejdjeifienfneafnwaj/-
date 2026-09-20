@@ -118,6 +118,7 @@ export function initTextures() {
   getOrokinHeightTexture()
   getEnemyPlateTextures()
   getMacroVariationTexture()
+  getWeatherTexture()
   getGoldAlbedoTexture()
   getGoldORMTexture()
   getBrushedGoldRoughnessTexture()
@@ -779,6 +780,32 @@ function pvnoise(x: number, y: number, period: number): number {
 }
 
 /**
+ * Periodic value noise with INDEPENDENT periods per axis.
+ *
+ * pvnoise wraps both axes at the same period, which is only correct when the
+ * lattice frequency is the same in both. Every anisotropic layer — a rust
+ * fibre that is fine across the run and coarse along it, a brushed grain — is
+ * by definition not, and using pvnoise for one leaves a hard seam on whichever
+ * axis has the lower frequency. The fibre breakup on the weathering atlas is
+ * 96 × 11, so it needed this.
+ */
+function pvnoise2(x: number, y: number, px: number, py: number): number {
+  const ix = Math.floor(x)
+  const iy = Math.floor(y)
+  const fx = x - ix
+  const fy = y - iy
+  const ux = fx * fx * (3 - 2 * fx)
+  const uy = fy * fy * (3 - 2 * fy)
+  const wx = (v: number) => ((v % px) + px) % px
+  const wy = (v: number) => ((v % py) + py) % py
+  const a = hash2(wx(ix), wy(iy))
+  const b = hash2(wx(ix + 1), wy(iy))
+  const c = hash2(wx(ix), wy(iy + 1))
+  const d = hash2(wx(ix + 1), wy(iy + 1))
+  return (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy
+}
+
+/**
  * 256² MACRO variation — the layer every shipped game has and a blockout does
  * not.
  *
@@ -839,6 +866,269 @@ export function getMacroVariationTexture(): THREE.CanvasTexture {
 export function getMacroMean(): number {
   getMacroVariationTexture()
   return macroMean
+}
+
+
+// ---------------------------------------------------------------------------
+// R6 — the weathering atlas
+//
+// The panel's third named difference between our frames and the reference was
+// "every surface still sits at its authored colour". The macro layer above
+// answers TILING; it does not answer WEATHERING, because it is one channel of
+// value noise, and value noise cannot make a rust run. A run starts at a
+// fixing, travels straight down under gravity, spreads as it goes and dies;
+// it has a source, a direction and an end. Noise has none of those, which is
+// why the round-5 `drip` term — a noise fetch stretched 17× vertically —
+// read as a soft vertical smudge rather than as dirt that has run.
+//
+// So the runs are DRAWN: bolted flange bars at rectilinear rows, bolts at a
+// fixed pitch along them, and a tapering gradient run falling from each one
+// that actually emits. Noise only breaks the runs into fibres afterwards. The
+// same atlas carries three more channels that the shader needs and that no
+// single-channel map could hold at once:
+//
+//   R  rust / stain runs, gravity aligned (drawn, then fibre-broken)
+//   G  grime pooling blotches — low frequency, contrast-curved so it POOLS
+//      into patches instead of averaging out
+//   B  dust deposition breakup, mid frequency
+//   A  edge wear / scuff — drawn rectilinear scrapes plus fine grain
+//
+// Sampled in WORLD metres in the shader, at a fixed tile independent of every
+// material's own trim scale, so a 12 cm rust run is 12 cm on the deck, on a
+// column and on a 40 m arena wall. The R channel gets its own gravity-locked
+// projection (horizontal world axis × world −Y); the rest use the material's
+// dominant-axis planar projection.
+// ---------------------------------------------------------------------------
+
+const WEATHER_SIZE = 512
+let weather: THREE.DataTexture | null = null
+let weatherStats = { runMean: 0, runCover: 0, poolMean: 0, wearMean: 0 }
+
+/**
+ * One stain run: a straight, slightly tapering vertical band with a gradient
+ * that is strongest just under its source and gone by its tail. Drawn three
+ * times (at x, x−size, x+size) so a run crossing the tile edge is continuous
+ * when the map wraps.
+ */
+function drawRun(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  len: number,
+  alpha: number,
+  size: number,
+) {
+  const g = ctx.createLinearGradient(0, y, 0, y + len)
+  g.addColorStop(0, `rgba(255,255,255,${(alpha * 0.55).toFixed(3)})`)
+  g.addColorStop(0.06, `rgba(255,255,255,${alpha.toFixed(3)})`)
+  g.addColorStop(0.34, `rgba(255,255,255,${(alpha * 0.62).toFixed(3)})`)
+  g.addColorStop(0.72, `rgba(255,255,255,${(alpha * 0.22).toFixed(3)})`)
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  // widen in three straight steps as it falls — a run spreads, but it spreads
+  // in flat-sided tongues, not in a cone
+  for (let s = 0; s < 3; s++) {
+    const y0 = y + (len * s) / 3
+    const h0 = len / 3
+    const ww = w * (1 + s * 0.34)
+    for (const ox of [-size, 0, size]) {
+      ctx.fillRect(x + ox - ww * 0.5, y0, ww, h0)
+    }
+  }
+}
+
+function buildWeatherMaps() {
+  const size = WEATHER_SIZE
+
+  // --- R: drawn stain runs -------------------------------------------------
+  const [, s] = makeCanvas(size)
+  s.fillStyle = '#000'
+  s.fillRect(0, 0, size, size)
+  s.globalCompositeOperation = 'lighter'
+  // Every row sits in the upper 74 % and every run is dead well before the
+  // bottom edge, so the tile wraps vertically with nothing to line up.
+  for (let r = 0; r < 7; r++) {
+    const ry = 10 + hash2(r * 4.7 + 0.31, 2.13) * size * 0.68
+    const pitch = 24 + hash2(r * 2.9 + 1.7, 7.41) * 44
+    // the fixing itself — a straight bolted flange bar. Rectilinear, full
+    // width, so the run has a visible SOURCE and the eye reads cause first.
+    const barH = 2 + Math.floor(hash2(r + 3.3, 9.1) * 3)
+    s.fillStyle = 'rgba(255,255,255,0.11)'
+    s.fillRect(0, ry, size, barH)
+    s.fillStyle = 'rgba(255,255,255,0.22)'
+    s.fillRect(0, ry + barH, size, 1)
+    for (let x = hash2(r * 5.1, 3.7) * pitch; x < size; x += pitch) {
+      const k = hash2(x * 0.021 + r * 3.7, 5.2)
+      if (k < 0.40) continue
+      const w = 2 + Math.floor(hash2(x * 0.013 + r, 8.8) * 11)
+      // Clamped so the run's gradient reaches zero INSIDE the tile. A run
+      // that ran off the bottom edge would be cut flat by the canvas and the
+      // map would then have a hard horizontal line across every wall in the
+      // level at the 9 m wrap — the one artefact a tiling weather map cannot
+      // have, because the eye finds a straight horizontal discontinuity
+      // faster than it finds anything else.
+      const room = size - (ry + barH) - 12
+      const len = Math.min(room, 44 + hash2(x * 0.017 + r * 2.2, 1.9) * 300)
+      if (len < 24) continue
+      const a = 0.30 + hash2(x * 0.031 + r, 6.6) * 0.55
+      // bolt head: a short, wide bleed halo right at the source
+      s.fillStyle = `rgba(255,255,255,${(a * 0.5).toFixed(3)})`
+      s.fillRect(x - w * 0.9, ry + barH, w * 1.8, 3)
+      drawRun(s, x, ry + barH, w, len, a, size)
+      // a wide bleed always has hairlines beside it
+      if (k > 0.66) {
+        drawRun(s, x - w - 2 - hash2(x, 2.2) * 5, ry + barH, 1.5, len * 0.55, a * 0.5, size)
+      }
+      if (k > 0.82) {
+        drawRun(s, x + w + 2 + hash2(x, 5.4) * 6, ry + barH, 1.5, len * 0.42, a * 0.44, size)
+      }
+    }
+  }
+  s.globalCompositeOperation = 'source-over'
+  const sData = s.getImageData(0, 0, size, size).data
+
+  // --- A: drawn edge wear / scuff -----------------------------------------
+  const [, w] = makeCanvas(size)
+  w.fillStyle = '#000'
+  w.fillRect(0, 0, size, size)
+  w.globalCompositeOperation = 'lighter'
+  // Straight scrapes only — a scuff on a machined plate follows the plate, so
+  // it is axis-aligned. Curves here would read as a paint effect.
+  for (let i = 0; i < 430; i++) {
+    const hx = hash2(i * 1.7 + 0.5, 3.1)
+    const hy = hash2(i * 2.3 + 1.1, 6.7)
+    const hl = hash2(i * 3.9 + 2.7, 8.3)
+    const ha = hash2(i * 5.3 + 0.9, 1.5)
+    const len = 6 + hl * 54
+    const th = 1 + Math.floor(hash2(i * 1.3, 4.4) * 2)
+    w.fillStyle = `rgba(255,255,255,${(0.18 + ha * 0.6).toFixed(3)})`
+    const horiz = hash2(i * 7.1, 2.9) < 0.55
+    // drawn at every wrap offset, so a scratch crossing the tile edge comes
+    // out of the other side instead of being clipped flat against it
+    for (const ox of [-size, 0]) {
+      for (const oy of [-size, 0]) {
+        if (horiz) w.fillRect(hx * size + ox, hy * size + oy, len, th)
+        else w.fillRect(hx * size + ox, hy * size + oy, th, len)
+      }
+    }
+  }
+  // chipped plate corners — small rectilinear bites where an edge has gone
+  for (let i = 0; i < 34; i++) {
+    const cx = hash2(i * 2.1 + 3.3, 7.9) * size
+    const cy = hash2(i * 4.7 + 1.9, 2.5) * size
+    const cw = 3 + hash2(i * 1.1, 9.3) * 12
+    const ch = 3 + hash2(i * 3.7, 4.1) * 12
+    w.fillStyle = `rgba(255,255,255,${(0.34 + hash2(i, 5.5) * 0.45).toFixed(3)})`
+    for (const ox of [-size, 0]) for (const oy of [-size, 0]) w.fillRect(cx + ox, cy + oy, cw, ch)
+  }
+  w.globalCompositeOperation = 'source-over'
+  const wData = w.getImageData(0, 0, size, size).data
+
+  // --- composite the four channels ----------------------------------------
+  // The composite deliberately does NOT go through a canvas. A 2D canvas
+  // backing store is PREMULTIPLIED, and this atlas' alpha channel is data
+  // (edge wear), not coverage — every texel with wear 0 would have had its
+  // R, G and B crushed to zero on upload, which would have deleted the rust
+  // runs from exactly the clean panels they are supposed to stain. A
+  // DataTexture hands the bytes to WebGL untouched.
+  const data = new Uint8Array(size * size * 4)
+  let runSum = 0
+  let runCov = 0
+  let poolSum = 0
+  let wearSum = 0
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x
+      const j = i * 4
+      const u = x / size
+      const v = y / size
+
+      // R — the drawn run, broken into fibres. High frequency ACROSS the run,
+      // low frequency along it, which is what turns a painted band into dirt.
+      const fibre =
+        pvnoise2(u * 96, v * 11, 96, 11) * 0.62 + pvnoise2(u * 27, v * 5, 27, 5) * 0.38
+      const run = Math.min(1, (sData[j] / 255) * (0.30 + 1.25 * fibre))
+      runSum += run
+      if (run > 0.15) runCov++
+
+      // G — grime pooling. Two periodic octaves, then a contrast curve: dirt
+      // collects in patches and leaves the rest of the panel alone, so the
+      // interesting part of this channel is its TOP tail, not its mean.
+      const pn =
+        pvnoise(u * 4, v * 4, 4) * 0.56 +
+        pvnoise(u * 9, v * 9, 9) * 0.29 +
+        pvnoise(u * 19, v * 19, 19) * 0.15
+      const pool = Math.min(1, Math.max(0, (pn - 0.30) * 1.75)) ** 1.35
+      poolSum += pool
+
+      // B — dust breakup, mid frequency. Multiplies the shader's world-normal
+      // dust term so settled dust is patchy instead of a flat wash on every
+      // up-facing polygon.
+      const dust = Math.min(
+        1,
+        Math.max(0, pvnoise(u * 13, v * 13, 13) * 0.68 + pvnoise(u * 31, v * 31, 31) * 0.32),
+      )
+
+      // A — scuff, with fine grain under it
+      const grain = pvnoise(u * 71, v * 71, 71)
+      // The drawn scuffs are sparse by design — a scratch is a line, not a
+      // field — but measured over the tile they came out at a mean of 0.019,
+      // which after the material's own wear weight is nothing. The squared
+      // grain floor under them gives every proud face a low, uneven polish
+      // that breaks the specular between the scratches without ever reading
+      // as noise.
+      const wear = Math.min(1, (wData[j] / 255) * (0.45 + 0.9 * grain) + grain * grain * 0.22)
+      wearSum += wear
+
+      data[j] = run * 255
+      data[j + 1] = pool * 255
+      data[j + 2] = dust * 255
+      data[j + 3] = wear * 255
+    }
+  }
+  const n = size * size
+  weatherStats = {
+    runMean: runSum / n,
+    runCover: runCov / n,
+    poolMean: poolSum / n,
+    wearMean: wearSum / n,
+  }
+  weather = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  weather.wrapS = weather.wrapT = THREE.RepeatWrapping
+  weather.colorSpace = THREE.NoColorSpace
+  // DataTexture defaults to NEAREST with no mip chain; at the distances this
+  // is read across a 260 m level that would alias into a shimmering mess.
+  weather.magFilter = THREE.LinearFilter
+  weather.minFilter = THREE.LinearMipmapLinearFilter
+  weather.generateMipmaps = true
+  // the runs are long and thin and are read at grazing angles down every
+  // colonnade; without anisotropy they mip into a grey wash by 8 m
+  weather.anisotropy = 16
+  weather.needsUpdate = true
+  return weather
+}
+
+/**
+ * RGBA weathering atlas — R stain runs, G grime pools, B dust breakup,
+ * A edge wear. See buildWeatherMaps. Premultiplied alpha is NOT wanted here
+ * (A is data, not coverage), which is why it is composed through ImageData
+ * rather than by drawing the four canvases on top of each other.
+ */
+export function getWeatherTexture(): THREE.DataTexture {
+  if (weather) return weather
+  return buildWeatherMaps()
+}
+
+/** Measured channel statistics of the weathering atlas (tuning + QA). */
+export function getWeatherStats(): {
+  runMean: number
+  runCover: number
+  poolMean: number
+  wearMean: number
+} {
+  getWeatherTexture()
+  return weatherStats
 }
 
 /**
@@ -1240,6 +1530,105 @@ export function getDetailNormalTexture(): THREE.CanvasTexture {
   detailNormal.colorSpace = THREE.NoColorSpace
   detailNormal.anisotropy = 8
   return detailNormal
+}
+
+// ---------------------------------------------------------------------------
+// R6 — the second material family
+//
+// The reference frame's biggest single departure from ours is not a lighting
+// one: green foliage grows over the metal at the top and right, there is
+// cable and cloth in it, and those soft materials break the hard surface up.
+// A level made entirely of one hard family reads as a CAD render however well
+// that family is authored, which is why this sits in the surface-materials
+// axis rather than in prop art.
+//
+// These bake LAZILY — nothing here is generated unless a material asks for it
+// — so they cost nothing at boot until geometry that uses them exists.
+// ---------------------------------------------------------------------------
+
+const GROWTH_SIZE = 256
+let growthMap: THREE.CanvasTexture | null = null
+let growthAlpha: THREE.CanvasTexture | null = null
+
+/**
+ * Alpha-tested growth card: a cluster of tapering fronds rooted at the bottom
+ * edge of the tile, so a quad standing on a wall/floor junction reads as
+ * something growing out of the joint.
+ *
+ * Returned as two OPAQUE textures rather than one RGBA canvas, because a 2D
+ * canvas backing store is premultiplied: a colour map with partial alpha in it
+ * comes back with its RGB crushed toward black at every blade edge, which is
+ * exactly where an alpha-tested card gets cut.
+ */
+export function getGrowthTextures(): { map: THREE.CanvasTexture; alphaMap: THREE.CanvasTexture } {
+  if (growthMap && growthAlpha) return { map: growthMap, alphaMap: growthAlpha }
+  const size = GROWTH_SIZE
+  const [cCanvas, c] = makeCanvas(size)
+  const [aCanvas, a] = makeCanvas(size)
+  // Dark and DESATURATED. The reference's green reads as a hue against warm
+  // grey, not as a saturated prop colour, and a bright green card here would
+  // compete with the gold accents that carry the level's colour script.
+  c.fillStyle = '#20281B'
+  c.fillRect(0, 0, size, size)
+  a.fillStyle = '#000'
+  a.fillRect(0, 0, size, size)
+
+  const blade = (
+    ctx: CanvasRenderingContext2D,
+    x0: number,
+    len: number,
+    lean: number,
+    wide: number,
+    fill: string,
+  ) => {
+    const tipX = x0 + lean
+    const tipY = size - len
+    ctx.fillStyle = fill
+    ctx.beginPath()
+    ctx.moveTo(x0 - wide, size)
+    ctx.quadraticCurveTo(x0 - wide * 0.7 + lean * 0.35, size - len * 0.55, tipX, tipY)
+    ctx.quadraticCurveTo(x0 + wide * 0.7 + lean * 0.35, size - len * 0.55, x0 + wide, size)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  for (let i = 0; i < 46; i++) {
+    const x0 = hash2(i * 3.1 + 0.7, 2.9) * size
+    const len = size * (0.28 + hash2(i * 1.7 + 2.3, 5.1) * 0.62)
+    const lean = (hash2(i * 5.3 + 1.1, 8.7) - 0.5) * size * 0.55
+    const wide = 3 + hash2(i * 2.7, 4.3) * 9
+    // depth by value: blades behind are darker and cooler
+    const d = hash2(i * 7.9 + 0.3, 1.3)
+    const gg = Math.round(46 + d * 74)
+    const rr = Math.round(28 + d * 46)
+    const bb = Math.round(24 + d * 34)
+    for (const ox of [-size, 0, size]) {
+      blade(a, x0 + ox, len, lean, wide, '#fff')
+      blade(c, x0 + ox, len, lean, wide, `rgb(${rr},${gg},${bb})`)
+    }
+  }
+  // a dry, yellowed fringe on the tips and a dark rot at the root — foliage is
+  // never one green, and a card that is one green reads as a decal
+  c.globalCompositeOperation = 'source-atop'
+  const fr = c.createLinearGradient(0, 0, 0, size)
+  fr.addColorStop(0, 'rgba(122,110,54,0.55)')
+  fr.addColorStop(0.42, 'rgba(96,96,50,0.18)')
+  fr.addColorStop(1, 'rgba(24,34,20,0.5)')
+  c.fillStyle = fr
+  c.fillRect(0, 0, size, size)
+  c.globalCompositeOperation = 'source-over'
+
+  const mk = (cv: HTMLCanvasElement, srgb: boolean) => {
+    const t = new THREE.CanvasTexture(cv)
+    t.wrapS = t.wrapT = THREE.RepeatWrapping
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    t.anisotropy = 8
+    t.needsUpdate = true
+    return t
+  }
+  growthMap = mk(cCanvas, true)
+  growthAlpha = mk(aCanvas, false)
+  return { map: growthMap, alphaMap: growthAlpha }
 }
 
 /**

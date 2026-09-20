@@ -49,6 +49,13 @@ import {
   ARENA_DECK_GRATES,
   ARENA_DECK_HATCHES,
   ARENA_DADO_TOP,
+  ARENA_PIPE_LONG,
+  ARENA_PIPE_END,
+  ARENA_VENTS,
+  CABLE_SPANS,
+  GROWTH_CLUMPS,
+  CRATE_CLUSTERS,
+  HANDRAIL_RUNS,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -77,6 +84,9 @@ import {
   sealMaterial,
   glyphDecalMaterial,
   bannerMaterial,
+  growthMaterial,
+  cableMaterial,
+  clothMaterial,
 } from './materials'
 
 // ---------------------------------------------------------------------------
@@ -2804,6 +2814,34 @@ const D_SCONCE_LENS: InstItem[] = []
 /** arena perimeter practicals — consumed by GOLD_FIXTURES / EnvironmentFX */
 const D_SCONCE_FIXTURES: [number, number, number][] = []
 
+/**
+ * R7 — five bay MODULES instead of one, plus suppression.
+ *
+ * The work order's wording was exact: "no 200 px region is one repeated
+ * element". R4 fixed the PITCH of the arena order and left the MODULE alone,
+ * so the wall still presented the same screen-under-coffer kit in every bay,
+ * just at irregular spacing — which the eye still resolves, because a repeat
+ * is a repeat whatever its rhythm.
+ *
+ * `bayVariant` is a stable hash of the bay's own world coordinate, so it is
+ * identical on every load and on every machine, and different for the same
+ * index on different walls. It returns one of five modules: a tall screen, a
+ * short wide screen, a tall screen with no coffer over it, a narrow screen,
+ * and — for about one bay in four — a BLIND bay carrying nothing but a sunk
+ * panel, which is the variation that actually breaks the read.
+ */
+const D_BLIND_BACK: InstItem[] = []
+const D_BLIND_PANEL: InstItem[] = []
+function bayVariant(key: number, salt: number): { w: number; h: number; y: number; noCoffer: boolean; blind: boolean } {
+  const r = h1(Math.round(key * 7.3), salt)
+  if (r < 0.24) return { w: 4.6 + r * 2.2, h: 0, y: 0, noCoffer: true, blind: true }
+  if (r < 0.42) return { w: 5.4, h: 5.3, y: 3.4, noCoffer: false, blind: false }
+  if (r < 0.58) return { w: 5.8, h: 3.9, y: 2.9, noCoffer: false, blind: false }
+  if (r < 0.74) return { w: 4.9, h: 5.6, y: 3.6, noCoffer: true, blind: false }
+  if (r < 0.88) return { w: 3.6, h: 4.7, y: 3.2, noCoffer: false, blind: false }
+  return { w: 5.1, h: 4.4, y: 3.05, noCoffer: false, blind: false }
+}
+
 // east / west long walls
 for (const sx of [1, -1]) {
   const bays = sx > 0 ? D_BAY_Z_E : D_BAY_Z_W
@@ -2821,11 +2859,24 @@ for (const sx of [1, -1]) {
     // solid bay under a buttress is the correct answer as well as the one that
     // makes the buttress read as structure rather than applied ornament.
     if (sx < 0 && Math.abs(z - ARENA_BUTTRESS[1]) < 3.2) continue
-    const w = i % 2 === 0 ? 5.1 : 4.2
-    D_SCREEN_BACK.push({ p: [sx * 30.24, 3.2, z], s: [0.52, 5.4, w + 0.6] })
-    D_SCREENS.push({ p: [sx * 29.82, 3.2, z], r: [0, sx * Math.PI / 2, 0], s: [w, 4.7, 1] })
-    D_COFFER_BACK.push({ p: [sx * 30.24, 8.1, z], s: [0.52, 2.8, w * 0.62 + 0.4] })
-    D_COFFERS.push({ p: [sx * 29.82, 8.1, z], r: [0, sx * Math.PI / 2, 0], s: [w * 0.6, 2.6, 1] })
+    const v = bayVariant(z, sx > 0 ? 5 : 19)
+    if (v.blind) {
+      // R7 — a SUPPRESSED bay: no screen, no coffer, just a sunk blind panel.
+      // Roughly one bay in four. A wall where every bay carries the same kit
+      // is a wall the eye resolves into a grid however irregular the pitch is;
+      // a missing bay is what stops it, and it is also how a real building
+      // behaves, where a bay is whatever the plan behind it needed.
+      D_BLIND_BACK.push({ p: [sx * 30.24, 4.4, z], s: [0.52, 6.6, v.w + 0.4] })
+      D_BLIND_PANEL.push({ p: [sx * 29.98, 4.4, z], s: [0.1, 6.0, v.w * 0.72] })
+      continue
+    }
+    const w = v.w
+    D_SCREEN_BACK.push({ p: [sx * 30.24, v.y, z], s: [0.52, v.h + 0.7, w + 0.6] })
+    D_SCREENS.push({ p: [sx * 29.82, v.y, z], r: [0, sx * Math.PI / 2, 0], s: [w, v.h, 1] })
+    if (!v.noCoffer) {
+      D_COFFER_BACK.push({ p: [sx * 30.24, 8.1, z], s: [0.52, 2.8, w * 0.62 + 0.4] })
+      D_COFFERS.push({ p: [sx * 29.82, 8.1, z], r: [0, sx * Math.PI / 2, 0], s: [w * 0.6, 2.6, 1] })
+    }
   }
   for (const z of cols) {
     D_PILASTER_NOSING.push({ p: [sx * 29.74, 5, z], s: [0.2, 10, 0.42] })
@@ -2855,11 +2906,19 @@ for (const sz of [1, -1]) {
   const cols = sz > 0 ? D_COL_X_N : D_COL_X_S
   for (let i = 0; i < bays.length; i++) {
     const x = bays[i]
-    const w = i % 2 === 0 ? 5.1 : 4.2
-    D_SCREEN_BACK.push({ p: [x, 3.2, wz - face * 0.24], s: [w + 0.6, 5.4, 0.52] })
-    D_SCREENS.push({ p: [x, 3.2, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w, 4.7, 1] })
-    D_COFFER_BACK.push({ p: [x, 8.1, wz - face * 0.24], s: [w * 0.62 + 0.4, 2.8, 0.52] })
-    D_COFFERS.push({ p: [x, 8.1, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w * 0.6, 2.6, 1] })
+    const v = bayVariant(x + 100, sz > 0 ? 31 : 47)
+    if (v.blind) {
+      D_BLIND_BACK.push({ p: [x, 4.4, wz - face * 0.24], s: [v.w + 0.4, 6.6, 0.52] })
+      D_BLIND_PANEL.push({ p: [x, 4.4, wz + face * 0.02], s: [v.w * 0.72, 6.0, 0.1] })
+      continue
+    }
+    const w = v.w
+    D_SCREEN_BACK.push({ p: [x, v.y, wz - face * 0.24], s: [w + 0.6, v.h + 0.7, 0.52] })
+    D_SCREENS.push({ p: [x, v.y, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w, v.h, 1] })
+    if (!v.noCoffer) {
+      D_COFFER_BACK.push({ p: [x, 8.1, wz - face * 0.24], s: [w * 0.62 + 0.4, 2.8, 0.52] })
+      D_COFFERS.push({ p: [x, 8.1, wz + face * 0.18], r: [0, sz > 0 ? Math.PI : 0, 0], s: [w * 0.6, 2.6, 1] })
+    }
   }
   for (const x of cols) {
     D_PILASTER_NOSING.push({ p: [x, 5, wz + face * 0.16], s: [0.42, 10, 0.2] })
@@ -3882,6 +3941,10 @@ function ZoneD() {
           register, coffers above, a junction angle, corbel framing */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_SCREEN_BACK} />
       <Instanced geometry={SCREEN_WIDE} material={screenMaterial()} items={D_SCREENS} castShadow />
+      {/* R7 — the suppressed bays: a dark cavity with one sunk blind panel in
+          it, so roughly a quarter of the wall's bays carry no kit at all */}
+      <Instanced geometry={BOX} material={recessMaterial()} items={D_BLIND_BACK} receiveShadow />
+      <Instanced geometry={PANEL_BOX} material={ivoryContactMaterial()} items={D_BLIND_PANEL} receiveShadow castShadow />
       {/* R5 — cornice hood on two consoles over every screen bay: the one
           thing that puts a hard horizontal band of shade across the tiled
           field, because it stands 0.62 m off it. */}
@@ -4466,6 +4529,469 @@ export const GOLD_FIXTURES: readonly [number, number, number][] = (() => {
 })()
 
 // ---------------------------------------------------------------------------
+// R7 — SERVICE GREEBLE + THE SOFT MATERIAL FAMILY
+//
+// Held against the reference frame, the one thing this level has never had is
+// anything that DISAGREES with its own architecture. Every round added more
+// order: a better rhythm, a deeper recess, a finer moulding. The reference is
+// the opposite — a perfectly ordinary industrial bay with conduit bent across
+// it at whatever angle the run needed, flanges where two lengths meet, a vent
+// punched through a panel, cable sagging between two things that were never
+// designed together, crates left on the deck and weeds growing out of the
+// joint. Count the distinct objects in a 200 px crop of that image and almost
+// none of them are architecture.
+//
+// So this block adds four OFF-GRID families that cross the Orokin order:
+//
+//   1. conduit runs   — barrels with true circular sections, quarter-bend
+//                       elbows, bolted flanges and wall saddles. Authored at
+//                       z/x positions coprime with ARENA_BAY_PAIRS so a run
+//                       never lines up with a pier and reads as more order.
+//   2. vent louvres   — recessed boxes with a slat stack and a gold frame,
+//                       punched through the wall field between bays.
+//   3. the SOFT family — sagging catenary cable, alpha-tested growth at every
+//                       floor/wall junction, and hanging cloth. These are the
+//                       curves in a level otherwise made of straight lines,
+//                       and the growth is the only saturated hue in frame.
+//   4. scale props    — 1 m debris crates and handrail runs. A handrail is the
+//                       most reliable scale cue there is, and the reference has
+//                       one in the near field of nearly every frame.
+//
+// Budget: everything below is InstancedMesh over ~14 shared geometries. The
+// whole block is roughly 20 draw calls and allocates nothing after mount.
+//
+// Clearance: every conduit, cable and cloth piece is above 2.55 m, i.e. clear
+// of the 1.8 m player capsule; crates and rails stand on surfaces that are
+// already floor colliders. No collider coordinate moved.
+// ---------------------------------------------------------------------------
+
+/** unit-radius pipe barrel, axis along +Z — instance with s = [r, r, length] */
+const PIPE_SEG = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true).rotateX(Math.PI / 2)
+/**
+ * Quarter-bend elbow. Bend radius 1, tube radius 0.29. Scaled UNIFORMLY by s
+ * it joins a run entering at local (0, s, 0) travelling +X to one leaving at
+ * (s, 0, 0) travelling −Y, and because the scale is uniform the section stays
+ * a true circle through the bend (which is the whole reason this is not a
+ * squashed torus).
+ */
+const PIPE_ELBOW = new THREE.TorusGeometry(1, 0.29, 7, 10, Math.PI / 2)
+/** bolted flange plate + its studs, both on the +Z axis like PIPE_SEG */
+const FLANGE_GEO = new THREE.CylinderGeometry(1, 1, 1, 16).rotateX(Math.PI / 2)
+const STUD_GEO = new THREE.CylinderGeometry(1, 0.82, 1, 6).rotateX(Math.PI / 2)
+/** wall saddle — the bracket that clamps a run to the masonry behind it */
+const SADDLE_GEO = bakeContactAO(new THREE.BoxGeometry(1, 1, 1), -0.5, 0.15, 0.5)
+/** junction box at the foot of a drop */
+const JBOX_GEO = bakeContactAO(new RoundedBoxGeometry(1, 1, 1, 1, 0.06), -0.5, -0.1, 0.46)
+/** handrail stock: unit tube along X, unit post along Y */
+const RAIL_TUBE = new THREE.CylinderGeometry(1, 1, 1, 8).rotateZ(Math.PI / 2)
+const RAIL_POST = new THREE.CylinderGeometry(1, 0.88, 1, 8)
+/** 1 m debris crate, contact-darkened at its foot */
+const CRATE_GEO = bakeContactAO(new RoundedBoxGeometry(1, 1, 1, 1, 0.035), -0.5, -0.16, 0.44)
+/** louvre slat — a thin wedge box, stacked to make a vent */
+const SLAT_GEO = new THREE.BoxGeometry(1, 1, 1)
+/** vent cavity: dark at the bottom of the box so the recess reads as depth */
+const VENT_CAVITY = bakeGradient(PANEL_BOX, [
+  [-0.5, 0.2],
+  [-0.1, 0.34],
+  [0.5, 0.52],
+])
+
+/**
+ * Growth card. The pivot is at the BASE of the card so a scale grows the frond
+ * upward out of the joint it is planted in rather than sinking it into the
+ * floor, and three horizontal divisions let the alpha cut-out read as separate
+ * leaves against a bright wall instead of as one notched rectangle.
+ */
+const GROWTH_CARD = new THREE.PlaneGeometry(1, 1, 1, 3).translate(0, 0.5, 0)
+
+/**
+ * Hanging cloth sheet, pivot at the hung head. Three lengthwise folds that
+ * deepen toward the hem, a slight narrowing under its own weight and a hem
+ * that falls away from the wall — so the sheen material has facets to catch
+ * and the thing reads as fabric rather than as a flat card.
+ */
+const CLOTH_DROP = (() => {
+  const g = new THREE.PlaneGeometry(1, 1, 7, 10)
+  const pos = g.attributes.position as THREE.BufferAttribute
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const y = pos.getY(i)
+    const t = 0.5 - y // 0 at the head, 1 at the hem
+    pos.setZ(i, Math.sin((x + 0.5) * Math.PI * 3.0) * 0.06 * (0.22 + t) + t * t * 0.09)
+    pos.setX(i, x * (1 - t * 0.14))
+  }
+  pos.needsUpdate = true
+  g.computeVertexNormals()
+  return g.translate(0, -0.5, 0)
+})()
+
+/**
+ * Catenary cable, bucketed by span.
+ *
+ * Authored with a UNIT sag and a 0.045 section, then instanced with
+ * s = [len/bucket, sag, sag]: because y and z scale together the section stays
+ * circular, and the heavier sag on a longer span correctly gives it a thicker
+ * cable. Only x is scaled independently, and along the run direction a ±12 %
+ * stretch on a 4 cm tube is not resolvable.
+ */
+function cableGeo(bucket: number): THREE.BufferGeometry {
+  const pts: THREE.Vector3[] = []
+  const N = 16
+  const K = Math.cosh(1.7)
+  for (let i = 0; i <= N; i++) {
+    const t = i / N
+    const u = (t - 0.5) * 3.4
+    pts.push(new THREE.Vector3((t - 0.5) * bucket, -(K - Math.cosh(u)) / (K - 1), 0))
+  }
+  return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N, 0.045, 6, false)
+}
+
+const CABLE_RUNS: { len: number; items: InstItem[] }[] = (() => {
+  const map = new Map<number, InstItem[]>()
+  for (const [x0, y0, z0, x1, y1, z1, sag] of CABLE_SPANS) {
+    const dx = x1 - x0
+    const dy = y1 - y0
+    const dz = z1 - z0
+    const len = Math.hypot(dx, dz)
+    const bucket = Math.max(3, Math.round(len / 3) * 3)
+    let arr = map.get(bucket)
+    if (!arr) map.set(bucket, (arr = []))
+    arr.push({
+      p: [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
+      // Instanced composes YXZ, so the z term (pitch of the span) is applied
+      // in the run's own frame before the yaw that aims it — which is what a
+      // slope between two anchors of different height actually is.
+      r: [0, Math.atan2(-dz, dx), Math.atan2(dy, len)],
+      s: [len / bucket, sag, sag],
+    })
+  }
+  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([len, items]) => ({ len, items }))
+})()
+const CABLE_GEOS: THREE.BufferGeometry[] = CABLE_RUNS.map((r) => cableGeo(r.len))
+
+// --- conduit run assembly ---------------------------------------------------
+const PIPE_BODY: InstItem[] = []
+const PIPE_BEND: InstItem[] = []
+const PIPE_FLANGE: InstItem[] = []
+const PIPE_STUD: InstItem[] = []
+const PIPE_SADDLE: InstItem[] = []
+const PIPE_JBOX: InstItem[] = []
+
+/**
+ * Emit one dressed conduit run. `axis` is the direction it travels; `face` is
+ * the wall's outward normal component the run stands off from, so the saddles
+ * reach back to the masonry. `drop` puts a quarter bend and a vertical fall
+ * terminating in a junction box at one end — the single most legible thing a
+ * pipe can do, because a bend is the one shape the architecture never makes.
+ */
+function conduitRun(
+  axis: 'x' | 'z',
+  a0: number,
+  a1: number,
+  y: number,
+  fixed: number,
+  wallAt: number,
+  r: number,
+  drop: number,
+  salt: number,
+  /** false for a run that SPANS (the canyon crossings) rather than one that is
+   *  clamped to a wall along its whole length — it gets two end shoes instead */
+  saddled = true,
+): void {
+  const len = a1 - a0
+  const mid = (a0 + a1) / 2
+  const alongX = axis === 'x'
+  const rot: [number, number, number] = alongX ? [0, Math.PI / 2, 0] : [0, 0, 0]
+  const at = (a: number, yy = y): [number, number, number] =>
+    alongX ? [a, yy, fixed] : [fixed, yy, a]
+  PIPE_BODY.push({ p: at(mid), r: rot, s: [r, r, len] })
+
+  // flanges + saddles on an irregular pitch, so the run does not become a
+  // metronome of its own
+  const n = Math.max(2, Math.round(len / 3.4))
+  for (let i = 0; i <= n; i++) {
+    const f = (i + (h1(i, salt) - 0.5) * 0.55) / n
+    const a = a0 + THREE.MathUtils.clamp(f, 0.04, 0.96) * len
+    PIPE_FLANGE.push({ p: at(a), r: rot, s: [r * 1.85, r * 1.85, 0.075] })
+    if (r > 0.1) {
+      for (let k = 0; k < 4; k++) {
+        const ang = (k / 4) * Math.PI * 2 + 0.4
+        const ox = Math.cos(ang) * r * 1.35
+        const oy = Math.sin(ang) * r * 1.35
+        const p = at(a, y + oy)
+        PIPE_STUD.push({
+          p: alongX ? [p[0], p[1], p[2] + ox] : [p[0] + ox, p[1], p[2]],
+          r: rot,
+          s: [r * 0.2, r * 0.2, 0.12],
+        })
+      }
+    }
+    if (saddled && i % 2 === 0) {
+      const gap = Math.abs(wallAt - fixed) + r
+      const sp = at(a, y)
+      const cx = alongX ? sp[2] : sp[0]
+      const bx = (cx + wallAt) / 2
+      PIPE_SADDLE.push({
+        p: alongX ? [sp[0], y, bx] : [bx, y, sp[2]],
+        s: alongX ? [r * 2.1, r * 2.4, gap] : [gap, r * 2.4, r * 2.1],
+      })
+    }
+  }
+  if (!saddled) {
+    // a spanning run is carried at its two ends only
+    for (const e of [a0, a1]) {
+      PIPE_SADDLE.push({ p: at(e, y), s: alongX ? [0.34, r * 3.2, r * 3.2] : [r * 3.2, r * 3.2, 0.34] })
+    }
+  }
+
+  if (drop !== 0) {
+    // bend radius: uniform scale s on PIPE_ELBOW gives tube radius 0.29·s
+    const s = r / 0.29
+    const end = drop > 0 ? a1 : a0
+    const dir = drop > 0 ? 1 : -1
+    // native elbow turns a +X run down; rotate it onto the run's own axis
+    const yaw = alongX ? (dir > 0 ? 0 : Math.PI) : dir > 0 ? -Math.PI / 2 : Math.PI / 2
+    const o = at(end, y - s)
+    PIPE_BEND.push({ p: o, r: [0, yaw, 0], s: [s, s, s] })
+    // vertical fall from the bend's exit to a junction box on the dado
+    const exitA = end + dir * s
+    const yTop = y - s
+    const yBot = Math.max(2.72, yTop - 3.6)
+    const h = yTop - yBot
+    if (h > 0.4) {
+      const p = at(exitA, (yTop + yBot) / 2)
+      PIPE_BODY.push({ p, r: [Math.PI / 2, 0, 0], s: [r, r, h] })
+      const pj = at(exitA, yBot - 0.22)
+      PIPE_JBOX.push({
+        p: pj,
+        s: alongX ? [r * 5.4, 0.52, r * 4.2] : [r * 4.2, 0.52, r * 5.4],
+      })
+    }
+  }
+}
+
+// arena long walls: the wall face is x = ±30, the run stands 0.36 m off it
+for (const [side, y, z0, z1, r, drop] of ARENA_PIPE_LONG) {
+  // the run stands 0.36 m off the ORIGINAL face (x = ±30) and its saddles
+  // reach all the way back to the 0.5 m RECESSED field, so a bracket landing
+  // in a bay has something behind it instead of floating in the cavity
+  conduitRun('z', z0, z1, y, side * 29.64, side * 30.5, r, drop, Math.round(z0))
+}
+// arena end walls
+for (const [side, y, x0, x1, r, drop] of ARENA_PIPE_END) {
+  const wz = side > 0 ? 225 : 165
+  conduitRun('x', x0, x1, y, wz - side * 0.36, wz + side * 0.5, r, drop, Math.round(x0 + 40))
+}
+
+/**
+ * Canyon cross-conduits — the FOREGROUND LAYER the composition has never had.
+ *
+ * The gantries added in R3 cross at y 16.4, which is scenery, not framing: by
+ * the time the player is under one it has left the top of the frame. These
+ * cross the ravine at 3.9–5.4 m, which is 1.8–3.3 m above the camera eye, so
+ * each one sweeps down through the top of frame as the player runs beneath it
+ * and then off — a near, dark, moving occluder over a lit background, which is
+ * exactly the read the railing and machine mass give the reference frame.
+ *
+ * All of them clear the 1.8 m capsule by more than two metres, and the ravine
+ * has no ceiling collider, so nothing here can be run into.
+ */
+const CANYON_CROSS: [number, number, number][] = [
+  [22.4, 4.35, 0.115],
+  [33.1, 5.05, 0.075],
+  [41.8, 3.95, 0.145],
+  [56.6, 4.8, 0.09],
+  [70.9, 4.25, 0.13],
+  [82.3, 5.35, 0.075],
+  [93.4, 4.1, 0.115],
+  [107.8, 4.95, 0.145],
+  [118.6, 4.4, 0.09],
+  [128.2, 5.15, 0.115],
+]
+for (const [z, y, r] of CANYON_CROSS) {
+  conduitRun('x', -5.95, 5.95, y, z, z, r, 0, Math.round(z), false)
+  // a second, thinner line running beside the first at a different height —
+  // two pipes that were never designed together is the whole point
+  const off = (h1(Math.round(z), 21) - 0.5) * 0.9
+  conduitRun('x', -5.95, 5.95, y + 0.34 + Math.abs(off) * 0.5, z + off, z + off, r * 0.55, 0, Math.round(z) + 3, false)
+}
+
+// --- vent louvres -----------------------------------------------------------
+const VENT_CAVITY_I: InstItem[] = []
+const VENT_FRAME: InstItem[] = []
+const VENT_SLAT: InstItem[] = []
+for (const [wall, along, y, w, hh] of ARENA_VENTS) {
+  const onLong = wall < 2
+  const sx = wall === 0 ? -1 : 1
+  const sz = wall === 2 ? -1 : 1
+  /**
+   * `d` is depth INTO the wall measured from the RECESSED field face — which
+   * is at |x| = 30.5 on the long walls and z = 164.5 / 225.5 on the ends,
+   * because R4 pushed the field 0.5 m outward into the wall's own thickness.
+   * Positive d is deeper, so the cavity is genuinely a hole punched through
+   * the field rather than a box parked in front of it.
+   */
+  const p = (d: number, yy: number, across = 0): [number, number, number] =>
+    onLong
+      ? [sx * (30.5 + d), yy, along + across]
+      : [along + across, yy, sz > 0 ? 225.5 + d : 164.5 - d]
+  const dim = (depth: number, ww: number, h2: number): [number, number, number] =>
+    onLong ? [depth, h2, ww] : [ww, h2, depth]
+  VENT_CAVITY_I.push({ p: p(0.25, y), s: dim(0.5, w, hh) })
+  // gold frame: four sides, standing 6 cm proud of the field face
+  VENT_FRAME.push({ p: p(-0.06, y + hh / 2 + 0.08), s: dim(0.16, w + 0.32, 0.16) })
+  VENT_FRAME.push({ p: p(-0.06, y - hh / 2 - 0.08), s: dim(0.16, w + 0.32, 0.16) })
+  for (const e of [-1, 1]) {
+    VENT_FRAME.push({ p: p(-0.06, y, (e * (w + 0.16)) / 2), s: dim(0.16, 0.16, hh + 0.32) })
+  }
+  // slat stack sunk just behind the face, each slat throwing a hard line of
+  // shade onto the one below — which is what makes a louvre read as a louvre
+  const nSlat = Math.max(3, Math.round(hh / 0.26))
+  for (let i = 0; i < nSlat; i++) {
+    const sy = y - hh / 2 + ((i + 0.5) / nSlat) * hh
+    VENT_SLAT.push({ p: p(0.12, sy), s: dim(0.19, w * 0.94, 0.1) })
+  }
+}
+
+// --- the soft family: growth ------------------------------------------------
+const GROWTH_ITEMS: InstItem[] = []
+for (let c = 0; c < GROWTH_CLUMPS.length; c++) {
+  const [x, y, z, sc, yaw] = GROWTH_CLUMPS[c]
+  // three crossed cards per clump: a clump with volume reads as a plant, a
+  // single card reads as a decal no matter how good the alpha is
+  for (let k = 0; k < 3; k++) {
+    const a = h1(c * 3 + k, 41)
+    const b = h1(c * 3 + k, 67)
+    const hgt = sc * (0.55 + a * 0.75)
+    GROWTH_ITEMS.push({
+      p: [x + (b - 0.5) * sc * 0.7, y - 0.04, z + (a - 0.5) * sc * 0.7],
+      r: [(b - 0.5) * 0.28, yaw + k * 1.05 + (a - 0.5) * 0.5, (a - 0.5) * 0.3],
+      s: [sc * (0.7 + b * 0.6), hgt, 1],
+    })
+  }
+}
+
+// --- the soft family: hanging cloth ----------------------------------------
+/**
+ * Cloth is hung where a sheet would actually be: over the aperture heads, off
+ * the gallery fronts and under the canyon crossings. Each one is a vertical
+ * soft edge in a frame otherwise made of horizontals, and it is the only thing
+ * in the level whose silhouette is not a straight line or an arc.
+ */
+const CLOTH_ITEMS: InstItem[] = []
+{
+  const hang = (x: number, y: number, z: number, w: number, h: number, yaw: number, i: number) => {
+    CLOTH_ITEMS.push({ p: [x, y, z], r: [0, yaw, (h1(i, 91) - 0.5) * 0.12], s: [w, h, 1] })
+  }
+  // arena gallery fronts
+  hang(-14.6, 6.0, 169.82, 3.4, 2.6, 0, 1)
+  hang(6.2, 6.0, 169.82, 2.6, 3.1, 0, 2)
+  hang(12.8, 6.0, 220.18, 3.0, 2.2, Math.PI, 3)
+  hang(-8.4, 6.0, 220.18, 3.8, 2.9, Math.PI, 4)
+  // arena wall bays that carry no screen
+  hang(-29.55, 7.4, 198.1, 3.2, 4.0, Math.PI / 2, 5)
+  hang(29.55, 7.0, 192.6, 2.4, 3.4, -Math.PI / 2, 6)
+  // chamber aperture heads
+  hang(-2.3, 7.6, 135.3, 2.4, 3.6, 0, 7)
+  hang(2.6, 7.2, 164.7, 2.0, 3.0, Math.PI, 8)
+  // canyon — hung off the crossings, right in the near field
+  hang(-3.6, 4.1, 41.8, 2.2, 1.5, 0.3, 9)
+  hang(3.9, 4.55, 70.9, 1.8, 1.9, -0.4, 10)
+  hang(-2.4, 4.7, 107.8, 2.6, 2.1, 0.15, 11)
+}
+
+// --- scale props: crates ----------------------------------------------------
+const CRATE_BODY: InstItem[] = []
+const CRATE_BAND: InstItem[] = []
+for (let c = 0; c < CRATE_CLUSTERS.length; c++) {
+  const [x, z, yaw, n] = CRATE_CLUSTERS[c]
+  let stack = 0
+  for (let i = 0; i < n; i++) {
+    const a = h1(c * 5 + i, 53)
+    const b = h1(c * 5 + i, 77)
+    const w = 0.72 + a * 0.4
+    const hh = 0.6 + b * 0.35
+    // most sit on the deck; roughly one in three is stacked on the last
+    const stacked = i > 0 && a > 0.62
+    const base = stacked ? stack : 0
+    const cx = x + (b - 0.5) * (stacked ? 0.18 : 1.9)
+    const cz = z + (a - 0.5) * (stacked ? 0.18 : 1.9)
+    const ry = yaw + (a - 0.5) * 1.4
+    CRATE_BODY.push({ p: [cx, base + hh / 2, cz], r: [0, ry, 0], s: [w, hh, w * (0.82 + b * 0.3)] })
+    for (const f of [-0.26, 0.26]) {
+      CRATE_BAND.push({
+        p: [cx, base + hh / 2 + f * hh, cz],
+        r: [0, ry, 0],
+        s: [w * 1.03, hh * 0.09, w * (0.82 + b * 0.3) * 1.03],
+      })
+    }
+    stack = stacked ? stack + hh : hh
+  }
+}
+
+// --- scale props: handrails -------------------------------------------------
+const RAIL_TOP: InstItem[] = []
+const RAIL_MID: InstItem[] = []
+const RAIL_POSTS: InstItem[] = []
+const RAIL_SHOE: InstItem[] = []
+for (let ri = 0; ri < HANDRAIL_RUNS.length; ri++) {
+  const [x0, y, z0, x1, z1] = HANDRAIL_RUNS[ri]
+  const dx = x1 - x0
+  const dz = z1 - z0
+  const len = Math.hypot(dx, dz)
+  const yaw = Math.atan2(-dz, dx)
+  const cx = (x0 + x1) / 2
+  const cz = (z0 + z1) / 2
+  RAIL_TOP.push({ p: [cx, y + 1.02, cz], r: [0, yaw, 0], s: [len, 0.038, 0.038] })
+  RAIL_MID.push({ p: [cx, y + 0.56, cz], r: [0, yaw, 0], s: [len, 0.022, 0.022] })
+  const n = Math.max(2, Math.round(len / 2.1))
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const px = x0 + dx * t
+    const pz = z0 + dz * t
+    RAIL_POSTS.push({ p: [px, y + 0.52, pz], s: [0.036, 1.04, 0.036] })
+    RAIL_SHOE.push({ p: [px, y + 0.035, pz], s: [0.14, 0.07, 0.14] })
+  }
+}
+
+/**
+ * Everything above, as one component so the level tree stays readable. Every
+ * list is an InstancedMesh; the whole block is ~20 draw calls and the matrices
+ * are written once on mount.
+ */
+function ServiceGreeble() {
+  return (
+    <group>
+      {/* conduit: barrels, quarter bends, bolted flanges, studs, saddles and
+          the junction boxes the drops terminate in */}
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={PIPE_BODY} receiveShadow castShadow />
+      <Instanced geometry={PIPE_ELBOW} material={obsidianMaterial()} items={PIPE_BEND} receiveShadow castShadow />
+      <Instanced geometry={FLANGE_GEO} material={goldCastMaterial()} items={PIPE_FLANGE} receiveShadow castShadow />
+      <Instanced geometry={STUD_GEO} material={goldCastMaterial()} items={PIPE_STUD} receiveShadow />
+      <Instanced geometry={SADDLE_GEO} material={umberMaterial()} items={PIPE_SADDLE} receiveShadow castShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={PIPE_JBOX} receiveShadow castShadow />
+      {/* vent louvres punched through the wall field */}
+      <Instanced geometry={VENT_CAVITY} material={ivoryContactMaterial()} items={VENT_CAVITY_I} receiveShadow />
+      <Instanced geometry={SLAT_GEO} material={obsidianMaterial()} items={VENT_SLAT} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldEdgeMaterial()} items={VENT_FRAME} receiveShadow castShadow />
+      {/* the soft family — cable, growth, cloth */}
+      {CABLE_RUNS.map((run, i) => (
+        <Instanced key={run.len} geometry={CABLE_GEOS[i]} material={cableMaterial()} items={run.items} receiveShadow castShadow />
+      ))}
+      <Instanced geometry={GROWTH_CARD} material={growthMaterial()} items={GROWTH_ITEMS} receiveShadow castShadow />
+      <Instanced geometry={CLOTH_DROP} material={clothMaterial()} items={CLOTH_ITEMS} receiveShadow castShadow />
+      {/* scale props */}
+      <Instanced geometry={CRATE_GEO} material={umberMaterial()} items={CRATE_BODY} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={CRATE_BAND} receiveShadow />
+      <Instanced geometry={RAIL_TUBE} material={goldCastMaterial()} items={RAIL_TOP} receiveShadow castShadow />
+      <Instanced geometry={RAIL_TUBE} material={obsidianMaterial()} items={RAIL_MID} receiveShadow castShadow />
+      <Instanced geometry={RAIL_POST} material={obsidianMaterial()} items={RAIL_POSTS} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={umberMaterial()} items={RAIL_SHOE} receiveShadow />
+    </group>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ShrineStation — the whole level
 // ---------------------------------------------------------------------------
 export default function ShrineStation() {
@@ -4519,6 +5045,9 @@ export default function ShrineStation() {
       <ZoneC />
       <ZoneD />
       <ZoneE />
+      {/* R7 — the off-grid service families and the soft material family.
+          Everything that disagrees with the Orokin order lives here. */}
+      <ServiceGreeble />
       {/* R5 — banner hardware: plaque, rod, finials, brackets, hem bar. The
           cloth is unlit by construction, so it needs lit geometry around it or
           it reads as a floating white rectangle. */}

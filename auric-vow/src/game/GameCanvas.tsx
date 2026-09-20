@@ -305,8 +305,27 @@ function shedShadows(scene: THREE.Scene, tier: 1 | 2) {
 // the enemies and the pooled VFX all appear after the first frame.
 // ---------------------------------------------------------------------------
 const SHADOW_SWEEP_SEC = 0.75
-/** world-space bounding radius below which a mesh is not promoted to a caster */
-const CASTER_MIN_RADIUS = 0.34
+/**
+ * World-space bounding radius below which a mesh is not promoted to a caster.
+ *
+ * R7: 0.34 → 0.16, and the reason is the one question TARGET.md hands this
+ * axis — "does every joint have a contact gradient?". At 0.34 the promotion
+ * rule was drawing the line at roughly "a crate", so every bolted flange,
+ * vent louvre, conduit run, handrail stanchion, pendant fixture and trim bead
+ * in the level was a non-caster: it sat ON a surface without darkening it,
+ * which is the precise difference between a greeble and a decal of a greeble.
+ * The reference frame's density of small hard-surface detail is the thing the
+ * panel counts, and half of what makes that detail read is that each piece
+ * throws a little shadow onto the plate behind it.
+ *
+ * The cost argument that set 0.34 was "a 3 cm trim bead costs a draw call to
+ * contribute a sub-texel smudge". That is still true at 3 cm, and 0.16 m of
+ * bounding RADIUS is a 32 cm object — at the primary cascade's 2.34 cm/texel
+ * it is 14 texels across, so it resolves comfortably rather than aliasing
+ * into noise. Below that the promotion still declines, so the bead is still
+ * excluded and the flange is not.
+ */
+const CASTER_MIN_RADIUS = 0.16
 
 function opaqueLit(m: THREE.Material): boolean {
   const any = m as THREE.Material & {

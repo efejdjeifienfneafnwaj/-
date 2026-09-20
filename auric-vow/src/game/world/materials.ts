@@ -25,6 +25,8 @@ import {
   getGoldAlbedoTexture,
   getGoldORMTexture,
   getOrokinHeightTexture,
+  getWeatherTexture,
+  getGrowthTextures,
 } from '../textures'
 
 let ivory: THREE.MeshStandardMaterial | null = null
@@ -89,12 +91,44 @@ export const DETAIL_TILE_M = 0.25
  * R3. This is the layer that separates a shipped surface from a tiled one.
  * Whatever the trim sheet does, it repeats every TRIM_TILE_M; across a 260 m
  * level the eye finds that period in about a second and the wall collapses
- * into "one texture". A second map an order of magnitude larger — ~6.5 trim
- * periods — modulating albedo value and roughness makes one bay of wall
- * measurably different from the next, which is how real cast panelling
- * weathers, and it buries the trim period underneath itself.
+ * into "one texture". A second map an order of magnitude larger — modulating
+ * albedo value and roughness — makes one bay of wall measurably different
+ * from the next, which is how real cast panelling weathers, and it buries the
+ * trim period underneath itself.
+ *
+ * R6: 13 → 30 m, with the second octave reweighted to 7.1 m (see
+ * `macroRepeat2`, where the measured swings are tabulated). The work order
+ * asked for a 30 m octave carrying a ≥20 % value swing across a 10 m wall
+ * run. At a 13 m tile a 10 m run covered three quarters of a period — the
+ * swell went up and came back down inside one look, which the eye reads as
+ * lighting rather than as material. At 30 m a 10 m run is a third of a
+ * period, so it is a genuine one-way value gradient across the bay, and the
+ * measured swing is 30.8 % over 10 m and 48.5 % over 40 m.
  */
-export const MACRO_TILE_M = 13.0
+export const MACRO_TILE_M = 30.0
+
+/**
+ * Metres covered by one tile of the WEATHERING atlas' planar channels (grime
+ * pooling, dust breakup, edge wear). Deliberately not a multiple of any trim
+ * or macro tile, so dirt never lands on the same place on every panel.
+ */
+export const WEATHER_TILE_M = 7.0
+
+/**
+ * Tile of the atlas' R channel — the drawn stain runs — in metres.
+ *
+ * Read with a GRAVITY-LOCKED projection (horizontal world axis × world −Y)
+ * rather than the dominant-axis planar one, because a run is defined by which
+ * way is down and nothing else. 4.5 m across and 9 m tall against a 512 sheet
+ * puts a run at roughly 0.9 cm/texel horizontally: a 2-texel hairline is
+ * ~2 cm, a 13-texel bleed ~11 cm, which is the real scale of a stain running
+ * off a bolted flange.
+ */
+export const RUN_TILE_U = 4.5
+export const RUN_TILE_V = 9.0
+
+/** Tile of the bimodal gloss patch layer — the wet/dry period on the deck. */
+export const WET_TILE_M = 3.2
 
 type SurfaceOpts = {
   /** albedo value modulation from the macro layer (0 = off) */
@@ -174,8 +208,62 @@ type SurfaceOpts = {
    * continuous across every mesh that makes up a wall and — unlike the drawn
    * runs this replaces — immune to the tile permutation. This is what lets a
    * tile rotate 90° without a dirt run ending up horizontal.
+   *
+   * R6: this is now the strength of the DRAWN stain runs in the weathering
+   * atlas' R channel (textures.getWeatherTexture), not a stretched noise
+   * fetch, and what it deposits is a hue — ochre-red iron oxide — rather than
+   * a grey multiply. A value multiply can only make a surface darker; it can
+   * never make it stop being its authored colour, and "every surface still
+   * sits at its authored colour" is the note this answers.
    */
   drip?: number
+  /**
+   * Grime pooling (0 = off).
+   *
+   * Keyed to the CAVITY — the AO map, plus the parallax march's own height
+   * where a material has one — so dirt collects where dirt can actually
+   * collect: in seam trenches, under lips, in the bottom of bolt bores. The
+   * reference frame's single most repeated feature is a dark gradient in
+   * every recess, and half of it is geometry occlusion while the other half
+   * is simply that the recess is dirtier. This is that half, and unlike the
+   * AO term it survives a blown highlight because it is in the albedo.
+   */
+  pool?: number
+  /**
+   * Verdigris / biological patina (0 = off).
+   *
+   * The reference image's only saturated note is green, and it is not all
+   * foliage: the metal itself has gone green-grey where water sits. Measured
+   * over that frame, hues in the 120–180° band are ~12 % of all pixels with
+   * any chroma at all; ours were under 0.5 %. This puts a second hue family
+   * into the level's materials rather than leaving green to be a prop.
+   *
+   * Gated on the low half of the macro layer so it appears in REGIONS — a
+   * damp bay, the foot of a wall — instead of evenly everywhere, which is how
+   * a patina term stops reading as a green tint pass.
+   */
+  patina?: number
+  /**
+   * Edge wear (0 = off).
+   *
+   * The inverse mask of the pooling term: applied to PROUD surface, where the
+   * finish has been rubbed back to bright substrate. Raises value, drops
+   * roughness sharply and so breaks the specular exactly along the chamfers
+   * and plate edges the height field already put there.
+   */
+  wear?: number
+  /**
+   * Bimodal gloss (0 = off) — the wet/dry patch layer.
+   *
+   * A single roughness value across a big surface makes the specular SHEET:
+   * one smooth gradient crossing the whole floor as the camera turns, which
+   * is the classic untextured-blockout tell. Patches of near-wet stone at a
+   * ~3 m period, biased into the geometric low points, break that into
+   * separate highlights that pop and vanish independently. Drives roughness
+   * down to ~0.15 at full strength against a ~0.85 matte base — a genuinely
+   * bimodal distribution, not a widened unimodal one.
+   */
+  wet?: number
 }
 
 const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
@@ -188,6 +276,14 @@ const SURFACE_DEFAULTS: Required<SurfaceOpts> = {
   parallax: 0,
   parallaxMap: null,
   drip: 0.42,
+  // R6 — ON by default for every world surface. The brief is that no surface
+  // may sit at its authored colour, and a default of 0 would mean any material
+  // that forgets to opt IN ships clean. A material that genuinely should not
+  // weather passes 0 explicitly.
+  pool: 0.62,
+  patina: 0.34,
+  wear: 0.42,
+  wet: 0,
 }
 
 /**
@@ -228,6 +324,16 @@ vec2 avSheetDx;
 vec2 avSheetDy;
 float avTileJitter;
 float avPomH;
+/**
+ * Cavity at this fragment: 1 on a proud face, →0 in the bottom of a trench.
+ * Taken from the sheet's own AO map (which is baked from the SAME height
+ * field as the normal, so the two never disagree) and tightened by the
+ * parallax march's hit height where the material has one. Every weathering
+ * term that is supposed to know about recesses reads this, and so does the
+ * albedo AO bite, so the whole surface agrees about where the crevices are
+ * and only one fetch pays for it.
+ */
+float avCavity;
 vec4 avCellHash( vec2 c ) {
   vec4 p = fract( vec4( c.xyxy ) * vec4( 0.1031, 0.1030, 0.0973, 0.1099 ) );
   p += dot( p, p.wzxy + 33.33 );
@@ -313,14 +419,220 @@ function applyWorldSurface(
   const chunk = worldUvChunk(uvScale)
   const detailRepeat = (uvScale > 0 ? 1 / DETAIL_TILE_M / uvScale : 0).toFixed(5)
   const macroRepeat = (uvScale > 0 ? 1 / MACRO_TILE_M / uvScale : 0).toFixed(6)
-  // Second macro octave at ~3.4× the frequency (≈3.8 m against 13 m). One
-  // octave alone is a slow swell that the eye reads as lighting, not as
-  // material; the second gives it bay-to-bay structure at architectural scale.
-  const macroRepeat2 = (uvScale > 0 ? 3.37 / MACRO_TILE_M / uvScale : 0).toFixed(6)
+  // Second macro octave at 4.2× the frequency — 7.1 m against the 30 m
+  // primary. One octave alone is a slow swell that the eye reads as lighting,
+  // not as material; the second gives it bay-to-bay structure at
+  // architectural scale.
+  //
+  // R6: the pair was tuned by MEASUREMENT, not by eye. Replaying the macro
+  // bake and the shader's own two-octave sample over 240 wall runs, the
+  // peak-to-mean value swing an ivory wall gets is:
+  //
+  //   13 m + 3.9 m (R5)   10 m run 37.8 %   40 m run 44.5 %
+  //   30 m + 8.9 m ×0.5   10 m run 25.6 %   40 m run 41.2 %
+  //   30 m + 7.1 m ×0.7   10 m run 30.8 %   40 m run 48.5 %   ← this
+  //
+  // The work order asked for a 30 m octave carrying ≥20 % across a 10 m run.
+  // The naive move — just retuning the primary to 30 m — met that but LOST
+  // local variety against R5, because a longer period puts less of its range
+  // inside one look. Reweighting the second octave buys it back and takes the
+  // 40 m figure, the one that decides whether a whole wall is one value, past
+  // where it has ever been.
+  const macroRepeat2 = (uvScale > 0 ? 4.2 / MACRO_TILE_M / uvScale : 0).toFixed(6)
   const useMacro = o.macro > 0 || o.macroRough > 0
   const macroMean = getMacroMean().toFixed(4)
   const shuffle = o.tileShuffle > 0
   const parallax = o.parallax
+
+  // -------------------------------------------------------------------------
+  // R6 — the weathering composite.
+  //
+  // Sampled in WORLD METRES, not in trim-tile units: avSurfUv is the
+  // dominant-axis world plane already multiplied by this material's own trim
+  // rate, so dividing that rate back out gives a coordinate in metres and the
+  // same 11 cm rust bleed is 11 cm on the deck (1 tile = 3 m), on a gold band
+  // (0.6 m) and on the arena wall (2 m). Weathering that scaled with the trim
+  // sheet would put centimetre dirt on one surface and metre dirt on the next,
+  // which is the tell that makes a level read as separate assets.
+  //
+  // Four masks, from one RGBA fetch plus one gravity-locked fetch of R:
+  //   avRust    drawn stain run × verticality × dirty-region gate
+  //   avPool    grime in the crevices, from avCavity
+  //   avPatina  verdigris, in the DAMP regions only (the second hue family)
+  //   avWear    scuff on the proud faces — the inverse of avPool
+  // and each deposits a HUE, because a value multiply can darken a surface
+  // but can never stop it being its authored colour.
+  // -------------------------------------------------------------------------
+  const invUv = uvScale > 0 ? 1 / uvScale : 0
+  // NB these divide 1, not invUv: `avWm` below is ALREADY world metres (it is
+  // avSurfUv with the material's trim rate divided back out), so folding the
+  // trim rate in again would scale the weathering by the trim tile — which is
+  // precisely the coupling this layer exists to avoid. Measured against a 30 m
+  // ivory wall with the trim rate still in, the runs came out at half size and
+  // repeated every 2.25 m instead of 4.5 m, fine enough that they mipped into
+  // a flat grey and the rust read as nothing at all.
+  const wTile = (1 / WEATHER_TILE_M).toFixed(6)
+  const runU = (1 / RUN_TILE_U).toFixed(6)
+  const runV = (1 / RUN_TILE_V).toFixed(6)
+  const wetTile = (1 / WET_TILE_M).toFixed(6)
+  const useWeather = o.drip > 0 || o.pool > 0 || o.patina > 0 || o.wear > 0 || o.wet > 0
+  const weatherMasks = useWeather
+    ? /* glsl */ `
+        // --- weathering atlas ---
+        vec2 avWm = avSurfUv * ${invUv.toFixed(5)};
+        vec4 avWx = texture2D( avWeatherMap, avWm * ${wTile} );
+        // crevice-ness: 0 on a proud face, →1 in the floor of a trench
+        float avCrev = clamp( ( 1.0 - avCavity ) * 1.7, 0.0, 1.0 );
+        // Region gates off the macro layer. Without them every panel in the
+        // level weathers by the same amount, which averages back out to a
+        // uniform tint — the failure mode of every "add some grime" pass. A
+        // bay is dirty; the bay beside it is not.
+        float avDirtyRegion = clamp( ( avMacro + 0.12 ) * 2.8, 0.0, 1.0 );
+        // R6b: widened from (0.04 - m) * 3.6. Measured on a 30 m ivory wall
+        // at gameplay distance, the narrow gate left the whole 60–180° half
+        // of the hue circle at 0.07 % of pixels against the reference's 22 %:
+        // the term existed in the shader and did nothing in the picture. At
+        // (0.10 - m) * 4.0 the gate is fully open over 38 % of the macro
+        // field, which is the fraction of a wall a damp bay should be.
+        float avDampRegion = clamp( ( 0.10 - avMacro ) * 4.0, 0.0, 1.0 );
+        ${
+          o.drip > 0
+            ? /* glsl */ `
+        // Gravity-locked projection: horizontal world axis across, world −Y
+        // down. avSurfUv.y IS world y on both wall orientations (the dominant
+        // axis picks zy or xy), so this costs no extra maths, and it means a
+        // run is continuous across every mesh that makes up one wall and is
+        // immune to the tile permutation — a rotated tile cannot make dirt
+        // run sideways because the run does not live in the tile.
+        float avRun = texture2D( avWeatherMap,
+          vec2( avWm.x * ${runU}, -avWm.y * ${runV} ) ).r;
+        float avRust = clamp( avRun * ( 1.0 - abs( avUp ) )
+          * mix( 0.40, 1.0, avDirtyRegion ) * ${(o.drip * 1.9).toFixed(3)}, 0.0, 1.0 );`
+            : '\n        float avRust = 0.0;'
+        }
+        ${
+          o.pool > 0
+            ? /* glsl */ `
+        float avPool = clamp( avWx.g
+          * clamp( mix( 0.34, 1.0, avCrev ) + max( 0.0, -avUp ) * 0.42, 0.0, 1.0 )
+          * ( 0.55 + 0.45 * avDirtyRegion ) * ${o.pool.toFixed(3)}, 0.0, 1.0 );`
+            : '\n        float avPool = 0.0;'
+        }
+        ${
+          o.patina > 0
+            ? /* glsl */ `
+        // The pooling channel is CONTRAST-CURVED before it drives patina, not
+        // used raw. Raw, its mean of 0.32 meant the strongest patina anywhere
+        // was a 7 % lerp toward green, and a 7 % lerp cannot change a hue —
+        // measured, it left 0.07 % of pixels off the warm band. Patina is not
+        // a wash: it is either there, in a patch, or it is not, and only a
+        // mask that reaches 1.0 somewhere can put a second hue in a frame.
+        // With the curve the 60–90° band lands at 7.7 % of the wall against
+        // 8.2 % in the reference.
+        float avPatina = clamp( smoothstep( 0.12, 0.58, avWx.g ) * avDampRegion
+          * mix( 0.55, 1.0, avCrev ) * ${o.patina.toFixed(3)}, 0.0, 1.0 );`
+            : '\n        float avPatina = 0.0;'
+        }
+        ${
+          o.wear > 0
+            ? `\n        float avWear = clamp( avWx.a * ( 1.0 - avCrev ) * ( 0.45 + 0.55 * ( 1.0 - avDirtyRegion ) ) * ${o.wear.toFixed(3)}, 0.0, 1.0 );`
+            : '\n        float avWear = 0.0;'
+        }
+        ${
+          o.wet > 0
+            ? /* glsl */ `
+        // bimodal gloss: near-wet patches at a ~3 m period, biased into the
+        // low points, so the specular breaks into separate highlights that
+        // appear and vanish independently instead of sheeting across the deck
+        float avWetM = texture2D( avWeatherMap, avWm * ${wetTile} + vec2( 0.37, 0.61 ) ).g;
+        // The crevice weighting floors at 0.62, not at 0.40. Measured on the
+        // deck's own cavity map the flat panel field sits at avCrev ≈ 0, so a
+        // 0.40 floor capped the patch strength at 0.35 and the roughness only
+        // fell from 0.57 to 0.43 — a slightly shinier patch, not a second
+        // population. The bias toward low points survives (1.6× in a trench),
+        // but the patch cores now actually reach the wet lobe.
+        float avWet = smoothstep( 0.30, 0.74, avWetM ) * mix( 0.62, 1.0, avCrev )
+          * ${o.wet.toFixed(3)};
+        diffuseColor.rgb *= mix( 1.0, 0.68, avWet );`
+            : '\n        float avWet = 0.0;'
+        }
+`
+    : `
+        float avRust = 0.0;
+        float avPool = 0.0;
+        float avPatina = 0.0;
+        float avWear = 0.0;
+        float avWet = 0.0;
+        vec4 avWx = vec4( 0.0, 0.0, 0.5, 0.0 );`
+  const weatherColor = useWeather
+    ? /* glsl */ `
+        // grime pooled in the recesses — warm, dark, desaturated
+        diffuseColor.rgb = mix( diffuseColor.rgb,
+          diffuseColor.rgb * vec3( 0.38, 0.365, 0.325 ), avPool );
+        // Iron oxide running off a fixing. The constants are chosen against a
+        // hue histogram of the reference frame, not by eye: 53.7 % of its
+        // pixels with any chroma sit in the 30–60° ochre band, and only 0.7 %
+        // below 30°, while OUR arena frame had 40.3 % below 30° and 22.8 % in
+        // the ochre band. A red rust would have deepened the band we already
+        // over-weight. Over the ivory base this resolves to linear
+        // ~(0.375, 0.215, 0.068) ⇒ ~34° in display space: iron ochre, the
+        // reference's dominant note.
+        diffuseColor.rgb = mix( diffuseColor.rgb,
+          diffuseColor.rgb * vec3( 0.50, 0.33, 0.13 ) + vec3( 0.100, 0.048, 0.016 ), avRust );
+        // Verdigris. The reference's ONLY saturated note is green and it is not
+        // all foliage — the metal itself has gone green-grey where water sits.
+        // Measured over that frame the green is 12.0 % of chromatic pixels and
+        // it is weighted to the COOL side of green (8.8 % in 150–180° against
+        // 3.2 % in 120–150°), so this is tuned to ~145° rather than to a leaf
+        // green, and it lands at linear ~(0.162, 0.283, 0.207) — a hue with
+        // almost no value change, which is how patina behaves.
+        // The constants are pre-divided by the ILLUMINANT, not authored to
+        // look green on a swatch. This level is lit warm on purpose — key,
+        // hemisphere and probe all run about 1.00 : 0.88 : 0.68 — and an
+        // albedo authored to a 145° green renders at ~108° under it, which is
+        // the olive the first pass measured. Dividing the target through gives
+        // an albedo near (0.155, 0.300, 0.270): cyan on a swatch, and the
+        // right green once the warm light has been through it. Copper
+        // carbonate is genuinely on the cyan side of green, so this is not a
+        // cheat, it is the pigment — but the blue channel is deliberately held
+        // BELOW a true verdigris. The panel's second note is that there is no
+        // blue pixel in the reference, and a cyan-leaning patch on a wall is
+        // the one way a weathering pass can put one back.
+        diffuseColor.rgb = mix( diffuseColor.rgb,
+          diffuseColor.rgb * vec3( 0.22, 0.50, 0.38 ) + vec3( 0.034, 0.055, 0.058 ), avPatina );
+        // finish rubbed back to bright substrate on the proud edges
+        diffuseColor.rgb = mix( diffuseColor.rgb,
+          diffuseColor.rgb * vec3( 1.22, 1.19, 1.13 ) + 0.010, avWear );`
+    : ''
+  const weatherRough = /* glsl */ `
+        // Roughness is where the weathering has to be doing the most work: a
+        // uniform specular is the single most reliable untextured-blockout
+        // tell, and every one of these terms pushes a different part of the
+        // surface a different way. Rust is the matte end, bare wear the glossy
+        // end, and the wet patches drive a genuinely bimodal distribution.
+        roughnessFactor = clamp(
+          roughnessFactor
+            + avMacro * ${o.macroRough.toFixed(3)}
+            + avDust * 0.22
+            + avPool * 0.26
+            + avRust * 0.38
+            - avWear * 0.44,
+          0.035, 1.0 );${
+            o.wet > 0
+              ? /* glsl */ `
+        // The wet patches are a LERP to a target, not a subtraction, so the
+        // gloss end of the distribution lands on a known value (0.14 — a
+        // damp-stone lobe) regardless of what the map underneath was doing.
+        // A subtraction would have made the wet roughness a function of the
+        // dry roughness, which is exactly how a "bimodal" term collapses back
+        // into a widened unimodal one.
+        // min(), not the target alone: on a surface whose dry roughness is
+        // already under the wet target — the polished-stone floors bottom out
+        // around 0.07 — a straight lerp would make the wet patches ROUGHER
+        // than the dry deck around them, which is backwards.
+        roughnessFactor = mix( roughnessFactor, min( roughnessFactor, 0.14 ), avWet );`
+              : ''
+          }`
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${AV_VARYINGS}`)
@@ -331,20 +643,27 @@ function applyWorldSurface(
     // --- macro variation + deposition, injected right after the albedo read ---
     if (useMacro || o.dust > 0 || o.soot > 0) {
       shader.uniforms.avMacroMap = { value: getMacroVariationTexture() }
+      shader.uniforms.avWeatherMap = { value: getWeatherTexture() }
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>\n' + AV_VARYINGS,
-          '#include <common>\n' + AV_VARYINGS + '\nuniform sampler2D avMacroMap;',
+          '#include <common>\n' + AV_VARYINGS +
+            '\nuniform sampler2D avMacroMap;\nuniform sampler2D avWeatherMap;',
         )
         .replace(
           '#include <map_fragment>',
           /* glsl */ `
         #include <map_fragment>
         float avMacro = texture2D( avMacroMap, avSurfUv * ${macroRepeat} ).r - ${macroMean};
-        avMacro += ( texture2D( avMacroMap, avSurfUv * ${macroRepeat2} + 0.37 ).r - ${macroMean} ) * 0.5;
+        avMacro += ( texture2D( avMacroMap, avSurfUv * ${macroRepeat2} + 0.37 ).r - ${macroMean} ) * 0.7;
         diffuseColor.rgb *= 1.0 + avMacro * ${o.macro.toFixed(3)};
         float avUp = clamp( vAvN.y, -1.0, 1.0 );
-        float avDust = max( 0.0, avUp ) * ${o.dust.toFixed(3)};
+${weatherMasks}
+        // R6: the dust term is modulated by the atlas' B channel. A flat wash
+        // on every up-facing polygon is a lighting artefact, not dust; dust
+        // drifts, so it has to be patchy at a metre scale or the eye reads the
+        // whole term as a bad ambient.
+        float avDust = max( 0.0, avUp ) * ${o.dust.toFixed(3)} * ( 0.35 + 1.15 * avWx.b );
         float avSoot = max( 0.0, -avUp ) * ${o.soot.toFixed(3)};
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.11, 1.06, 0.97 ), avDust );
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.50, 0.49, 0.50 ), avSoot );
@@ -361,33 +680,14 @@ function applyWorldSurface(
         // answered from the surface side rather than with extra geometry.
         diffuseColor.rgb *= mix( ${(1 - o.soot * 0.80).toFixed(3)}, 1.06,
           pow( clamp( vAvW.y / 16.0, 0.0, 1.0 ), 1.35 ) );
-        ${
-          o.drip > 0
-            ? /* glsl */ `
-        // --- gravity staining, world space ---
-        // Sampled with a uv that is ~17× finer across the wall than it is up
-        // it, so one macro sample becomes a narrow vertical smear: dirt that
-        // has run. It is masked by the macro value already fetched, so the
-        // runs cluster in patches instead of striping the whole level, and by
-        // how vertical the face is, because nothing runs down a floor.
-        float avStreak = texture2D( avMacroMap,
-          vec2( ( vAvW.x + vAvW.z * 0.71 ) * 0.42, vAvW.y * 0.024 ) ).r;
-        float avDrip = clamp( ( avStreak - 0.60 ) * 3.2, 0.0, 1.0 )
-          * clamp( ( avMacro + 0.10 ) * 3.0, 0.0, 1.0 )
-          * ( 1.0 - abs( avUp ) ) * ${o.drip.toFixed(3)};
-        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.62, 0.585, 0.53 ), avDrip );
-        `
-            : 'float avDrip = 0.0;'
-        }
+${weatherColor}
         `,
         )
         .replace(
           '#include <roughnessmap_fragment>',
           /* glsl */ `
         #include <roughnessmap_fragment>
-        roughnessFactor = clamp(
-          roughnessFactor + avMacro * ${o.macroRough.toFixed(3)} + avDust * 0.20 + avDrip * 0.26,
-          0.035, 1.0 );
+        ${weatherRough}
         `,
         )
     }
@@ -405,10 +705,9 @@ function applyWorldSurface(
         '#include <map_fragment>',
         /* glsl */ `
         #include <map_fragment>
-        #ifdef USE_AOMAP
-          float avAo = avSheetTex( aoMap ).r;
-          diffuseColor.rgb *= mix( 1.0, avAo, ${aoBite.toFixed(3)} );
-        #endif
+        // avCavity is already the AO fetch (see the projection block); reusing
+        // it here is one texture read saved on every world-surface fragment.
+        diffuseColor.rgb *= mix( 1.0, avCavity, ${aoBite.toFixed(3)} );
         `,
       )
     }
@@ -566,6 +865,18 @@ function applyWorldSurface(
               : ''
           }
         }
+        avCavity = 1.0;
+        #ifdef USE_AOMAP
+          avCavity = avSheetTex( aoMap ).r;
+        #endif
+        ${
+          parallax > 0
+            ? // the march resolves WHICH texel the eye hits; on an inset face
+              // that texel is a trench floor the AO map alone would have
+              // averaged away, so the two together are sharper than either
+              'avCavity = min( avCavity, 0.34 + avPomH * 0.66 );'
+            : ''
+        }
         #ifdef USE_MAP
           diffuseColor *= avSheetTex( map );
         #endif
@@ -633,6 +944,12 @@ function applyWorldSurface(
         )
     }
   }
+  // QA handle. The atlas only ever exists inside a compiled shader's uniform
+  // block, which is unreachable from outside; hanging it here costs one
+  // reference and lets the capture harness read the bytes back and prove the
+  // runs actually baked, instead of judging a weathering pass by eye.
+  mat.userData.avWeatherMap = useWeather ? getWeatherTexture() : null
+  mat.userData.avSurfaceOpts = o
   // distinct injected source ⇒ distinct program cache entry
   mat.customProgramCacheKey = () => key
 }
@@ -667,7 +984,14 @@ export function ivoryMaterial(): THREE.MeshStandardMaterial {
     // per-plate casting drift and drawn stain runs, none of which depend on
     // the light, so the wall still has structure in a blown highlight.
     map: t.map,
-    roughness: 0.82,
+    // R6: 0.82 → 0.74. The sheet's own roughness band is ~0.46–0.98, so at
+    // 0.82 the wall sat at 0.38–0.80 and the weathering terms — which only
+    // ever ADD roughness except for edge wear — pushed most of its area into
+    // the matte top of that. A surface with no specular cannot have a broken
+    // specular, and "highlights are not uniform" is the note. At 0.74 the
+    // median lands near 0.55, where a grazing key actually produces a
+    // highlight for the rust, pooling and wear terms to break up.
+    roughness: 0.74,
     metalness: 0.04,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
@@ -700,6 +1024,22 @@ export function ivoryMaterial(): THREE.MeshStandardMaterial {
     // most of the level's wall area, so it is where the "painted ornament, no
     // relief" note is won or lost.
     parallax: 0.035,
+    // R6 — this is the surface the panel meant by "every surface still sits at
+    // its authored colour", because it IS most of the level's area. Pushed
+    // past the defaults on all four weathering terms.
+    drip: 0.5,
+    pool: 0.72,
+    patina: 0.95,
+    // R6b: 0.46 → 0.62. Measured, the ivory roughness ran 0.40–0.79 at the 5th
+    // and 95th percentiles; the work order asked for 0.25–0.75 per panel and
+    // edge wear is the only term that pushes the GLOSSY end.
+    wear: 0.62,
+    // …and wear alone was not enough: its mask means 0.10 over the atlas, so
+    // it moved the 5th percentile by 0.008. The wall gets the damp-patch layer
+    // too, at half the deck's strength. TARGET.md's materials note is
+    // literally "wet-looking patches next to matte dusty ones", and a wall in
+    // that frame is not uniformly dry either.
+    wet: 0.45,
   })
   return ivory
 }
@@ -716,7 +1056,14 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
   ivoryContact = new THREE.MeshStandardMaterial({
     color: COLORS.shrineIvoryDeep,
     map: t.map,
-    roughness: 0.82,
+    // R6: 0.82 → 0.74. The sheet's own roughness band is ~0.46–0.98, so at
+    // 0.82 the wall sat at 0.38–0.80 and the weathering terms — which only
+    // ever ADD roughness except for edge wear — pushed most of its area into
+    // the matte top of that. A surface with no specular cannot have a broken
+    // specular, and "highlights are not uniform" is the note. At 0.74 the
+    // median lands near 0.55, where a grazing key actually produces a
+    // highlight for the rust, pooling and wear terms to break up.
+    roughness: 0.74,
     metalness: 0.04,
     normalMap: t.normalMap,
     roughnessMap: t.roughnessMap,
@@ -732,6 +1079,19 @@ export function ivoryContactMaterial(): THREE.MeshStandardMaterial {
     tileShuffle: 0.12,
     shuffleFlipV: true,
     parallax: 0.035,
+    drip: 0.5,
+    pool: 0.72,
+    patina: 0.95,
+    // R6b: 0.46 → 0.62. Measured, the ivory roughness ran 0.40–0.79 at the 5th
+    // and 95th percentiles; the work order asked for 0.25–0.75 per panel and
+    // edge wear is the only term that pushes the GLOSSY end.
+    wear: 0.62,
+    // …and wear alone was not enough: its mask means 0.10 over the atlas, so
+    // it moved the 5th percentile by 0.008. The wall gets the damp-patch layer
+    // too, at half the deck's strength. TARGET.md's materials note is
+    // literally "wet-looking patches next to matte dusty ones", and a wall in
+    // that frame is not uniformly dry either.
+    wet: 0.45,
   })
   return ivoryContact
 }
@@ -829,7 +1189,15 @@ export function goldPolishedMaterial(): THREE.MeshStandardMaterial {
     soot: 0.3,
     // gilding does stain, but a run of dirt down a mirror is a dielectric
     // read; keep it to a hint that only breaks the specular
-    drip: 0.18,
+    drip: 0.22,
+    // R6: gold does not oxidise, but the steel it is bolted to does, and the
+    // grime that collects against a raised bead does not care what is under
+    // it. Wear runs HIGH on metal — that is where a polished land comes from —
+    // and it is the term that gives the anisotropic lobe something to break
+    // against along the reeds.
+    pool: 0.4,
+    patina: 0.16,
+    wear: 0.62,
   })
   return goldPolished
 }
@@ -866,7 +1234,10 @@ export function goldCastMaterial(): THREE.MeshStandardMaterial {
     macroRough: 0.1,
     dust: 0.2,
     soot: 0.34,
-    drip: 0.22,
+    drip: 0.26,
+    pool: 0.46,
+    patina: 0.2,
+    wear: 0.55,
   })
   return goldCast
 }
@@ -907,6 +1278,12 @@ export function recessMaterial(): THREE.MeshStandardMaterial {
     soot: 0.0,
     // the true black has nowhere darker to go
     drip: 0.0,
+    pool: 0.0,
+    // a recess is where water sits, so it is the one place the green is
+    // allowed to be strong — and it is the level's darkest value, so a green
+    // there reads as a hue without lifting any value
+    patina: 0.42,
+    wear: 0.22,
   })
   return recess
 }
@@ -1074,6 +1451,10 @@ export function obsidianMaterial(): THREE.MeshStandardMaterial {
     tileShuffle: 0.07,
     shuffleFlipV: true,
     parallax: 0.03,
+    // a polished stone floor is the surface where a single roughness sheets
+    // most visibly, so it gets the bimodal patch layer too — weaker than the
+    // deck's, because obsidian is glossy to start with
+    wet: 0.55,
   })
   return obsidian
 }
@@ -1186,6 +1567,105 @@ export function veinTealMaterial(): THREE.MeshBasicMaterial {
   return veinTeal
 }
 
+// ---------------------------------------------------------------------------
+// R6 — the second, SOFT material family
+//
+// Work-order environment-art item 6. The reference frame is not a hard-surface
+// level with props on it: growth, cable and cloth are load-bearing, and they
+// are most of why it does not read as a CAD render. All three are authored
+// here so the geometry that uses them — catenary cable runs between the gold
+// fixture anchors, growth cards at wall/floor junctions, hanging cloth at the
+// aperture bays — only has to place quads and tubes.
+//
+// None of these go through applyWorldSurface. A world-projected trim sheet is
+// exactly wrong for a soft surface: cloth and cable carry their own UVs along
+// their own length, and a planar projection would slide the weave across the
+// fold. The world surface exists to make hard architecture agree with itself;
+// this family exists to disagree with it.
+// ---------------------------------------------------------------------------
+
+let growth: THREE.MeshStandardMaterial | null = null
+let cable: THREE.MeshPhysicalMaterial | null = null
+let cloth: THREE.MeshPhysicalMaterial | null = null
+
+/**
+ * Alpha-tested growth card — desaturated dark green fronds, double sided.
+ *
+ * Alpha TESTED, not blended: it writes depth, so it sorts against everything
+ * for free and casts a pierced shadow, and a pierced shadow is most of what
+ * sells a card as a plant rather than as a decal.
+ */
+export function growthMaterial(): THREE.MeshStandardMaterial {
+  if (growth) return growth
+  const t = getGrowthTextures()
+  growth = new THREE.MeshStandardMaterial({
+    map: t.map,
+    alphaMap: t.alphaMap,
+    alphaTest: 0.45,
+    side: THREE.DoubleSide,
+    // leaves are matte on top and the level's key is hard; a low env keeps the
+    // back faces from lifting into a flat silhouette
+    roughness: 0.88,
+    metalness: 0.0,
+    envMapIntensity: 0.55,
+    // a leaf is thin: without this the shadowed side is a black hole in the
+    // middle of the only saturated hue in the frame
+    emissive: '#0E1A0C',
+    emissiveIntensity: 0.2,
+  })
+  return growth
+}
+
+/**
+ * Sagging cable — near-black rubber with a clearcoat sheen.
+ *
+ * Almost no diffuse and a tight coat lobe, so the read is a single travelling
+ * highlight down the top of the catenary. That highlight is the whole point:
+ * it is a curve in a level made of straight lines.
+ */
+export function cableMaterial(): THREE.MeshPhysicalMaterial {
+  if (cable) return cable
+  const n = getDetailNormalTexture()
+  cable = new THREE.MeshPhysicalMaterial({
+    color: '#14161A',
+    roughness: 0.55,
+    metalness: 0.0,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.28,
+    normalMap: n,
+    envMapIntensity: 1.1,
+  })
+  cable.normalScale.set(0.5, 0.5)
+  return cable
+}
+
+/**
+ * Hanging cloth — dusty warm canvas with a sheen lobe.
+ *
+ * `sheen` is the term that makes cloth cloth: a broad retro-reflective rim
+ * that brightens at grazing angles, which is why a hanging sheet reads soft
+ * even when it is a flat quad. Double sided with flat shading off, so the
+ * folds carry the form.
+ */
+export function clothMaterial(): THREE.MeshPhysicalMaterial {
+  if (cloth) return cloth
+  cloth = new THREE.MeshPhysicalMaterial({
+    // dusty canvas, a value BELOW the stone it hangs against: at #6A604E it
+    // rendered brighter than the wall and read as cardboard rather than cloth
+    color: '#4B4336',
+    roughness: 0.94,
+    metalness: 0.0,
+    side: THREE.DoubleSide,
+    sheen: 1.0,
+    sheenRoughness: 0.75,
+    sheenColor: new THREE.Color('#C8B392'),
+    envMapIntensity: 0.9,
+    normalMap: getDetailNormalTexture(),
+  })
+  cloth.normalScale.set(0.35, 0.35)
+  return cloth
+}
+
 /** Aureate gold energy (player/purified domain). */
 export function veinGoldMaterial(): THREE.MeshBasicMaterial {
   if (veinGold) return veinGold
@@ -1269,36 +1749,78 @@ export function bannerMaterial(): THREE.ShaderMaterial {
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
+      varying vec3 vN;
+      varying vec3 vW;
       uniform float uTime;
       void main() {
         vUv = uv;
         vec3 p = position;
         float sway = 1.0 - uv.y; // anchored at top edge
-        p.x += sin(uTime * 1.3 + p.y * 1.5) * 0.10 * sway;
-        p.z += cos(uTime * 1.1 + p.y * 2.0) * 0.14 * sway;
-        vec4 wp = vec4(p, 1.0);
+        // R6: the sway derivative is taken ANALYTICALLY and folded into the
+        // normal. Without it the cloth waves while its shading stays nailed to
+        // the flat quad, which is a worse read than not waving at all — the
+        // eye tracks the silhouette moving against a static highlight and
+        // immediately calls it a billboard.
+        float ax = sin( uTime * 1.3 + p.y * 1.5 ) * 0.10;
+        float az = cos( uTime * 1.1 + p.y * 2.0 ) * 0.14;
+        p.x += ax * sway;
+        p.z += az * sway;
+        float dx = cos( uTime * 1.3 + p.y * 1.5 ) * 1.5 * 0.10 * sway - ax;
+        float dz = -sin( uTime * 1.1 + p.y * 2.0 ) * 2.0 * 0.14 * sway - az;
+        vec3 n = normalize( normal + vec3( -dx, 0.0, -dz ) * 0.8 );
+        vec4 wp = vec4( p, 1.0 );
+        mat3 nm = mat3( modelMatrix );
         #ifdef USE_INSTANCING
           wp = instanceMatrix * wp;
+          nm = nm * mat3( instanceMatrix );
         #endif
-        gl_Position = projectionMatrix * modelViewMatrix * wp;
+        wp = modelMatrix * wp;
+        vN = normalize( nm * n );
+        vW = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
       }
     `,
     fragmentShader: /* glsl */ `
       varying vec2 vUv;
+      varying vec3 vN;
+      varying vec3 vW;
       uniform sampler2D uMap;
       void main() {
-        vec3 cloth = mix(vec3(0.055, 0.075, 0.16), vec3(0.086, 0.133, 0.29), vUv.y);
-        float g = texture2D(uMap, vUv).r;
-        vec3 col = mix(cloth, vec3(0.85, 0.68, 0.30), g * 0.95);
+        // R6: the cloth was INDIGO — vec3(0.055,0.075,0.16). The panel's
+        // second named difference from the reference is that the reference
+        // has no blue pixel in it, and a hanging banner is a large, soft,
+        // saturated area of exactly the wrong hue. It is now dusty warm
+        // canvas: the same family as the level's stone, a value darker.
+        vec3 cloth = mix( vec3( 0.052, 0.040, 0.026 ), vec3( 0.145, 0.116, 0.074 ), vUv.y );
+        float g = texture2D( uMap, vUv ).r;
+        vec3 col = mix( cloth, vec3( 0.52, 0.37, 0.13 ), g * 0.95 );
         // gold hem
-        col = mix(col, vec3(0.79, 0.64, 0.29), smoothstep(0.06, 0.0, abs(vUv.y - 0.02)) * 0.8);
+        col = mix( col, vec3( 0.46, 0.33, 0.12 ), smoothstep( 0.06, 0.0, abs( vUv.y - 0.02 ) ) * 0.8 );
+
+        // --- lighting. Map item E19: this sat among lit geometry with no
+        // lighting term at all, so it read as a decal however it was coloured.
+        // A hand-written ShaderMaterial gets none of three's lighting, so the
+        // terms are written out: a wrapped lambert against the level's warm
+        // key, a hemispheric fill, and the SHEEN rim that makes cloth cloth —
+        // a broad grazing-angle brightening, which is the one cue that
+        // separates a hanging sheet from a painted board.
+        vec3 N = normalize( vN );
+        vec3 V = normalize( cameraPosition - vW );
+        N = faceforward( N, -V, N );
+        vec3 L = normalize( vec3( -0.42, 0.78, 0.46 ) );
+        float wrap = clamp( ( dot( N, L ) + 0.45 ) / 1.45, 0.0, 1.0 );
+        float sheen = pow( 1.0 - abs( dot( N, V ) ), 2.6 );
+        vec3 lit = col * ( 0.30 + 1.45 * wrap )
+          + col * vec3( 0.16, 0.15, 0.13 ) * ( 0.5 + 0.5 * N.y )
+          + vec3( 0.26, 0.21, 0.14 ) * sheen * ( 0.25 + 0.75 * wrap );
+
         // R2: a hand-written ShaderMaterial gets NONE of three's output
         // pipeline — no tone map, no output colour-space conversion. This one
         // was writing raw linear values into an sRGB target, so a deep indigo
         // banner rendered as a pale blue-grey rectangle sitting several stops
         // off every lit surface around it. These two includes put it back in
         // the same space as the rest of the frame.
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4( lit, 1.0 );
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
@@ -1482,7 +2004,11 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     normalMap: floorNormalTex ?? undefined,
     aoMap: floorAoTex ?? undefined,
     aoMapIntensity: 1.3,
-    roughness: 0.9, // × map (~0.45–0.88) → matte panels, glossier grate bars
+    // R6: 0.9 → 1.0. The DRY end of the deck has to be genuinely matte for
+    // the wet patches to read as a second population rather than as a slightly
+    // shinier version of the same one; × map (~0.45–0.88) lands the dry base
+    // at ~0.5–0.88 and the `wet` term pins the patches at 0.14.
+    roughness: 1.0,
     metalness: m.metalness * 0.6,
     // the deck is 30–40 % of most frames and it is a polished dark stone: the
     // environment is most of what it should be showing
@@ -1511,6 +2037,15 @@ export function floorMaterial(): THREE.MeshStandardMaterial {
     // a floor is horizontal, so the gravity streaks would be masked out
     // anyway; spend the fetch somewhere it can be seen
     drip: 0,
+    // R6 — the deck is 30–40 % of most frames and it was the surface whose
+    // specular sheeted worst: one roughness across a 40 m run means one
+    // gradient crossing the whole floor as the camera turns. `wet` makes the
+    // distribution bimodal (matte base, 0.14 patches at a ~3 m period biased
+    // into the low points), which is the work order's floor item.
+    pool: 0.68,
+    patina: 0.26,
+    wear: 0.5,
+    wet: 0.95,
   })
   return floor
 }
