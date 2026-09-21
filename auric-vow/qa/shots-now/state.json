@@ -1,0 +1,75 @@
+{
+  "state": {
+    "phase": "EXTERMINATE",
+    "hp": 200,
+    "shield": 150,
+    "energy": 75.63999999999999,
+    "kills": 2,
+    "tier": 0,
+    "programs": 187,
+    "textures": 121,
+    "geometries": 646
+  },
+  "aimed": {
+    "count": 6,
+    "ground": 3,
+    "target": [
+      6,
+      "trooper",
+      true,
+      [
+        -0.22618443973986435,
+        0,
+        168.4816181939117
+      ]
+    ],
+    "standoff": 11
+  },
+  "shots": [
+    {
+      "name": "02_spawn",
+      "note": "third-person view at the spawn dais looking down the canyon",
+      "bytes": 1611597
+    },
+    {
+      "name": "03_sprint",
+      "note": "sprinting down the traversal canyon",
+      "bytes": 1497055
+    },
+    {
+      "name": "07_chamber",
+      "note": "the Null Reliquary chamber (mission objective)",
+      "bytes": 1302034
+    },
+    {
+      "name": "08_enemies",
+      "note": "combat arena framed on a live ground enemy: 6",
+      "bytes": 1213842
+    },
+    {
+      "name": "09_rifle",
+      "note": "rifle firing: muzzle flash, tracers, impacts",
+      "bytes": 1330883
+    },
+    {
+      "name": "15_ultimate_peak",
+      "note": "Auric Requiem at full expansion with slow-mo grade",
+      "bytes": 910700
+    },
+    {
+      "name": "17_katana",
+      "note": "katana slash arc",
+      "bytes": 1168692
+    },
+    {
+      "name": "18_arena_wide",
+      "note": "arena across the floor: composition, depth, silhouette",
+      "bytes": 1253175
+    }
+  ],
+  "viewport": [
+    1280,
+    720
+  ],
+  "fixedDt": 0.03333333333333333
+}

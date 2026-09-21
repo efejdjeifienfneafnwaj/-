@@ -547,3 +547,165 @@ export const HANDRAIL_RUNS: [number, number, number, number, number][] = [
   [-4.1, 0, 226.5, -4.1, 251.5],
   [4.1, 0, 226.5, 4.1, 251.5],
 ]
+
+// ---------------------------------------------------------------------------
+// R7b — WALL GREEBLE PASS + TRAVERSAL NEAR FIELD. VISUAL ONLY.
+//
+// Nothing below is read by `buildLevelColliders`. Every arena piece lives
+// inside the 0.9 m envelope the wall already projects into the room (the
+// engaged columns reach |x| 28.9 and the pilaster nosings 29.6, so a fitting
+// at |x| ≥ 29.6 is behind a surface the player already cannot reach), or
+// above the 1.8 m capsule. Canyon pieces stand on wall faces above 2 m, hang
+// from crossings above 2.8 m, or sit OUTSIDE the B1 west rail collider over
+// the void where the player cannot walk.
+//
+// The test the panel set is "does a 200 px square of the wall have as many
+// distinct objects as the reference?" At the 11 m combat standoff that square
+// is about 3.7 m on a side. A bay of the arena order carried a screen, a
+// coffer and two shafts; it now also carries a vertical drop with its clamps
+// and gauge, a bolted patch or two, a tray, a lamp, and in a blind bay a
+// tank cluster — a different subset in every bay, on positions coprime with
+// the bay rhythm.
+// ---------------------------------------------------------------------------
+
+/**
+ * Vertical conduit drops on the arena walls.
+ * [wall(0 west / 1 east / 2 south / 3 north), along, yTop, yBot, radius, fitting]
+ * fitting: 0 plain, 1 gauge + valve wheel mid-run, 2 elbow into the wall at
+ * the top, 3 both. A drop that ends above the dado cap terminates in a box.
+ */
+export const ARENA_WALL_DROPS: [number, number, number, number, number, number][] = [
+  // west wall: the wall-run slab (x −29..−28, z 170..190) stands a metre off
+  // the face, so nothing is authored behind it; the run is 190..225 + 165..170
+  [0, 167.4, 8.5, 2.45, 0.075, 1],
+  [0, 193.6, 8.5, 2.45, 0.075, 1],
+  [0, 195.6, 8.5, 5.3, 0.055, 2],
+  [0, 200.9, 8.5, 4.7, 0.09, 2],
+  [0, 202.4, 6.4, 2.45, 0.055, 0],
+  [0, 208.2, 8.5, 2.45, 0.055, 1],
+  [0, 211.3, 6.9, 2.45, 0.075, 0],
+  [0, 217.3, 8.5, 2.45, 0.09, 3],
+  [0, 218.4, 8.5, 5.6, 0.055, 2],
+  // east wall: its slab covers z 200..220
+  [1, 166.6, 8.5, 2.45, 0.075, 0],
+  [1, 171.8, 8.5, 2.45, 0.075, 1],
+  [1, 174.4, 6.6, 2.45, 0.055, 0],
+  [1, 181.1, 8.5, 2.45, 0.09, 3],
+  [1, 183.6, 8.5, 5.6, 0.055, 2],
+  [1, 191.4, 8.5, 2.45, 0.075, 1],
+  [1, 194.0, 7.1, 2.45, 0.055, 0],
+  [1, 196.2, 8.5, 2.45, 0.055, 2],
+  [1, 221.4, 8.5, 5.1, 0.055, 2],
+  // end walls: the galleries cover y < 6 for |x| < 20, so the inboard drops
+  // stop above the gallery soffit and the outboard ones run to the dado
+  [2, -20.6, 8.5, 2.45, 0.09, 1],
+  [2, -18.1, 8.5, 6.3, 0.055, 2],
+  [2, -12.9, 8.5, 6.3, 0.075, 0],
+  [2, 11.0, 8.5, 6.3, 0.055, 2],
+  [2, 18.4, 8.5, 2.45, 0.075, 3],
+  [2, 20.7, 6.6, 2.45, 0.055, 0],
+  [3, -20.3, 8.5, 2.45, 0.075, 3],
+  [3, -18.2, 8.5, 6.3, 0.055, 0],
+  [3, -13.9, 8.5, 6.3, 0.09, 2],
+  [3, 12.7, 8.5, 6.3, 0.075, 1],
+  [3, 14.8, 8.5, 6.3, 0.055, 0],
+  [3, 20.2, 8.5, 2.45, 0.09, 1],
+  [3, 22.1, 7.2, 2.45, 0.055, 2],
+]
+
+/** Bay cable trays: a U-channel with cables in it, on brackets, riser at one
+ *  end. [wall, a0, a1, y, riserAtEnd(-1 / 0 / +1)] */
+export const ARENA_WALL_TRAYS: [number, number, number, number, number][] = [
+  [0, 166.0, 168.6, 3.14, 1],
+  [0, 192.9, 195.9, 2.92, -1],
+  [0, 207.6, 212.0, 2.92, 0],
+  [0, 216.4, 219.6, 3.14, 1],
+  [1, 171.0, 175.2, 3.14, -1],
+  [1, 179.6, 184.6, 3.14, -1],
+  [1, 190.6, 194.6, 2.92, 1],
+  [2, -21.2, -17.6, 3.14, 1],
+  [2, 17.6, 21.2, 2.92, -1],
+  [3, -20.3, -18.3, 2.92, 0],
+  [3, 19.9, 22.3, 3.14, 1],
+]
+
+/** Wall ladders from the dado cap to the corbel course, on the pier between
+ *  the shafts of a coupled pair. [wall, along, y0, y1] */
+export const ARENA_WALL_LADDERS: [number, number, number, number][] = [
+  [0, 221.8, 2.5, 8.45],
+  [1, 177.4, 2.5, 8.45],
+  [2, -20.9, 2.5, 8.45],
+  [3, 21.3, 2.5, 8.45],
+]
+
+/** Caged wall lamps: a small hooded box with a lit slit. [wall, along, y] */
+export const ARENA_WALL_LAMPS: [number, number, number][] = [
+  [0, 168.0, 3.6], [0, 191.0, 3.9], [0, 201.9, 3.3], [0, 209.9, 3.7], [0, 219.0, 3.65],
+  [1, 166.0, 3.4], [1, 173.2, 3.6], [1, 180.2, 3.75], [1, 196.8, 3.8], [1, 220.6, 3.6],
+  [2, -17.0, 3.5], [2, 20.0, 3.7],
+  [3, -24.6, 3.4], [3, 15.4, 3.6],
+]
+
+/**
+ * Low canyon crossings — the near-field layer for the traversal spine. The
+ * R7 cross-conduits sit at 3.9–5.4 m and cross the top of frame; these sit at
+ * 3.3–3.6 m with a junction box and a pendant hung beneath, so something
+ * dark passes within 1.5–2 m of the lens every ten metres of the run.
+ * [z, y, x of the hung box (0 none), lamp(0/1)]. All clear the capsule by
+ * a metre or more even at the lowest hung fitting (2.85 m).
+ */
+export const CANYON_LOW_CROSSINGS: [number, number, number, number][] = [
+  [18.6, 3.45, -2.4, 1],
+  [27.2, 3.6, 1.8, 0],
+  [37.4, 3.3, -0.6, 1],
+  [52.8, 3.5, 3.1, 0],
+  [63.1, 3.35, -2.9, 1],
+  [76.6, 3.55, 0.9, 0],
+  [88.4, 3.4, -3.4, 1],
+  [101.9, 3.6, 2.2, 0],
+  [113.2, 3.35, -1.4, 1],
+  [124.7, 3.5, 2.8, 0],
+]
+
+/**
+ * Service pods cantilevered off the B1 deck edge OVER THE VOID, outside the
+ * west rail collider (x < −6.2): a bracketed platform carrying vertical tanks,
+ * a cabinet and a hose loop. These are the left-edge machine masses of the
+ * reference — unreachable, so they can be full height. [z, yaw, tanks(1–3)]
+ */
+export const CANYON_EDGE_PODS: [number, number, number][] = [
+  [16.2, 0.18, 2],
+  [27.0, -0.22, 3],
+  [35.8, 0.3, 1],
+]
+
+/**
+ * Wall cabinets on the canyon's west wall (x −5.9 face), hung above the
+ * capsule with a conduit dropping to the deck beside them. [z, y, w, h, d]
+ */
+export const CANYON_WALL_CABINETS: [number, number, number, number, number][] = [
+  [49.6, 2.95, 1.3, 1.6, 0.62],
+  [61.2, 3.3, 0.9, 1.2, 0.5],
+  [74.8, 2.85, 1.6, 1.4, 0.7],
+  [93.4, 3.1, 1.1, 1.8, 0.55],
+  [111.6, 2.9, 1.4, 1.3, 0.65],
+  [126.9, 3.25, 1.0, 1.5, 0.5],
+]
+
+/**
+ * Cable runs lying ON the arena deck — flush (35 mm), clamped every few
+ * metres, from a wall-foot junction box to a hatch, a crate stack or a
+ * planter. The bottom third of every combat frame is deck, and the deck's
+ * only lines were the concentric gold inlay; these cross it at angles the
+ * mandala does not have. [x0, z0, x1, z1] — x0/z0 is the wall end.
+ */
+export const ARENA_DECK_CABLES: [number, number, number, number][] = [
+  [-29.5, 179.0, -12.4, 190.6],
+  [29.5, 196.4, 19.6, 200.4],
+  [-4.6, 224.4, -3.2, 209.0],
+  [6.2, 165.6, 10.6, 173.0],
+  [-29.5, 205.8, -21.6, 206.2],
+  [29.5, 221.4, 22.8, 216.2],
+  [-13.4, 167.2, -18.4, 174.2],
+  [11.6, 224.4, 4.6, 224.2],
+]

@@ -56,6 +56,14 @@ import {
   GROWTH_CLUMPS,
   CRATE_CLUSTERS,
   HANDRAIL_RUNS,
+  ARENA_WALL_DROPS,
+  ARENA_WALL_TRAYS,
+  ARENA_WALL_LADDERS,
+  ARENA_WALL_LAMPS,
+  CANYON_LOW_CROSSINGS,
+  CANYON_EDGE_PODS,
+  CANYON_WALL_CABINETS,
+  ARENA_DECK_CABLES,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -2832,6 +2840,9 @@ const D_SCONCE_FIXTURES: [number, number, number][] = []
  */
 const D_BLIND_BACK: InstItem[] = []
 const D_BLIND_PANEL: InstItem[] = []
+/** R7b — the suppressed bays, recorded so the wall machine clusters can be
+ *  hung in them (and only in them): [wall 0 W / 1 E / 2 S / 3 N, along, w] */
+const D_BLIND_BAYS: [number, number, number][] = []
 function bayVariant(key: number, salt: number): { w: number; h: number; y: number; noCoffer: boolean; blind: boolean } {
   const r = h1(Math.round(key * 7.3), salt)
   if (r < 0.24) return { w: 4.6 + r * 2.2, h: 0, y: 0, noCoffer: true, blind: true }
@@ -2868,6 +2879,7 @@ for (const sx of [1, -1]) {
       // behaves, where a bay is whatever the plan behind it needed.
       D_BLIND_BACK.push({ p: [sx * 30.24, 4.4, z], s: [0.52, 6.6, v.w + 0.4] })
       D_BLIND_PANEL.push({ p: [sx * 29.98, 4.4, z], s: [0.1, 6.0, v.w * 0.72] })
+      D_BLIND_BAYS.push([sx > 0 ? 1 : 0, z, v.w])
       continue
     }
     const w = v.w
@@ -2910,6 +2922,7 @@ for (const sz of [1, -1]) {
     if (v.blind) {
       D_BLIND_BACK.push({ p: [x, 4.4, wz - face * 0.24], s: [v.w + 0.4, 6.6, 0.52] })
       D_BLIND_PANEL.push({ p: [x, 4.4, wz + face * 0.02], s: [v.w * 0.72, 6.0, 0.1] })
+      D_BLIND_BAYS.push([sz > 0 ? 3 : 2, x, v.w])
       continue
     }
     const w = v.w
@@ -4954,6 +4967,557 @@ for (let ri = 0; ri < HANDRAIL_RUNS.length; ri++) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// R7b — WALL GREEBLE PASS + TRAVERSAL NEAR FIELD. VISUAL ONLY.
+//
+// The previous pass put the big off-grid families on the arena (conduit runs,
+// vents, cables, growth, cloth) and the wall stopped being one stamped panel.
+// What it still was not is DENSE: the reference has no 200 px square without
+// five or six distinct small objects in it, and a bay of ours had a screen, a
+// coffer, two shafts and — if a run happened to cross it — one pipe. This
+// block is the small-object layer: vertical drops with clamps and gauges,
+// bolted patches, bay cable trays, ladders, caged lamps, and tank clusters in
+// the suppressed bays. Every family is one InstancedMesh over one shared
+// geometry, the tables live in layout.ts, and everything sits either inside
+// the projection envelope the wall already has (|x| ≥ 29.6) or above the
+// capsule, so no collider is touched.
+//
+// The canyon gets the near field the reference frame has at its left edge:
+// service pods cantilevered over the void OUTSIDE the B1 rail collider (the
+// one place a full-height machine mass can stand where the player cannot walk
+// into it), cabinets hung on the west wall above head height, and low
+// crossings at 3.3–3.6 m with a box and a pendant hung beneath, so a dark
+// occluder passes within two metres of the lens every ten metres of the run.
+// ---------------------------------------------------------------------------
+
+/** closed tank barrel, axis along +Z (instance s = [r, r, length]) */
+const TANK_GEO = new THREE.CylinderGeometry(1, 1, 1, 18, 1, false).rotateX(Math.PI / 2)
+/** dome end for a tank: hemisphere whose pole points +Z */
+const TANK_CAP = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI / 2)
+/** reinforcing hoop around a tank / a valve wheel: torus in the XY plane, axis Z */
+const HOOP_GEO = new THREE.TorusGeometry(1, 0.06, 6, 22)
+const WHEEL_GEO = new THREE.TorusGeometry(1, 0.11, 6, 12)
+/** valve wheel spokes: a thin cross, axis Z */
+const SPOKE_GEO = new THREE.BoxGeometry(2, 0.12, 0.12)
+
+/**
+ * Arena wall frame. `d` is the depth INTO THE ROOM measured from the wall's
+ * original collider face (x ±30, z 165 / 225): positive stands proud, negative
+ * sinks into the 0.5 m recess. `along` is z on the long walls and x on the
+ * end walls. Everything below is authored in this frame so one table entry
+ * serves all four walls.
+ */
+function wallAt(wall: number, along: number, y: number, d: number): [number, number, number] {
+  if (wall === 0) return [-30 + d, y, along]
+  if (wall === 1) return [30 - d, y, along]
+  if (wall === 2) return [along, y, 165 + d]
+  return [along, y, 225 - d]
+}
+/** a box size given as (depth normal to the wall, height, width along it) */
+function wallDim(wall: number, depth: number, h: number, w: number): [number, number, number] {
+  return wall < 2 ? [depth, h, w] : [w, h, depth]
+}
+/** yaw that turns a +Z-axis geometry to run ALONG the wall */
+function alongRot(wall: number): [number, number, number] {
+  return wall < 2 ? [0, 0, 0] : [0, Math.PI / 2, 0]
+}
+/** yaw that turns a +Z-axis geometry to point INTO THE ROOM off the wall */
+function normalRot(wall: number): [number, number, number] {
+  return wall < 2 ? [0, Math.PI / 2, 0] : [0, 0, 0]
+}
+/** yaw that turns a +X-axis tube (RAIL_TUBE) to run along the wall */
+function railAlongRot(wall: number): [number, number, number] {
+  return wall < 2 ? [0, Math.PI / 2, 0] : [0, 0, 0]
+}
+/**
+ * Yaw for PIPE_ELBOW so its horizontal leg runs INTO the wall and its vertical
+ * leg hangs below the origin. The native elbow's horizontal leg leaves toward
+ * −X; the room is +X off the west wall, −X off the east, +Z off the south and
+ * −Z off the north, and "into the wall" is the opposite of each.
+ */
+function elbowIntoWallRot(wall: number): [number, number, number] {
+  if (wall === 0) return [0, 0, 0]
+  if (wall === 1) return [0, Math.PI, 0]
+  if (wall === 2) return [0, -Math.PI / 2, 0]
+  return [0, Math.PI / 2, 0]
+}
+const VERT_ROT: [number, number, number] = [Math.PI / 2, 0, 0]
+
+// --- vertical drops --------------------------------------------------------
+const DROP_BODY: InstItem[] = []
+const DROP_BEND: InstItem[] = []
+const DROP_FLANGE: InstItem[] = []
+const DROP_CLAMP: InstItem[] = []
+const DROP_BOX: InstItem[] = []
+const DROP_GAUGE: InstItem[] = []
+const DROP_WHEEL: InstItem[] = []
+const DROP_SPOKE: InstItem[] = []
+const DROP_STUB: InstItem[] = []
+/** depth the drop's axis stands off the original face: in front of a screen
+ *  plate (|x| 29.82) and inside the nosing envelope (29.6) */
+const DROP_D = 0.3
+for (let i = 0; i < ARENA_WALL_DROPS.length; i++) {
+  const [wall, along, yTop, yBot, r, fitting] = ARENA_WALL_DROPS[i]
+  const h = yTop - yBot
+  DROP_BODY.push({ p: wallAt(wall, along, (yTop + yBot) / 2, DROP_D), r: VERT_ROT, s: [r, r, h] })
+  // clamps back to the wall on an irregular pitch
+  const n = Math.max(1, Math.round(h / 1.7))
+  for (let k = 0; k <= n; k++) {
+    const y = yBot + 0.25 + (h - 0.5) * THREE.MathUtils.clamp((k + (h1(k, 5 + i) - 0.5) * 0.5) / n, 0, 1)
+    DROP_CLAMP.push({ p: wallAt(wall, along, y, DROP_D * 0.62), s: wallDim(wall, DROP_D * 0.76 + r, r * 2.6, r * 2.4) })
+    if (k > 0 && k < n) {
+      DROP_FLANGE.push({ p: wallAt(wall, along, y + 0.34, DROP_D), r: VERT_ROT, s: [r * 1.8, r * 1.8, 0.07] })
+    }
+  }
+  if (fitting === 2 || fitting === 3) {
+    // elbow at the top turning into the wall
+    const s = r / 0.29
+    DROP_BEND.push({ p: wallAt(wall, along, yTop, DROP_D - s), r: elbowIntoWallRot(wall), s: [s, s, s] })
+  } else {
+    // a flange where the drop meets the corbel course
+    DROP_FLANGE.push({ p: wallAt(wall, along, yTop - 0.05, DROP_D), r: VERT_ROT, s: [r * 1.9, r * 1.9, 0.08] })
+  }
+  if (yBot > 3) {
+    // ends in the air: a junction box on the wall under it
+    DROP_BOX.push({ p: wallAt(wall, along, yBot - 0.24, 0.17), s: wallDim(wall, 0.34, 0.48, r * 5 + 0.2) })
+  } else {
+    DROP_FLANGE.push({ p: wallAt(wall, along, yBot + 0.12, DROP_D), r: VERT_ROT, s: [r * 1.9, r * 1.9, 0.08] })
+  }
+  if (fitting === 1 || fitting === 3) {
+    // a valve stub off the drop with a hand wheel, and a gauge beside it
+    const y = yBot + 0.42 * h + (h1(i, 9) - 0.5) * 0.3 * h
+    DROP_STUB.push({ p: wallAt(wall, along, y, DROP_D + 0.16), r: normalRot(wall), s: [r * 0.7, r * 0.7, 0.32] })
+    DROP_WHEEL.push({ p: wallAt(wall, along, y, DROP_D + 0.34), r: normalRot(wall), s: [0.15, 0.15, 0.15] })
+    DROP_SPOKE.push({ p: wallAt(wall, along, y, DROP_D + 0.34), r: normalRot(wall), s: [0.15, 0.15, 0.15] })
+    DROP_SPOKE.push({ p: wallAt(wall, along, y, DROP_D + 0.34), r: [0, normalRot(wall)[1], Math.PI / 2], s: [0.15, 0.15, 0.15] })
+    const side = h1(i, 17) > 0.5 ? 1 : -1
+    DROP_STUB.push({ p: wallAt(wall, along + side * (r + 0.13), y + 0.36, DROP_D), r: alongRot(wall), s: [r * 0.55, r * 0.55, 0.26] })
+    DROP_GAUGE.push({ p: wallAt(wall, along + side * (r + 0.26), y + 0.36, DROP_D + 0.02), r: normalRot(wall), s: [0.12, 0.12, 0.07] })
+  }
+}
+
+// --- bolted patches --------------------------------------------------------
+const PATCH_PLATE: InstItem[] = []
+const PATCH_STUD: InstItem[] = []
+function patch(wall: number, along: number, y: number, w: number, h: number, d: number, salt: number): void {
+  PATCH_PLATE.push({ p: wallAt(wall, along, y, d), s: wallDim(wall, 0.05, h, w) })
+  const inset = 0.08
+  for (const [a, b] of [
+    [-1, -1],
+    [1, -1],
+    [1, 1],
+    [-1, 1],
+  ] as [number, number][]) {
+    // a corner bolt is occasionally missing — a rule the eye reads as history
+    if (h1(salt * 4 + a + b * 2, 23) < 0.12) continue
+    PATCH_STUD.push({
+      p: wallAt(wall, along + a * (w / 2 - inset), y + b * (h / 2 - inset), d + 0.045),
+      r: normalRot(wall),
+      s: [0.028, 0.028, 0.05],
+    })
+  }
+}
+{
+  // dado register, between the pier plinths, on every wall
+  const walls: [number, number, number, number[]][] = [
+    [0, 166.5, 223.5, D_PAIR_W],
+    [1, 166.5, 223.5, D_PAIR_E],
+    [2, -28.5, 28.5, D_PAIR_S],
+    [3, -28.5, 28.5, D_PAIR_N],
+  ]
+  let n = 0
+  for (const [wall, a0, a1, pairs] of walls) {
+    const count = wall < 2 ? 22 : 10
+    for (let k = 0; k < count; k++) {
+      const along = a0 + h1(k, 31 + wall * 7) * (a1 - a0)
+      // clear of the plinths and the gate openings
+      if (pairs.some((c) => Math.abs(c - along) < 2.4)) continue
+      if (wall >= 2 && Math.abs(along) < 6.2) continue
+      const w = 0.32 + h1(k, 37 + wall) * 0.5
+      const hh = 0.28 + h1(k, 41 + wall) * 0.42
+      const y = 0.6 + h1(k, 43 + wall) * 1.25
+      patch(wall, along, y, w, hh, 0.09, n++)
+    }
+  }
+  // one plate between the shafts of every coupled pair, high on the pier
+  for (const [wall, pairs] of [
+    [0, D_PAIR_W],
+    [1, D_PAIR_E],
+    [2, D_PAIR_S],
+    [3, D_PAIR_N],
+  ] as [number, number[]][]) {
+    pairs.forEach((c, k) => {
+      if (h1(k, 47 + wall) < 0.3) return
+      if (ARENA_WALL_LADDERS.some((l) => l[0] === wall && Math.abs(l[1] - c) < 1)) return
+      const y = 3.2 + h1(k, 53 + wall) * 4.2
+      patch(wall, c, y, 0.42 + h1(k, 59 + wall) * 0.3, 0.5 + h1(k, 61 + wall) * 0.5, 0.05, n++)
+    })
+  }
+}
+
+// --- bay cable trays -------------------------------------------------------
+const TRAY_BASE: InstItem[] = []
+const TRAY_LIP: InstItem[] = []
+const TRAY_ARM: InstItem[] = []
+const TRAY_CABLE: InstItem[] = []
+const TRAY_D = 0.3
+for (let i = 0; i < ARENA_WALL_TRAYS.length; i++) {
+  const [wall, a0, a1, y, riser] = ARENA_WALL_TRAYS[i]
+  const len = a1 - a0
+  const mid = (a0 + a1) / 2
+  TRAY_BASE.push({ p: wallAt(wall, mid, y, TRAY_D), s: wallDim(wall, 0.3, 0.04, len) })
+  TRAY_LIP.push({ p: wallAt(wall, mid, y + 0.05, TRAY_D + 0.14), s: wallDim(wall, 0.03, 0.12, len) })
+  TRAY_LIP.push({ p: wallAt(wall, mid, y + 0.05, TRAY_D - 0.14), s: wallDim(wall, 0.03, 0.12, len) })
+  const n = Math.max(2, Math.round(len / 1.9))
+  for (let k = 0; k <= n; k++) {
+    const a = a0 + 0.2 + (len - 0.4) * (k / n)
+    TRAY_ARM.push({ p: wallAt(wall, a, y - 0.05, TRAY_D / 2), s: wallDim(wall, TRAY_D + 0.1, 0.06, 0.08) })
+    TRAY_ARM.push({ p: wallAt(wall, a, y - 0.26, 0.03), s: wallDim(wall, 0.06, 0.42, 0.08) })
+  }
+  // two or three cables lying in the tray, not quite parallel
+  const nc = 2 + (h1(i, 71) > 0.5 ? 1 : 0)
+  for (let c = 0; c < nc; c++) {
+    const off = (c - (nc - 1) / 2) * 0.075
+    TRAY_CABLE.push({
+      p: wallAt(wall, mid, y + 0.06, TRAY_D + off),
+      r: [0, railAlongRot(wall)[1] + (h1(i * 3 + c, 73) - 0.5) * 0.02, 0],
+      s: [len - 0.1, 0.03, 0.03],
+    })
+  }
+  if (riser !== 0) {
+    // the cables leave the tray up a vertical riser to the corbel course
+    const a = riser > 0 ? a1 - 0.2 : a0 + 0.2
+    const top = 8.45
+    TRAY_LIP.push({ p: wallAt(wall, a, (y + top) / 2, TRAY_D + 0.14), s: wallDim(wall, 0.03, top - y, 0.3) })
+    TRAY_BASE.push({ p: wallAt(wall, a, (y + top) / 2, TRAY_D), s: wallDim(wall, 0.3, top - y, 0.04) })
+    for (let c = 0; c < nc; c++) {
+      const off = (c - (nc - 1) / 2) * 0.075
+      TRAY_CABLE.push({ p: wallAt(wall, a, (y + top) / 2 + 0.05, TRAY_D + off), r: [0, 0, Math.PI / 2], s: [top - y - 0.1, 0.015, 0.015] })
+    }
+  }
+}
+
+// --- ladders ---------------------------------------------------------------
+const LADDER_STILE: InstItem[] = []
+const LADDER_RUNG: InstItem[] = []
+const LADDER_STANDOFF: InstItem[] = []
+for (const [wall, along, y0, y1] of ARENA_WALL_LADDERS) {
+  const h = y1 - y0
+  const d = 0.28
+  for (const e of [-1, 1]) {
+    LADDER_STILE.push({ p: wallAt(wall, along + e * 0.24, (y0 + y1) / 2, d), s: wallDim(wall, 0.06, h, 0.06) })
+  }
+  const n = Math.floor(h / 0.3)
+  for (let k = 0; k <= n; k++) {
+    LADDER_RUNG.push({ p: wallAt(wall, along, y0 + 0.1 + k * 0.3, d), r: railAlongRot(wall), s: [0.48, 0.018, 0.018] })
+  }
+  for (let k = 0; k < 4; k++) {
+    const y = y0 + 0.4 + ((h - 0.8) * k) / 3
+    for (const e of [-1, 1]) {
+      LADDER_STANDOFF.push({ p: wallAt(wall, along + e * 0.24, y, d / 2), s: wallDim(wall, d, 0.05, 0.05) })
+    }
+  }
+  // a hooped cage on the upper half, the thing that says "ladder" at 30 m
+  for (let k = 0; k < 4; k++) {
+    const y = y0 + h * 0.5 + (h * 0.45 * k) / 3
+    LADDER_STANDOFF.push({ p: wallAt(wall, along, y, d + 0.36), s: wallDim(wall, 0.04, 0.04, 0.74) })
+    for (const e of [-1, 1]) {
+      LADDER_STANDOFF.push({ p: wallAt(wall, along + e * 0.37, y, d + 0.18), s: wallDim(wall, 0.4, 0.04, 0.04) })
+    }
+  }
+}
+
+// --- caged lamps -----------------------------------------------------------
+const LAMP_BOX: InstItem[] = []
+const LAMP_HOOD: InstItem[] = []
+const LAMP_SLIT: InstItem[] = []
+const LAMP_BAR: InstItem[] = []
+for (let i = 0; i < ARENA_WALL_LAMPS.length; i++) {
+  const [wall, along, y] = ARENA_WALL_LAMPS[i]
+  LAMP_BOX.push({ p: wallAt(wall, along, y, 0.14), s: wallDim(wall, 0.28, 0.5, 0.34) })
+  LAMP_HOOD.push({ p: wallAt(wall, along, y + 0.31, 0.2), s: wallDim(wall, 0.44, 0.07, 0.46) })
+  LAMP_SLIT.push({ p: wallAt(wall, along, y + 0.02, 0.285), s: wallDim(wall, 0.02, 0.3, 0.2) })
+  for (const e of [-1, 1]) {
+    LAMP_BAR.push({ p: wallAt(wall, along + e * 0.06, y + 0.02, 0.31), s: wallDim(wall, 0.02, 0.36, 0.02) })
+  }
+}
+
+// --- tank clusters in the suppressed bays -----------------------------------
+const TANK_BODY: InstItem[] = []
+const TANK_END: InstItem[] = []
+const TANK_HOOP: InstItem[] = []
+const TANK_SADDLE: InstItem[] = []
+const TANK_PIPE: InstItem[] = []
+const TANK_CABINET: InstItem[] = []
+{
+  /** everything already standing on a wall that a tank must not be hung
+   *  through: drops, ladders and lamps, by wall */
+  const busy: number[][] = [[], [], [], []]
+  for (const d of ARENA_WALL_DROPS) busy[d[0]].push(d[1])
+  for (const l of ARENA_WALL_LADDERS) busy[l[0]].push(l[1])
+  for (const l of ARENA_WALL_LAMPS) busy[l[0]].push(l[1])
+  for (let i = 0; i < D_BLIND_BAYS.length; i++) {
+    const [wall, along, w] = D_BLIND_BAYS[i]
+    // on the end walls the galleries put a platform at y 5–6 for |x| < 20, so
+    // a tank there would sit at waist height to someone standing on it
+    if (wall >= 2 && Math.abs(along) < 20.8) continue
+    // behind the arena wall-run slabs nothing is visible from the room
+    if (wall === 0 && along > 169 && along < 191) continue
+    if (wall === 1 && along > 199 && along < 221) continue
+    const r = 0.36 + h1(i, 83) * 0.09
+    const len = Math.min(w - 1.6, 1.5 + h1(i, 89) * 1.1)
+    if (len < 1.1) continue
+    // the tank sits in the one band the R7 conduit runs leave free on every
+    // wall (they cross at 3.5–4.4 and 6.5–7.6)
+    const y = 5.2 + h1(i, 97) * 0.4
+    // manifold to one side, cabinet to the other: the cluster is asymmetric
+    const dir = h1(i, 107) > 0.5 ? 1 : -1
+    const span = len / 2 + 1.25
+    let a = along
+    let ok = false
+    for (const sh of [0, 0.45, -0.45, 0.9, -0.9]) {
+      a = along + sh
+      if (Math.abs(sh) + span > w / 2 - 0.55) continue
+      if (busy[wall].some((b) => Math.abs(b - a) < span + 0.12)) continue
+      ok = true
+      break
+    }
+    if (!ok) continue
+    const d = -0.04 // axis just inside the original face; the barrel reaches 29.6
+    TANK_BODY.push({ p: wallAt(wall, a, y, d), r: alongRot(wall), s: [r, r, len] })
+    TANK_END.push({ p: wallAt(wall, a + len / 2, y, d), r: [0, alongRot(wall)[1], 0], s: [r, r, r * 0.55] })
+    TANK_END.push({ p: wallAt(wall, a - len / 2, y, d), r: [0, alongRot(wall)[1] + Math.PI, 0], s: [r, r, r * 0.55] })
+    for (const f of [-0.32, 0, 0.32]) {
+      TANK_HOOP.push({ p: wallAt(wall, a + f * len, y, d), r: alongRot(wall), s: [r * 1.04, r * 1.04, r * 1.04] })
+    }
+    for (const f of [-0.28, 0.28]) {
+      TANK_SADDLE.push({ p: wallAt(wall, a + f * len, y - r * 0.55, d - 0.2), s: wallDim(wall, r * 1.3, r * 0.5, 0.26) })
+    }
+    // a manifold at one end dropping to the dado, with a hand wheel on it,
+    // and a gauge on the tank's face
+    const ma = a + dir * (len / 2 + 0.36)
+    TANK_PIPE.push({ p: wallAt(wall, ma, (y + 2.45) / 2, 0.24), r: VERT_ROT, s: [0.055, 0.055, y - 2.45] })
+    TANK_PIPE.push({ p: wallAt(wall, ma - dir * 0.18, y, 0.24), r: alongRot(wall), s: [0.05, 0.05, 0.36] })
+    DROP_FLANGE.push({ p: wallAt(wall, ma, 2.6, 0.24), r: VERT_ROT, s: [0.1, 0.1, 0.07] })
+    DROP_WHEEL.push({ p: wallAt(wall, ma, y - r - 0.55, 0.42), r: normalRot(wall), s: [0.14, 0.14, 0.14] })
+    DROP_SPOKE.push({ p: wallAt(wall, ma, y - r - 0.55, 0.42), r: normalRot(wall), s: [0.14, 0.14, 0.14] })
+    DROP_STUB.push({ p: wallAt(wall, ma, y - r - 0.55, 0.32), r: normalRot(wall), s: [0.04, 0.04, 0.18] })
+    DROP_GAUGE.push({ p: wallAt(wall, a + 0.1, y, d + r + 0.02), r: normalRot(wall), s: [0.11, 0.11, 0.06] })
+    // and a cabinet on the wall on the other side
+    const ca = a - dir * (len / 2 + 0.8)
+    TANK_CABINET.push({ p: wallAt(wall, ca, y - 0.1, 0.17), s: wallDim(wall, 0.36, 1.25 + h1(i, 109) * 0.5, 0.82) })
+  }
+}
+
+// --- canyon: low crossings with hung fittings --------------------------------
+const XLOW_BAR: InstItem[] = []
+const XLOW_PIPE: InstItem[] = []
+const XLOW_BOX: InstItem[] = []
+const XLOW_HANGER: InstItem[] = []
+const XLOW_LAMP_ROD: InstItem[] = []
+const XLOW_LAMP_HOOD: InstItem[] = []
+const XLOW_LAMP_LENS: InstItem[] = []
+for (let i = 0; i < CANYON_LOW_CROSSINGS.length; i++) {
+  const [z, y, bx, lamp] = CANYON_LOW_CROSSINGS[i]
+  // the bar spans from the west wall face (or, in B1, the outer wall at x −9.4)
+  // to the east glass line; B1 has no west wall, so the bar reaches the outer
+  // one across the void
+  const x0 = z < 40 ? -9.3 : -5.95
+  const x1 = 5.95
+  const len = x1 - x0
+  const cx = (x0 + x1) / 2
+  XLOW_BAR.push({ p: [cx, y, z], s: [len, 0.22, 0.3] })
+  // two pipes slung under it at different heights, one thicker than the other
+  XLOW_PIPE.push({ p: [cx, y - 0.24, z - 0.09], r: [0, Math.PI / 2, 0], s: [0.085, 0.085, len] })
+  XLOW_PIPE.push({ p: [cx, y - 0.19, z + 0.14], r: [0, Math.PI / 2, 0], s: [0.05, 0.05, len] })
+  for (let k = 0; k < 3; k++) {
+    const x = x0 + len * (0.18 + 0.32 * k + (h1(i * 3 + k, 113) - 0.5) * 0.12)
+    XLOW_HANGER.push({ p: [x, y - 0.15, z], s: [0.06, 0.3, 0.42] })
+  }
+  if (bx !== 0) {
+    XLOW_BOX.push({ p: [bx, y - 0.56, z], r: [0, (h1(i, 127) - 0.5) * 0.3, 0], s: [0.62, 0.46, 0.4] })
+    XLOW_HANGER.push({ p: [bx, y - 0.3, z], s: [0.1, 0.24, 0.1] })
+  }
+  if (lamp) {
+    const lx = -bx * 0.6 + (h1(i, 131) - 0.5) * 2
+    XLOW_LAMP_ROD.push({ p: [lx, y - 0.42, z], s: [1, 0.5, 1] })
+    XLOW_LAMP_HOOD.push({ p: [lx, y - 0.86, z], s: [0.62, 0.62, 0.62] })
+    XLOW_LAMP_LENS.push({ p: [lx, y - 0.98, z], s: [0.5, 0.5, 0.5] })
+  }
+}
+
+// --- canyon: service pods over the void -------------------------------------
+const POD_DECK: InstItem[] = []
+const POD_BRACKET: InstItem[] = []
+const POD_TANK: InstItem[] = []
+const POD_TANK_END: InstItem[] = []
+const POD_HOOP: InstItem[] = []
+const POD_CABINET: InstItem[] = []
+const POD_PIPE: InstItem[] = []
+const POD_RAIL: InstItem[] = []
+const POD_POST: InstItem[] = []
+for (let i = 0; i < CANYON_EDGE_PODS.length; i++) {
+  const [z, yaw, tanks] = CANYON_EDGE_PODS[i]
+  const cx = -7.55
+  const w = 2.6
+  const dpt = 2.4
+  POD_DECK.push({ p: [cx, -0.16, z], r: [0, yaw, 0], s: [dpt, 0.32, w] })
+  // two raking brackets down to the outer wall
+  for (const e of [-0.9, 0.9]) {
+    POD_BRACKET.push({ p: [cx - 0.9, -1.1, z + e], r: [0, yaw, -0.95], s: [0.22, 2.6, 0.26] })
+  }
+  const c = Math.cos(yaw)
+  const s = Math.sin(yaw)
+  const local = (lx: number, lz: number): [number, number] => [cx + lx * c + lz * s, z - lx * s + lz * c]
+  for (let t = 0; t < tanks; t++) {
+    const r = 0.36 + h1(i * 3 + t, 137) * 0.08
+    const hh = 1.5 + h1(i * 3 + t, 139) * 0.7
+    const [tx, tz] = local(-0.35 + (t % 2) * 0.55, -0.85 + t * 0.85)
+    POD_TANK.push({ p: [tx, hh / 2, tz], r: [Math.PI / 2, 0, 0], s: [r, r, hh] })
+    POD_TANK_END.push({ p: [tx, hh, tz], r: [-Math.PI / 2, 0, 0], s: [r, r, r * 0.5] })
+    for (const f of [0.22, 0.5, 0.78]) {
+      POD_HOOP.push({ p: [tx, hh * f, tz], r: [Math.PI / 2, 0, 0], s: [r * 1.04, r * 1.04, r * 1.04] })
+    }
+  }
+  const [kx, kz] = local(0.55, 0.75)
+  POD_CABINET.push({ p: [kx, 0.72, kz], r: [0, yaw + 0.2, 0], s: [0.72, 1.44, 0.9] })
+  // a hose looping from the cabinet over the rail to the deck kerb
+  const [px, pz] = local(1.05, 0)
+  POD_PIPE.push({ p: [px, 1.32, pz], r: [0, yaw, 0], s: [0.07, 0.07, 1.9] })
+  POD_PIPE.push({ p: [px + 0.9, 1.0, pz], r: [Math.PI / 2, 0, 0], s: [0.07, 0.07, 0.6] })
+  // a rail round the void side
+  const [rx, rz] = local(-1.15, 0)
+  POD_RAIL.push({ p: [rx, 1.02, rz], r: [0, yaw + Math.PI / 2, 0], s: [w, 0.036, 0.036] })
+  for (const e of [-1.2, 0, 1.2]) {
+    const [qx, qz] = local(-1.15, e)
+    POD_POST.push({ p: [qx, 0.52, qz], s: [0.036, 1.04, 0.036] })
+  }
+}
+
+// --- canyon: wall cabinets --------------------------------------------------
+const CAB_BODY: InstItem[] = []
+const CAB_DOOR: InstItem[] = []
+const CAB_HINGE: InstItem[] = []
+const CAB_PIPE: InstItem[] = []
+const CAB_BRACKET: InstItem[] = []
+for (let i = 0; i < CANYON_WALL_CABINETS.length; i++) {
+  const [z, y, w, hh, d] = CANYON_WALL_CABINETS[i]
+  const face = -5.9
+  CAB_BODY.push({ p: [face + d / 2, y + hh / 2, z], s: [d, hh, w] })
+  CAB_DOOR.push({ p: [face + d + 0.012, y + hh / 2, z - w * 0.02], s: [0.02, hh * 0.86, w * 0.42] })
+  CAB_DOOR.push({ p: [face + d + 0.012, y + hh / 2, z + w * 0.26], s: [0.02, hh * 0.86, w * 0.42] })
+  for (const f of [-0.36, 0.36]) {
+    CAB_HINGE.push({ p: [face + d + 0.03, y + hh / 2 + f * hh, z - w * 0.46], s: [0.05, 0.12, 0.05] })
+  }
+  for (const f of [-0.42, 0.42]) {
+    CAB_BRACKET.push({ p: [face + d / 2, y - 0.08, z + f * w], s: [d - 0.1, 0.12, 0.14] })
+  }
+  // a conduit from the cabinet's underside to the deck, clamped to the wall
+  const px = face + 0.18
+  const pz = z + (h1(i, 149) > 0.5 ? 1 : -1) * (w / 2 - 0.16)
+  CAB_PIPE.push({ p: [px, y / 2, pz], r: [Math.PI / 2, 0, 0], s: [0.06, 0.06, y] })
+  CAB_BRACKET.push({ p: [face + 0.09, y * 0.35, pz], s: [0.18, 0.14, 0.16] })
+  CAB_BRACKET.push({ p: [face + 0.09, y * 0.8, pz], s: [0.18, 0.14, 0.16] })
+}
+
+// --- arena: cable runs lying on the deck --------------------------------------
+const DECK_CABLE: InstItem[] = []
+const DECK_CLAMP: InstItem[] = []
+const DECK_JBOX: InstItem[] = []
+for (let i = 0; i < ARENA_DECK_CABLES.length; i++) {
+  const [x0, z0, x1, z1] = ARENA_DECK_CABLES[i]
+  const dx = x1 - x0
+  const dz = z1 - z0
+  const len = Math.hypot(dx, dz)
+  const yaw = Math.atan2(dx, dz)
+  const r = 0.03 + h1(i, 151) * 0.015
+  DECK_CABLE.push({ p: [(x0 + x1) / 2, r + 0.005, (z0 + z1) / 2], r: [0, yaw, 0], s: [r, r, len] })
+  const n = Math.max(2, Math.round(len / 2.6))
+  for (let k = 0; k <= n; k++) {
+    const t = THREE.MathUtils.clamp((k + (h1(k, 157 + i) - 0.5) * 0.5) / n, 0.03, 0.97)
+    DECK_CLAMP.push({ p: [x0 + dx * t, 0.028, z0 + dz * t], r: [0, yaw, 0], s: [r * 4.2, 0.056, 0.16] })
+  }
+  // a low box at the wall end, and a second cable branching off it a short way
+  DECK_JBOX.push({ p: [x0 + (dx / len) * 0.3, 0.16, z0 + (dz / len) * 0.3], r: [0, yaw + (h1(i, 163) - 0.5) * 0.4, 0], s: [0.5, 0.32, 0.36] })
+  const bl = 1.6 + h1(i, 167) * 2.2
+  const byaw = yaw + (h1(i, 173) > 0.5 ? 1 : -1) * (0.35 + h1(i, 179) * 0.4)
+  DECK_CABLE.push({
+    p: [x0 + (dx / len) * 0.5 + Math.sin(byaw) * bl * 0.5, r * 0.7 + 0.005, z0 + (dz / len) * 0.5 + Math.cos(byaw) * bl * 0.5],
+    r: [0, byaw, 0],
+    s: [r * 0.7, r * 0.7, bl],
+  })
+}
+
+/** R7b — the small-object layer, one InstancedMesh per family. */
+function WallGreeble() {
+  return (
+    <group>
+      {/* arena: vertical drops with clamps, flanges, elbows, valve wheels and gauges */}
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={DROP_BODY} receiveShadow castShadow />
+      <Instanced geometry={PIPE_ELBOW} material={obsidianMaterial()} items={DROP_BEND} receiveShadow castShadow />
+      <Instanced geometry={FLANGE_GEO} material={goldCastMaterial()} items={DROP_FLANGE} receiveShadow castShadow />
+      <Instanced geometry={SADDLE_GEO} material={umberMaterial()} items={DROP_CLAMP} receiveShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={DROP_BOX} receiveShadow castShadow />
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={DROP_STUB} receiveShadow />
+      <Instanced geometry={FLANGE_GEO} material={goldCastMaterial()} items={DROP_GAUGE} receiveShadow />
+      <Instanced geometry={WHEEL_GEO} material={goldCastMaterial()} items={DROP_WHEEL} receiveShadow castShadow />
+      <Instanced geometry={SPOKE_GEO} material={goldCastMaterial()} items={DROP_SPOKE} receiveShadow />
+      {/* bolted patches */}
+      <Instanced geometry={BOX} material={umberMaterial()} items={PATCH_PLATE} receiveShadow castShadow />
+      <Instanced geometry={STUD_GEO} material={goldCastMaterial()} items={PATCH_STUD} receiveShadow />
+      {/* bay cable trays */}
+      <Instanced geometry={BOX} material={umberMaterial()} items={TRAY_BASE} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={TRAY_LIP} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={umberMaterial()} items={TRAY_ARM} receiveShadow />
+      <Instanced geometry={RAIL_TUBE} material={cableMaterial()} items={TRAY_CABLE} receiveShadow />
+      {/* ladders */}
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={LADDER_STILE} receiveShadow castShadow />
+      <Instanced geometry={RAIL_TUBE} material={obsidianMaterial()} items={LADDER_RUNG} receiveShadow />
+      <Instanced geometry={BOX} material={umberMaterial()} items={LADDER_STANDOFF} receiveShadow />
+      {/* caged lamps */}
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={LAMP_BOX} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={LAMP_HOOD} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={veinGoldMaterial()} items={LAMP_SLIT} />
+      <Instanced geometry={BOX} material={obsidianMaterial()} items={LAMP_BAR} receiveShadow />
+      {/* tank clusters in the suppressed bays */}
+      <Instanced geometry={TANK_GEO} material={umberMaterial()} items={TANK_BODY} receiveShadow castShadow />
+      <Instanced geometry={TANK_CAP} material={umberMaterial()} items={TANK_END} receiveShadow castShadow />
+      <Instanced geometry={HOOP_GEO} material={goldCastMaterial()} items={TANK_HOOP} receiveShadow castShadow />
+      <Instanced geometry={SADDLE_GEO} material={obsidianMaterial()} items={TANK_SADDLE} receiveShadow />
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={TANK_PIPE} receiveShadow castShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={TANK_CABINET} receiveShadow castShadow />
+      {/* arena: cable runs lying on the deck */}
+      <Instanced geometry={PIPE_SEG} material={cableMaterial()} items={DECK_CABLE} receiveShadow castShadow />
+      <Instanced geometry={SADDLE_GEO} material={umberMaterial()} items={DECK_CLAMP} receiveShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={DECK_JBOX} receiveShadow castShadow />
+      {/* canyon: low crossings, hung boxes and pendants */}
+      <Instanced geometry={BOX} material={umberMaterial()} items={XLOW_BAR} receiveShadow castShadow />
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={XLOW_PIPE} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={obsidianMaterial()} items={XLOW_HANGER} receiveShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={XLOW_BOX} receiveShadow castShadow />
+      <Instanced geometry={PENDANT_ROD} material={goldMaterial()} items={XLOW_LAMP_ROD} castShadow />
+      <Instanced geometry={PENDANT_HOOD} material={goldCastMaterial()} items={XLOW_LAMP_HOOD} castShadow />
+      <Instanced geometry={PENDANT_LENS} material={veinGoldMaterial()} items={XLOW_LAMP_LENS} />
+      {/* canyon: service pods over the void */}
+      <Instanced geometry={PANEL_BOX} material={umberMaterial()} items={POD_DECK} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={umberMaterial()} items={POD_BRACKET} receiveShadow castShadow />
+      <Instanced geometry={TANK_GEO} material={umberMaterial()} items={POD_TANK} receiveShadow castShadow />
+      <Instanced geometry={TANK_CAP} material={umberMaterial()} items={POD_TANK_END} receiveShadow castShadow />
+      <Instanced geometry={HOOP_GEO} material={goldCastMaterial()} items={POD_HOOP} receiveShadow castShadow />
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={POD_CABINET} receiveShadow castShadow />
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={POD_PIPE} receiveShadow castShadow />
+      <Instanced geometry={RAIL_TUBE} material={goldCastMaterial()} items={POD_RAIL} receiveShadow castShadow />
+      <Instanced geometry={RAIL_POST} material={obsidianMaterial()} items={POD_POST} receiveShadow castShadow />
+      {/* canyon: wall cabinets */}
+      <Instanced geometry={JBOX_GEO} material={umberMaterial()} items={CAB_BODY} receiveShadow castShadow />
+      <Instanced geometry={BOX} material={recessMaterial()} items={CAB_DOOR} receiveShadow />
+      <Instanced geometry={BOX} material={goldCastMaterial()} items={CAB_HINGE} receiveShadow />
+      <Instanced geometry={PIPE_SEG} material={obsidianMaterial()} items={CAB_PIPE} receiveShadow castShadow />
+      <Instanced geometry={SADDLE_GEO} material={umberMaterial()} items={CAB_BRACKET} receiveShadow />
+    </group>
+  )
+}
+
 /**
  * Everything above, as one component so the level tree stays readable. Every
  * list is an InstancedMesh; the whole block is ~20 draw calls and the matrices
@@ -5048,6 +5612,9 @@ export default function ShrineStation() {
       {/* R7 — the off-grid service families and the soft material family.
           Everything that disagrees with the Orokin order lives here. */}
       <ServiceGreeble />
+      {/* R7b — the small-object layer on the arena walls and the traversal
+          near field. See the block above WallGreeble. */}
+      <WallGreeble />
       {/* R5 — banner hardware: plaque, rod, finials, brackets, hem bar. The
           cloth is unlit by construction, so it needs lit geometry around it or
           it reads as a floating white rectangle. */}
