@@ -15,6 +15,7 @@
  *   ○(迎え14:10/クラブ活動あり15:00、送り18:05)   … 「/」の後ろは条件つきの別案
  *   ○                                     … F列・G列の時刻を使う
  *   14:35                                 … その曜日だけのお迎え時刻
+ *   ○(自力16:00、送り17:50)               … 「自力」の区間は送迎しない
  *
  * APIキーは不要。Apps Scriptの無料枠で動く。
  */
@@ -251,10 +252,15 @@ function 利用者を解釈_(vals, pref) {
 /**
  * 曜日セル1つを読む。戻り値は乗車の配列 [{trip, place, addr, time, note, cond} | {warn}]
  */
+var JIRIKI = /自力|各自|保護者/;     // この言葉がある区間は送迎しない
+
 function 曜日セルを読む_(v, base) {
   var s = 全角を半角に_(String(v)).trim();
   var m = s.match(/[（(]([\s\S]*)[)）]/);
   var inner = m ? m[1].trim() : s.replace(/^[○〇◯●]/, '').trim();
+
+  // 「自力16:00」だけ → その日は送迎なし
+  if (!/迎え|送り/.test(inner) && JIRIKI.test(inner)) return [];
 
   // 「○」だけ、または時刻だけ → F列・G列の時刻と、お迎え先／お送り先を使う
   if (!/迎え|送り/.test(inner)) {
@@ -270,6 +276,7 @@ function 曜日セルを読む_(v, base) {
   inner.split(/[、,]/).forEach(function (part) {
     part = part.trim();
     if (!part) return;
+    if (JIRIKI.test(part) && !/迎え|送り/.test(part)) return;   // 「自力16:00」＝自分で来る・帰る。送迎なし
     var segs = part.split(/[\/／]/).map(function (x) { return x.trim(); }).filter(String);
     var first = segs[0].match(/^(.*?)(迎え|送り)(.*)$/);
     if (!first) { legs.push({ warn: '「' + part + '」の書き方が読めません' }); return; }
