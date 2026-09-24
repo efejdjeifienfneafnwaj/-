@@ -1595,6 +1595,8 @@ function Geminiに聞く_(msg, history, ctx) {
     var code = res.getResponseCode(), text = res.getContentText();
     if (code === 404) { last = 'モデル ' + models[i] + ' が見つかりません'; continue; }
     if (code === 400 && /API key/i.test(text)) throw new Error('APIキーが正しくありません。登録し直してください。');
+    if (code === 402) throw new Error('Geminiの残高（前払いクレジット）がありません。https://ai.studio/projects でこのキーのプロジェクトに残高を足すか、支払い設定の無いプロジェクトでキーを作り直してください。');
+    if (code === 403) throw new Error('このAPIキーではGeminiを使えません（権限がありません）。AI StudioでキーのプロジェクトのGemini APIが有効か確認してください。');
     if (code === 429) throw new Error('Geminiの利用上限に達しました。少し待ってからもう一度送ってください。');
     if (code !== 200) throw new Error('Geminiにつながりませんでした（' + code + '）。' + text.slice(0, 200));
     var j = JSON.parse(text);
