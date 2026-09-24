@@ -364,7 +364,7 @@ function 住所を整える_(addr, pref) {
   var s = 全角を半角に_(addr)
     .replace(/(\d)\s*[‐‑‒–—―−－ー]\s*(?=\d)/g, '$1-')
     .replace(/[　]/g, ' ').trim();
-  // 空白で区切り、数字が出てきた語までを残す（「○○町 2-13-1」のように町名と番地の間の空白は詰めて残す）
+  // 空白で区切り、数字が出てきた語までを残す（「○○町 1-2-3」のように町名と番地の間の空白は詰めて残す）
   var toks = s.split(/\s+/), keep = [];
   for (var i = 0; i < toks.length; i++) {
     keep.push(toks[i]);
