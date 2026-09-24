@@ -1,21 +1,25 @@
 /**
- * 送迎ボード 設定シート用スクリプト（Gem連携）
+ * 送迎表スクリプト（スプレッドシートだけで完結する版）
  *
- * 先方がするのは「①②を直して保存する」だけ。
- * あとはこのスクリプトが1時間ごとに自動で
+ * 先方がすること
+ *   ・名簿が変わったら ①② を直す（1時間以内に自動で送迎表へ反映）
+ *   ・「月曜の送迎表」などのシートを開いて見る
+ *   ・使えない車・お休みの方がいる日は、そのシートの上の黄色い欄に書く（数十秒で組み直す）
+ *
+ * このスクリプトが自動でやること（1時間ごと。名簿が変わっていなければ何もしない）
  *   住所 → 座標（③座標）
- *   区間の実測時間（④実測。Googleマップ）
- *   Gemが読む「送迎データ（Gem用・自動更新）」ドキュメント
- * を作り直す。一度測った座標・区間は保存しておき、二度と測らない。
+ *   区間の移動時間（④実測。Googleマップで測る。一度測った区間は二度と測らない）
+ *   曜日ごとの送迎表（配車の計算は下の「配車の計算」。配車ロジック.py と同じ結果になる）
  *
  * ②利用者一覧の曜日セルは、先方の書き方をそのまま読む。
  *   ○(迎え14:10、送り17:55)
  *   ○(迎え14:45、送りなし)
  *   ○(自宅迎え9:40、送り16:05)          … 「自宅」「祖父母宅」などの場所つき
- *   ○(迎え14:10/クラブ活動あり15:00、送り18:05)   … 「/」の後ろは条件つきの別案
+ *   ○(迎え14:10/クラブ活動あり15:00、送り18:05)   … 「/」の後ろは別案（その日だけ使える）
+ *   ○(迎えなし、送りなし/送りあり：14:15)          … 普段は無し。別案の日だけ送る
+ *   ○(自力16:00、送り17:50)               … 「自力」の区間は送迎しない
  *   ○                                     … F列・G列の時刻を使う
  *   14:35                                 … その曜日だけのお迎え時刻
- *   ○(自力16:00、送り17:50)               … 「自力」の区間は送迎しない
  *
  * APIキーは不要。Apps Scriptの無料枠で動く。
  */
@@ -25,12 +29,15 @@ var SH_USER  = '②利用者一覧';
 var SH_GEO   = '③座標';
 var SH_REAL  = '④実測';
 var SH_CHECK = '⚠要確認';
-var SH_PAY   = '_payload';     // 配車ロジック.py と Gem指示文の元データ（非表示・さわらない）
+var SHEET_SUFFIX = '曜の送迎表';          // 「月曜の送迎表」など
 
-var DAYS       = ['月', '火', '水', '木', '金', '土', '日'];
-var NEAR_K     = 10;                  // 各住所から近い何件まで実測するか
-var TIME_LIMIT = 4.5 * 60 * 1000;     // 1回の実行はここで打ち切る（上限6分のため）
-var DOC_TITLE  = '送迎データ（Gem用・自動更新）';
+var DAYS         = ['月', '火', '水', '木', '金', '土', '日'];
+var NEAR_K       = 10;                  // 各住所から近い何件まで実測するか
+var TIME_MEASURE = 3 * 60 * 1000;       // 実測に使う時間の上限（残りで送迎表を作る。全体の上限は6分）
+
+// 送迎表シートの入力欄（C列の3〜5行目）
+var IN_ROW_OFFV = 3, IN_ROW_OFFU = 4, IN_ROW_ALT = 5, IN_COL = 3;
+var OUT_ROW = 8;                         // 送迎表を書き始める行
 
 
 /* ══════════════════════════════════════════════════════════
@@ -40,74 +47,100 @@ var DOC_TITLE  = '送迎データ（Gem用・自動更新）';
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('🚐 送迎')
-    .addItem('今すぐGemに反映する', '今すぐ反映する')
+    .addItem('今すぐ送迎表を作り直す', '今すぐ反映する')
     .addSeparator()
-    .addItem('【初回】自動反映をONにする', '自動反映をONにする')
-    .addItem('【初回】Gemの準備', 'Gemの準備')
+    .addItem('【初回】自動更新をONにする', '自動更新をONにする')
     .addToUi();
 }
 
 /** メニュー：今すぐ反映する（結果を画面に出す） */
 function 今すぐ反映する() {
   var r = 更新する_();
-  var msg = r.busy ? '別の反映処理が動いています。少し待ってからもう一度押してください。' :
-    'Gemに反映しました\n\n' +
+  var msg = r.busy ? '別の処理が動いています。少し待ってからもう一度押してください。' :
+    '送迎表を作り直しました\n\n' +
     '利用者：' + r.users + '名　車両：' + r.vehicles + '台\n' +
     '座標：新しく調べた ' + r.geoNew + '件' + (r.geoNg ? '（見つからない ' + r.geoNg + '件）' : '') + '\n' +
-    '実測：新しく測った ' + r.realNew + '区間' + (r.realLeft ? '（残り ' + r.realLeft + '区間は次の自動反映で続きを測ります）' : '') + '\n\n' +
+    '実測：新しく測った ' + r.realNew + '区間' +
+    (r.realLeft ? '\n　　　残り ' + r.realLeft + '区間は、次の自動更新で続きを測ります（それまでは直線距離で見積もり）' : '') + '\n\n' +
     (r.issues ? '⚠ 確認が必要なことが ' + r.issues + '件あります。「' + SH_CHECK + '」シートを見てください。'
               : '確認が必要なことはありません。');
   SpreadsheetApp.getUi().alert(msg);
 }
 
-/** メニュー：1時間ごとの自動反映を仕掛ける（重複しない） */
-function 自動反映をONにする() {
-  var ts = ScriptApp.getProjectTriggers();
-  for (var i = 0; i < ts.length; i++) {
-    if (ts[i].getHandlerFunction() === '自動反映') ScriptApp.deleteTrigger(ts[i]);
-  }
-  ScriptApp.newTrigger('自動反映').timeBased().everyHours(1).create();
+/** メニュー：1時間ごとの自動更新と、入力欄の見張りを仕掛ける（重複しない） */
+function 自動更新をONにする() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var f = t.getHandlerFunction();
+    if (f === '自動更新' || f === '入力が変わった' || f === '自動反映') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('自動更新').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('入力が変わった').forSpreadsheet(ss).onEdit().create();
   今すぐ反映する();
 }
 
 /** 1時間ごとに呼ばれる。名簿が変わっていなくて、測り残しも無ければ何もしない */
-function 自動反映() {
+function 自動更新() {
   var props = PropertiesService.getDocumentProperties();
-  var h = 名簿の指紋_();
-  if (h === props.getProperty('LAST_HASH') && props.getProperty('PENDING') !== '1') return;
+  if (名簿の指紋_() === props.getProperty('LAST_HASH') && props.getProperty('PENDING') !== '1') return;
   更新する_();
+}
+
+/** 送迎表シートの黄色い欄（使わない車・お休み・別案）が変わったら、その曜日だけ組み直す */
+function 入力が変わった(e) {
+  if (!e || !e.range) return;
+  var sh = e.range.getSheet(), name = sh.getName();
+  if (name.slice(-SHEET_SUFFIX.length) !== SHEET_SUFFIX) return;
+  var r = e.range.getRow(), c = e.range.getColumn();
+  if (c > IN_COL || c + e.range.getNumColumns() - 1 < IN_COL) return;
+  if (r > IN_ROW_ALT || r + e.range.getNumRows() - 1 < IN_ROW_OFFV) return;
+
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(60 * 1000)) return;
+  try {
+    var ss = sh.getParent();
+    sh.getRange(OUT_ROW - 1, 1).setValue('⏳ 組み直しています…').setFontColor('#1a73e8');
+    SpreadsheetApp.flush();
+    var fac = 施設を読む_(ss), parsed = 利用者を読む_(ss, fac);
+    var day = name.slice(0, name.length - SHEET_SUFFIX.length);
+    曜日の送迎表を作る_(ss, day, fac, parsed.rides, 保存済みの座標_(ss), 保存済みの実測_(ss));
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 
 /* ══════════════════════════════════════════════════════════
-   本体：読む → 座標 → 実測 → Gem用ドキュメント
+   本体：読む → 座標 → 実測 → 送迎表
    ══════════════════════════════════════════════════════════ */
 
 function 更新する_() {
   var lock = LockService.getDocumentLock();
   if (!lock.tryLock(1000)) return { busy: true };
   try {
-    var start = new Date().getTime();
-    var ss    = SpreadsheetApp.getActiveSpreadsheet();
-    var fac   = 施設を読む_(ss);
+    var start  = new Date().getTime();
+    var ss     = SpreadsheetApp.getActiveSpreadsheet();
+    var fac    = 施設を読む_(ss);
     var parsed = 利用者を読む_(ss, fac);
     var issues = parsed.issues.slice();
     if (!fac.addr)            issues.push(['①施設', '施設住所が入っていません']);
     if (!fac.vehicles.length) issues.push(['①施設', '車両が1台も入っていません（10行目から 車両名・定員数）']);
 
-    // ── 座標 ──
     var addrs = [];
     if (fac.addr) addrs.push(fac.addr);
     parsed.rides.forEach(function (r) { addrs.push(r.addr); });
     var g = 座標をそろえる_(ss, uniq_(addrs), fac.pref);
     g.issues.forEach(function (x) { issues.push(x); });
 
-    // ── 実測（時間の許すかぎり。残りは次回）──
     var m = 実測をそろえる_(ss, g.pos, fac.addr, start);
 
-    // ── Gem用ドキュメント ──
-    var text = Gem用テキスト_(fac, parsed.rides, g.pos, m.real, issues);
-    var url  = Gem用ドキュメントに書く_(text);
+    var days = DAYS.filter(function (d) { return parsed.rides.some(function (r) { return r.day === d; }); });
+    days.forEach(function (d) { 曜日の送迎表を作る_(ss, d, fac, parsed.rides, g.pos, m.real); });
+    // 送迎の無くなった曜日のシートは消す
+    DAYS.forEach(function (d) {
+      var sh = ss.getSheetByName(d + SHEET_SUFFIX);
+      if (sh && days.indexOf(d) < 0) ss.deleteSheet(sh);
+    });
 
     要確認シートに書く_(ss, issues);
 
@@ -116,13 +149,13 @@ function 更新する_() {
     props.setProperty('PENDING', m.left ? '1' : '0');
 
     return { users: parsed.users, vehicles: fac.vehicles.length, geoNew: g.done, geoNg: g.ng,
-             realNew: m.done, realLeft: m.left, issues: issues.length, url: url };
+             realNew: m.done, realLeft: m.left, issues: issues.length };
   } finally {
     lock.releaseLock();
   }
 }
 
-/** ①② の中身から作る指紋。変わっていなければ自動反映をとばす */
+/** ①② の中身から作る指紋。変わっていなければ自動更新をとばす */
 function 名簿の指紋_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet(), s = '';
   [SH_FAC, SH_USER].forEach(function (n) {
@@ -133,6 +166,27 @@ function 名簿の指紋_() {
   return Utilities.base64Encode(d);
 }
 
+/** ③座標 に保存してある座標（入力欄の組み直し用。新しく調べはしない） */
+function 保存済みの座標_(ss) {
+  var sh = ss.getSheetByName(SH_GEO), pos = {};
+  if (!sh || sh.getLastRow() < 2) return pos;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (v) {
+    var a = String(v[0] || '').trim();
+    if (a && v[1] !== '' && v[2] !== '') pos[a] = [Number(v[1]), Number(v[2])];
+  });
+  return pos;
+}
+
+/** ④実測 に保存してある移動時間（同上） */
+function 保存済みの実測_(ss) {
+  var sh = ss.getSheetByName(SH_REAL), real = {};
+  if (!sh || sh.getLastRow() < 2) return real;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function (v) {
+    var a = String(v[0] || '').trim(), b = String(v[1] || '').trim();
+    if (a && b && v[2] !== '') real[a + '||' + b] = real[b + '||' + a] = Number(v[2]);
+  });
+  return real;
+}
 
 /* ══════════════════════════════════════════════════════════
    ①施設・車両設定 を読む
@@ -242,7 +296,7 @@ function 利用者を解釈_(vals, pref) {
           return;
         }
         rides.push({ day: d, trip: lg.trip, name: name, place: lg.place, rawAddr: lg.addr,
-                     addr: 住所を整える_(lg.addr, pref), time: lg.time, note: lg.note || '', cond: lg.cond || '' });
+                     addr: 住所を整える_(lg.addr, pref), time: lg.time, note: lg.note || '', cond: lg.cond || '', alt: lg.alt || null });
       });
     });
     if (!anyDay) issues.push([rowNo + '行 ' + name, '利用曜日に何も入っていないため、配車に出てきません（休止中なら問題ありません）']);
@@ -305,7 +359,8 @@ function 曜日セルを読む_(v, base) {
     }
     var note = alts.filter(function (a) { return a.time; })
                    .map(function (a) { return (a.label || '別案') + 'の日は' + a.time; }).join('、');
-    legs.push({ trip: trip, place: place.place, addr: place.addr, time: time, note: note });
+    var alt = alts.filter(function (a) { return a.time; })[0] || null;
+    legs.push({ trip: trip, place: place.place, addr: place.addr, time: time, note: note, alt: alt });
   });
   return legs;
 }
@@ -500,7 +555,7 @@ function 実測をそろえる_(ss, pos, facAddr, start) {
   var done = 0, buf = [];
   var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd');
   for (var i = 0; i < todo.length; i++) {
-    if (new Date().getTime() - start > TIME_LIMIT) break;
+    if (new Date().getTime() - start > TIME_MEASURE) break;
     var a = todo[i][0], b = todo[i][1], min = null;
     try {
       var res = Maps.newDirectionFinder().setOrigin(pos[a][0], pos[a][1]).setDestination(pos[b][0], pos[b][1])
@@ -525,89 +580,10 @@ function 実測をそろえる_(ss, pos, facAddr, start) {
 }
 
 
+
 /* ══════════════════════════════════════════════════════════
-   Gem用テキスト
-   曜日×便ごとに、配車ロジック.py にそのまま貼れる Python のコードを並べる。
-   Gemは書き写すだけで、並べ替えや計算をしなくて済む（＝書き写しミスが出にくい）。
+   便に分ける
    ══════════════════════════════════════════════════════════ */
-
-function py_(s) { return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"; }
-
-function Gem用テキスト_(fac, rides, pos, real, issues) {
-  var L = [];
-  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm');
-  L.push('# 送迎データ　' + (fac.name || '') + '　（' + now + ' 更新）');
-  L.push('# 事業区分：' + fac.mode + '　車両：' + fac.vehicles.length + '台');
-  L.push('# 使い方：該当する曜日・便のコードを、配車ロジック.py の「ここから下はロジック」の行の直前にそのまま貼って実行する');
-  if (issues.length) {
-    L.push('# ⚠ 名簿に確認が必要な点が ' + issues.length + '件あります（該当の方は下のデータに入っていません）：');
-    issues.slice(0, 30).forEach(function (x) { L.push('#   ' + x[0] + '：' + x[1]); });
-  }
-  L.push('');
-
-  var vehicles = fac.vehicles.map(function (v) {
-    return "    {'name': " + py_(v.name) + ", 'cap': " + v.cap + ", 'wc_max': 0, 'wc_seats': 1, 'walker_max': None},";
-  });
-  var fp = pos[fac.addr];
-
-  DAYS.forEach(function (d) {
-    ['お迎え', 'お送り'].forEach(function (trip) {
-      var all = rides.filter(function (r) { return r.day === d && r.trip === trip; });
-      var waves = 便に分ける_(all);
-      waves.forEach(function (list, wi) {
-      var tag = (waves.length > 1) ? '①②③④⑤⑥⑦⑧⑨'.charAt(wi) + '（' + 時間帯_(list) + '）' : '';
-      var normal = list.filter(function (r) { return !r.cond; });
-      var cond   = list.filter(function (r) { return r.cond; });
-      var noPos  = list.filter(function (r) { return !pos[r.addr]; });
-
-      L.push('## ' + d + '曜・' + trip + tag + '（' + normal.length + '名）');
-      L.push('```python');
-      L.push('CONFIG = {');
-      L.push("    'mode': " + py_(fac.mode) + ", 'trip': " + py_(trip) + ',');
-      L.push("    'facility': " + py_(fac.addr) + ", 'facility_name': " + py_(fac.name) + ',');
-      L.push("    'fac_pos': " + (fp ? '(' + fp[0] + ', ' + fp[1] + ')' : 'None') + ',');
-      L.push("    'depart': " + py_(fac.depart) + ", 'auto_depart': None, 'stop': " + fac.stop + ", 'turn': 5,");
-      L.push("    'factor': 3.0, 'use_run2': " + (fac.mode === '介護' ? 'True' : 'False') + ", 'seed': 0,");
-      L.push('}');
-      L.push('VEHICLES = [');
-      L = L.concat(vehicles);
-      L.push(']');
-      L.push('USERS = [');
-      function userLine(r) {
-        var p = pos[r.addr];
-        return "{'name': " + py_(r.name) + ", 'addr': " + py_(r.addr) + ", 'pos': (" + p[0] + ', ' + p[1] + ')' +
-               ", 'mob': '', 'target': " + py_(r.time) + ", 'note': " + py_([r.place, r.note].filter(String).join('／')) + '}';
-      }
-      normal.forEach(function (r) { if (pos[r.addr]) L.push('    ' + userLine(r) + ','); });
-      L.push(']');
-      cond.forEach(function (r) {
-        if (!pos[r.addr]) return;
-        L.push('# 条件つき（「' + r.name + 'さん' + r.cond + '」と言われたときだけ # を外す）');
-        L.push('# USERS.append(' + userLine(r) + ')');
-      });
-      L.push('OFF_VEHICLES = []');
-      L.push('OFF_USERS = []');
-
-      // この便に出てくる住所どうしの実測だけ載せる（表を小さく保つ）
-      var here = uniq_([fac.addr].concat(list.map(function (r) { return r.addr; })));
-      var pairs = [];
-      for (var i = 0; i < here.length; i++) for (var j = i + 1; j < here.length; j++) {
-        var v = real[here[i] + '||' + here[j]];
-        if (v != null) pairs.push('    (' + py_(here[i]) + ', ' + py_(here[j]) + '): ' + v + ',');
-      }
-      L.push('REAL = {');
-      L = L.concat(pairs);
-      L.push('}');
-      L.push('```');
-      if (noPos.length) {
-        L.push('※ 座標が無いため外した方：' + uniq_(noPos.map(function (r) { return r.name; })).join('、'));
-      }
-      L.push('');
-      });
-    });
-  });
-  return L.join('\n');
-}
 
 /**
  * 時刻が WAVE_GAP 分以上あく所で便を分ける。
@@ -639,23 +615,726 @@ function 時間帯_(list) {
   return lo === hi ? f(lo) : f(lo) + '〜' + f(hi);
 }
 
-/** 同じGoogleドキュメントを毎回上書きする（Gemの知識に入れっぱなしにできるよう、URLを変えない） */
-function Gem用ドキュメントに書く_(text) {
-  var props = PropertiesService.getDocumentProperties();
-  var id = props.getProperty('GEM_DOC_ID'), doc = null;
-  if (id) { try { doc = DocumentApp.openById(id); } catch (e) { doc = null; } }
-  if (!doc) {
-    doc = DocumentApp.create(DOC_TITLE);
-    props.setProperty('GEM_DOC_ID', doc.getId());
-    try { DriveApp.getFileById(doc.getId()).moveTo(同じフォルダ_()); } catch (e) {}
+/* ══════════════════════════════════════════════════════════
+   配車の計算（配車ロジック.py を一行ずつ移したもの。版 2026-09-24）
+   Python版と同じ結果になるよう、乱数（Pythonの random）と
+   四捨五入（Pythonの round は偶数への丸め）も同じ動きにしてある。
+   ══════════════════════════════════════════════════════════ */
+
+var LOGIC_VERSION  = '2026-09-24';
+var RUN2_MIN_STOPS = 6;    // これ未満の軒数なら、時短目的では分けない
+var RUN2_REQ_GAIN  = 10;   // 平均でこれ以上早くなること（分）
+var RUN2_MAX_LOSS  = 10;   // 最後の方がこれ以上遅くなるなら分けない（分）
+var RUN2_PENALTY   = 60;   // 2便が必要になる配車には、このぶん不利な点をつける
+var LATE_WEIGHT    = 5;    // 遅れ1分を、走行何分ぶんの損と数えるか。0にすると配車ロジック.py と同じ動き
+                           // （0だと走行時間を縮めるために1台へ詰め込み、指定時刻に遅れる組み方を選んでしまう）
+
+/** Python の random.Random と同じ乱数（メルセンヌ・ツイスタ） */
+function PyRandom_(seed) {
+  var N = 624, mt = new Array(N), mti = N + 1;
+  function initGenrand(s) {
+    mt[0] = s >>> 0;
+    for (mti = 1; mti < N; mti++) {
+      mt[mti] = (Math.imul(1812433253, mt[mti - 1] ^ (mt[mti - 1] >>> 30)) + mti) >>> 0;
+    }
   }
-  var body = doc.getBody();
-  body.clear();
-  body.appendParagraph('※ このファイルはスプレッドシートから自動で作り直されます。手で書き換えないでください。');
-  body.appendParagraph(text).setFontFamily('Courier New').setFontSize(9);
-  doc.saveAndClose();
-  return doc.getUrl();
+  function initByArray(key) {
+    initGenrand(19650218);
+    var i = 1, j = 0, k = Math.max(N, key.length);
+    for (; k; k--) {
+      mt[i] = ((mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1664525)) + key[j] + j) >>> 0;
+      i++; j++;
+      if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+      if (j >= key.length) j = 0;
+    }
+    for (k = N - 1; k; k--) {
+      mt[i] = ((mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1566083941)) - i) >>> 0;
+      i++;
+      if (i >= N) { mt[0] = mt[N - 1]; i = 1; }
+    }
+    mt[0] = 0x80000000;
+  }
+  function genrand() {
+    var y, kk;
+    if (mti >= N) {
+      for (kk = 0; kk < N - 397; kk++) {
+        y = (mt[kk] & 0x80000000) | (mt[kk + 1] & 0x7fffffff);
+        mt[kk] = mt[kk + 397] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      for (; kk < N - 1; kk++) {
+        y = (mt[kk] & 0x80000000) | (mt[kk + 1] & 0x7fffffff);
+        mt[kk] = mt[kk + (397 - N)] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      }
+      y = (mt[N - 1] & 0x80000000) | (mt[0] & 0x7fffffff);
+      mt[N - 1] = mt[396] ^ (y >>> 1) ^ ((y & 1) ? 0x9908b0df : 0);
+      mti = 0;
+    }
+    y = mt[mti++];
+    y ^= (y >>> 11);
+    y ^= (y << 7) & 0x9d2c5680;
+    y ^= (y << 15) & 0xefc60000;
+    y ^= (y >>> 18);
+    return y >>> 0;
+  }
+  function randbelow(n) {
+    var k = 32 - Math.clz32(n), r = genrand() >>> (32 - k);
+    while (r >= n) r = genrand() >>> (32 - k);
+    return r;
+  }
+  initByArray([Math.abs(seed) >>> 0]);
+  return {
+    random: function () { var a = genrand() >>> 5, b = genrand() >>> 6; return (a * 67108864 + b) / 9007199254740992; },
+    randrange: function (n) { return randbelow(n); },
+    choice: function (seq) { return seq[randbelow(seq.length)]; },
+    sample: function (pop, k) {
+      var n = pop.length, res = [], i, j;
+      var setsize = 21;
+      if (k > 5) setsize += Math.pow(4, Math.ceil(Math.log(k * 3) / Math.log(4)));
+      if (n <= setsize) {
+        var pool = pop.slice();
+        for (i = 0; i < k; i++) { j = randbelow(n - i); res.push(pool[j]); pool[j] = pool[n - i - 1]; }
+      } else {
+        var sel = {};
+        for (i = 0; i < k; i++) { j = randbelow(n); while (sel[j]) j = randbelow(n); sel[j] = 1; res.push(pop[j]); }
+      }
+      return res;
+    }
+  };
 }
+
+/** Python の round(x)（ちょうど半分は偶数へ） */
+function pyRound_(x) {
+  var r = Math.round(x);
+  if (Math.abs(x % 1) === 0.5) r = 2 * Math.round(x / 2);
+  return r;
+}
+
+/**
+ * 配車を組む。戻り値は Python版の print と同じ行の配列。
+ *   cfg      … CONFIG（mode, trip, facility, facility_name, fac_pos, depart, auto_depart, stop, turn, factor, use_run2, seed）
+ *   vehicles … [{name, cap, wc_max, wc_seats, walker_max}]
+ *   users    … [{name, addr, pos:[緯度,経度], mob, target, note}]
+ *   real     … {'住所A\u0000住所B': 分}（片方向だけ入っていればよい）
+ */
+function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
+  var OUT = [];
+  function print(s) { OUT.push(s == null ? '' : s); }
+  var LEG = { real: 0, est: 0 };
+  var SEP = '\u0000';
+  var realKeys = Object.keys(REAL);
+
+  function toM(s) {
+    if (!s) return null;
+    var p = String(s).split(':');
+    if (p.length !== 2 || !/^\s*[+-]?\d+\s*$/.test(p[0]) || !/^\s*[+-]?\d+\s*$/.test(p[1])) return null;
+    return parseInt(p[0], 10) * 60 + parseInt(p[1], 10);
+  }
+  function toHm(m) {
+    if (m == null) return '';
+    m = pyRound_(m);
+    var h = Math.floor(m / 60), mm = m - h * 60;
+    return h + ':' + (mm < 10 ? '0' : '') + mm;
+  }
+  function samePos(a, b) { return a != null && b != null && a[0] === b[0] && a[1] === b[1]; }
+  function haversine(a, b) {
+    if (a == null || b == null) return 0.0;
+    var d = Math.PI / 180;
+    var lat1 = a[0] * d, lon1 = a[1] * d, lat2 = b[0] * d, lon2 = b[1] * d;
+    var dlat = lat2 - lat1, dlon = lon2 - lon1;
+    var h = Math.pow(Math.sin(dlat / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin(dlon / 2), 2);
+    return 2 * 6371.0 * Math.asin(Math.min(1.0, Math.sqrt(h)));
+  }
+  function legmin(a, b, aa, ab) {
+    if (aa && ab && aa === ab) return 0;
+    if (aa && ab) {
+      var v = REAL[aa + SEP + ab];
+      if (v == null) v = REAL[ab + SEP + aa];
+      if (v != null) { LEG.real++; return Math.max(0, pyRound_(v)); }
+    }
+    if (a == null || b == null) return 0;
+    if (samePos(a, b)) return 0;
+    LEG.est++;
+    return Math.max(1, pyRound_(haversine(a, b) * cfg.factor));
+  }
+  function walkerMax(v) { return v.walker_max == null ? 99 : Number(v.walker_max); }
+  function capAt(v, wc) { return Number(v.cap) - (Number(v.wc_seats == null ? 1 : v.wc_seats) - 1) * wc; }
+  function addLoad(load, group) {
+    var n = load[0], wc = load[1], wk = load[2];
+    group.forEach(function (c) { if (c.mob === 'wc') wc++; else if (c.mob === 'walker') wk++; n++; });
+    return [n, wc, wk];
+  }
+  function canFit(v, load, group) {
+    var l = addLoad(load, group);
+    if (l[1] > Number(v.wc_max || 0)) return false;
+    if (l[2] > walkerMax(v)) return false;
+    var lim = capAt(v, l[1]);
+    return lim > 0 && l[0] <= lim;
+  }
+  function fitCount(v, us) {
+    var load = [0, 0, 0], n = 0;
+    for (var i = 0; i < us.length; i++) {
+      if (!canFit(v, load, [us[i]])) break;
+      load = addLoad(load, [us[i]]); n++;
+    }
+    return n;
+  }
+  function runsAllowed() { return (cfg.use_run2 && cfg.mode === '介護') ? 2 : 1; }
+  function fitsInRuns(v, us, runs) {
+    var rest = us.slice();
+    for (var r = 0; r < runs; r++) {
+      if (!rest.length) return true;
+      var k = fitCount(v, rest);
+      if (k === 0) return false;
+      rest = rest.slice(k);
+    }
+    return !rest.length;
+  }
+  function whyNot(v, group) {
+    var wc = group.filter(function (c) { return c.mob === 'wc'; }).length;
+    var wk = group.filter(function (c) { return c.mob === 'walker'; }).length;
+    if (wc && Number(v.wc_max || 0) === 0) return '車いす不可';
+    if (wc > Number(v.wc_max || 0))        return '車いす定員';
+    if (wk > walkerMax(v))                 return '歩行器の上限';
+    return '定員';
+  }
+
+  // 手順1　まとまりを作る
+  function makeGroups(us) {
+    var keys = [], bag = {};
+    us.forEach(function (c) {
+      var k = c.addr + SEP + c.target;
+      if (!bag[k]) { bag[k] = []; keys.push(k); }
+      bag[k].push(c);
+    });
+    var gs = keys.map(function (k) { return bag[k]; });
+    var key = function (g) { var t = toM(g[0].target); return t != null ? t : 99 * 60; };
+    return gs.map(function (g, i) { return { g: g, i: i }; })
+             .sort(function (x, y) { return key(x.g) - key(y.g) || x.i - y.i; })
+             .map(function (x) { return x.g; });
+  }
+
+  // 手順3　車内の順番
+  function orderStops(gidx, groups, departMin) {
+    if (gidx.length <= 1) return gidx.slice();
+    var items = gidx.map(function (gi) {
+      var tg = '';
+      for (var q = 0; q < groups[gi].length; q++) if (groups[gi][q].target) { tg = groups[gi][q].target; break; }
+      return { pos: groups[gi][0].pos, addr: groups[gi][0].addr || '', target: tg };
+    });
+    var rest = items.map(function (_, i) { return i; }), nn = [];
+    var cur = cfg.fac_pos, curA = cfg.facility;
+    while (rest.length) {
+      var bi = 0, bm = Infinity;
+      for (var k = 0; k < rest.length; k++) {
+        var m = legmin(cur, items[rest[k]].pos, curA, items[rest[k]].addr);
+        if (m < bm) { bm = m; bi = k; }
+      }
+      var pick = rest.splice(bi, 1)[0]; nn.push(pick);
+      cur = items[pick].pos; curA = items[pick].addr;
+    }
+    var eta = {}, t = departMin, prev = cfg.fac_pos, prevA = cfg.facility;
+    nn.forEach(function (i) {
+      t += legmin(prev, items[i].pos, prevA, items[i].addr);
+      eta[i] = t;
+      t += cfg.stop;
+      prev = items[i].pos; prevA = items[i].addr;
+    });
+    var keyed = nn.map(function (i, p) { var tg = toM(items[i].target); return [tg != null ? tg : eta[i], p, i]; });
+    keyed.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1] || a[2] - b[2]; });
+    return keyed.map(function (x) { return gidx[x[2]]; });
+  }
+  function routeMinutes(gidx, groups) {
+    if (!gidx.length) return 0;
+    var total = 0, prev = cfg.fac_pos, prevA = cfg.facility;
+    gidx.forEach(function (gi) {
+      var c = groups[gi][0];
+      total += legmin(prev, c.pos, prevA, c.addr || '');
+      prev = c.pos; prevA = c.addr || '';
+    });
+    return total + legmin(prev, cfg.fac_pos, prevA, cfg.facility);
+  }
+  function ordMap(assign, groups, vehicles, departMin) {
+    var m = vehicles.map(function () { return []; });
+    assign.forEach(function (vi, gi) { if (vi >= 0) m[vi].push(gi); });
+    return m.map(function (g) { return orderStops(g, groups, departMin); });
+  }
+  function totalScore(assign, groups, vehicles, departMin, noLate) {
+    var om = ordMap(assign, groups, vehicles, departMin), total = 0;
+    om.forEach(function (g) { if (g.length) total += routeMinutes(g, groups); });
+    var lw = noLate ? 0 : ((cfg.late_weight == null) ? LATE_WEIGHT : cfg.late_weight);
+    vehicles.forEach(function (v, vi) {
+      var seq = [];
+      om[vi].forEach(function (gi) { seq = seq.concat(groups[gi]); });
+      if (seq.length && !fitsInRuns(v, seq, 1)) total += RUN2_PENALTY;
+      if (seq.length && lw > 0) {
+        // 指定時刻への遅れ（分）も損として数える
+        var rows = buildSchedule(seq, departFor(seq, departMin))[0], late = 0;
+        rows.forEach(function (r, i) { if (i === 0 || !r.same) late += r.late; });
+        total += lw * late;
+      }
+    });
+    return total;
+  }
+
+  // 手順2　貪欲法で割り当てる
+  function greedy(groups, vehicles) {
+    var load = vehicles.map(function () { return [0, 0, 0]; });
+    var held = vehicles.map(function () { return []; });
+    var last = vehicles.map(function () { return null; });
+    var assign = groups.map(function () { return -1; }), unassigned = [];
+    var runs = runsAllowed();
+    var order = groups.map(function (_, i) { return i; });
+    if (cfg.mode === '介護') {
+      var k = function (gi) { return groups[gi].some(function (c) { return c.mob; }) ? 0 : 1; };
+      order.sort(function (a, b) { return k(a) - k(b) || a - b; });
+    }
+    order.forEach(function (gi) {
+      var g = groups[gi], gt = toM(g[0].target);
+      gt = gt != null ? gt : 99 * 60;
+      var best = -1, bestSc = Infinity;
+      vehicles.forEach(function (v, vi) {
+        if (!canFit(v, load[vi], g)) return;
+        var tdiff = last[vi] == null ? 0 : Math.abs(gt - last[vi]);
+        var pen = (last[vi] != null && tdiff > 30) ? 10000 : 0;
+        var sc = pen + load[vi][0];
+        if (sc < bestSc) { bestSc = sc; best = vi; }
+      });
+      if (best < 0 && runs > 1) {
+        vehicles.forEach(function (v, vi) {
+          if (!fitsInRuns(v, held[vi].concat(g), runs)) return;
+          if (best < 0 || load[vi][0] < load[best][0]) best = vi;
+        });
+      }
+      if (best < 0) {
+        var rs = {};
+        vehicles.forEach(function (v) { rs[whyNot(v, g)] = 1; });
+        var reasons = Object.keys(rs).sort();
+        if (!reasons.length) reasons = ['車両なし'];
+        unassigned.push([g, '全車とも' + reasons.join('・')]);
+        return;
+      }
+      assign[gi] = best;
+      load[best] = addLoad(load[best], g);
+      held[best] = held[best].concat(g);
+      last[best] = gt;
+    });
+    return [assign, unassigned];
+  }
+
+  // 手順4　組み直して改善する
+  function isValid(assign, groups, vehicles) {
+    var runs = runsAllowed();
+    var seats = vehicles.map(function () { return []; });
+    for (var gi = 0; gi < assign.length; gi++) {
+      var vi = assign[gi];
+      if (vi < 0) continue;
+      if (vi >= vehicles.length) return false;
+      seats[vi] = seats[vi].concat(groups[gi]);
+    }
+    for (var v = 0; v < vehicles.length; v++) {
+      if (seats[v].length && !fitsInRuns(vehicles[v], seats[v], runs)) return false;
+    }
+    for (var w = 0; w < vehicles.length; w++) {
+      var ts = [];
+      assign.forEach(function (x, g) { if (x === w) { var t = toM(groups[g][0].target); if (t != null) ts.push(t); } });
+      ts.sort(function (a, b) { return a - b; });
+      for (var i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > 30) return false;
+    }
+    return true;
+  }
+  function improve(assign, groups, vehicles, departMin) {
+    var rnd = PyRandom_(cfg.seed || 0);
+    var best = assign.slice(), bestSc = totalScore(best, groups, vehicles, departMin);
+    var live = [];
+    best.forEach(function (vi, gi) { if (vi >= 0) live.push(gi); });
+    if (live.length < 2) return [best, bestSc, 0];
+    var improved = 0;
+    for (var it = 0; it < 4000; it++) {
+      var trial = best.slice();
+      if (rnd.random() < 0.5) {
+        var ab = rnd.sample(live, 2), tmp = trial[ab[0]];
+        trial[ab[0]] = trial[ab[1]]; trial[ab[1]] = tmp;
+      } else {
+        var gi = rnd.choice(live);
+        trial[gi] = rnd.randrange(vehicles.length);
+      }
+      if (!isValid(trial, groups, vehicles)) continue;
+      var sc = totalScore(trial, groups, vehicles, departMin);
+      if (sc < bestSc) { best = trial; bestSc = sc; improved++; }
+    }
+    return [best, bestSc, improved];
+  }
+
+  function reverseDepart() { return cfg.auto_depart == null ? (cfg.mode === '放デイ') : !!cfg.auto_depart; }
+  function departFor(seq, def) {
+    if (!seq.length || !reverseDepart()) return def;
+    var tg = toM(seq[0].target);
+    if (tg == null) return def;
+    var keep = { real: LEG.real, est: LEG.est };
+    var travel = legmin(cfg.fac_pos, seq[0].pos, cfg.facility, seq[0].addr || '');
+    LEG.real = keep.real; LEG.est = keep.est;
+    return Math.max(0, tg - travel);
+  }
+
+  // 手順5　時刻を計算する
+  function buildSchedule(seq, departMin) {
+    var rows = [], t = departMin, prev = cfg.fac_pos, prevA = cfg.facility, i = 0;
+    while (i < seq.length) {
+      var j = i;
+      while (j + 1 < seq.length && samePos(seq[j + 1].pos, seq[i].pos) && seq[j + 1].target === seq[i].target) j++;
+      var chunk = seq.slice(i, j + 1);
+      var travel = legmin(prev, chunk[0].pos, prevA, chunk[0].addr || '');
+      t += travel;
+      var arrive = t, wait = 0, tg = toM(chunk[0].target);
+      if (tg != null && tg > arrive) { wait = tg - arrive; arrive = tg; }
+      t = arrive + cfg.stop;
+      var late = (tg != null && arrive > tg) ? arrive - tg : 0;
+      chunk.forEach(function (c, k) {
+        rows.push({ c: c, arrive: arrive, depart: t, wait: k === 0 ? wait : 0, late: late,
+                    travel: k === 0 ? travel : 0, same: k > 0 });
+      });
+      prev = chunk[0].pos; prevA = chunk[0].addr || '';
+      i = j + 1;
+    }
+    var back = t + (seq.length ? legmin(prev, cfg.fac_pos, prevA, cfg.facility) : 0);
+    return [rows, back];
+  }
+
+  // 手順6　2便を使うか判断する
+  function splitRun2(seq, v, departMin) {
+    if (!cfg.use_run2 || cfg.mode !== '介護') return [seq, [], ''];
+    var fit1 = fitCount(v, seq);
+    if (fit1 < seq.length) {
+      var rest = seq.slice(fit1);
+      return [seq.slice(0, fit1), rest.slice(0, fitCount(v, rest)), '1便に乗り切らないため'];
+    }
+    var st = {};
+    seq.forEach(function (c) { st[c.addr] = 1; });
+    if (Object.keys(st).length < RUN2_MIN_STOPS) return [seq, [], ''];
+    var base = buildSchedule(seq, departMin)[0];
+    var sum = function (rs) { return rs.reduce(function (s, r) { return s + r.arrive; }, 0); };
+    var mx = function (rs) { return Math.max.apply(null, rs.map(function (r) { return r.arrive; })); };
+    var baseAvg = sum(base) / base.length, baseLast = mx(base);
+    var best = null;
+    for (var cut = 1; cut < seq.length; cut++) {
+      var a = seq.slice(0, cut), b = seq.slice(cut);
+      if (fitCount(v, a) < a.length || fitCount(v, b) < b.length) continue;
+      var ra = buildSchedule(a, departMin), rb = buildSchedule(b, ra[1] + cfg.turn)[0];
+      var rows = ra[0].concat(rb);
+      var gain = baseAvg - sum(rows) / rows.length, loss = mx(rows) - baseLast;
+      if (gain >= RUN2_REQ_GAIN && loss < RUN2_MAX_LOSS) {
+        if (best == null || gain > best[0]) best = [gain, a, b];
+      }
+    }
+    if (best) return [best[1], best[2], '分けたほうが平均で' + pyRound_(best[0]) + '分早いため'];
+    return [seq, [], ''];
+  }
+
+  // ── 実行 ──
+  var vehicles = VEHICLES.filter(function (v) { return OFF_VEHICLES.indexOf(v.name) < 0; });
+  var users    = USERS.filter(function (c) { return OFF_USERS.indexOf(c.name) < 0; });
+  if (!vehicles.length) { print('走れる車がありません'); return OUT; }
+  if (!users.length)    { print('送迎する方がいません'); return OUT; }
+
+  var warnCfg = [];
+  if (realKeys.length) {
+    var keys = {};
+    realKeys.forEach(function (k) { var p = k.split(SEP); keys[p[0]] = 1; keys[p[1]] = 1; });
+    if (!keys[cfg.facility]) {
+      warnCfg.push("CONFIG['facility'] が実測表にありません（いまは「" + cfg.facility + "」）。\n" +
+                   '　　実測表に出てくる住所のどれかと一字一句そろえてください。\n' +
+                   '　　候補: ' + Object.keys(keys).sort().slice(0, 5).join('／'));
+    }
+    var miss = users.filter(function (c) { return c.addr && !keys[c.addr]; }).map(function (c) { return c.name; });
+    if (miss.length) warnCfg.push('実測表に住所が無い方: ' + miss.slice(0, 5).join('、') + '（その区間は直線距離で見積もります）');
+  }
+
+  var departMin = toM(cfg.depart) || 0;
+  var groups = makeGroups(users);
+  var gr = greedy(groups, vehicles), assign = gr[0], unassigned = gr[1];
+  var im = improve(assign, groups, vehicles, departMin);
+  assign = im[0];
+  var improved = im[2];
+  // 表示するのは走行時間（遅れの損は入れない）
+  var score = totalScore(assign, groups, vehicles, departMin, true);
+  var om = ordMap(assign, groups, vehicles, departMin);
+  LEG.real = LEG.est = 0;
+
+  print('［配車ロジック ' + LOGIC_VERSION + '］');
+  warnCfg.forEach(function (w) { w.split('\n').forEach(function (l, i) { print(i ? l : '⚠ 設定を確認してください: ' + l); }); });
+  if (warnCfg.length) print();
+  print('【' + (cfg.facility_name || cfg.facility) + '　' + cfg.trip + '】');
+  if (reverseDepart()) print('出発時刻 各車とも最初のお迎え時刻から逆算 ／ 乗降 ' + cfg.stop + '分');
+  else                 print('一斉出発 ' + cfg.depart + ' ／ 乗降 ' + cfg.stop + '分');
+  if (!realKeys.length) print('（移動時間は直線距離 × ' + cfg.factor.toFixed(1) + ' で見積もり）');
+  print();
+
+  var warn = [];
+  vehicles.forEach(function (v, vi) {
+    var gis = om[vi];
+    if (!gis.length) return;
+    var seq = [];
+    gis.forEach(function (gi) { seq = seq.concat(groups[gi]); });
+    var sp = splitRun2(seq, v, departMin), run1 = sp[0], run2 = sp[1], reason = sp[2];
+    var dep1 = departFor(run1, departMin);
+    [run1, run2].forEach(function (part, ri) {
+      if (!part.length) return;
+      var dep = dep1;
+      if (ri === 1) dep = buildSchedule(run1, dep1)[1] + cfg.turn;
+      var bs = buildSchedule(part, dep), rows = bs[0], back = bs[1];
+      var backNote = '';
+      if (rows.length) {
+        var lr = rows[rows.length - 1], keep = { real: LEG.real, est: LEG.est };
+        var mv = legmin(lr.c.pos, cfg.fac_pos, lr.c.addr || '', cfg.facility);
+        LEG.real = keep.real; LEG.est = keep.est;
+        backNote = '［帰り＝最後のお宅を出た ' + toHm(lr.depart) + ' ＋ 移動' + mv + '分 ＝ ' + toHm(lr.depart + mv) + '］';
+      }
+      var label = v.name + '（定員' + v.cap + '名）';
+      if (run2.length) label += '　' + (ri + 1) + '便';
+      print('■ ' + label);
+      print('　事業所出発 ' + toHm(dep) + ' → 帰着 ' + toHm(back) + '（' + (back - dep) + '分）');
+      if (backNote) print('　' + backNote);
+      if (ri === 1 && reason) print('　※ ' + reason);
+      print('| # | 氏名 | 住所 | 到着 | 出発 | 備考 |');
+      print('|---|------|------|------|------|------|');
+      rows.forEach(function (r, i) {
+        var c = r.c, note = [];
+        if (c.mob === 'wc')     note.push('車いす');
+        if (c.mob === 'walker') note.push('歩行器');
+        if (c.target)           note.push('指定' + c.target);
+        if (r.wait)             note.push('待機' + r.wait + '分');
+        if (r.late)             note.push('⚠' + r.late + '分遅れ');
+        if (r.same)             note.push('同じ住所');
+        if (c.note)             note.push(c.note);
+        print('| ' + (i + 1) + ' | ' + c.name + ' | ' + c.addr + ' | ' + toHm(r.arrive) + ' | ' + toHm(r.depart) + ' | ' + note.join('、') + ' |');
+      });
+      rows.forEach(function (r) {
+        if (r.late) warn.push(r.c.name + ' が指定' + r.c.target + ' に ' + r.late + '分 遅れます');
+      });
+      var ld = addLoad([0, 0, 0], part);
+      if (ld[0] > capAt(v, ld[1])) warn.push(v.name + ' が定員を超えています');
+      print();
+    });
+    var boarded = run1.concat(run2);
+    seq.forEach(function (c) { if (boarded.indexOf(c) < 0) unassigned.push([[c], '2便でも乗り切らない']); });
+  });
+
+  if (unassigned.length) {
+    print('⚠ 未割当');
+    unassigned.forEach(function (u) { u[0].forEach(function (c) { print('　' + c.name + '（' + c.addr + '／' + u[1] + '）'); }); });
+    print();
+  }
+
+  print('── 要点 ──');
+  print('移動時間の合計 ' + score + '分（往復・' + improved + '回の組み直しで短縮）');
+  var tot = LEG.real + LEG.est;
+  if (realKeys.length && tot && LEG.real === 0) {
+    print('⚠ 実測表が渡されているのに、1区間も使えていません。');
+    print('　 住所の書き方が実測表と合っているか確認してください（全部見積もりになっています）');
+  } else if (realKeys.length && tot) {
+    print('実際に走る ' + tot + '区間のうち ' + LEG.real + '区間（' + pyRound_(LEG.real / tot * 100) + '%）がGoogleマップの実測値です');
+    if (LEG.est) print('　残り ' + LEG.est + '区間は直線距離からの見積もりです');
+  } else if (!realKeys.length) {
+    print('実測表が入っていないため、すべて直線距離からの見積もりです');
+  }
+  if (warn.length) {
+    print('── 注意 ──');
+    uniq_(warn).forEach(function (w) { print('　' + w); });
+  }
+  if (realKeys.length && LEG.real > 0) print('※ 時刻はGoogleマップの実測値をもとに計算しています。当日の道路状況で差が出ます。');
+  else                                 print('※ 時刻は座標からの直線距離をもとにした概算です。実際の道路状況とは差が出ます。');
+  return OUT;
+}
+
+/* ══════════════════════════════════════════════════════════
+   曜日ごとの送迎表シート
+   ══════════════════════════════════════════════════════════ */
+
+/** 「、」「,」「空白」で区切った名前の一覧 */
+function 名前の一覧_(s) {
+  return 全角を半角に_(String(s || '')).split(/[、,，\s]+/).map(function (x) { return x.trim(); }).filter(String);
+}
+function 名前を比べる形_(s) { return 全角を半角に_(String(s || '')).replace(/[\s　]+/g, ''); }
+
+/**
+ * その日の入力欄を当てはめた乗車の一覧と、当てはめられなかった入力の警告を返す。
+ * テストしやすいようシートから切り離してある。
+ */
+function 入力を当てはめる_(dayRides, vehicles, inOffV, inOffU, inAlt) {
+  var warns = [], offV = [];
+  名前の一覧_(inOffV).forEach(function (tok) {
+    var k = 名前を比べる形_(tok);
+    var hit = vehicles.filter(function (v) { return 名前を比べる形_(v.name).indexOf(k) >= 0; });
+    if (hit.length === 1) offV.push(hit[0].name);
+    else if (!hit.length) warns.push('「' + tok + '」という車が見つかりません（①の車両名を確認してください）');
+    else warns.push('「' + tok + '」に当てはまる車が' + hit.length + '台あります。車両名をもっと詳しく書いてください');
+  });
+
+  var names = uniq_(dayRides.map(function (r) { return r.name; }));
+  function whoIs(list, what) {
+    var out = [];
+    名前の一覧_(list).forEach(function (tok) {
+      var k = 名前を比べる形_(tok);
+      var hit = names.filter(function (n) { return 名前を比べる形_(n).indexOf(k) >= 0; });
+      if (hit.length === 1) out.push(hit[0]);
+      else if (!hit.length) warns.push(what + '「' + tok + '」に当てはまる方が、この曜日にいません');
+      else warns.push(what + '「' + tok + '」に当てはまる方が' + hit.length + '名います（' + hit.join('、') + '）。もっと詳しく書いてください');
+    });
+    return out;
+  }
+  var offU = whoIs(inOffU, 'お休み');
+  var alt  = whoIs(inAlt, '別案');
+
+  var rides = [];
+  dayRides.forEach(function (r) {
+    if (offU.indexOf(r.name) >= 0) return;
+    var useAlt = alt.indexOf(r.name) >= 0;
+    if (r.cond) {
+      if (useAlt) rides.push(Object.assign({}, r, { cond: '', note: r.cond }));
+      return;
+    }
+    if (useAlt && r.alt) rides.push(Object.assign({}, r, { time: r.alt.time, note: r.alt.label || '別案' }));
+    else rides.push(r);
+  });
+  alt.forEach(function (n) {
+    var has = dayRides.some(function (r) { return r.name === n && (r.cond || r.alt); });
+    if (!has) warns.push('別案「' + n + '」：②にこの曜日の別案（「/」の後ろ）が書かれていません');
+  });
+  return { rides: rides, offV: offV, warns: warns };
+}
+
+/** 1つの曜日について、便ごとに配車して行を作る（シートに書く前の形） */
+function 曜日の配車_(day, fac, rides, pos, real, inputs) {
+  var vehicles = fac.vehicles.map(function (v) {
+    return { name: v.name, cap: v.cap, wc_max: 0, wc_seats: 1, walker_max: null };
+  });
+  var ap = 入力を当てはめる_(rides.filter(function (r) { return r.day === day; }), vehicles,
+                            inputs.offV, inputs.offU, inputs.alt);
+  var blocks = [];
+  ['お迎え', 'お送り'].forEach(function (trip) {
+    var all = ap.rides.filter(function (r) { return r.trip === trip; });
+    var waves = 便に分ける_(all);
+    waves.forEach(function (list, wi) {
+      var tag = (waves.length > 1) ? '①②③④⑤⑥⑦⑧⑨'.charAt(wi) : '';
+      var noPos = uniq_(list.filter(function (r) { return !pos[r.addr]; }).map(function (r) { return r.name; }));
+      var users = list.filter(function (r) { return pos[r.addr]; }).map(function (r) {
+        return { name: r.name, addr: r.addr, pos: pos[r.addr], mob: '', target: r.time,
+                 note: [r.place, r.note].filter(String).join('／') };
+      });
+      // この便に出てくる住所どうしの実測だけ渡す（配車ロジック.py に渡していた表と同じ）
+      var here = uniq_([fac.addr].concat(list.map(function (r) { return r.addr; })));
+      var rs = {};
+      for (var i = 0; i < here.length; i++) for (var j = i + 1; j < here.length; j++) {
+        var v = real[here[i] + '||' + here[j]];
+        if (v != null) rs[here[i] + '\u0000' + here[j]] = v;
+      }
+      var cfg = { mode: fac.mode, trip: trip, facility: fac.addr, facility_name: fac.name,
+                  fac_pos: pos[fac.addr] || null, depart: fac.depart, auto_depart: null,
+                  stop: fac.stop, turn: 5, factor: 3.0, use_run2: fac.mode === '介護', seed: 0 };
+      blocks.push({ title: trip + tag + '（' + 時間帯_(list) + '）' + users.length + '名',
+                    lines: 配車する_(cfg, vehicles, users, rs, ap.offV, []), noPos: noPos });
+    });
+  });
+  return { blocks: blocks, warns: ap.warns, offV: ap.offV };
+}
+
+/** 送迎表シートを作る（入力欄の中身は残す） */
+function 曜日の送迎表を作る_(ss, day, fac, rides, pos, real) {
+  var name = day + SHEET_SUFFIX;
+  var sh = ss.getSheetByName(name);
+  if (!sh) {
+    // 月→土の順に並ぶよう、前の曜日のシートの後ろに入れる
+    var idx = ss.getSheets().length, di = DAYS.indexOf(day);
+    for (var k = di - 1; k >= 0; k--) {
+      var prev = ss.getSheetByName(DAYS[k] + SHEET_SUFFIX);
+      if (prev) { idx = prev.getIndex(); break; }
+    }
+    sh = ss.insertSheet(name, idx);
+    送迎表の枠を作る_(sh, day);
+  }
+  var inputs = {
+    offV: sh.getRange(IN_ROW_OFFV, IN_COL).getDisplayValue(),
+    offU: sh.getRange(IN_ROW_OFFU, IN_COL).getDisplayValue(),
+    alt:  sh.getRange(IN_ROW_ALT,  IN_COL).getDisplayValue()
+  };
+  var res = 曜日の配車_(day, fac, rides, pos, real, inputs);
+  送迎表を書く_(sh, res);
+  sh.getRange(1, 5).setValue('更新 ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d HH:mm'));
+}
+
+function 送迎表の枠を作る_(sh, day) {
+  sh.getRange(1, 1).setValue(day + '曜日の送迎表').setFontSize(14).setFontWeight('bold');
+  sh.getRange(IN_ROW_OFFV, 2, 3, 1).setValues([['使わない車'], ['お休みの方'], ['別案で送迎する方']]).setFontWeight('bold');
+  sh.getRange(IN_ROW_OFFV, IN_COL, 3, 1).setBackground('#fff2cc').setNumberFormat('@');
+  sh.getRange(IN_ROW_OFFV, 4, 3, 1).setValues([
+    ['例）シエンタ２号　（複数は「、」で区切る）'],
+    ['例）ヤマダ　（名前の一部でよい）'],
+    ['②に「送りあり」「クラブ活動あり」など「/」の後ろに別案が書いてある方']
+  ]).setFontColor('#888888');
+  sh.getRange(6, 2).setValue('黄色い欄に書くと、数十秒でこの曜日を組み直します。その日が終わったら消してください。').setFontColor('#888888');
+  sh.setColumnWidth(1, 36); sh.setColumnWidth(2, 130); sh.setColumnWidth(3, 280);
+  sh.setColumnWidth(4, 56); sh.setColumnWidth(5, 56); sh.setColumnWidth(6, 330);
+  sh.setFrozenRows(0);
+}
+
+/** 配車の結果（行）をシートに書く */
+function 送迎表を書く_(sh, res) {
+  var W = 6, rows = [], style = { title: [], car: [], head: [], warn: [], note: [] };
+  function add(vals, kind) {
+    var r = vals.slice(0, W);
+    while (r.length < W) r.push('');
+    rows.push(r);
+    if (kind) style[kind].push(rows.length);
+  }
+  res.warns.forEach(function (w) { add(['⚠ ' + w], 'warn'); });
+  if (res.offV.length) add(['⚠ ' + res.offV.join('、') + ' を外して組んでいます'], 'warn');
+  if (res.warns.length || res.offV.length) add([]);
+  if (!res.blocks.length) add(['この曜日の送迎はありません']);
+
+  res.blocks.forEach(function (b) {
+    add(['■■ ' + b.title], 'title');
+    b.lines.forEach(function (l) {
+      if (/^［配車ロジック/.test(l) || /^【/.test(l) || /^\|---/.test(l)) return;
+      if (/^\| # \|/.test(l)) { add(['#', '氏名', '住所', '到着', '出発', '備考'], 'head'); return; }
+      if (/^\| /.test(l)) { add(l.replace(/^\|\s*|\s*\|$/g, '').split(/\s*\|\s*/), /⚠/.test(l) ? 'warn' : null); return; }
+      if (/^■ /.test(l)) { add([l], 'car'); return; }
+      // 先方向けの言い方に直す
+      var m = l.match(/^⚠ 設定を確認してください: 実測表に住所が無い方: (.*)（その区間は直線距離で見積もります）$/);
+      if (m) { add(['※ まだ移動時間を測れていない方：' + m[1] + '（直線距離で見積もり。自動更新で測ります）'], 'note'); return; }
+      if (/^⚠ 設定を確認してください: CONFIG/.test(l) || /^　　(実測表に出てくる|候補:)/.test(l)) {
+        if (/CONFIG/.test(l)) add(['※ 施設からの移動時間をまだ測れていません（直線距離で見積もり。自動更新で測ります）'], 'note');
+        return;
+      }
+      if (/^⚠ 実測表が渡されているのに/.test(l)) { add(['※ 移動時間をまだ測れていません（直線距離で見積もり）'], 'note'); return; }
+      if (/^　 住所の書き方が実測表と/.test(l)) return;
+      add([l], /⚠/.test(l) ? 'warn' : (/^※|^（|^出発時刻|^一斉出発|^　/.test(l) ? 'note' : null));
+    });
+    if (b.noPos.length) add(['⚠ 座標が無いため外した方：' + b.noPos.join('、')], 'warn');
+    add([]);
+  });
+
+  // 前回の表を消して書き直す（入力欄は残す）
+  var last = Math.max(sh.getLastRow(), OUT_ROW);
+  sh.getRange(OUT_ROW - 1, 1, last - OUT_ROW + 2, W).clearContent().clearFormat();
+  var out = sh.getRange(OUT_ROW, 1, rows.length, W);
+  out.setNumberFormat('@').setValues(rows).setVerticalAlignment('middle');
+
+  function each(kind, fn) {
+    if (!style[kind].length) return;
+    var a1 = style[kind].map(function (i) { var r = OUT_ROW + i - 1; return 'A' + r + ':F' + r; });
+    fn(sh.getRangeList(a1));
+  }
+  each('title', function (rl) { rl.setFontWeight('bold').setFontSize(12).setBackground('#1f3a93').setFontColor('#ffffff'); });
+  each('car',   function (rl) { rl.setFontWeight('bold').setBackground('#e8f0fb'); });
+  each('head',  function (rl) { rl.setFontWeight('bold').setBackground('#f3f3f3').setHorizontalAlignment('center'); });
+  each('warn',  function (rl) { rl.setFontColor('#c00000'); });
+  each('note',  function (rl) { rl.setFontColor('#666666'); });
+}
+
+
+/* ══════════════════════════════════════════════════════════
+   ⚠要確認シート
+   ══════════════════════════════════════════════════════════ */
 
 function 要確認シートに書く_(ss, issues) {
   var sh = ss.getSheetByName(SH_CHECK);
@@ -673,64 +1352,3 @@ function 要確認シートに書く_(ss, issues) {
 }
 
 
-/* ══════════════════════════════════════════════════════════
-   【初回】Gemの準備
-   シートに埋め込んである「配車ロジック.py」をドライブに書き出し、Gemの作り方を表示する。
-   ══════════════════════════════════════════════════════════ */
-
-function 埋め込みを取り出す_(key) {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SH_PAY);
-  if (!sh) throw new Error('このシートには準備データが入っていません（' + SH_PAY + ' が無い）');
-  var lastC = Math.max(2, sh.getLastColumn());
-  var vals = sh.getRange(1, 1, sh.getLastRow(), lastC).getValues();
-  for (var i = 0; i < vals.length; i++) {
-    if (String(vals[i][0]).trim() !== key) continue;
-    var b64 = '';
-    for (var c = 1; c < lastC; c++) {
-      var v = String(vals[i][c] == null ? '' : vals[i][c]).trim();
-      if (!v) break;
-      b64 += v;
-    }
-    return Utilities.newBlob(Utilities.base64Decode(b64)).getDataAsString('UTF-8');
-  }
-  throw new Error('準備データ「' + key + '」が見つかりません');
-}
-
-function 同じフォルダ_() {
-  try {
-    var ps = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getParents();
-    if (ps.hasNext()) return ps.next();
-  } catch (e) {}
-  return DriveApp.getRootFolder();
-}
-
-function Gemの準備() {
-  var ui = SpreadsheetApp.getUi();
-  var logic, prompt;
-  try { logic = 埋め込みを取り出す_('logic'); prompt = 埋め込みを取り出す_('prompt'); }
-  catch (e) { ui.alert(e.message); return; }
-
-  var folder = 同じフォルダ_();
-  var it = folder.getFilesByName('配車ロジック.py');
-  var f1 = it.hasNext() ? it.next() : null;
-  if (f1) f1.setContent(logic); else f1 = folder.createFile('配車ロジック.py', logic, MimeType.PLAIN_TEXT);
-
-  var r = 更新する_();          // Gem用ドキュメントもここで作っておく
-  var docUrl = r.url || '';
-
-  var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); };
-  var html = HtmlService.createHtmlOutput(
-    '<div style="font:13px/1.7 sans-serif">' +
-    '<ol style="padding-left:18px">' +
-    '<li>Gemini で <b>Gem マネージャー → 新しい Gem</b>。名前：<code>送迎配車アシスタント</code></li>' +
-    '<li><b>「指示」</b>に下の枠の中身を全部貼る</li>' +
-    '<li><b>「知識」</b>にドライブから2つ追加：' +
-    '<a href="' + f1.getUrl() + '" target="_blank"><b>配車ロジック.py</b></a> と ' +
-    '<a href="' + docUrl + '" target="_blank"><b>' + DOC_TITLE + '</b></a></li>' +
-    '<li><b style="color:#c00">「デフォルトツール」で「コード実行」を有効にする</b>（忘れると動きません）</li>' +
-    '<li>保存。会話ではモデルを <b>Pro</b> にする</li>' +
-    '</ol>' +
-    '<textarea style="width:100%;height:280px;font:12px monospace" onclick="this.select()">' + esc(prompt) + '</textarea>' +
-    '</div>').setWidth(820).setHeight(600);
-  ui.showModalDialog(html, 'Gemの準備（初回だけ）');
-}
