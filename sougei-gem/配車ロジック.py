@@ -13,7 +13,7 @@ import math, random
 
 # このファイルの版。書き換えないこと。
 # 出力の1行目に出るので、ちゃんとこのファイルが実行されたか確認できる。
-LOGIC_VERSION = '2026-09-15'
+LOGIC_VERSION = '2026-09-24'
 
 # ══════════════════════════════════════════════════════════
 # 入力　ここだけ書き換える
@@ -39,11 +39,11 @@ CONFIG = {
 }
 
 # 車両　cap=利用者定員 / wc_max=うち車いす定員 / wc_seats=車いす1台が使う席数
-#       walker_max=歩行器の上限（None＝制限なし） / helper=添乗員が乗れるか
+#       walker_max=歩行器の上限（None＝制限なし）
 VEHICLES = [
-    {'name': '1号車', 'cap': 6, 'wc_max': 2, 'wc_seats': 2, 'walker_max': 2,    'helper': True},
-    {'name': '2号車', 'cap': 4, 'wc_max': 1, 'wc_seats': 2, 'walker_max': 1,    'helper': True},
-    {'name': '3号車', 'cap': 7, 'wc_max': 0, 'wc_seats': 1, 'walker_max': None, 'helper': False},
+    {'name': '1号車', 'cap': 6, 'wc_max': 2, 'wc_seats': 2, 'walker_max': 2},
+    {'name': '2号車', 'cap': 4, 'wc_max': 1, 'wc_seats': 2, 'walker_max': 1},
+    {'name': '3号車', 'cap': 7, 'wc_max': 0, 'wc_seats': 1, 'walker_max': None},
 ]
 
 # 利用者　mob='wc'（車いす）/'walker'（歩行器）/''（なし）
@@ -61,19 +61,9 @@ USERS = [
     {'name': '佐藤 とめ', 'addr': '西町6-8',     'pos': (34.7141, 136.8822), 'mob': 'wc',     'target': ''},
 ]
 
-# 職員　role='driver'（運転手）/'helper'（支援員・介護職員）
-STAFF = [
-    {'name': '山田 太郎',   'role': 'driver'},
-    {'name': '佐々木 次郎', 'role': 'driver'},
-    {'name': '中村 三代',   'role': 'driver'},
-    {'name': '小林 良子',   'role': 'helper'},
-    {'name': '渡辺 美咲',   'role': 'helper'},
-]
-
-# 休車・欠席・欠勤　名前をそのまま並べる
+# 休車・欠席　名前をそのまま並べる
 OFF_VEHICLES = []
 OFF_USERS    = []
-OFF_STAFF    = []
 
 # 実測の移動時間（分）。スプレッドシートの「④ 実測時間を取る」で作った表をここに貼る。
 # キーは (出発の住所, 到着の住所)。同じ区間は往復どちらでも同じ値を使う。
@@ -478,7 +468,6 @@ def split_run2(seq, v, depart_min):
 def run():
     vehicles = [v for v in VEHICLES if v['name'] not in OFF_VEHICLES]
     users    = [c for c in USERS    if c['name'] not in OFF_USERS]
-    staff    = [s for s in STAFF    if s['name'] not in OFF_STAFF]
     if not vehicles: print('走れる車がありません'); return
     if not users:    print('送迎する方がいません'); return
 
@@ -508,9 +497,6 @@ def run():
     # ここから先が「実際に走るルート」。最適化中の試算は数えないように戻す
     LEG_STATS['real'] = LEG_STATS['est'] = 0
 
-    drivers = [s for s in staff if s['role'] == 'driver']
-    helpers = [s for s in staff if s['role'] == 'helper']
-    di = hi = 0
 
     print('［配車ロジック %s］' % LOGIC_VERSION)
     for w in warn_cfg:
@@ -533,14 +519,6 @@ def run():
         seq = [c for gi in gis for c in groups[gi]]
         run1, run2, reason = split_run2(seq, v, depart_min)
 
-        drv = drivers[di]['name'] if di < len(drivers) else '運転手不足'
-        if di < len(drivers): di += 1
-        else: warn.append('%s に運転手がいません' % v['name'])
-        if v.get('helper') and hi < len(helpers):
-            hlp = helpers[hi]['name']; hi += 1
-        else:
-            hlp = '添乗員なし'
-
         dep1 = depart_for(run1, depart_min)   # 放デイは最初のお迎え時刻から逆算
         for ri, part in enumerate([run1, run2]):
             if not part: continue
@@ -562,7 +540,7 @@ def run():
                 back_note = ''
             label = '%s（定員%d名）' % (v['name'], v['cap'])
             if run2: label += '　%d便' % (ri + 1)
-            print('■ %s　運転手：%s　添乗員：%s' % (label, drv, hlp))
+            print('■ %s' % label)
             print('　事業所出発 %s → 帰着 %s（%d分）' % (to_hm(dep), to_hm(back), back - dep))
             if back_note: print('　' + back_note)
             if ri == 1 and reason: print('　※ %s' % reason)
@@ -576,6 +554,7 @@ def run():
                 if r['wait']:            note.append('待機%d分' % r['wait'])
                 if r['late']:            note.append('⚠%d分遅れ' % r['late'])
                 if r.get('same'):        note.append('同じ住所')
+                if c.get('note'):        note.append(c['note'])
                 print('| %d | %s | %s | %s | %s | %s |' %
                       (i, c['name'], c['addr'], to_hm(r['arrive']), to_hm(r['depart']), '、'.join(note)))
             for r in rows:
