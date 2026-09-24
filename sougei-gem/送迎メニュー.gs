@@ -1515,7 +1515,7 @@ function Gem用の下書きを保存_(ss, day, text) {
 }
 
 /**
- * 曜日ごとに別のドキュメントへ書く（「送迎データ_水曜（Gem用・自動更新）」など）。
+ * 曜日ごとに別のドキュメントへ書く（「送迎データ_水曜（Gem用・自動更新）」など）。月〜土の6つは必ず作る。
  * 1つにまとめると長くなり、Gem が関係ない曜日まで読むことになるので分けている。
  * どれも毎回同じファイルを上書きするので、Gem の知識は最初に入れたままでよい。
  */
@@ -1536,7 +1536,8 @@ function Gem用ドキュメントを書く_(ss, fac) {
       for (var i = 0; i < v.length && v[i] !== ''; i++) t += v[i];
     }
     var id = props.getProperty('GEM_DOC_ID_' + d), doc = null;
-    if (!t && !id) return;                      // 送迎の無い曜日は、ドキュメントを作らない
+    // 月〜土は送迎が無くても作っておく（あとで利用者が増えても、Gem の知識に足さずに済むように）。日曜は送迎があるときだけ
+    if (!t && !id && d === '日') return;
     if (id) { try { doc = DocumentApp.openById(id); } catch (e) { doc = null; } }
     if (!doc) {
       doc = DocumentApp.create('送迎データ_' + d + '曜（Gem用・自動更新）');
