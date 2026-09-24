@@ -148,21 +148,22 @@ function 施設を読む_(ss) {
 /** 表示値の2次元配列から施設情報を取り出す（テストしやすいようシートから切り離してある） */
 function 施設を解釈_(vals) {
   var out = { name: '', addr: '', rawAddr: '', pref: '', mode: '放デイ', stop: null, depart: '9:00', vehicles: [] };
+  // 車両は「車両名」の見出し行の次から。
+  // （1行目のタイトル「①施設・車両設定」にも“車両設定”の文字があるので、それを目印にしない）
   var inVeh = false;
   for (var i = 0; i < vals.length; i++) {
     var a = norm_(vals[i][0]), b = String(vals[i][1] || '').trim();
     if (!inVeh) {
-      if (a.indexOf('施設名') >= 0)   out.name = b;
-      if (a.indexOf('施設住所') >= 0) out.rawAddr = b;
-      if (a.indexOf('事業区分') >= 0 && b) out.mode = (b.indexOf('介護') >= 0) ? '介護' : '放デイ';
-      if (a.indexOf('乗降') >= 0 && Number(b) > 0) out.stop = Number(b);
-      if (a.indexOf('出発時刻') >= 0 && 時刻文字に_(b)) out.depart = 時刻文字に_(b);
-      if (a.indexOf('車両設定') >= 0) inVeh = true;
+      if (a.indexOf('施設名') === 0)   out.name = b;
+      if (a.indexOf('施設住所') === 0) out.rawAddr = b;
+      if (a.indexOf('事業区分') === 0 && b) out.mode = (b.indexOf('介護') >= 0) ? '介護' : '放デイ';
+      if (a.indexOf('乗降') === 0 && Number(b) > 0) out.stop = Number(b);
+      if (a.indexOf('出発時刻') === 0 && 時刻文字に_(b)) out.depart = 時刻文字に_(b);
+      if (a.indexOf('車両名') === 0) inVeh = true;
       continue;
     }
-    if (a.indexOf('車両名') >= 0) continue;           // 見出し行
     var nm = String(vals[i][0] || '').trim();
-    var cap = Number(String(vals[i][2] || '').replace(/[^\d]/g, ''));
+    var cap = Number(全角を半角に_(String(vals[i][2] || '')).replace(/[^\d]/g, ''));
     if (nm && cap > 0) out.vehicles.push({ name: nm, cap: cap });
   }
   var pm = out.rawAddr.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/);
