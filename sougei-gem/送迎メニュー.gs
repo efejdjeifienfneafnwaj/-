@@ -35,9 +35,9 @@ var DAYS         = ['月', '火', '水', '木', '金', '土', '日'];
 var NEAR_K       = 10;                  // 各住所から近い何件まで実測するか
 var TIME_MEASURE = 3 * 60 * 1000;       // 実測に使う時間の上限（残りで送迎表を作る。全体の上限は6分）
 
-// 送迎表シートの入力欄（C列の3〜5行目）
-var IN_ROW_OFFV = 3, IN_ROW_OFFU = 4, IN_ROW_ALT = 5, IN_COL = 3;
-var OUT_ROW = 8;                         // 送迎表を書き始める行
+// 送迎表シートの入力欄（C列の3〜6行目）。チャットもこの欄を書き換える
+var IN_ROW_OFFV = 3, IN_ROW_OFFU = 4, IN_ROW_ALT = 5, IN_ROW_PIN = 6, IN_COL = 3;
+var OUT_ROW = 9;                         // 送迎表を書き始める行（その上の行は「組み直しています」の表示用）
 
 
 /* ══════════════════════════════════════════════════════════
@@ -47,9 +47,11 @@ var OUT_ROW = 8;                         // 送迎表を書き始める行
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('🚐 送迎')
+    .addItem('💬 Geminiと話す', 'Geminiと話す')
     .addItem('今すぐ送迎表を作り直す', '今すぐ反映する')
     .addSeparator()
     .addItem('【初回】自動更新をONにする', '自動更新をONにする')
+    .addItem('【初回】GeminiのAPIキーを登録する', 'APIキーを登録する')
     .addToUi();
 }
 
@@ -93,7 +95,7 @@ function 入力が変わった(e) {
   if (name.slice(-SHEET_SUFFIX.length) !== SHEET_SUFFIX) return;
   var r = e.range.getRow(), c = e.range.getColumn();
   if (c > IN_COL || c + e.range.getNumColumns() - 1 < IN_COL) return;
-  if (r > IN_ROW_ALT || r + e.range.getNumRows() - 1 < IN_ROW_OFFV) return;
+  if (r > IN_ROW_PIN || r + e.range.getNumRows() - 1 < IN_ROW_OFFV) return;
 
   var lock = LockService.getDocumentLock();
   if (!lock.tryLock(60 * 1000)) return;
@@ -719,6 +721,9 @@ function pyRound_(x) {
 function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
   var OUT = [];
   function print(s) { OUT.push(s == null ? '' : s); }
+  var PINS = cfg.pins || {};                   // 固定 {氏名: 車両名}。無ければ配車ロジック.py と同じ動き
+  var META = { rows: [], late: [], unassigned: [] };   // 画面・チャット用の結果（誰がどの車か）
+  OUT.meta = META;
   var LEG = { real: 0, est: 0 };
   var SEP = '\u0000';
   var realKeys = Object.keys(REAL);
@@ -888,9 +893,17 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
       var k = function (gi) { return groups[gi].some(function (c) { return c.mob; }) ? 0 : 1; };
       order.sort(function (a, b) { return k(a) - k(b) || a - b; });
     }
+    // 固定された組を先に置く（ほかの組はその残りに入れる）
+    order = order.filter(function (gi) { return pinOf[gi] >= 0; })
+                 .concat(order.filter(function (gi) { return pinOf[gi] < 0; }));
     order.forEach(function (gi) {
       var g = groups[gi], gt = toM(g[0].target);
       gt = gt != null ? gt : 99 * 60;
+      if (pinOf[gi] >= 0) {
+        var pv = pinOf[gi];
+        assign[gi] = pv; load[pv] = addLoad(load[pv], g); held[pv] = held[pv].concat(g); last[pv] = gt;
+        return;
+      }
       var best = -1, bestSc = Infinity;
       vehicles.forEach(function (v, vi) {
         if (!canFit(v, load[vi], g)) return;
@@ -946,7 +959,7 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
     var rnd = PyRandom_(cfg.seed || 0);
     var best = assign.slice(), bestSc = totalScore(best, groups, vehicles, departMin);
     var live = [];
-    best.forEach(function (vi, gi) { if (vi >= 0) live.push(gi); });
+    best.forEach(function (vi, gi) { if (vi >= 0 && pinOf[gi] < 0) live.push(gi); });
     if (live.length < 2) return [best, bestSc, 0];
     var improved = 0;
     for (var it = 0; it < 4000; it++) {
@@ -1051,6 +1064,20 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
 
   var departMin = toM(cfg.depart) || 0;
   var groups = makeGroups(users);
+  var pinOf = groups.map(function (g) {
+    for (var q = 0; q < g.length; q++) {
+      var want = PINS[g[q].name];
+      if (!want) continue;
+      for (var vi = 0; vi < vehicles.length; vi++) if (vehicles[vi].name === want) return vi;
+    }
+    return -1;
+  });
+  users.forEach(function (c) {
+    var want = PINS[c.name];
+    if (want && !vehicles.some(function (v) { return v.name === want; })) {
+      print('⚠ ' + c.name + ' を ' + want + ' に固定できません（その車は使わない設定か、名前が違います）');
+    }
+  });
   var gr = greedy(groups, vehicles), assign = gr[0], unassigned = gr[1];
   var im = improve(assign, groups, vehicles, departMin);
   assign = im[0];
@@ -1106,10 +1133,14 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
         if (r.late)             note.push('⚠' + r.late + '分遅れ');
         if (r.same)             note.push('同じ住所');
         if (c.note)             note.push(c.note);
+        if (PINS[c.name] === v.name) note.push('固定');
+        META.rows.push({ name: c.name, vehicle: v.name, run: run2.length ? ri + 1 : 1,
+                         arrive: toHm(r.arrive), late: r.late });
         print('| ' + (i + 1) + ' | ' + c.name + ' | ' + c.addr + ' | ' + toHm(r.arrive) + ' | ' + toHm(r.depart) + ' | ' + note.join('、') + ' |');
       });
       rows.forEach(function (r) {
         if (r.late) warn.push(r.c.name + ' が指定' + r.c.target + ' に ' + r.late + '分 遅れます');
+        if (r.late) META.late.push({ name: r.c.name, min: r.late });
       });
       var ld = addLoad([0, 0, 0], part);
       if (ld[0] > capAt(v, ld[1])) warn.push(v.name + ' が定員を超えています');
@@ -1121,7 +1152,10 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
 
   if (unassigned.length) {
     print('⚠ 未割当');
-    unassigned.forEach(function (u) { u[0].forEach(function (c) { print('　' + c.name + '（' + c.addr + '／' + u[1] + '）'); }); });
+    unassigned.forEach(function (u) { u[0].forEach(function (c) {
+      print('　' + c.name + '（' + c.addr + '／' + u[1] + '）');
+      META.unassigned.push(c.name);
+    }); });
     print();
   }
 
@@ -1150,9 +1184,9 @@ function 配車する_(cfg, VEHICLES, USERS, REAL, OFF_VEHICLES, OFF_USERS) {
    曜日ごとの送迎表シート
    ══════════════════════════════════════════════════════════ */
 
-/** 「、」「,」「空白」で区切った名前の一覧 */
+/** 「、」「,」「改行」で区切った名前の一覧（「ヤマダ タロウ」のような氏名の間の空白では区切らない） */
 function 名前の一覧_(s) {
-  return 全角を半角に_(String(s || '')).split(/[、,，\s]+/).map(function (x) { return x.trim(); }).filter(String);
+  return 全角を半角に_(String(s || '')).split(/[、,，\n]+/).map(function (x) { return x.trim(); }).filter(String);
 }
 function 名前を比べる形_(s) { return 全角を半角に_(String(s || '')).replace(/[\s　]+/g, ''); }
 
@@ -1160,7 +1194,7 @@ function 名前を比べる形_(s) { return 全角を半角に_(String(s || ''))
  * その日の入力欄を当てはめた乗車の一覧と、当てはめられなかった入力の警告を返す。
  * テストしやすいようシートから切り離してある。
  */
-function 入力を当てはめる_(dayRides, vehicles, inOffV, inOffU, inAlt) {
+function 入力を当てはめる_(dayRides, vehicles, inOffV, inOffU, inAlt, inPin) {
   var warns = [], offV = [];
   名前の一覧_(inOffV).forEach(function (tok) {
     var k = 名前を比べる形_(tok);
@@ -1200,7 +1234,20 @@ function 入力を当てはめる_(dayRides, vehicles, inOffV, inOffU, inAlt) {
     var has = dayRides.some(function (r) { return r.name === n && (r.cond || r.alt); });
     if (!has) warns.push('別案「' + n + '」：②にこの曜日の別案（「/」の後ろ）が書かれていません');
   });
-  return { rides: rides, offV: offV, warns: warns };
+
+  // 車の固定：「サトウ→1号車」「サトウ→1号車（お迎え）」を「、」で並べる
+  var pins = [];
+  全角を半角に_(String(inPin || '')).split(/[、,，\n]+/).map(function (x) { return x.trim(); }).filter(String).forEach(function (item) {
+    var m = item.match(/^(.+?)\s*(?:→|->|⇒|＞|>)\s*(.+?)\s*(?:\((お迎え|お送り)\))?$/);
+    if (!m) { warns.push('車の固定「' + item + '」の書き方が読めません（例：サトウ→1号車）'); return; }
+    var who = whoIs(m[1], '車の固定');
+    if (who.length !== 1) return;
+    var k = 名前を比べる形_(m[2]);
+    var hv = vehicles.filter(function (v) { return 名前を比べる形_(v.name).indexOf(k) >= 0; });
+    if (hv.length !== 1) { warns.push('車の固定「' + item + '」：「' + m[2] + '」という車が' + (hv.length ? '複数あります' : '見つかりません')); return; }
+    pins.push({ name: who[0], vehicle: hv[0].name, trip: m[3] || '' });
+  });
+  return { rides: rides, offV: offV, pins: pins, warns: warns };
 }
 
 /** 1つの曜日について、便ごとに配車して行を作る（シートに書く前の形） */
@@ -1209,7 +1256,7 @@ function 曜日の配車_(day, fac, rides, pos, real, inputs) {
     return { name: v.name, cap: v.cap, wc_max: 0, wc_seats: 1, walker_max: null };
   });
   var ap = 入力を当てはめる_(rides.filter(function (r) { return r.day === day; }), vehicles,
-                            inputs.offV, inputs.offU, inputs.alt);
+                            inputs.offV, inputs.offU, inputs.alt, inputs.pin);
   var blocks = [];
   ['お迎え', 'お送り'].forEach(function (trip) {
     var all = ap.rides.filter(function (r) { return r.trip === trip; });
@@ -1228,11 +1275,14 @@ function 曜日の配車_(day, fac, rides, pos, real, inputs) {
         var v = real[here[i] + '||' + here[j]];
         if (v != null) rs[here[i] + '\u0000' + here[j]] = v;
       }
+      var pins = {};
+      ap.pins.forEach(function (p) { if (!p.trip || p.trip === trip) pins[p.name] = p.vehicle; });
       var cfg = { mode: fac.mode, trip: trip, facility: fac.addr, facility_name: fac.name,
                   fac_pos: pos[fac.addr] || null, depart: fac.depart, auto_depart: null,
-                  stop: fac.stop, turn: 5, factor: 3.0, use_run2: fac.mode === '介護', seed: 0 };
-      blocks.push({ title: trip + tag + '（' + 時間帯_(list) + '）' + users.length + '名',
-                    lines: 配車する_(cfg, vehicles, users, rs, ap.offV, []), noPos: noPos });
+                  stop: fac.stop, turn: 5, factor: 3.0, use_run2: fac.mode === '介護', seed: 0, pins: pins };
+      var lines = 配車する_(cfg, vehicles, users, rs, ap.offV, []);
+      blocks.push({ title: trip + tag + '（' + 時間帯_(list) + '）' + users.length + '名', trip: trip,
+                    lines: lines, meta: lines.meta, noPos: noPos });
     });
   });
   return { blocks: blocks, warns: ap.warns, offV: ap.offV };
@@ -1250,31 +1300,37 @@ function 曜日の送迎表を作る_(ss, day, fac, rides, pos, real) {
       if (prev) { idx = prev.getIndex(); break; }
     }
     sh = ss.insertSheet(name, idx);
-    送迎表の枠を作る_(sh, day);
   }
-  var inputs = {
-    offV: sh.getRange(IN_ROW_OFFV, IN_COL).getDisplayValue(),
-    offU: sh.getRange(IN_ROW_OFFU, IN_COL).getDisplayValue(),
-    alt:  sh.getRange(IN_ROW_ALT,  IN_COL).getDisplayValue()
-  };
-  var res = 曜日の配車_(day, fac, rides, pos, real, inputs);
+  送迎表の枠を作る_(sh, day);          // 前の版のシートでも欄の並びをそろえる（入力の中身は消さない）
+  var res = 曜日の配車_(day, fac, rides, pos, real, 入力を読む_(sh));
   送迎表を書く_(sh, res);
   sh.getRange(1, 5).setValue('更新 ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d HH:mm'));
+  return res;
+}
+
+function 入力を読む_(sh) {
+  return {
+    offV: sh.getRange(IN_ROW_OFFV, IN_COL).getDisplayValue(),
+    offU: sh.getRange(IN_ROW_OFFU, IN_COL).getDisplayValue(),
+    alt:  sh.getRange(IN_ROW_ALT,  IN_COL).getDisplayValue(),
+    pin:  sh.getRange(IN_ROW_PIN,  IN_COL).getDisplayValue()
+  };
 }
 
 function 送迎表の枠を作る_(sh, day) {
   sh.getRange(1, 1).setValue(day + '曜日の送迎表').setFontSize(14).setFontWeight('bold');
-  sh.getRange(IN_ROW_OFFV, 2, 3, 1).setValues([['使わない車'], ['お休みの方'], ['別案で送迎する方']]).setFontWeight('bold');
-  sh.getRange(IN_ROW_OFFV, IN_COL, 3, 1).setBackground('#fff2cc').setNumberFormat('@');
-  sh.getRange(IN_ROW_OFFV, 4, 3, 1).setValues([
+  sh.getRange(2, 2).setValue('黄色い欄に書くと、数十秒でこの曜日を組み直します（「💬 Geminiと話す」からも書き換えられます）。その日が終わったら消してください。')
+    .setFontColor('#888888');
+  sh.getRange(IN_ROW_OFFV, 2, 4, 1).setValues([['使わない車'], ['お休みの方'], ['別案で送迎する方'], ['車の固定']]).setFontWeight('bold');
+  sh.getRange(IN_ROW_OFFV, IN_COL, 4, 1).setBackground('#fff2cc').setNumberFormat('@').setFontColor('#000000');
+  sh.getRange(IN_ROW_OFFV, 4, 4, 1).setValues([
     ['例）シエンタ２号　（複数は「、」で区切る）'],
     ['例）ヤマダ　（名前の一部でよい）'],
-    ['②に「送りあり」「クラブ活動あり」など「/」の後ろに別案が書いてある方']
-  ]).setFontColor('#888888');
-  sh.getRange(6, 2).setValue('黄色い欄に書くと、数十秒でこの曜日を組み直します。その日が終わったら消してください。').setFontColor('#888888');
+    ['②に「送りあり」「クラブ活動あり」など「/」の後ろに別案が書いてある方'],
+    ['例）サトウ→1号車、タナカ→2号車（お迎え）　（便を書かなければ両方）']
+  ]).setFontColor('#888888').setFontWeight('normal').setBackground(null);
   sh.setColumnWidth(1, 36); sh.setColumnWidth(2, 130); sh.setColumnWidth(3, 280);
   sh.setColumnWidth(4, 56); sh.setColumnWidth(5, 56); sh.setColumnWidth(6, 330);
-  sh.setFrozenRows(0);
 }
 
 /** 配車の結果（行）をシートに書く */
@@ -1352,3 +1408,314 @@ function 要確認シートに書く_(ss, issues) {
 }
 
 
+
+
+/* ══════════════════════════════════════════════════════════
+   💬 Geminiと話す
+   Gemini には「言葉を理解して、入力欄をどう書き換えるか」だけを頼む。
+   計算はこのスクリプト（配車の計算）が行い、何が変わったかもスクリプトが数えて伝える。
+   Gemini に送るのは 氏名・車両名・時刻 だけ。住所は送らない。
+   ══════════════════════════════════════════════════════════ */
+
+var GEMINI_MODELS = ['gemini-flash-latest', 'gemini-2.5-flash'];   // 上から順に試す（スクリプトのプロパティ GEMINI_MODEL で変えられる）
+
+function APIキーを登録する() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('GeminiのAPIキーを登録',
+    'Google AI Studio（aistudio.google.com）の「Get API key」で作ったキーを貼ってください。\n' +
+    'キーはこのスプレッドシートのスクリプトの中だけに保存されます。', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var key = r.getResponseText().trim();
+  if (!key) return;
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', key);
+  try {
+    Geminiに聞く_('テストです。reply に「OK」とだけ入れて返してください。', [], '');
+    ui.alert('登録しました。「🚐 送迎 → 💬 Geminiと話す」から使えます。');
+  } catch (e) {
+    ui.alert('キーは保存しましたが、Geminiにつながりませんでした。\n\n' + e.message);
+  }
+}
+
+function Geminiと話す() {
+  var html = HtmlService.createHtmlOutput(チャット画面_()).setTitle('💬 Geminiと話す');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// サイドバーから呼ぶ窓口（google.script.run から呼ぶので英字の名前にしてある）
+function chatInit() { return チャットの初期情報_(); }
+function chatSend(msg, day, history) { return チャット_(msg, day, history); }
+
+/** サイドバーを開いたときの情報 */
+function チャットの初期情報_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var days = DAYS.filter(function (d) { return ss.getSheetByName(d + SHEET_SUFFIX); });
+  var today = '日月火水木金土'.charAt(new Date().getDay());
+  var act = ss.getActiveSheet().getName();
+  var cur = (act.slice(-SHEET_SUFFIX.length) === SHEET_SUFFIX) ? act.slice(0, act.length - SHEET_SUFFIX.length) : today;
+  if (days.indexOf(cur) < 0) cur = days[0] || '';
+  return { days: days, day: cur, hasKey: !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') };
+}
+
+/** サイドバーから呼ばれる。msg=話しかけた言葉、day=曜日、history=[{role,text}] */
+function チャット_(msg, day, history) {
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(60 * 1000)) return { reply: '別の処理が動いています。少し待ってからもう一度送ってください。', day: day };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var fac = 施設を読む_(ss), parsed = 利用者を読む_(ss, fac);
+    var pos = 保存済みの座標_(ss), real = 保存済みの実測_(ss);
+
+    var sh = ss.getSheetByName(day + SHEET_SUFFIX);
+    if (!sh) return { reply: day + '曜日の送迎表がありません。先に「今すぐ送迎表を作り直す」を押してください。', day: day };
+    var inputs = 入力を読む_(sh);
+    var before = 曜日の配車_(day, fac, parsed.rides, pos, real, inputs);
+
+    var ctx = チャットの状況_(day, fac, parsed.rides, inputs, before);
+    var ans = Geminiに聞く_(msg, history || [], ctx);
+
+    // 別の曜日の話だったら、その曜日で考え直す
+    if (ans.day && ans.day !== day && ss.getSheetByName(ans.day + SHEET_SUFFIX)) {
+      day = ans.day;
+      sh = ss.getSheetByName(day + SHEET_SUFFIX);
+      inputs = 入力を読む_(sh);
+      before = 曜日の配車_(day, fac, parsed.rides, pos, real, inputs);
+      ans = Geminiに聞く_(msg, history || [], チャットの状況_(day, fac, parsed.rides, inputs, before));
+    }
+
+    var next = 指示を入力欄に当てはめる_(inputs, ans, before);
+    var changed = ['offV', 'offU', 'alt', 'pin'].some(function (k) { return next[k] !== inputs[k]; });
+    var reply = String(ans.reply || '').trim();
+    if (!changed) return { reply: reply || '（変更はありません）', day: day, changed: false };
+
+    sh.getRange(IN_ROW_OFFV, IN_COL, 4, 1).setValues([[next.offV], [next.offU], [next.alt], [next.pin]]);
+    var after = 曜日の送迎表を作る_(ss, day, fac, parsed.rides, pos, real);
+    return { reply: reply, changes: 変わったこと_(before, after), day: day, changed: true };
+  } catch (e) {
+    return { reply: '⚠ ' + e.message, day: day, changed: false };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Gemini に渡す「いまの状況」。住所は入れない */
+function チャットの状況_(day, fac, rides, inputs, res) {
+  var L = [];
+  L.push('【曜日】' + day);
+  L.push('【車両】' + fac.vehicles.map(function (v) { return v.name + '（定員' + v.cap + '）'; }).join('、'));
+  var names = uniq_(rides.filter(function (r) { return r.day === day; }).map(function (r) { return r.name; }));
+  L.push('【この曜日の利用者（氏名はこの書き方のまま使う）】' + names.join('、'));
+  var alts = rides.filter(function (r) { return r.day === day && (r.cond || r.alt); }).map(function (r) {
+    return r.name + '（' + r.trip + '：' + (r.cond ? r.cond + ' ' + r.time : r.alt.label + ' ' + r.alt.time) + '）';
+  });
+  if (alts.length) L.push('【別案が使える方】' + alts.join('、'));
+  L.push('【いまの入力欄】使わない車：' + (inputs.offV || 'なし') + '／お休み：' + (inputs.offU || 'なし') +
+         '／別案：' + (inputs.alt || 'なし') + '／車の固定：' + (inputs.pin || 'なし'));
+  L.push('【いまの送迎表】');
+  res.blocks.forEach(function (b) {
+    L.push('■ ' + b.title);
+    var byCar = {};
+    b.meta.rows.forEach(function (r) {
+      var k = r.vehicle + (r.run > 1 ? '（' + r.run + '便）' : '');
+      (byCar[k] = byCar[k] || []).push(r.name + ' ' + r.arrive + (r.late ? '（' + r.late + '分遅れ）' : ''));
+    });
+    Object.keys(byCar).forEach(function (k) { L.push('　' + k + '：' + byCar[k].join(' → ')); });
+    if (b.meta.unassigned.length) L.push('　未割当：' + b.meta.unassigned.join('、'));
+  });
+  if (res.warns.length) L.push('【入力欄の警告】' + res.warns.join('／'));
+  return L.join('\n');
+}
+
+var CHAT_RULES = [
+  'あなたは福祉事業所の送迎表を直すアシスタントです。',
+  '職員の言葉を読み取り、送迎表シートの入力欄をどう変えるかを JSON で返します。配車の計算はしません（スクリプトが行います）。',
+  '',
+  '返す項目：',
+  '- reply：職員への短い返事（1〜3文）。計算結果の予想（何分になる等）は書かない。スクリプトが実際の結果を添えます',
+  '- day：別の曜日の話なら その曜日（月〜日の1文字）。いまの曜日のままなら空',
+  '- off_vehicles_add / off_vehicles_remove：使わない車に 足す／戻す 車両名',
+  '- absent_add / absent_remove：お休みに 足す／戻す 氏名',
+  '- alt_add / alt_remove：別案（「送りあり」「クラブ活動あり」など）を 使う／やめる 氏名',
+  '- pins_add：車の固定 [{name, vehicle, trip}]。trip は「お迎え」「お送り」、両方なら空',
+  '- pins_remove：固定をやめる氏名',
+  '- swaps：2人の車を入れ替える [{a, b, trip}]',
+  '- reset：入力欄を全部空にするとき true',
+  '',
+  '守ること：',
+  '- 氏名・車両名は【この曜日の利用者】【車両】に書かれたとおりに書く。呼び方のゆれ（「ハナちゃん」「サトウさん」）は一覧と照らして直す',
+  '- 誰のことか・どの車か確信が持てないときは、何も変更せず reply で聞き返す',
+  '- 入力欄は曜日ごとに残る。言われていないものは変えない（「今日だけ」でも、その曜日の欄に書く）',
+  '- 「元に戻して」「全部やめて」は reset、または該当の remove を使う',
+  '- 質問だけのとき（「なぜ？」「遅れている人は？」）は変更せず、【いまの送迎表】を見て reply で答える',
+  '- 名簿（住所・利用曜日・時刻）そのものを変えたいと言われたら、「②利用者一覧を直してください」と reply で案内する'
+].join('\n');
+
+var CHAT_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    reply: { type: 'STRING' },
+    day: { type: 'STRING' },
+    off_vehicles_add: { type: 'ARRAY', items: { type: 'STRING' } },
+    off_vehicles_remove: { type: 'ARRAY', items: { type: 'STRING' } },
+    absent_add: { type: 'ARRAY', items: { type: 'STRING' } },
+    absent_remove: { type: 'ARRAY', items: { type: 'STRING' } },
+    alt_add: { type: 'ARRAY', items: { type: 'STRING' } },
+    alt_remove: { type: 'ARRAY', items: { type: 'STRING' } },
+    pins_add: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+      name: { type: 'STRING' }, vehicle: { type: 'STRING' }, trip: { type: 'STRING' } }, required: ['name', 'vehicle'] } },
+    pins_remove: { type: 'ARRAY', items: { type: 'STRING' } },
+    swaps: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+      a: { type: 'STRING' }, b: { type: 'STRING' }, trip: { type: 'STRING' } }, required: ['a', 'b'] } },
+    reset: { type: 'BOOLEAN' }
+  },
+  required: ['reply']
+};
+
+/** Gemini に聞いて、JSON（CHAT_SCHEMA の形）を返す */
+function Geminiに聞く_(msg, history, ctx) {
+  var props = PropertiesService.getScriptProperties();
+  var key = props.getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('GeminiのAPIキーが登録されていません。「🚐 送迎 →【初回】GeminiのAPIキーを登録する」から登録してください。');
+  var contents = [];
+  history.slice(-8).forEach(function (h) {
+    contents.push({ role: h.role === 'model' ? 'model' : 'user', parts: [{ text: String(h.text || '') }] });
+  });
+  contents.push({ role: 'user', parts: [{ text: (ctx ? ctx + '\n\n【職員の言葉】\n' : '') + msg }] });
+  var body = {
+    systemInstruction: { parts: [{ text: CHAT_RULES }] },
+    contents: contents,
+    generationConfig: { responseMimeType: 'application/json', responseSchema: CHAT_SCHEMA, temperature: 0 }
+  };
+  var models = props.getProperty('GEMINI_MODEL') ? [props.getProperty('GEMINI_MODEL')] : GEMINI_MODELS;
+  var last = '';
+  for (var i = 0; i < models.length; i++) {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {
+      method: 'post', contentType: 'application/json', payload: JSON.stringify(body),
+      headers: { 'x-goog-api-key': key }, muteHttpExceptions: true
+    });
+    var code = res.getResponseCode(), text = res.getContentText();
+    if (code === 404) { last = 'モデル ' + models[i] + ' が見つかりません'; continue; }
+    if (code === 400 && /API key/i.test(text)) throw new Error('APIキーが正しくありません。登録し直してください。');
+    if (code === 429) throw new Error('Geminiの利用上限に達しました。少し待ってからもう一度送ってください。');
+    if (code !== 200) throw new Error('Geminiにつながりませんでした（' + code + '）。' + text.slice(0, 200));
+    var j = JSON.parse(text);
+    var part = j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
+    if (!part || !part.length) throw new Error('Geminiから返事がありませんでした。言い方を変えてもう一度送ってください。');
+    return JSON.parse(part.map(function (x) { return x.text || ''; }).join(''));
+  }
+  throw new Error(last + '。スクリプトのプロパティ GEMINI_MODEL に使えるモデル名を入れてください。');
+}
+
+/** Gemini の指示を、入力欄の文字に当てはめる（テストしやすいようシートから切り離してある） */
+function 指示を入力欄に当てはめる_(inputs, ans, before) {
+  if (ans.reset) return { offV: '', offU: '', alt: '', pin: '' };
+  function edit(cur, add, rem) {
+    var list = 名前の一覧_(cur);
+    (rem || []).forEach(function (x) {
+      var k = 名前を比べる形_(x);
+      list = list.filter(function (y) { var j = 名前を比べる形_(y); return !(j && (j.indexOf(k) >= 0 || k.indexOf(j) >= 0)); });
+    });
+    (add || []).forEach(function (x) {
+      var k = 名前を比べる形_(x);
+      if (k && !list.some(function (y) { return 名前を比べる形_(y) === k; })) list.push(String(x).trim());
+    });
+    return list.join('、');
+  }
+  // 車の固定：「氏名→車（便）」の並び
+  var pins = 全角を半角に_(String(inputs.pin || '')).split(/[、,，\n]+/).map(function (x) { return x.trim(); }).filter(String);
+  function pinName(item) { return 名前を比べる形_(item.split(/→|->|⇒|＞|>/)[0]); }
+  function dropPin(name, trip) {
+    var k = 名前を比べる形_(name);
+    pins = pins.filter(function (it) {
+      var n = pinName(it), t = (it.match(/\((お迎え|お送り)\)\s*$/) || [])[1] || '';
+      var same = n && (n.indexOf(k) >= 0 || k.indexOf(n) >= 0);
+      return !(same && (!trip || !t || t === trip));
+    });
+  }
+  function addPin(name, vehicle, trip) {
+    dropPin(name, trip);
+    pins.push(String(name).trim() + '→' + String(vehicle).trim() + (trip ? '(' + trip + ')' : ''));
+  }
+  (ans.pins_remove || []).forEach(function (n) { dropPin(n, ''); });
+  (ans.pins_add || []).forEach(function (p) { if (p && p.name && p.vehicle) addPin(p.name, p.vehicle, p.trip === 'お迎え' || p.trip === 'お送り' ? p.trip : ''); });
+  // 入れ替え：いまの送迎表で乗っている車を入れ替えて、2人とも固定する
+  (ans.swaps || []).forEach(function (sw) {
+    before.blocks.forEach(function (b) {
+      if (sw.trip && sw.trip !== b.trip) return;
+      function carOf(name) {
+        var k = 名前を比べる形_(name);
+        var r = b.meta.rows.filter(function (x) { return 名前を比べる形_(x.name).indexOf(k) >= 0; })[0];
+        return r ? r : null;
+      }
+      var ra = carOf(sw.a), rb = carOf(sw.b);
+      if (!ra || !rb || ra.vehicle === rb.vehicle) return;
+      addPin(ra.name, rb.vehicle, b.trip);
+      addPin(rb.name, ra.vehicle, b.trip);
+    });
+  });
+  return {
+    offV: edit(inputs.offV, ans.off_vehicles_add, ans.off_vehicles_remove),
+    offU: edit(inputs.offU, ans.absent_add, ans.absent_remove),
+    alt:  edit(inputs.alt, ans.alt_add, ans.alt_remove),
+    pin:  pins.join('、')
+  };
+}
+
+/** 組み直す前と後を比べて、変わったことを文章にする（スクリプトが数えるので正確） */
+function 変わったこと_(before, after) {
+  function index(res) {
+    var m = {}, late = 0, lateN = 0, un = [];
+    res.blocks.forEach(function (b) {
+      b.meta.rows.forEach(function (r) { m[b.trip + '\u0000' + r.name] = r.vehicle + (r.run > 1 ? '（' + r.run + '便）' : ''); });
+      b.meta.late.forEach(function (x) { late += x.min; lateN++; });
+      b.meta.unassigned.forEach(function (n) { un.push(n + '（' + b.trip + '）'); });
+    });
+    return { m: m, late: late, lateN: lateN, un: un };
+  }
+  var A = index(before), B = index(after), L = [];
+  Object.keys(B.m).forEach(function (k) {
+    var p = k.split('\u0000');
+    if (A.m[k] == null) L.push('・' + p[1] + '：' + B.m[k] + ' に入りました（' + p[0] + '）');
+    else if (A.m[k] !== B.m[k]) L.push('・' + p[1] + '：' + A.m[k] + ' → ' + B.m[k] + '（' + p[0] + '）');
+  });
+  Object.keys(A.m).forEach(function (k) {
+    var p = k.split('\u0000');
+    if (B.m[k] == null && !B.un.some(function (u) { return u.indexOf(p[1]) === 0; })) L.push('・' + p[1] + '：送迎表から外れました（' + p[0] + '）');
+  });
+  if (!L.length) L.push('・車の割り当ては変わりませんでした');
+  L.push('・遅れ：' + (A.lateN ? A.lateN + '件・計' + A.late + '分' : 'なし') + ' → ' + (B.lateN ? B.lateN + '件・計' + B.late + '分' : 'なし'));
+  if (B.un.length) L.push('⚠ 未割当：' + B.un.join('、'));
+  after.warns.forEach(function (w) { L.push('⚠ ' + w); });
+  return L.join('\n');
+}
+
+function チャット画面_() {
+  return '<!DOCTYPE html><html><head><base target="_top"><style>' +
+    'body{font:13px/1.6 sans-serif;margin:0;display:flex;flex-direction:column;height:100vh}' +
+    '#top{padding:8px;border-bottom:1px solid #ddd;background:#f8f9fa}' +
+    '#log{flex:1;overflow-y:auto;padding:8px}' +
+    '.m{margin:6px 0;padding:6px 9px;border-radius:8px;white-space:pre-wrap;word-break:break-word}' +
+    '.u{background:#e8f0fe;margin-left:24px}.a{background:#f1f3f4;margin-right:12px}.c{background:#fff8e1;margin-right:12px;font-size:12px}' +
+    '.e{background:#fce8e6;color:#a50e0e}' +
+    '#bot{padding:8px;border-top:1px solid #ddd}textarea{width:100%;box-sizing:border-box;height:64px;font:13px sans-serif}' +
+    'button{margin-top:4px;width:100%;padding:7px;background:#1a73e8;color:#fff;border:0;border-radius:4px;font-size:13px}' +
+    'button:disabled{background:#9aa0a6}.hint{color:#777;font-size:11px}' +
+    '</style></head><body>' +
+    '<div id="top">曜日：<select id="day"></select> <span class="hint">この曜日の送迎表を直します</span></div>' +
+    '<div id="log"><div class="m a">例）「2号車は車検。ヤマダさん休み。サトウさんは1号車に乗せて」<br>「タナカさんとスズキさんの車を入れ替えて」<br>「全部元に戻して」<br>「遅れている人は？」</div></div>' +
+    '<div id="bot"><textarea id="t" placeholder="ここに話しかける（Ctrl+Enterで送信）"></textarea>' +
+    '<button id="b" onclick="send()">送る</button>' +
+    '<div class="hint">Geminiには氏名・車・時刻だけを送ります（住所は送りません）。</div></div>' +
+    '<script>' +
+    'var hist=[];function add(t,c){var d=document.createElement("div");d.className="m "+c;d.textContent=t;var l=document.getElementById("log");l.appendChild(d);l.scrollTop=l.scrollHeight;}' +
+    'google.script.run.withSuccessHandler(function(i){var s=document.getElementById("day");i.days.forEach(function(d){var o=document.createElement("option");o.value=d;o.textContent=d+"曜";s.appendChild(o)});s.value=i.day;' +
+    'if(!i.hasKey)add("GeminiのAPIキーがまだ登録されていません。メニューの「【初回】GeminiのAPIキーを登録する」から登録してください。","e");}).chatInit();' +
+    'document.getElementById("t").addEventListener("keydown",function(e){if(e.key==="Enter"&&(e.ctrlKey||e.metaKey))send();});' +
+    'function send(){var t=document.getElementById("t"),b=document.getElementById("b"),msg=t.value.trim();if(!msg)return;' +
+    'add(msg,"u");t.value="";b.disabled=true;b.textContent="考えています…";var day=document.getElementById("day").value;' +
+    'google.script.run.withSuccessHandler(function(r){b.disabled=false;b.textContent="送る";' +
+    'hist.push({role:"user",text:msg});hist.push({role:"model",text:r.reply||""});hist=hist.slice(-8);' +
+    'if(r.day)document.getElementById("day").value=r.day;add(r.reply||"",/^⚠/.test(r.reply||"")?"e":"a");' +
+    'if(r.changes)add("【変わったこと】\\n"+r.changes,"c");})' +
+    '.withFailureHandler(function(e){b.disabled=false;b.textContent="送る";add("⚠ "+e.message,"e");}).chatSend(msg,day,hist);}' +
+    '</script></body></html>';
+}
