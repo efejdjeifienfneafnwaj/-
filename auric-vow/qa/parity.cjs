@@ -25,7 +25,9 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
   await page.mouse.click(320, 180); await step(2)
   await page.evaluate(() => window.__qa.setPhase('INFILTRATE'))
   await step(90)
+  const ONLY = process.env.ONLY || ''
   const shot = async (name, x, y, z, lx, ly, lz) => {
+    if (ONLY && !name.startsWith(ONLY)) return
     await page.evaluate(([x, y, z, lx, ly, lz]) => { window.__qa.teleport(x, y, z); window.__qa.lookAt(lx, ly, lz) }, [x, y, z, lx, ly, lz])
     await step(24) // let springs, cascades and cached shadows settle
     await page.evaluate(([lx, ly, lz]) => window.__qa.lookAt(lx, ly, lz), [lx, ly, lz])
