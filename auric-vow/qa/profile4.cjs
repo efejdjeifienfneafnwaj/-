@@ -42,7 +42,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
         if (!o.layers.test(camera.layers)) return
         total++
         const mats = Array.isArray(o.material) ? o.material.length : 1
-        let name = (o.name || o.parent?.name || o.geometry?.type || '?').replace(/#.*$/, '').slice(0, 40)
+        let top = o; while (top.parent && top.parent !== scene) top = top.parent; const ti = scene.children.indexOf(top); let nn = o; while (nn && !nn.name) nn = nn.parent; let name = ('S' + ti + ':' + (top.name || top.type) + '/' + (nn && nn !== top ? nn.name : o.geometry?.type || '?')).replace(/#.*$/, '').slice(0, 48)
         if (o.castShadow) { cast += mats; casters[name] = (casters[name] || 0) + mats }
         let inView = true
         if (o.frustumCulled && o.geometry) {
