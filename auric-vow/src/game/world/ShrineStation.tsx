@@ -5883,7 +5883,7 @@ export default function ShrineStation() {
   }, [])
 
   return (
-    <group ref={root}>
+    <group ref={root} name="level-root">
       <ZoneA />
       <ZoneB />
       <ZoneC />

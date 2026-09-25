@@ -66,6 +66,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { PerfStats } from './stats'
+import { StaticBatcher } from './staticBatch'
 
 // ---------------------------------------------------------------------------
 // tuning
@@ -104,7 +105,7 @@ const FAR_SHADOW_EVERY = 20
 const SPOT_SHADOW_EVERY = 2
 
 // ---------------------------------------------------------------------------
-// QA switches: ?qa=1&noperf=lights,chunks,shadows,warmup disables a subsystem so
+// QA switches: ?qa=1&noperf=lights,chunks,batch,shadows,warmup disables a subsystem so
 // its effect on the image can be isolated by diffing captures.
 // ---------------------------------------------------------------------------
 
@@ -254,12 +255,15 @@ export default function PerfDirector() {
   const spotLastKey = useRef(new Map<THREE.SpotLight, string>())
   const pointLights = useRef<THREE.PointLight[]>([])
   const shadowLights = useRef<(THREE.DirectionalLight | THREE.SpotLight)[]>([])
+  const batcher = useRef<StaticBatcher | null>(null)
 
   useEffect(() => {
     return () => {
       // unmount: undo everything so a remount starts clean
       for (const rec of chunked.current) revertChunks(rec)
       chunked.current = []
+      batcher.current?.dispose()
+      batcher.current = null
       scene.traverse((o) => restoreLayer(o))
       gl.shadowMap.autoUpdate = true
     }
@@ -355,6 +359,27 @@ export default function PerfDirector() {
         PerfStats.chunksCreated += chunks.length
       }
       observed.current.clear()
+
+      // ---- 1b. static batching of the level's plain meshes --------------------
+      const levelRoot = scene.getObjectByName('level-root')
+      if (levelRoot && !NOPERF.has('batch')) {
+        const t0 = performance.now()
+        const b = new StaticBatcher(
+          levelRoot,
+          (o) => hideOnLayer(o, LAYER_CHUNKED_SOURCE),
+          (o) => restoreLayer(o),
+        )
+        b.build(camera.layers)
+        batcher.current = b
+        PerfStats.batchMs = Math.round(performance.now() - t0)
+      }
+    }
+    // same frame as any change, before anything is drawn
+    if (batcher.current) {
+      batcher.current.check()
+      PerfStats.batchedSources = batcher.current.sourcesBatched
+      PerfStats.batchesCreated = batcher.current.batches.length
+      PerfStats.batchReverts = batcher.current.reverts
     }
     // keep chunks honest: mirror visibility, and revert if the source changes
     if (f > CHUNK_AT && (f & 7) === 0 && chunked.current.length) {

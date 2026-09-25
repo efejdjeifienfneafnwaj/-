@@ -5,3 +5,5 @@ qa/bis/
 qa/parity-base/
 qa/parity-opt/
 qa/parity-diff-*.png
+dist-batch
+dist-dbg
