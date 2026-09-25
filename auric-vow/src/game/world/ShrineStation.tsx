@@ -64,6 +64,14 @@ import {
   CANYON_EDGE_PODS,
   CANYON_WALL_CABINETS,
   ARENA_DECK_CABLES,
+  ARENA_UNDERCROFT_PIPES,
+  ARENA_SOFFIT_CONDUITS,
+  ARENA_TRUNK_RISERS,
+  ARENA_FASCIA_FITTINGS,
+  ARENA_UNDERCROFT_DUCTS,
+  ARENA_UNDERCROFT_CABINETS,
+  ARENA_WALL_CABINETS,
+  ARENA_BIG_PLATES,
   type BoxSpec,
 } from './layout'
 import { clearColliders, registerCollider, unregisterCollider } from './Colliders'
@@ -754,7 +762,33 @@ const FRET_PANEL = repeatUv(new THREE.PlaneGeometry(1, 1), 6)
  * Two aspect variants so the motif stays square on both wide and tall spans.
  */
 const SCREEN_WIDE = repeatUv(new THREE.PlaneGeometry(1, 1), 2, 2)
-const SCREEN_TALL = repeatUv(new THREE.PlaneGeometry(1, 1), 2, 2)
+/**
+ * R7c — the pierced motif at THREE MORE SCALES. The screen tile carries its own
+ * fret border, so an integer repeat always frames cleanly; what it cannot do
+ * is stop every bay on a wall showing the same 2×2 lattice, which the 08
+ * combat frame still resolved into a grid however irregular the bay pitch.
+ * A bay now draws one of four scales — one large vesica, the 2×2, a 3×2 and
+ * a 2×3 — chosen by a stable hash of its position, so two neighbouring bays
+ * never carry the same hole size. Four instanced draws instead of one.
+ */
+const SCREEN_ONE = repeatUv(new THREE.PlaneGeometry(1, 1), 1, 1)
+const SCREEN_3X2 = repeatUv(new THREE.PlaneGeometry(1, 1), 3, 2)
+const SCREEN_2X3 = repeatUv(new THREE.PlaneGeometry(1, 1), 2, 3)
+const SCREEN_VARIANTS = [SCREEN_WIDE, SCREEN_ONE, SCREEN_3X2, SCREEN_2X3]
+/** deal a screen list across the four variants, never the same scale twice
+ *  in a row along a wall (the lists are authored wall by wall in order) */
+function dealScreens(items: InstItem[], salt: number): InstItem[][] {
+  const out: InstItem[][] = [[], [], [], []]
+  let last = -1
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]
+    let k = Math.floor(h1(Math.round(it.p[0] * 3.1 + it.p[2] * 7.7), salt) * 4) % 4
+    if (k === last) k = (k + 1 + Math.floor(h1(i, salt + 1) * 3)) % 4
+    out[k].push(it)
+    last = k
+  }
+  return out
+}
 /** single coffer (stepped frame, punched centre) for the upper wall register */
 const COFFER_PANEL = new THREE.PlaneGeometry(1, 1)
 
@@ -1298,6 +1332,10 @@ for (let z = 44; z <= 132; z += 8) {
   }
 }
 
+/** R7c — the canyon's tall screens alternate between the 2×2 lattice and the
+ *  single large vesica, so the run the player sprints past is not five copies */
+const B_WEST_SCREEN_V = dealScreens(B_WEST_SCREEN, 67)
+
 // R3 — shadow gaps flanking every west-wall pilaster (see D_PILASTER_FLANK)
 const B_PILASTER_FLANK: InstItem[] = []
 for (let z = 44; z <= 132; z += 8) {
@@ -1631,12 +1669,9 @@ function ZoneB() {
       <Instanced geometry={BOX} material={recessMaterial()} items={B_PILASTER_FLANK} />
       <Instanced geometry={BOX} material={goldMaterial()} items={B_WEST_PILASTERS} />
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_SCREEN_BACK} />
-      <Instanced
-        geometry={SCREEN_TALL}
-        material={screenMaterial()}
-        items={B_WEST_SCREEN}
-        castShadow
-      />
+      {B_WEST_SCREEN_V.map((items, i) => (
+        <Instanced key={i} geometry={SCREEN_VARIANTS[i]} material={screenMaterial()} items={items} castShadow />
+      ))}
       <Instanced geometry={BOX} material={recessMaterial()} items={B_WEST_VEIN_CHANNEL} />
       <Instanced geometry={BOX} material={veinGoldMaterial()} items={B_WEST_VEINS} />
 
@@ -2999,6 +3034,9 @@ for (const sc of D_SCREENS) {
  */
 const D_CORBELS_J = jitterItems(D_CORBELS, { yaw: 0.085, scale: 0.085, lift: 0.06, salt: 3 })
 
+/** R7c — the arena screens dealt across the four motif scales */
+const D_SCREENS_V = dealScreens(D_SCREENS, 61)
+
 /** R3 — engaged fluted colonnade on the arena's four walls. Column axis y 0.5
  *  to 9.5, so the capitals land under the cornice and the shafts carry the
  *  vault's springing corbels visually down to the deck. */
@@ -3953,7 +3991,9 @@ function ZoneD() {
       {/* R2 ornament parity with the shrine: pierced screens on the lower
           register, coffers above, a junction angle, corbel framing */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_SCREEN_BACK} />
-      <Instanced geometry={SCREEN_WIDE} material={screenMaterial()} items={D_SCREENS} castShadow />
+      {D_SCREENS_V.map((items, i) => (
+        <Instanced key={i} geometry={SCREEN_VARIANTS[i]} material={screenMaterial()} items={items} castShadow />
+      ))}
       {/* R7 — the suppressed bays: a dark cavity with one sunk blind panel in
           it, so roughly a quarter of the wall's bays carry no kit at all */}
       <Instanced geometry={BOX} material={recessMaterial()} items={D_BLIND_BACK} receiveShadow />
@@ -4795,6 +4835,13 @@ for (const [side, y, x0, x1, r, drop] of ARENA_PIPE_END) {
   const wz = side > 0 ? 225 : 165
   conduitRun('x', x0, x1, y, wz - side * 0.36, wz + side * 0.5, r, drop, Math.round(x0 + 40))
 }
+// R7c — the same on the end walls UNDER the gallery soffits (y < 5), which is
+// the wall behind the enemy at play height in the combat frame; the drops
+// fall to a box on the dado cap exactly as the runs above the galleries do
+for (const [side, x0, x1, y, r, drop] of ARENA_UNDERCROFT_PIPES) {
+  const wz = side > 0 ? 225 : 165
+  conduitRun('x', x0, x1, y, wz - side * 0.36, wz + side * 0.5, r, drop, Math.round(x0 * 3 + 90))
+}
 
 /**
  * Canyon cross-conduits — the FOREGROUND LAYER the composition has never had.
@@ -4907,6 +4954,10 @@ const CLOTH_ITEMS: InstItem[] = []
   // chamber aperture heads
   hang(-2.3, 7.6, 135.3, 2.4, 3.6, 0, 7)
   hang(2.6, 7.2, 164.7, 2.0, 3.0, Math.PI, 8)
+  // R7d — under the arena galleries, hung from the soffit line in front of
+  // the service wall, hems at 2 m so the undercroft is still walkable
+  hang(-12.2, 4.9, 166.15, 2.2, 2.9, 0, 12)
+  hang(12.0, 4.9, 223.85, 1.8, 2.9, Math.PI, 13)
   // canyon — hung off the crossings, right in the near field
   hang(-3.6, 4.1, 41.8, 2.2, 1.5, 0.3, 9)
   hang(3.9, 4.55, 70.9, 1.8, 1.9, -0.4, 10)
@@ -5446,6 +5497,235 @@ for (let i = 0; i < ARENA_DECK_CABLES.length; i++) {
     r: [0, byaw, 0],
     s: [r * 0.7, r * 0.7, bl],
   })
+}
+
+// ---------------------------------------------------------------------------
+// R7c — gallery undercrofts, trunk risers and fascia dressing. VISUAL ONLY.
+// Tables in layout.ts (ARENA_SOFFIT_CONDUITS, ARENA_TRUNK_RISERS,
+// ARENA_FASCIA_FITTINGS); everything here pushes into the R7/R7b instance
+// lists, so it costs no new draw calls.
+// ---------------------------------------------------------------------------
+
+// --- conduit hung under the gallery soffits, wall to fascia -------------------
+{
+  const SOFFIT_Y = 4.98
+  for (let i = 0; i < ARENA_SOFFIT_CONDUITS.length; i++) {
+    const [side, x, yTable] = ARENA_SOFFIT_CONDUITS[i]
+    const wall = side > 0 ? 3 : 2
+    const r = 0.045 + h1(i, 191) * 0.03
+    // R7d — ride just under the soffit: the fat wall runs at 4.5 and the duct
+    // line at 3.95 pass beneath these, so the table's y is only a phase
+    const y = 4.8 + (yTable - 4.6) * 0.3
+    // from the wall's recessed field to just short of the fascia's back
+    const d0 = -0.5
+    const d1 = 4.78
+    const mid = (d0 + d1) / 2
+    PIPE_BODY.push({ p: wallAt(wall, x, y, mid), r: normalRot(wall), s: [r, r, d1 - d0] })
+    // straps up to the soffit on an irregular pitch
+    const n = 2 + (h1(i, 193) > 0.5 ? 1 : 0)
+    for (let k = 0; k <= n; k++) {
+      const d = 0.4 + (d1 - 0.9) * THREE.MathUtils.clamp((k + (h1(k, 197 + i) - 0.5) * 0.5) / n, 0, 1)
+      XLOW_HANGER.push({ p: wallAt(wall, x, (SOFFIT_Y + y) / 2, d), s: wallDim(wall, 0.06, SOFFIT_Y - y, r * 2.6) })
+    }
+    // a flange where it leaves the wall and a box where it meets the fascia
+    PIPE_FLANGE.push({ p: wallAt(wall, x, y, 0.42), r: normalRot(wall), s: [r * 1.9, r * 1.9, 0.07] })
+    PIPE_JBOX.push({
+      p: wallAt(wall, x, y - 0.02, d1 - 0.24),
+      r: [0, (h1(i, 199) - 0.5) * 0.2, 0],
+      s: wallDim(wall, 0.44, 0.3 + h1(i, 211) * 0.16, 0.34),
+    })
+    // and, on about half of them, a second thinner line branching off the box
+    // and running back along the soffit at an angle the coffers do not have
+    if (h1(i, 223) > 0.45) {
+      const dir = h1(i, 227) > 0.5 ? 1 : -1
+      const bl = 1.4 + h1(i, 229) * 1.6
+      // it must head BACK toward the wall, never out through the fascia: the
+      // room is +z off the south wall and -z off the north one
+      const yaw = (wall === 2 ? Math.PI : 0) + dir * (0.5 + h1(i, 233) * 0.4)
+      const c = wallAt(wall, x, y + 0.12, d1 - 0.45)
+      PIPE_BODY.push({
+        p: [c[0] + Math.sin(yaw) * bl * 0.5, c[1], c[2] + Math.cos(yaw) * bl * 0.5],
+        r: [0, yaw, 0],
+        s: [r * 0.6, r * 0.6, bl],
+      })
+    }
+  }
+}
+
+// --- three-barrel trunk risers on the piers ----------------------------------
+{
+  for (let i = 0; i < ARENA_TRUNK_RISERS.length; i++) {
+    const [wall, along, yTop, r] = ARENA_TRUNK_RISERS[i]
+    // R7d — barrels fattened to read at 30 m; the pitch keeps the outer pair
+    // inside the 1.1 m the coupled shafts leave on the pier
+    const PITCH = r >= 0.2 ? 0.44 : 0.4
+    const yBot = 2.72
+    const h = yTop - yBot
+    const d = 0.28
+    const s = r / 0.29
+    for (let b = -1; b <= 1; b++) {
+      const a = along + b * PITCH
+      // each barrel a slightly different height, so the three elbows do not
+      // sit on one line
+      const top = yTop - Math.abs(b) * 0.22 - h1(i * 3 + b, 239) * 0.12
+      DROP_BODY.push({ p: wallAt(wall, a, (top - s + yBot) / 2, d), r: VERT_ROT, s: [r, r, top - s - yBot] })
+      DROP_BEND.push({ p: wallAt(wall, a, top - s, d - s), r: elbowIntoWallRot(wall), s: [s, s, s] })
+      DROP_FLANGE.push({ p: wallAt(wall, a, yBot + 0.34 + h1(b + 2, 241 + i) * 0.5, d), r: VERT_ROT, s: [r * 1.75, r * 1.75, 0.08] })
+      if (h > 3.5) {
+        DROP_FLANGE.push({ p: wallAt(wall, a, yBot + h * (0.55 + b * 0.06), d), r: VERT_ROT, s: [r * 1.75, r * 1.75, 0.08] })
+      }
+    }
+    // shared clamps spanning the three barrels, back to the wall
+    const nClamp = Math.max(1, Math.round(h / 1.6))
+    for (let k = 0; k <= nClamp; k++) {
+      const y = yBot + 0.5 + (h - 1.1) * (k / nClamp) + (h1(k, 251 + i) - 0.5) * 0.2
+      DROP_CLAMP.push({ p: wallAt(wall, along, y, d * 0.6), s: wallDim(wall, d * 0.72 + r, r * 2.2, 2 * PITCH + r * 2.6) })
+    }
+    // the manifold on the dado cap the three rise out of: a wide flanged box,
+    // a hand wheel on its face and a gauge beside it
+    DROP_BOX.push({ p: wallAt(wall, along, yBot - 0.3, 0.2), s: wallDim(wall, 0.42, 0.56, 2 * PITCH + r * 2 + 0.34) })
+    DROP_WHEEL.push({ p: wallAt(wall, along + (h1(i, 257) - 0.5) * 0.5, yBot - 0.3, 0.5), r: normalRot(wall), s: [0.16, 0.16, 0.16] })
+    DROP_SPOKE.push({ p: wallAt(wall, along + (h1(i, 257) - 0.5) * 0.5, yBot - 0.3, 0.5), r: normalRot(wall), s: [0.16, 0.16, 0.16] })
+    DROP_SPOKE.push({ p: wallAt(wall, along + (h1(i, 257) - 0.5) * 0.5, yBot - 0.3, 0.5), r: [0, normalRot(wall)[1], Math.PI / 2], s: [0.16, 0.16, 0.16] })
+    DROP_STUB.push({ p: wallAt(wall, along + (h1(i, 257) - 0.5) * 0.5, yBot - 0.3, 0.42), r: normalRot(wall), s: [0.04, 0.04, 0.16] })
+    DROP_GAUGE.push({ p: wallAt(wall, along + (h1(i, 263) > 0.5 ? 1 : -1) * (PITCH + 0.16), yBot - 0.22, 0.43), r: normalRot(wall), s: [0.11, 0.11, 0.06] })
+  }
+}
+
+// --- R7d: MASS at the scale the combat camera sees ----------------------------
+// The 08 capture put the south wall 34 m from the lens (27 px/m), so every
+// fitting under ~0.3 m is a few pixels and the 1 m ivory tile is what reads.
+// The reference's wall crop is two-thirds machine; this block covers ours the
+// same way with things that hold up at 30 m: ductwork with a plenum, hung
+// cabinets, 2–3 m bolted plates over the field, and two more cloth sheets.
+{
+  // ducts under the gallery soffits, turning down to a plenum on the dado cap
+  for (let i = 0; i < ARENA_UNDERCROFT_DUCTS.length; i++) {
+    const [side, x0, x1, y, w, hh, drop] = ARENA_UNDERCROFT_DUCTS[i]
+    const wall = side > 0 ? 3 : 2
+    const dc = 0.31 + w / 2
+    const len = x1 - x0
+    XLOW_BAR.push({ p: wallAt(wall, (x0 + x1) / 2, y, dc), s: wallDim(wall, w, hh, len) })
+    // flanged joints on an irregular pitch
+    const n = Math.max(2, Math.round(len / 2.4))
+    for (let k = 1; k < n; k++) {
+      const a = x0 + len * THREE.MathUtils.clamp((k + (h1(k, 293 + i) - 0.5) * 0.5) / n, 0.06, 0.94)
+      TRAY_LIP.push({ p: wallAt(wall, a, y, dc), s: wallDim(wall, w + 0.08, hh + 0.08, 0.06) })
+    }
+    // straps to the soffit
+    for (let k = 0; k <= n; k++) {
+      const a = x0 + 0.5 + (len - 1) * (k / n)
+      XLOW_HANGER.push({ p: wallAt(wall, a, (y + hh / 2 + 4.98) / 2, dc), s: wallDim(wall, w + 0.06, 4.98 - y - hh / 2, 0.07) })
+    }
+    if (drop === 0) {
+      // no room to drop in either bay: the duct ends in a grille box on the wall
+      for (const ex of [x0 - 0.2, x1 + 0.2]) {
+        TANK_CABINET.push({ p: wallAt(wall, ex, y, 0.02 + (w + 0.5) / 2), s: wallDim(wall, w + 0.5, hh + 0.5, 0.7) })
+        for (let k = 0; k < 4; k++) {
+          VENT_SLAT.push({ p: wallAt(wall, ex, y - 0.18 + k * 0.12, w + 0.54), s: wallDim(wall, 0.05, 0.04, 0.5) })
+        }
+      }
+      continue
+    }
+    // the drop: a vertical duct section and the plenum it feeds
+    const ex = drop > 0 ? x1 + w / 2 : x0 - w / 2
+    const yv = (y - hh / 2 + 2.95) / 2
+    XLOW_BAR.push({ p: wallAt(wall, ex, yv, dc), s: wallDim(wall, w, y - hh / 2 - 2.95 + 0.02, w * 0.9) })
+    TRAY_LIP.push({ p: wallAt(wall, ex, 3.0, dc), s: wallDim(wall, w + 0.08, 0.06, w * 0.9 + 0.08) })
+    TANK_CABINET.push({ p: wallAt(wall, ex, 2.62, 0.02 + (w + 0.4) / 2), s: wallDim(wall, w + 0.4, 0.64, w * 0.9 + 0.5) })
+    // a louvre face on the plenum (slats), and a gauge
+    for (let k = 0; k < 3; k++) {
+      VENT_SLAT.push({ p: wallAt(wall, ex, 2.48 + k * 0.12, w + 0.44), s: wallDim(wall, 0.05, 0.04, w * 0.9 + 0.2) })
+    }
+    DROP_GAUGE.push({ p: wallAt(wall, ex + (drop > 0 ? -1 : 1) * (w * 0.45 + 0.4), 2.62, 0.3), r: normalRot(wall), s: [0.12, 0.12, 0.06] })
+  }
+
+  // hung machine cabinets under the galleries, below the duct line
+  for (let i = 0; i < ARENA_UNDERCROFT_CABINETS.length; i++) {
+    const [side, x, w, dpt] = ARENA_UNDERCROFT_CABINETS[i]
+    const wall = side > 0 ? 3 : 2
+    const hh = 1.3 + h1(i, 307) * 0.2
+    const yc = 2.1 + hh / 2
+    TANK_CABINET.push({ p: wallAt(wall, x, yc, dpt / 2), s: wallDim(wall, dpt, hh, w) })
+    // a pair of doors with a shadow line between, hinges, a vent slot
+    for (const e of [-1, 1]) {
+      CAB_DOOR.push({ p: wallAt(wall, x + e * (w * 0.25 + 0.01), yc, dpt + 0.012), s: wallDim(wall, 0.02, hh * 0.84, w * 0.46) })
+      CAB_HINGE.push({ p: wallAt(wall, x + e * (w / 2 - 0.05), yc + 0.3, dpt + 0.03), s: wallDim(wall, 0.05, 0.14, 0.05) })
+      CAB_HINGE.push({ p: wallAt(wall, x + e * (w / 2 - 0.05), yc - 0.3, dpt + 0.03), s: wallDim(wall, 0.05, 0.14, 0.05) })
+    }
+    for (let k = 0; k < 4; k++) {
+      VENT_SLAT.push({ p: wallAt(wall, x - w * 0.22, yc + hh * 0.3 - k * 0.07, dpt + 0.02), s: wallDim(wall, 0.03, 0.03, w * 0.3) })
+    }
+    // brackets to the wall above and below, and a conduit up to the duct line
+    for (const f of [-0.42, 0.42]) {
+      CAB_BRACKET.push({ p: wallAt(wall, x + f * w, yc + hh / 2 + 0.06, dpt * 0.45), s: wallDim(wall, dpt * 0.9, 0.1, 0.14) })
+    }
+    const px = x + (h1(i, 311) > 0.5 ? 1 : -1) * (w / 2 - 0.2)
+    CAB_PIPE.push({ p: wallAt(wall, px, (yc + hh / 2 + 4.32) / 2, 0.3), r: VERT_ROT, s: [0.055, 0.055, 4.32 - yc - hh / 2] })
+  }
+
+  // wall cabinets on the long walls and the end walls outside the galleries
+  for (let i = 0; i < ARENA_WALL_CABINETS.length; i++) {
+    const [wall, along, w, hh, dpt, yBase] = ARENA_WALL_CABINETS[i]
+    const yc = yBase + hh / 2
+    TANK_CABINET.push({ p: wallAt(wall, along, yc, dpt / 2), s: wallDim(wall, dpt, hh, w) })
+    CAB_DOOR.push({ p: wallAt(wall, along - w * 0.03, yc, dpt + 0.012), s: wallDim(wall, 0.02, hh * 0.86, w * 0.42) })
+    CAB_DOOR.push({ p: wallAt(wall, along + w * 0.26, yc, dpt + 0.012), s: wallDim(wall, 0.02, hh * 0.86, w * 0.42) })
+    for (const f of [-0.36, 0.36]) {
+      CAB_HINGE.push({ p: wallAt(wall, along - w * 0.46, yc + f * hh, dpt + 0.03), s: wallDim(wall, 0.05, 0.12, 0.05) })
+    }
+    for (const f of [-0.42, 0.42]) {
+      CAB_BRACKET.push({ p: wallAt(wall, along + f * w, yc - hh / 2 - 0.08, dpt * 0.45), s: wallDim(wall, dpt * 0.9, 0.12, 0.14) })
+    }
+    // a conduit from the cabinet's top up to the corbel course (long walls)
+    // or the gallery soffit line, clamped twice
+    const top = wall < 2 || Math.abs(along) > 20.8 ? 8.45 : 4.9
+    const px = along + (h1(i, 317) > 0.5 ? 1 : -1) * (w / 2 - 0.16)
+    const y0 = yc + hh / 2
+    CAB_PIPE.push({ p: wallAt(wall, px, (y0 + top) / 2, 0.18), r: VERT_ROT, s: [0.06, 0.06, top - y0] })
+    CAB_BRACKET.push({ p: wallAt(wall, px, y0 + (top - y0) * 0.35, 0.09), s: wallDim(wall, 0.18, 0.14, 0.16) })
+    CAB_BRACKET.push({ p: wallAt(wall, px, y0 + (top - y0) * 0.8, 0.09), s: wallDim(wall, 0.18, 0.14, 0.16) })
+  }
+
+  // big bolted plates over the field, in front of a screen where there is one
+  let n = 500
+  for (let i = 0; i < ARENA_BIG_PLATES.length; i++) {
+    const [wall, along, y, w, hh] = ARENA_BIG_PLATES[i]
+    patch(wall, along, y, w, hh, 0.24, n++)
+    // a second row of bolts down the middle of the wide ones, and a seam
+    if (w > 2.2) {
+      PATCH_PLATE.push({ p: wallAt(wall, along, y, 0.245), s: wallDim(wall, 0.06, hh + 0.02, 0.05) })
+      for (const e of [-1, 1]) {
+        PATCH_STUD.push({ p: wallAt(wall, along, y + e * (hh / 2 - 0.1), 0.29), r: normalRot(wall), s: [0.03, 0.03, 0.05] })
+      }
+    }
+  }
+}
+
+// --- gallery fronts: bolted plates and caged lamps ---------------------------
+{
+  /** the fascia face stands 5.2 m into the room from the end wall's face */
+  const FASCIA_D = 5.2
+  let n = 400
+  for (let i = 0; i < ARENA_FASCIA_FITTINGS.length; i++) {
+    const [side, x, kind] = ARENA_FASCIA_FITTINGS[i]
+    const wall = side > 0 ? 3 : 2
+    if (kind === 0) {
+      const w = 0.36 + h1(i, 269) * 0.5
+      const hh = 0.3 + h1(i, 271) * 0.4
+      patch(wall, x, 4.85 + h1(i, 277) * 0.85, w, hh, FASCIA_D + 0.03, n++)
+    } else {
+      const y = 4.72 + h1(i, 281) * 0.25
+      LAMP_BOX.push({ p: wallAt(wall, x, y, FASCIA_D + 0.14), s: wallDim(wall, 0.28, 0.5, 0.34) })
+      LAMP_HOOD.push({ p: wallAt(wall, x, y + 0.31, FASCIA_D + 0.2), s: wallDim(wall, 0.44, 0.07, 0.46) })
+      LAMP_SLIT.push({ p: wallAt(wall, x, y + 0.02, FASCIA_D + 0.285), s: wallDim(wall, 0.02, 0.3, 0.2) })
+      for (const e of [-1, 1]) {
+        LAMP_BAR.push({ p: wallAt(wall, x + e * 0.06, y + 0.02, FASCIA_D + 0.31), s: wallDim(wall, 0.02, 0.36, 0.02) })
+      }
+      // its feed: a conduit up the fascia to the rail line
+      DROP_BODY.push({ p: wallAt(wall, x + 0.28, 5.55, FASCIA_D + 0.06), r: VERT_ROT, s: [0.03, 0.03, 1.1] })
+    }
+  }
 }
 
 /** R7b — the small-object layer, one InstancedMesh per family. */

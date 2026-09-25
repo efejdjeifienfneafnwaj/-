@@ -86,6 +86,33 @@
  * - The neck exists: the gorget drops 0.11 m, the helmet is carried 26 mm
  *   forward and 4.6 degrees down on a slender column, and an asymmetric side
  *   fin gives the head a left and a right.
+ *
+ * r8 pass — THE BODY UNDER THE ARMOUR, read against qa/reference/warframe-
+ * target.jpg. The r7 partial had already taken the plates to charcoal-brown
+ * and confined the emissive to seams; its own lit turnaround (scratch
+ * ca7/r7/lit_front.png) still read as a posable toy, and the reasons were
+ * measurable rather than aesthetic:
+ * - There was no body. The torso was a cylinder and a capsule with a pinch
+ *   between them (waist measured 0.23 m against a 0.28 plan), every limb a
+ *   0.024–0.042 m capsule, and every joint a ball between two rods. Each
+ *   segment is now an authored anatomy LOFT (makeBodyLoft) that runs through
+ *   both of its pivots, and the torso is one loft from pelvis to neck base
+ *   with the plan the panel measured for: 0.29 hip / 0.276 waist / 0.302
+ *   chest / 0.51 across the pauldrons, traps sloping to a 0.09 m neck base
+ *   under the collar rim so the 0.08 m neck gap survives from the rear camera.
+ * - The plates were chrome. Base roughness 0.55 x a 0.17 map floor put the
+ *   crowns at 0.09 under a 0.75 clearcoat and env 1.25, so every convex
+ *   plate mirrored the ivory room. Crowns now land at ~0.26, env at 0.5–0.55,
+ *   and the under-suit is dark warm rubber (~0.01 linear) with its own
+ *   clearcoat instead of a 0.003 black that rendered every gap as a hole.
+ * - The gold cross on the chest (crest ridge + two chevrons + the seam) was
+ *   the brightest object on the figure; the ridge, chevrons, rear ribs, the
+ *   shoulder/hip/wrist rings are dark bronze or deleted. Gold survives as
+ *   strips: collar, keel, crest fin, pauldron edges, claws.
+ * - The pauldron cowls were flat lenses (scale-y 0.5) lying on the shoulder;
+ *   they are taller and tilted further so they cap the deltoid loft.
+ * - The helmet was the only light plate left on a dark body — a pale mirror
+ *   ball. It is the mid plate now; the face still reads from its shadow lines.
  */
 import { useEffect, useMemo, useRef, type ReactElement } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -546,7 +573,9 @@ function armourMaps(): ArmourMaps | null {
     size,
     (i, d, o) => {
       const v = THREE.MathUtils.smoothstep(h[i], 0.3, 0.82)
-      const r = THREE.MathUtils.lerp(0.68, 0.17, v)
+      // [R8] 0.68/0.17 -> 0.75/0.32: with the plate base at ~0.82 the crowns
+      // land at ~0.26 and the seams at ~0.62 — wet, and never a mirror
+      const r = THREE.MathUtils.lerp(0.75, 0.32, v)
       d[o] = d[o + 1] = d[o + 2] = r * 255
     },
     false,
@@ -1183,6 +1212,108 @@ function makeLimbShell(
     idx.push(capBot, lastRing + s, lastRing + s + 1)
   }
 
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  g.setIndex(idx)
+  g.computeVertexNormals()
+  return g
+}
+
+/**
+ * [character-art R8] ANATOMY LOFT — the body under the armour.
+ *
+ * Every round so far has plated a skeleton: the torso was two stacked
+ * capsules, each limb a 0.03 m capsule, and the plates were what the eye saw.
+ * Read against the reference (a rubber-suited athlete with armour ridges
+ * integral to the suit), that is why the lit turnaround reads as a posable
+ * toy: the joints are balls between rods, the gaps between plates open onto a
+ * black void, and the torso has no muscle plan — only a belt, a waist band and
+ * two discs. A shipped frame is ONE continuous sculpted volume first; the
+ * plating is relief on it.
+ *
+ * This lofts that volume from authored cross-section stations (y, half-width,
+ * half-depth, z-offset) with Catmull-Rom interpolation between them, so a
+ * torso can carry a lumbar curve and a pectoral swell and a thigh can be a
+ * monotonic taper from the glute to the knee. The section is a superellipse
+ * (exponent `sq`) so a limb is not a mathematically round tube. Both ends are
+ * closed. Built once at boot, shared per limb pair.
+ */
+interface LoftStation {
+  y: number
+  rx: number
+  rz: number
+  /** section centre offset along z (curves the spine / carries the chest) */
+  dz?: number
+}
+function makeBodyLoft(stations: readonly LoftStation[], o: { seg?: number; rings?: number; sq?: number } = {}): THREE.BufferGeometry {
+  const seg = o.seg ?? 24
+  const ringsPer = o.rings ?? 5
+  const sq = o.sq ?? 2.3
+  const n = stations.length
+  // Catmull-Rom over the station index, clamped at the ends
+  const at = (i: number) => stations[THREE.MathUtils.clamp(i, 0, n - 1)]
+  const cr = (a: number, b: number, c: number, d: number, t: number) => {
+    const t2 = t * t
+    const t3 = t2 * t
+    return 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+  }
+  const pos: number[] = []
+  const uvs: number[] = []
+  const idx: number[] = []
+  const rings: { y: number; rx: number; rz: number; dz: number }[] = []
+  for (let i = 0; i < n - 1; i++) {
+    const s0 = at(i - 1)
+    const s1 = at(i)
+    const s2 = at(i + 1)
+    const s3 = at(i + 2)
+    const last = i === n - 2
+    const steps = last ? ringsPer + 1 : ringsPer
+    for (let k = 0; k < steps; k++) {
+      const t = k / ringsPer
+      rings.push({
+        y: cr(s0.y, s1.y, s2.y, s3.y, t),
+        rx: Math.max(0.001, cr(s0.rx, s1.rx, s2.rx, s3.rx, t)),
+        rz: Math.max(0.001, cr(s0.rz, s1.rz, s2.rz, s3.rz, t)),
+        dz: cr(s0.dz ?? 0, s1.dz ?? 0, s2.dz ?? 0, s3.dz ?? 0, t),
+      })
+    }
+  }
+  const ringVerts = seg + 1
+  const yMin = rings[0].y
+  const yMax = rings[rings.length - 1].y
+  for (const r of rings) {
+    for (let s = 0; s <= seg; s++) {
+      const a = (s / seg) * Math.PI * 2
+      const ca = Math.cos(a)
+      const sa = Math.sin(a)
+      // superellipse: |x/rx|^sq + |z/rz|^sq = 1
+      const m = Math.pow(Math.pow(Math.abs(ca), sq) + Math.pow(Math.abs(sa), sq), -1 / sq)
+      pos.push(r.rx * ca * m, r.y, r.rz * sa * m + r.dz)
+      uvs.push(s / seg, (r.y - yMin) / Math.max(1e-6, yMax - yMin))
+    }
+  }
+  for (let r = 0; r < rings.length - 1; r++) {
+    for (let s = 0; s < seg; s++) {
+      const a0 = r * ringVerts + s
+      const b0 = a0 + ringVerts
+      idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1)
+    }
+  }
+  const first = rings[0]
+  const lastR = rings[rings.length - 1]
+  const capBot = pos.length / 3
+  pos.push(0, first.y, first.dz)
+  uvs.push(0.5, 0)
+  const capTop = pos.length / 3
+  pos.push(0, lastR.y, lastR.dz)
+  uvs.push(0.5, 1)
+  const lastRing = (rings.length - 1) * ringVerts
+  // rings run bottom-up here, so the cap winding is the mirror of makeLimbShell's
+  for (let s = 0; s < seg; s++) {
+    idx.push(capBot, s, s + 1)
+    idx.push(capTop, lastRing + s + 1, lastRing + s)
+  }
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
@@ -2091,6 +2222,80 @@ export default function PlayerRig() {
       // measured 0.30 m per side at the hip and two of those are a 0.61 m
       // pelvis under a 0.64 m shoulder. Hip silhouette is now HIP_X (0.080) +
       // 0.0755 = 0.156 per side, i.e. 0.311 m, against the shoulder's 0.51.
+      // [character-art R8] THE BODY. One continuous suit volume per segment,
+      // sized to sit 2–4 mm INSIDE the plate shells along their run and to
+      // continue THROUGH every joint (hip, knee, ankle, shoulder, elbow,
+      // wrist), so what shows in a plate gap or at a bent joint is dark
+      // rubber with a highlight on it, never the background. The torso loft
+      // is the plan the panel measured for: hip 0.29 → waist 0.276 → chest
+      // 0.302 → deltoid line 0.292, with the traps sloping to a 0.09 m neck
+      // base BELOW the collar rim (0.494) so the neck gap stays open.
+      // Measured on the first r8 build (flat-black rear matte, arms hidden):
+      // shoulder 0.513 / waist 0.255 / hip 0.315 = 1 : 0.50 : 0.61 against
+      // the panel's 1 : 0.55 : 0.60, so the two lower stations come up.
+      torsoLoft: makeBodyLoft(
+        [
+          { y: -0.08, rx: 0.112, rz: 0.07 },
+          { y: 0.05, rx: 0.137, rz: 0.062 },
+          { y: 0.17, rx: 0.141, rz: 0.054 },
+          { y: 0.29, rx: 0.147, rz: 0.06 },
+          { y: 0.39, rx: 0.151, rz: 0.066 },
+          { y: 0.455, rx: 0.146, rz: 0.062 },
+          { y: 0.485, rx: 0.1, rz: 0.054 },
+          { y: 0.515, rx: 0.046, rz: 0.042 },
+        ],
+        { seg: 28, rings: 6, sq: 2.3 },
+      ),
+      // limb lofts: monotonic tapers that run past both pivots. Each is the
+      // shell's own base profile × ~0.98 across and × ~0.8 through, so the
+      // shell (keel, flutes, lip) stays the visible surface and the loft is
+      // the flesh under it.
+      thighLoft: makeBodyLoft(
+        [
+          { y: 0.06, rx: 0.06, rz: 0.05 },
+          { y: -0.03, rx: 0.064, rz: 0.052 },
+          { y: -0.15, rx: 0.053, rz: 0.043 },
+          { y: -0.3, rx: 0.049, rz: 0.04 },
+          { y: -0.44, rx: 0.046, rz: 0.037 },
+          { y: -0.52, rx: 0.042, rz: 0.035 },
+        ],
+        { seg: 20, rings: 5, sq: 2.0 },
+      ),
+      shinLoft: makeBodyLoft(
+        [
+          { y: 0.04, rx: 0.05, rz: 0.042 },
+          { y: -0.06, rx: 0.049, rz: 0.041 },
+          { y: -0.22, rx: 0.045, rz: 0.037 },
+          { y: -0.38, rx: 0.041, rz: 0.033 },
+          { y: -0.5, rx: 0.036, rz: 0.03 },
+          { y: -0.55, rx: 0.033, rz: 0.028 },
+        ],
+        { seg: 20, rings: 5, sq: 2.0 },
+      ),
+      // the deltoid is the top station: a real shoulder mass under the cowl
+      // that the arm carries with it when it swings, so the shoulder never
+      // opens onto the torso side
+      upperArmLoft: makeBodyLoft(
+        [
+          { y: 0.05, rx: 0.05, rz: 0.045 },
+          { y: -0.02, rx: 0.058, rz: 0.049 },
+          { y: -0.1, rx: 0.044, rz: 0.039 },
+          { y: -0.2, rx: 0.04, rz: 0.036 },
+          { y: -0.3, rx: 0.037, rz: 0.033 },
+          { y: -0.36, rx: 0.033, rz: 0.03 },
+        ],
+        { seg: 18, rings: 5, sq: 2.0 },
+      ),
+      foreArmLoft: makeBodyLoft(
+        [
+          { y: 0.04, rx: 0.035, rz: 0.031 },
+          { y: -0.04, rx: 0.037, rz: 0.032 },
+          { y: -0.15, rx: 0.033, rz: 0.029 },
+          { y: -0.25, rx: 0.03, rz: 0.027 },
+          { y: -0.31, rx: 0.027, rz: 0.025 },
+        ],
+        { seg: 18, rings: 5, sq: 2.0 },
+      ),
       thighPlate: makeLimbShell(0.0565, 0.0455, 0.3, { keel: 0.14, flare: 0.15, flat: 0.9 }),
       shinPlate: makeLimbShell(0.0505, 0.0405, 0.3, {
         keel: 0.14,
@@ -2287,7 +2492,6 @@ export default function PlayerRig() {
         return g
       })(),
       // [character-art R5] every band follows the slimmer limb cores down
-      bevelShoulder: makeBevelBand(0.056, 0.014, 0.03),
       bevelHip: makeBevelBand(0.1, 0.023, 0.038),
       bevelKnee: makeBevelBand(0.054, 0.014, 0.03),
       bevelAnkle: makeBevelBand(0.044, 0.012, 0.026),
@@ -2314,9 +2518,7 @@ export default function PlayerRig() {
       /** [R5] a joint cowl at the ANKLE too — r4 closed the elbow and knee and
           left the ankle as a bare band, which is where a leg reads as a pipe */
       ankleCowl: makeJointCowl(0.048),
-      /** dark under-suit tube at 0.72× plate radius — fills every joint void */
-      jointTubeArm: new THREE.CylinderGeometry(0.03, 0.03, 0.15, 12),
-      jointTubeLeg: new THREE.CylinderGeometry(0.042, 0.042, 0.19, 12),
+      // [R8] the joint tubes are gone: the limb lofts run through every joint
       /** recessed piston band that sits in the joint cowl's shadow */
       pistonBand: new THREE.CylinderGeometry(0.036, 0.036, 0.024, 14),
     }),
@@ -2380,13 +2582,34 @@ export default function PlayerRig() {
      * is authored so the baked roughness map (0.17–0.68) lands the plate
      * crowns at ~0.09 and the seams at ~0.34: wet, and broken up.
      */
+    /**
+     * [character-art R8] WET RUBBER, NOT CHROME.
+     *
+     * The r7 turnaround (ca7/r7/lit_front.png) shows why a dark albedo alone
+     * did not make the frame dark: at a base roughness of 0.55 the baked
+     * roughness map (0.17–0.68) landed the plate crowns at ~0.09, and with
+     * envMapIntensity 1.25 under a 0.75 clearcoat every small convex plate
+     * became a mirror of the ivory environment — the figure rendered as
+     * polished pewter with black gaps, and read as a toy. The reference
+     * character's highlights are SMALL and come from the light, not from the
+     * room: a rubber body (roughness ~0.3) under a thin, tight clearcoat lobe
+     * that fires on the key, with the environment kept to a low sheen. The
+     * crowns now land at ~0.28, the seams at ~0.5, the env at 0.55.
+     */
+    // Measured on the first r8 build (scratch ca8/r8/lit_front.png): at env
+    // 0.55 the plates still rendered as desaturated pewter — the ivory room
+    // reflected in the clearcoat was still brighter than the brown diffuse
+    // under it. The character histogram in the spawn frame was bimodal (57%
+    // of pixels under 32/255, 13% over 128) where the reference's is one
+    // smooth dark hump (38% / 5%). Env comes down to 0.25 and the clearcoat
+    // lobe tightens (0.18), so the highlight is the KEY's, small and sharp.
     const plateLight = new THREE.MeshPhysicalMaterial({
-      color: '#4A3E34',
-      roughness: 0.55,
-      metalness: 0.06,
-      envMapIntensity: 1.25,
-      clearcoat: 0.75,
-      clearcoatRoughness: 0.26,
+      color: '#453A30',
+      roughness: 0.85,
+      metalness: 0.03,
+      envMapIntensity: 0.25,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.18,
     })
     // texel density is authored so ONE panel-line cell spans ~15 cm of plate.
     // At the r2 2.4x tiling the cell was ~6 cm and the frame read as fabric
@@ -2397,7 +2620,7 @@ export default function PlayerRig() {
     // highlight is the last few degrees before the silhouette.
     // [R7] the sheen is WARM now. paleHalo (#BFE8FF) put a blue rim on every
     // plate edge, and the reference has no blue pixel in it.
-    addEdgeSheen(plateLight, '#E3D6BF', 7.0, 0.2, 'av-plate-light')
+    addEdgeSheen(plateLight, '#E3D6BF', 7.5, 0.06, 'av-plate-light')
     /**
      * [character-art R4] THIRD PLATE VALUE.
      *
@@ -2415,39 +2638,45 @@ export default function PlayerRig() {
      * lighter clearcoat, so it is a third SUBSTANCE and not a third colour.
      */
     const plateMid = new THREE.MeshPhysicalMaterial({
-      color: '#35302B',
-      roughness: 0.6,
-      metalness: 0.25,
-      envMapIntensity: 1.2,
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.32,
+      color: '#2E2925',
+      roughness: 0.88,
+      metalness: 0.08,
+      envMapIntensity: 0.25,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.2,
     })
     dress(plateMid, 1.1, 1.1, 0.7)
-    addEdgeSheen(plateMid, '#E3D6BF', 6.5, 0.2, 'av-plate-mid')
+    addEdgeSheen(plateMid, '#E3D6BF', 7.0, 0.06, 'av-plate-mid')
     // [R7] the dark plate was a BLUE-grey (#232A34); it is a warm near-black
     // metal now, and the warmest thing about it is what it reflects.
     const plateDark = new THREE.MeshPhysicalMaterial({
-      color: '#1C1A19',
-      roughness: 0.55,
-      metalness: 0.4,
-      envMapIntensity: 1.2,
+      color: '#191716',
+      roughness: 0.85,
+      metalness: 0.12,
+      envMapIntensity: 0.25,
       clearcoat: 0.4,
-      clearcoatRoughness: 0.32,
+      clearcoatRoughness: 0.2,
     })
     dress(plateDark, 1.05, 1.05, 0.65)
-    addEdgeSheen(plateDark, '#E3D6BF', 6.0, 0.18, 'av-plate-dark')
+    addEdgeSheen(plateDark, '#E3D6BF', 6.5, 0.05, 'av-plate-dark')
     // [R7] the under-suit is WET RUBBER, not blue cloth: a low clearcoat lobe
     // over a near-black body, so the gaps between plates carry a thin moving
     // highlight of their own instead of reading as holes.
+    // [R8] the suit is no longer black (#0B0A0A, 0.003 linear): every gap
+    // between plates rendered as a hole, which is the "see-through wire
+    // armature" the panel named. It is a dark warm rubber now (#1A1614, ~0.01
+    // linear), with a wet clearcoat so the body under the plates carries a
+    // moving highlight of its own — the reference frame's whole torso is this
+    // material with ridges on it.
     const suit = new THREE.MeshPhysicalMaterial({
-      color: '#0B0A0A',
-      roughness: 0.62,
+      color: '#1A1614',
+      roughness: 0.6,
       metalness: 0.0,
-      envMapIntensity: 0.7,
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.45,
-      sheen: 0.45,
-      sheenRoughness: 0.6,
+      envMapIntensity: 0.25,
+      clearcoat: 0.45,
+      clearcoatRoughness: 0.25,
+      sheen: 0.25,
+      sheenRoughness: 0.55,
       sheenColor: new THREE.Color('#6B5F52'),
     })
     const ps = tex(panel, 2.6, 2.6)
@@ -2459,18 +2688,22 @@ export default function PlayerRig() {
         suit.normalScale = new THREE.Vector2(0.3, 0.3)
       }
     }
-    addEdgeSheen(suit, '#C9B79A', 6.5, 0.1, 'av-suit')
+    addEdgeSheen(suit, '#C9B79A', 6.5, 0.04, 'av-suit')
     // brushed gold — circumferential machining, so the highlight stretches
     // around the band instead of sitting as one round hot dot
     // [R7] gold is a STRIP material now — cowl edges, chevrons, grooves, the
     // keel and the crest — never a whole plate; the surfaces it used to cover
     // (the left cowl, the limb strakes, the caps) are dark plate or the dark
     // bronze below. A touch duller so it reads as brass, not as a lamp.
+    // [R8] brass, not a lamp: the r7 chest cross (crest ridge + two chevrons
+    // + the seam) was the brightest thing on the figure under the key. Gold
+    // is now a strip material at env 0.8 / roughness 0.42, and half the gold
+    // strips on the chest are dark bronze (see the JSX).
     const trim = new THREE.MeshPhysicalMaterial({
-      color: '#9E762C',
+      color: '#7E5E24',
       metalness: 1.0,
-      roughness: 0.36,
-      envMapIntensity: 1.4,
+      roughness: 0.45,
+      envMapIntensity: 0.6,
       anisotropy: 0.75,
       anisotropyRotation: Math.PI / 2,
     })
@@ -2483,12 +2716,12 @@ export default function PlayerRig() {
         trim.normalScale = new THREE.Vector2(0.35, 0.35)
       }
     }
-    addEdgeSheen(trim, COLORS.aureate, 5.5, 0.35, 'av-trim')
+    addEdgeSheen(trim, COLORS.aureate, 6.0, 0.12, 'av-trim')
     const trimDark = new THREE.MeshPhysicalMaterial({
-      color: '#5A4520',
+      color: '#4E3C1E',
       metalness: 0.95,
-      roughness: 0.55,
-      envMapIntensity: 1.3,
+      roughness: 0.58,
+      envMapIntensity: 0.5,
       anisotropy: 0.6,
       anisotropyRotation: Math.PI / 2,
     })
@@ -2512,11 +2745,26 @@ export default function PlayerRig() {
       depthWrite: false,
       side: THREE.DoubleSide,
     })
-    const cloth = new THREE.MeshStandardMaterial({
+    /**
+     * [character-art R8] WHY THE SYANDANA WAS CREAM. Measured on the r7
+     * build: its vertex colours are 0.007 linear and `vertexColors` is on, and
+     * it still rendered as a pale hose in every rear frame. Vertex colour only
+     * scales the DIFFUSE term; the ribbon hangs 0.2–0.4 m from the rim point
+     * light behind the pelvis, where the irradiance is 6–25, and a dielectric
+     * F0 of 0.04 at that irradiance is white. So the cloth is a physical
+     * material with `specularIntensity` near zero — fabric has no mirror lobe
+     * — and a dark sheen for the fibre read.
+     */
+    const cloth = new THREE.MeshPhysicalMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
-      roughness: 0.82,
-      metalness: 0.04,
+      roughness: 0.92,
+      metalness: 0.0,
+      specularIntensity: 0.08,
+      envMapIntensity: 0.3,
+      sheen: 0.5,
+      sheenRoughness: 0.75,
+      sheenColor: new THREE.Color('#3A322B'),
       transparent: true,
       opacity: 1,
       depthWrite: false,
@@ -3510,12 +3758,11 @@ export default function PlayerRig() {
                   dome depth (`flat`), keel, crest, routes — so the torso is
                   ~0.19 m deep: 0.6 of its width, a plank with plates on it.
                 */}
-                <mesh material={mats.suit} position={[0, 0.11, 0]} scale={[1.18, 1, 0.5]} castShadow>
-                  <cylinderGeometry args={[0.107, 0.095, 0.22, 16]} />
-                </mesh>
-                <mesh material={mats.suit} position={[0, 0.33, 0]} scale={[1.1, 1, 0.52]} castShadow>
-                  <capsuleGeometry args={[0.112, 0.2, 4, 16]} />
-                </mesh>
+                {/* [character-art R8] the two stacked suit volumes (a 0.22 m
+                    cylinder and a capsule, with a pinch between them at the
+                    belt that measured as a 0.23 m waist) are one lofted body
+                    now — see torsoLoft. */}
+                <mesh name="torsoBody" geometry={geos.torsoLoft} material={mats.suit} castShadow receiveShadow />
                 {/* lumbar lame — one overlapping band across the waist, so the
                     narrowest part of the torso still reads as armour and not
                     as bare under-suit */}
@@ -3579,9 +3826,13 @@ export default function PlayerRig() {
                   receiveShadow
                 />
                 {/* raised central crest — the chest's hero line */}
+                {/* [R8] the crest ridge and both chevrons go to dark bronze:
+                    together with the seam they drew a bright gold cross on the
+                    chest that was the brightest thing on the r7 figure. Gold
+                    stays on the collar band, the keel and the pauldron edges. */}
                 <mesh
                   geometry={geos.crestRidge}
-                  material={mats.trim}
+                  material={mats.trimDark}
                   position={[0, 0.438, 0.076]}
                   rotation-x={0.16}
                   scale={[0.74, 0.86, 0.55]}
@@ -3601,10 +3852,10 @@ export default function PlayerRig() {
                   <boxGeometry args={[0.012, 0.1, 0.008]} />
                 </mesh>
                 {/* gold chevron seams between plates */}
-                <mesh material={mats.trim} position={[0, 0.348, 0.089]} rotation-x={-0.14}>
+                <mesh material={mats.trimDark} position={[0, 0.348, 0.089]} rotation-x={-0.14}>
                   <boxGeometry args={[0.126, 0.019, 0.014]} />
                 </mesh>
-                <mesh material={mats.trim} position={[0, 0.248, 0.084]} rotation-x={-0.06}>
+                <mesh material={mats.trimDark} position={[0, 0.248, 0.084]} rotation-x={-0.06}>
                   <boxGeometry args={[0.096, 0.016, 0.014]} />
                 </mesh>
 
@@ -3686,10 +3937,10 @@ export default function PlayerRig() {
                   castShadow
                 />
                 {/* rear trim ribs — panel breakup the camera actually sees */}
-                <mesh material={mats.trim} position={[-0.07, 0.203, -0.075]} rotation-z={0.35}>
+                <mesh material={mats.trimDark} position={[-0.07, 0.203, -0.075]} rotation-z={0.35}>
                   <boxGeometry args={[0.088, 0.016, 0.012]} />
                 </mesh>
-                <mesh material={mats.trim} position={[0.07, 0.203, -0.075]} rotation-z={-0.35}>
+                <mesh material={mats.trimDark} position={[0.07, 0.203, -0.075]} rotation-z={-0.35}>
                   <boxGeometry args={[0.088, 0.016, 0.012]} />
                 </mesh>
                 {/* [R2] NAPE NODE — the origin of the one continuous emissive
@@ -3812,13 +4063,20 @@ export default function PlayerRig() {
                     side, which is the read the panel asked for; and its crown
                     sits below the gorget rim, so the neck gap is not covered
                     by shoulder armour from the rear camera. */}
+                {/* [R8] the cowl WRAPS. At scale-y 0.5 and 0.42 rad it was a
+                    flat lens lying on the shoulder — an epaulette, which is the
+                    read in ca7/r7/lit_front.png. Taller (0.64) and tilted
+                    further (0.52 rad) it is a cap that comes down over the
+                    deltoid loft, the way a shoulder guard sits on a body. The
+                    station moves 8 mm outboard so the tip still lands at the
+                    plan's 0.255. */}
                 <mesh
                   name="cowlL"
                   geometry={geos.cowl}
                   material={mats.plateLight}
-                  position={[-0.134, 0.422, -0.004]}
-                  rotation={[0.1, 0, 0.42]}
-                  scale={[0.88, 0.5, 0.9]}
+                  position={[-0.142, 0.424, -0.004]}
+                  rotation={[0.1, 0, 0.52]}
+                  scale={[0.88, 0.64, 0.9]}
                   castShadow
                   receiveShadow
                 />
@@ -3911,9 +4169,9 @@ export default function PlayerRig() {
                   name="cowlR"
                   geometry={geos.cowl}
                   material={mats.plateLight}
-                  position={[0.13, 0.418, -0.004]}
-                  rotation={[0.1, 0, -0.4]}
-                  scale={[0.84, 0.48, 0.88]}
+                  position={[0.138, 0.42, -0.004]}
+                  rotation={[0.1, 0, -0.5]}
+                  scale={[0.84, 0.62, 0.88]}
                   castShadow
                   receiveShadow
                 />
@@ -3979,9 +4237,13 @@ export default function PlayerRig() {
                         still reads because the pocket, brow lintel and vents
                         under it stay dark: the head's front is built from
                         shadow lines, not from painting the whole skull dark. */}
+                    {/* [R8] the skull drops to the MID plate: the r7 head was a
+                        pale mirror dome on a dark body (ca7/r7/lit_head.png),
+                        the one place the frame still read as chrome. The
+                        reference head is the body's own dark material. */}
                     <mesh
                       geometry={geos.helmet}
-                      material={mats.plateLight}
+                      material={mats.plateMid}
                       position={[0, 0.02, 0.01]}
                       castShadow
                       receiveShadow
@@ -4160,16 +4422,10 @@ export default function PlayerRig() {
 
                 {/* ================= arms ================= */}
                 <group ref={shoulderL} name="j_shL" position={[-SHOULDER_X, SHOULDER_Y, 0]}>
-                  <mesh
-                    geometry={geos.bevelShoulder}
-                    material={mats.trim}
-                    position={[0, -0.012, 0]}
-                    castShadow
-                  />
-                  {/* undersuit upper arm */}
-                  <mesh material={mats.suit} position={[0, -0.155, 0]} scale={[1, 1, 0.84]} castShadow>
-                    <capsuleGeometry args={[0.029, 0.22, 4, 10]} />
-                  </mesh>
+                  {/* [character-art R8] the gold shoulder ring is gone — a
+                      bright hoop at every pivot is the doll-joint read — and
+                      the 0.029 m capsule is the deltoid-to-elbow loft */}
+                  <mesh geometry={geos.upperArmLoft} material={mats.suit} castShadow receiveShadow />
                   {/* upper-arm armour shell */}
                   {/* [R2] the shell runs 15% PAST the elbow pivot so the joint
                       never opens a gap, and a dark under-suit tube at 0.72× the
@@ -4204,13 +4460,6 @@ export default function PlayerRig() {
                     ds={-0.11}
                     cant={0.034}
                     push={0.009}
-                  />
-                  <mesh
-                    geometry={geos.jointTubeArm}
-                    material={mats.suit}
-                    position={[0, -UPPER_ARM_L, 0]}
-                    castShadow
-                    receiveShadow
                   />
                   <mesh
                     geometry={geos.strakeArm}
@@ -4261,9 +4510,7 @@ export default function PlayerRig() {
                       castShadow
                       receiveShadow
                     />
-                    <mesh material={mats.suit} position={[0, -0.138, 0]} scale={[1, 1, 0.8]} castShadow>
-                      <capsuleGeometry args={[0.024, 0.2, 4, 10]} />
-                    </mesh>
+                    <mesh geometry={geos.foreArmLoft} material={mats.suit} castShadow receiveShadow />
                     <mesh
                       geometry={geos.foreArmPlate}
                       material={mats.plateDark}
@@ -4326,7 +4573,7 @@ export default function PlayerRig() {
                       {/* [R2] ~0.09 m GAUNTLET — the 0.055 m fist sphere read as
                           a stump at any distance. Palm block, four fused finger
                           plates and an opposed thumb, so the frame has a hand. */}
-                      <mesh geometry={geos.bevelWrist} material={mats.trim} castShadow receiveShadow />
+                      <mesh geometry={geos.bevelWrist} material={mats.trimDark} castShadow receiveShadow />
                       <mesh
                         geometry={geos.gauntlet}
                         material={mats.plateDark}
@@ -4367,15 +4614,7 @@ export default function PlayerRig() {
                 </group>
 
                 <group ref={shoulderR} name="j_shR" position={[SHOULDER_X, SHOULDER_Y, 0]}>
-                  <mesh
-                    geometry={geos.bevelShoulder}
-                    material={mats.trim}
-                    position={[0, -0.012, 0]}
-                    castShadow
-                  />
-                  <mesh material={mats.suit} position={[0, -0.155, 0]} scale={[1, 1, 0.84]} castShadow>
-                    <capsuleGeometry args={[0.029, 0.22, 4, 10]} />
-                  </mesh>
+                  <mesh geometry={geos.upperArmLoft} material={mats.suit} castShadow receiveShadow />
                   {/* [R2] the shell runs 15% PAST the elbow pivot so the joint
                       never opens a gap, and a dark under-suit tube at 0.72× the
                       plate radius fills what is left */}
@@ -4409,13 +4648,6 @@ export default function PlayerRig() {
                     ds={-0.11}
                     cant={0.034}
                     push={0.009}
-                  />
-                  <mesh
-                    geometry={geos.jointTubeArm}
-                    material={mats.suit}
-                    position={[0, -UPPER_ARM_L, 0]}
-                    castShadow
-                    receiveShadow
                   />
                   <mesh
                     geometry={geos.strakeArm}
@@ -4466,9 +4698,7 @@ export default function PlayerRig() {
                       castShadow
                       receiveShadow
                     />
-                    <mesh material={mats.suit} position={[0, -0.138, 0]} scale={[1, 1, 0.8]} castShadow>
-                      <capsuleGeometry args={[0.024, 0.2, 4, 10]} />
-                    </mesh>
+                    <mesh geometry={geos.foreArmLoft} material={mats.suit} castShadow receiveShadow />
                     <mesh
                       geometry={geos.foreArmPlate}
                       material={mats.plateDark}
@@ -4524,7 +4754,7 @@ export default function PlayerRig() {
                       {/* [R2] ~0.09 m GAUNTLET — the 0.055 m fist sphere read as
                           a stump at any distance. Palm block, four fused finger
                           plates and an opposed thumb, so the frame has a hand. */}
-                      <mesh geometry={geos.bevelWrist} material={mats.trim} castShadow receiveShadow />
+                      <mesh geometry={geos.bevelWrist} material={mats.trimDark} castShadow receiveShadow />
                       <mesh
                         geometry={geos.gauntlet}
                         material={mats.plateDark}
@@ -4569,11 +4799,9 @@ export default function PlayerRig() {
 
             {/* ================= legs ================= */}
             <group ref={legL} name="j_legL" position={[-HIP_X, PELVIS_Y, 0]}>
-              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.74, 0.8, 0.66]} castShadow />
+              <mesh geometry={geos.bevelHip} material={mats.trimDark} position={[0, -0.028, 0]} scale={[0.72, 0.8, 0.62]} castShadow />
               {/* under-suit thigh — what shows through every lame gap */}
-              <mesh material={mats.suit} position={[0, -0.222, 0]} scale={[1, 1, 0.84]} castShadow>
-                <capsuleGeometry args={[0.042, 0.3, 4, 10]} />
-              </mesh>
+              <mesh geometry={geos.thighLoft} material={mats.suit} castShadow receiveShadow />
               {/* [character-art R4] the thigh SHELL is now the dark base value.
                   r3 had the shell light and nothing over it, so the thigh was
                   one pale taper; the value and the notches both live in the
@@ -4608,13 +4836,6 @@ export default function PlayerRig() {
                 ds={-0.09}
                 cant={0.034}
                 push={0.011}
-              />
-              <mesh
-                geometry={geos.jointTubeLeg}
-                material={mats.suit}
-                position={[0, -THIGH_L, 0]}
-                castShadow
-                receiveShadow
               />
               {/* [character-art R6] MEASURED, THEN REPLACED. The r5 strake was
                   `boxGeometry(0.016, 0.24, 0.048)` at x −0.068: a rectangle
@@ -4678,9 +4899,7 @@ export default function PlayerRig() {
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.suit} position={[0, -0.25, 0]} scale={[1, 1, 0.82]} castShadow>
-                  <capsuleGeometry args={[0.032, 0.35, 4, 10]} />
-                </mesh>
+                <mesh geometry={geos.shinLoft} material={mats.suit} castShadow receiveShadow />
                 {/* greave shell — dark base, lames over it */}
                 <mesh
                   geometry={geos.shinPlate}
@@ -4807,11 +5026,9 @@ export default function PlayerRig() {
             </group>
 
             <group ref={legR} name="j_legR" position={[HIP_X, PELVIS_Y, 0]}>
-              <mesh geometry={geos.bevelHip} material={mats.trim} position={[0, -0.028, 0]} scale={[0.74, 0.8, 0.66]} castShadow />
+              <mesh geometry={geos.bevelHip} material={mats.trimDark} position={[0, -0.028, 0]} scale={[0.72, 0.8, 0.62]} castShadow />
               {/* under-suit thigh — what shows through every lame gap */}
-              <mesh material={mats.suit} position={[0, -0.222, 0]} scale={[1, 1, 0.84]} castShadow>
-                <capsuleGeometry args={[0.042, 0.3, 4, 10]} />
-              </mesh>
+              <mesh geometry={geos.thighLoft} material={mats.suit} castShadow receiveShadow />
               {/* [character-art R4] the thigh SHELL is now the dark base value.
                   r3 had the shell light and nothing over it, so the thigh was
                   one pale taper; the value and the notches both live in the
@@ -4846,13 +5063,6 @@ export default function PlayerRig() {
                 ds={-0.09}
                 cant={0.034}
                 push={0.011}
-              />
-              <mesh
-                geometry={geos.jointTubeLeg}
-                material={mats.suit}
-                position={[0, -THIGH_L, 0]}
-                castShadow
-                receiveShadow
               />
               <mesh
                 geometry={geos.strakeThigh}
@@ -4910,9 +5120,7 @@ export default function PlayerRig() {
                   castShadow
                   receiveShadow
                 />
-                <mesh material={mats.suit} position={[0, -0.25, 0]} scale={[1, 1, 0.82]} castShadow>
-                  <capsuleGeometry args={[0.032, 0.35, 4, 10]} />
-                </mesh>
+                <mesh geometry={geos.shinLoft} material={mats.suit} castShadow receiveShadow />
                 {/* greave shell — dark base, lames over it */}
                 <mesh
                   geometry={geos.shinPlate}
@@ -5064,7 +5272,7 @@ export default function PlayerRig() {
             ref={rimLight}
             position={[0, 0.62, -1.15]}
             color={'#E8D8BC'}
-            intensity={1.0}
+            intensity={0.7}
             distance={3.0}
             decay={2}
           />

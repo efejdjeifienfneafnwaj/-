@@ -546,6 +546,11 @@ export const HANDRAIL_RUNS: [number, number, number, number, number][] = [
   // extraction bridge — both sides, the corridor the extraction shot looks down
   [-4.1, 0, 226.5, -4.1, 251.5],
   [4.1, 0, 226.5, 4.1, 251.5],
+  // R7c — B1 deck west edge: the reference's left-edge railing, on top of the
+  // rail collider band (x −6.2..−5.8, y 0..1) so it collides as it looks
+  [-6, 0, 13.7, -6, 20.8],
+  [-6, 0, 25.2, -6, 28.8],
+  [-6, 0, 35.2, -6, 36.8],
 ]
 
 // ---------------------------------------------------------------------------
@@ -708,4 +713,134 @@ export const ARENA_DECK_CABLES: [number, number, number, number][] = [
   [29.5, 221.4, 22.8, 216.2],
   [-13.4, 167.2, -18.4, 174.2],
   [11.6, 224.4, 4.6, 224.2],
+]
+
+// ---------------------------------------------------------------------------
+// R7c — GALLERY UNDERCROFTS, TRUNK RISERS, FASCIA DRESSING. VISUAL ONLY.
+//
+// Nothing below is read by `buildLevelColliders`. The combat frame the panel
+// judged (08_enemies) looks south from about z 178 at the enemy standing in
+// the gate: what fills the frame behind him at play height is the wall UNDER
+// the south gallery (z 165, y 0–5, |x| < 20) and the gallery's own front face,
+// and the R7b pass authored nothing there — the inboard drops on the end walls
+// stop above the gallery soffit. These tables put the small-object layer into
+// that undercroft, hang conduit from its soffit, put three-barrel trunk risers
+// on the piers of every wall, and dress the gallery fronts.
+//
+// Clearance: the soffit is at y 5 and the capsule is 1.8 m, so every hung
+// fitting stays above 4.2; wall-mounted pieces sit at d ≤ 0.46 from the face,
+// inside the pilaster-nosing envelope, exactly as the R7b families do.
+// ---------------------------------------------------------------------------
+
+/**
+ * Conduit runs on the end walls under the gallery soffits.
+ * [side(−1 south z165 / +1 north z225), x0, x1, y, radius, dropAtEnd(0/−1/+1)]
+ * Skips |x| < 5.2 — the gate opening and its portal reveals.
+ */
+export const ARENA_UNDERCROFT_PIPES: [number, number, number, number, number, number][] = [
+  // one FAT run per half, high under the soffit; the lower band is taken by
+  // the ducts and the hung cabinets below
+  [-1, -18.6, -5.4, 4.5, 0.18, 1],
+  [-1, 5.6, 18.9, 4.5, 0.16, -1],
+  [1, -19.1, -6.4, 4.5, 0.17, 1],
+  [1, 6.6, 19.0, 4.5, 0.18, -1],
+]
+
+/**
+ * Rectangular ductwork under the gallery soffits — the one kind of service
+ * run that still reads at the 25–35 m the combat camera actually sees these
+ * walls from. [side, x0, x1, y(axis), w(depth off the wall), h, dropAt]: at
+ * the `dropAt` end the duct turns down to a plenum sitting on the dado cap.
+ * Body 3.64–4.26, plenum 2.3–2.95: nothing below the 1.8 m capsule.
+ */
+export const ARENA_UNDERCROFT_DUCTS: [number, number, number, number, number, number, number][] = [
+  [-1, -19.2, -6.2, 3.95, 0.82, 0.62, 1],
+  [-1, 5.8, 17.4, 3.95, 0.7, 0.54, 1],
+  // dropAt 0: the bay at either end is full, so it ends in a wall box instead
+  [1, -18.4, -7.0, 3.95, 0.76, 0.58, 0],
+  [1, 6.4, 19.0, 3.95, 0.86, 0.64, -1],
+]
+
+/**
+ * Machine cabinets hung on the end walls under the galleries, below the duct
+ * line: 2.1–3.55 m, so a player walking the undercroft passes beneath them.
+ * [side, x, w, depth]
+ */
+export const ARENA_UNDERCROFT_CABINETS: [number, number, number, number][] = [
+  [-1, -11.6, 1.8, 0.9], [-1, 5.9, 1.6, 0.95], [-1, 12.2, 1.8, 0.8],
+  [1, -12.0, 2.0, 0.9], [1, -6.4, 1.4, 0.85], [1, 7.2, 1.0, 0.9], [1, 13.8, 1.6, 0.95],
+]
+
+/**
+ * Wall cabinets on the arena's long walls and the end walls outside the
+ * galleries, hung above the capsule (2.1–3.7 m) between the R7b fittings.
+ * [wall, along, w, h, depth]
+ */
+export const ARENA_WALL_CABINETS: [number, number, number, number, number, number][] = [
+  // [wall, along, w, h, depth, yBase] — yBase 3.35 where a cable tray holds the
+  // 2.9–3.2 m band; every one is in a bay, clear of the shafts and the drops
+  [0, 210.7, 1.0, 1.4, 0.5, 3.35],
+  [1, 195.4, 1.1, 1.6, 0.5, 2.1], [1, 182.4, 1.2, 1.4, 0.55, 3.35], [1, 175.0, 0.9, 1.4, 0.5, 3.35],
+  [2, -26.4, 1.4, 1.6, 0.55, 2.1], [2, 26.2, 1.3, 1.5, 0.5, 2.1],
+  [3, -27.0, 1.4, 1.5, 0.55, 2.1], [3, 27.2, 1.4, 1.7, 0.5, 2.1],
+]
+
+/**
+ * Big bolted plates — 2–3 m sheets over the wall field (and over a screen
+ * where one is there), the flat dark rectangles that break a 30 m tile read
+ * the way the reference's riveted panels do. [wall, along, y, w, h]. All in
+ * bays, never on a pier, so no engaged shaft is hidden behind one.
+ */
+export const ARENA_BIG_PLATES: [number, number, number, number, number][] = [
+  [0, 210.0, 6.4, 2.6, 1.5], [0, 194.5, 6.6, 1.9, 1.3],
+  [1, 180.6, 6.2, 1.8, 1.4], [1, 220.6, 6.4, 1.4, 1.3],
+  [2, -19.6, 7.2, 2.6, 1.1], [2, 19.2, 6.9, 2.8, 1.3],
+  [3, -19.3, 6.6, 2.4, 1.2], [3, 20.4, 7.4, 0.9, 1.0],
+]
+
+/**
+ * Conduits hung UNDER the gallery soffit, running across it from the back
+ * wall to a junction box at the fascia. [side, x, y]. The soffit is at 5.0;
+ * y is the pipe axis, and the lowest hung box bottoms out above 4.25.
+ */
+export const ARENA_SOFFIT_CONDUITS: [number, number, number][] = [
+  // x positions are all in BAYS: the engaged shafts stand at pair ± 1.15 with
+  // a 0.45 m radius, and a conduit entering a column is a tell of its own
+  [-1, -17.3, 4.62], [-1, -11.1, 4.7], [-1, -6.4, 4.56],
+  [-1, 9.2, 4.66], [-1, 15.2, 4.58], [-1, 18.1, 4.72],
+  [1, -18.4, 4.6], [1, -12.7, 4.68], [1, -6.3, 4.55],
+  [1, 7.4, 4.62], [1, 12.9, 4.7], [1, 15.9, 4.58],
+]
+
+/**
+ * Three-barrel trunk risers — the fat pipe clusters of the reference frame,
+ * rising from a manifold on the dado cap and elbowing into the wall at the
+ * top. One per chosen pier, between the shafts of a coupled pair, so the
+ * three barrels fit the 1.1 m the shafts leave. [wall, along, yTop, radius].
+ * Under a gallery the top is the soffit, so the riser is short and the elbows
+ * turn into the wall just below it.
+ */
+export const ARENA_TRUNK_RISERS: [number, number, number, number][] = [
+  [0, 205.0, 8.4, 0.2],
+  [0, 214.4, 8.4, 0.17],
+  [1, 168.8, 8.4, 0.2],
+  [1, 198.2, 8.4, 0.17],
+  [2, 23.6, 8.4, 0.2],
+  [2, -8.8, 4.55, 0.17],
+  [2, 15.0, 4.55, 0.15],
+  [3, -22.2, 8.4, 0.2],
+  [3, 9.4, 4.55, 0.17],
+  [3, -16.4, 4.55, 0.15],
+]
+
+/**
+ * Bolted plates and caged lamps on the gallery FRONTS (the face at z 170.2
+ * south / 219.8 north, y 4.6–6.1) — the surface nearest the camera in every
+ * combat frame that has a gallery in it. [side, x, kind(0 patch / 1 lamp)]
+ */
+export const ARENA_FASCIA_FITTINGS: [number, number, number][] = [
+  [-1, -17.6, 0], [-1, -13.2, 1], [-1, -9.1, 0], [-1, -6.4, 0],
+  [-1, 5.9, 0], [-1, 8.7, 1], [-1, 12.4, 0], [-1, 16.8, 0], [-1, 18.9, 1],
+  [1, -18.7, 1], [1, -14.1, 0], [1, -10.6, 0], [1, -7.2, 1],
+  [1, 6.1, 0], [1, 9.8, 0], [1, 13.5, 1], [1, 17.7, 0],
 ]
