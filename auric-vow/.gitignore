@@ -1,3 +1,7 @@
 node_modules
 dist
 .DS_Store
+qa/bis/
+qa/parity-base/
+qa/parity-opt/
+qa/parity-diff-*.png

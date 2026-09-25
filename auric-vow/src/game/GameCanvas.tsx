@@ -39,6 +39,8 @@ import { useEffect, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import PostFX from './PostFX'
+import PerfDirector from './perf/PerfDirector'
+import { PerfStats } from './perf/stats'
 import { Input } from './Input'
 import { AudioBus } from './AudioBus'
 import { LIGHTING, RENDERER, PLAYER } from './config'
@@ -210,52 +212,25 @@ function GameTick() {
 }
 
 /**
- * Adaptive quality watcher (config.RENDERER.lowSpecResolutionScale wiring).
- * After a warmup, measures avg fps over rolling 5s windows; while fps < 45 it
- * steps the store.qualityTier down (0 → 1 → 2) and applies each tier:
- *   tier 1: dpr 0.75 + key-light shadow casting off
- *   tier 2: dpr 0.50 (Bloom/SMAA are dropped by PostFX reacting to the tier)
- * Tiers never recover automatically (no oscillation); PostFX subscribes to
- * store.qualityTier and reconfigures the composer.
- */
-const FPS_FLOOR = 45
-const FPS_WINDOW_SEC = 5
-const FPS_WARMUP_SEC = 2
-
-/**
- * Shed shadow cost one rung at a time instead of all at once.
+ * Dynamic resolution (replaces the old tier ladder).
  *
- * R3: the old version killed every directional shadow the first time the fps
- * window missed, which is the one change that guarantees the frame reads as a
- * greybox — the key stops interacting with anything. Lighting.tsx tags each
- * caster with `userData.auricShadowTier`, the tier at which it is allowed to
- * stop casting:
- *   tier 1 — the far cascade (130 m ortho, 12.7 cm/texel) and the chamber
- *            spot go; the primary 24 m cascade that carries every shadow the
- *            player can actually see stays, at half its map size.
- *   tier 2 — everything stops casting and the ContactBlobs carry grounding.
+ * The old watcher, on a missed 5 s window, switched shadow casting off and
+ * dropped the post stack's bloom and SMAA, permanently. That trades the image
+ * for frame rate in exactly the way the player asked us not to, and it never
+ * gave any of it back. This one only ever moves the pixel ratio, smoothly, in
+ * both directions, and never touches shadows, lights or post effects. Frame
+ * cost itself is cut without touching the image in perf/PerfDirector.tsx.
  */
-function shedShadows(scene: THREE.Scene, tier: 1 | 2) {
-  scene.traverse((o) => {
-    const l = o as THREE.DirectionalLight | THREE.SpotLight
-    if (!l.castShadow) return
-    const anyLight = l as unknown as { isDirectionalLight?: boolean; isSpotLight?: boolean }
-    if (!anyLight.isDirectionalLight && !anyLight.isSpotLight) return
-    const at = (l.userData.auricShadowTier as number | undefined) ?? 1
-    if (tier < at) {
-      // survives this tier — but halve its map so the pass costs a quarter
-      if (tier === 1 && l.shadow.mapSize.x > 1024) {
-        l.shadow.mapSize.setScalar(Math.max(1024, Math.round(l.shadow.mapSize.x * 0.5)))
-        l.shadow.map?.dispose()
-        l.shadow.map = null
-      }
-      return
-    }
-    l.castShadow = false
-    l.shadow.map?.dispose()
-    l.shadow.map = null
-  })
-}
+const DYNRES = {
+  maxDpr: 2,
+  minDpr: 0.6,
+  windowSec: 1.0,
+  lowFps: 50,
+  highFps: 58,
+  stepDown: 0.85,
+  stepUp: 1.08,
+} as const
+
 
 // ---------------------------------------------------------------------------
 // Shadow participation pass (R4, light-transport)
@@ -402,32 +377,42 @@ const QA_CAPTURE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('qa')
 
 function QualityWatcher() {
-  const acc = useRef({ warmup: FPS_WARMUP_SEC, windowT: 0, frames: 0 })
+  const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1 })
 
-  useFrame(({ scene, setDpr }, delta) => {
+  useFrame(({ setDpr, gl }, delta) => {
     if (QA_CAPTURE) return
-    const a = acc.current
+    const a = st.current
+    if (a.dpr === 0) {
+      // start at the display's native density: quality first, and only give
+      // resolution back if this machine proves it cannot hold the frame rate
+      a.maxDpr = Math.min(window.devicePixelRatio || 1, DYNRES.maxDpr)
+      a.dpr = gl.getPixelRatio() || a.maxDpr
+    }
+    // a tab switch or a long hitch is not a measurement
+    if (delta > 0.25) return
     if (a.warmup > 0) {
       a.warmup -= delta
       return
     }
     a.windowT += delta
     a.frames++
-    if (a.windowT < FPS_WINDOW_SEC) return
-
+    if (a.windowT < DYNRES.windowSec) return
     const fps = a.frames / a.windowT
     a.windowT = 0
     a.frames = 0
+    if (a.settle > 0) {
+      a.settle--
+      return
+    }
 
-    const store = useGameStore.getState()
-    const tier = store.qualityTier
-    if (fps >= FPS_FLOOR || tier >= 2) return
-
-    const next = (tier + 1) as 1 | 2
-    store.setQualityTier(next)
+    let next = a.dpr
+    if (fps < DYNRES.lowFps) next = Math.max(DYNRES.minDpr, a.dpr * DYNRES.stepDown)
+    else if (fps > DYNRES.highFps && a.dpr < a.maxDpr) next = Math.min(a.maxDpr, a.dpr * DYNRES.stepUp)
+    if (Math.abs(next - a.dpr) < 0.01) return
+    a.dpr = next
+    a.settle = 1 // let one window pass at the new size before judging again
     // setDpr applies the pixel ratio AND resizes the drawing buffer
-    setDpr(next === 1 ? RENDERER.lowSpecResolutionScale : 0.5)
-    shedShadows(scene, next)
+    setDpr(next)
   })
 
   return null
@@ -470,6 +455,7 @@ interface QaWindow extends Window {
     camera?: THREE.Camera
     setFixedDt?: (dt: number | null) => void
     setShadows?: (on: boolean) => void
+    perf?: typeof PerfStats
   }
 }
 
@@ -496,6 +482,7 @@ function QaBridge() {
     const q = w.__qa
     if (q) {
       q.gl = gl
+      q.perf = PerfStats
       q.scene = scene
       q.camera = camera
       q.setFixedDt = (dt: number | null) => {
@@ -765,6 +752,9 @@ export default function GameCanvas() {
         {/* frame-end orchestrator (mounted last → runs last at priority 0) */}
         <GameTick />
         <QaBridge />
+
+        {/* frame-cost work that leaves the image alone (see the file header) */}
+        <PerfDirector />
 
         <PostFX />
       </Canvas>
