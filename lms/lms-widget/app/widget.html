@@ -450,61 +450,76 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
       右に大きな言葉。写真の左側は青くして、白い文字が読めるようにする。
    ══════════════════════════════════════════════════════════════ */
 .gate{
-  min-height:100vh;position:relative;overflow:hidden;
-  display:grid;place-content:center;justify-items:center;
-  padding:18px clamp(18px,4vw,56px) 20px;
-  /* 明るいオフィスの写真が無いときの、淡い背景 */
+  min-height:100vh;position:relative;overflow:hidden;isolation:isolate;
+  display:grid;color:#eef4ff;
+  /* 背景写真が無いときの、深い紺 */
   background:
-    radial-gradient(ellipse 60% 50% at 18% 30%,rgba(120,180,240,.35),transparent 70%),
-    radial-gradient(ellipse 50% 45% at 82% 65%,rgba(140,220,190,.28),transparent 70%),
-    linear-gradient(180deg,#f2f6fb 0%,#e6eef7 100%);
-  color:#1c2b38;
+    radial-gradient(ellipse 70% 55% at 20% 10%,rgba(60,120,255,.35),transparent 70%),
+    radial-gradient(ellipse 60% 50% at 85% 90%,rgba(40,200,180,.22),transparent 70%),
+    linear-gradient(180deg,#0a1a3a 0%,#06112a 100%);
 }
-/* 左の列：ロゴ・タイトル・板・使い方 */
-.gate-l{position:relative;display:grid;justify-items:center;gap:0;width:min(560px,100%);}
+.gate-in{
+  position:relative;z-index:2;min-height:100vh;
+  display:grid;grid-template-rows:auto 1fr auto;gap:clamp(10px,2.2vh,26px);
+  padding:clamp(14px,2.6vh,28px) clamp(18px,4vw,64px) clamp(12px,2.2vh,22px);
+  width:100%;max-width:1480px;margin:0 auto;
+}
+/* 床のグリッド（ゲームの選択画面のような奥行き） */
+.gate-floor{
+  position:absolute;left:-20%;right:-20%;bottom:0;height:42%;z-index:1;pointer-events:none;
+  background:
+    repeating-linear-gradient(90deg,rgba(140,190,255,.16) 0 1px,transparent 1px 72px),
+    repeating-linear-gradient(0deg,rgba(140,190,255,.14) 0 1px,transparent 1px 40px);
+  transform:perspective(520px) rotateX(62deg);transform-origin:50% 100%;
+  -webkit-mask-image:linear-gradient(0deg,#000 0%,rgba(0,0,0,.5) 45%,transparent 90%);
+          mask-image:linear-gradient(0deg,#000 0%,rgba(0,0,0,.5) 45%,transparent 90%);
+}
+/* 上の帯：左にロゴと名前、右にログイン中の人 */
+.gate-top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px 32px;flex-wrap:wrap;}
+.gate-id{display:flex;align-items:center;gap:18px;min-width:0;}
 .gate-logo{
-  display:inline-flex;align-items:center;justify-content:center;
-  background:#fff;border-radius:14px;padding:9px 22px;
-  box-shadow:0 10px 30px rgba(10,40,90,.22);
+  display:inline-flex;align-items:center;justify-content:center;flex:none;
+  background:#fff;border-radius:14px;padding:8px 18px;
+  box-shadow:0 10px 30px rgba(0,8,30,.45);
 }
-.gate-brand-sub{margin-top:8px;font-size:12px;letter-spacing:.14em;color:#fff;text-shadow:0 1px 8px rgba(10,40,90,.5);}
+.gate-title{display:grid;gap:4px;min-width:0;}
+.gate-brand-sub{font-size:12px;letter-spacing:.14em;color:rgba(238,244,255,.8);}
 .wordmark{
-  margin:10px 0 0;font-size:clamp(42px,4.8vw,64px);font-weight:800;letter-spacing:-.01em;line-height:1.05;
-  color:#fff;text-shadow:0 2px 6px rgba(10,40,90,.35),0 10px 30px rgba(10,40,90,.3);
+  margin:0;font-size:clamp(30px,3vw,42px);font-weight:800;letter-spacing:-.01em;line-height:1.05;
+  color:#fff;text-shadow:0 0 24px rgba(90,150,255,.45);
 }
-.wordmark .e{color:#ffd23f;}
+.wordmark .e{color:#ffd23f;text-shadow:0 0 22px rgba(255,200,60,.55);}
 .wordsub{
-  margin-top:6px;font-size:14px;letter-spacing:.34em;color:#fff;text-indent:.34em;font-weight:500;
-  display:flex;align-items:center;justify-content:center;gap:12px;
-  text-shadow:0 1px 8px rgba(10,40,90,.5);
+  font-size:12px;letter-spacing:.38em;color:rgba(238,244,255,.82);font-weight:500;
+  display:flex;align-items:center;gap:10px;
 }
-.wordsub::before,.wordsub::after{content:"";display:block;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.85);}
-.wordsub-rule{width:min(360px,80%);height:1px;background:rgba(255,255,255,.7);margin:8px auto 0;}
-.gate-catch{margin-top:8px;font-size:clamp(15px,1.3vw,18px);letter-spacing:.14em;font-weight:500;color:#fff;line-height:1.7;text-align:center;
-  text-shadow:0 1px 8px rgba(10,40,90,.55);}
-.gate-catch-sub{margin-top:6px;font-size:13px;letter-spacing:.06em;color:#fff;line-height:1.8;text-align:center;text-shadow:0 1px 8px rgba(10,40,90,.55);}
-/* 右の列：大きな言葉と、右下の一言 */
-.gate-r{
-  position:absolute;top:50%;left:50%;margin-left:320px;right:clamp(18px,4vw,56px);
-  transform:translateY(-50%);display:grid;justify-items:start;
+.wordsub::before{content:"";display:block;width:18px;height:2px;border-radius:2px;background:#ffd23f;}
+.gate-catch{font-size:13px;letter-spacing:.1em;color:rgba(238,244,255,.9);line-height:1.6;}
+.gate-catch-sub{font-size:12px;letter-spacing:.04em;color:rgba(238,244,255,.72);line-height:1.7;}
+/* 真ん中：大きな言葉と、アプリのカード */
+.gate-stage{display:grid;align-content:center;justify-items:center;gap:clamp(14px,2.6vh,30px);min-width:0;}
+.gate-head{text-align:center;display:grid;justify-items:center;gap:8px;}
+.gate-script{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.42em;color:#ffd23f;
+  text-transform:uppercase;padding-left:.42em;
 }
-.gate-copy h2{
-  font-family:"Noto Serif JP","Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;
-  font-size:clamp(28px,3.3vw,48px);line-height:1.55;letter-spacing:.08em;font-weight:500;color:#1b3a6b;margin:0;
-  text-shadow:0 1px 0 rgba(255,255,255,.6);
+.gate-head h2{
+  margin:0;font-family:"Noto Serif JP","Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;
+  font-size:clamp(24px,2.7vw,40px);font-weight:500;letter-spacing:.1em;line-height:1.4;color:#fff;
+  text-shadow:0 2px 24px rgba(0,10,40,.6);text-wrap:balance;
 }
-.gate-copy hr{width:64px;border:0;border-top:1.5px solid #1b3a6b;margin:22px 0 20px;}
-.gate-copy p{
-  font-family:"Noto Serif JP","Yu Mincho","YuMincho","Hiragino Mincho ProN","MS PMincho",serif;
-  font-size:clamp(15px,1.4vw,20px);letter-spacing:.12em;color:#1b3a6b;margin:0;line-height:2;
+.gate-head p{margin:0;font-size:clamp(13px,1.05vw,15px);letter-spacing:.14em;color:rgba(238,244,255,.8);}
+/* カードの上の見出し行：「アプリを選ぶ」と、キーの案内 */
+.gate-sel{
+  width:100%;display:flex;align-items:center;gap:14px;
+  font-size:12.5px;letter-spacing:.12em;color:rgba(238,244,255,.85);
 }
-.gate-script{margin-top:22px;font-size:11.5px;letter-spacing:.32em;color:#4a6a90;line-height:2;text-transform:uppercase;}
-.gate-tag{margin-top:34px;justify-self:end;text-align:right;color:#1b3a6b;font-size:15px;letter-spacing:.16em;font-weight:500;
-  display:flex;align-items:center;gap:12px;}
-.gate-tag::after{content:"";display:block;width:36px;height:1.5px;background:#1b3a6b;}
-.gate-tag small{display:block;font-size:11px;letter-spacing:.14em;color:#4a6a90;margin-top:3px;}
-@media (max-width:1400px){
-  .gate-r{display:none;}
+.gate-sel b{font-family:"IBM Plex Mono",monospace;font-weight:600;color:#fff;letter-spacing:.3em;}
+.gate-sel::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.4),transparent);order:2;}
+.gate-sel .keys{order:3;display:flex;align-items:center;gap:6px;font-size:11.5px;color:rgba(238,244,255,.7);letter-spacing:.06em;}
+.gate-sel kbd{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;min-width:24px;text-align:center;
+  padding:2px 6px;border-radius:6px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.08);color:#fff;
 }
 .hero{position:absolute;inset:0;}
 .hero-svg{width:100%;height:100%;display:block;}
@@ -515,8 +530,8 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .hero-veil{
   position:absolute;inset:0;
   background:
-    radial-gradient(ellipse 46% 78% at 50% 48%,rgba(14,52,130,.55) 0%,rgba(14,52,130,.34) 58%,rgba(14,52,130,0) 100%),
-    linear-gradient(180deg,rgba(255,255,255,.10) 0%,rgba(255,255,255,0) 50%,rgba(255,255,255,.18) 100%);
+    radial-gradient(ellipse 80% 60% at 50% 55%,rgba(8,24,64,.5) 0%,rgba(6,16,44,.7) 70%,rgba(4,10,30,.85) 100%),
+    linear-gradient(180deg,rgba(4,12,34,.45) 0%,rgba(4,12,34,.12) 40%,rgba(4,12,34,.6) 100%);
 }
 .brand{display:inline-block;margin-bottom:6px;}
 .logo-set{display:inline-flex;align-items:center;gap:11px;}
@@ -550,60 +565,148 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
   --sunken:#e6edf5;
   color:var(--ink-2);
 }
-/* すりガラスの板。入る人の名前と、3つのアプリ */
+/* 右上の板。ふだんは「ログイン中の人」、名簿に無い人・動作確認では案内と入力欄 */
 .gate-card{
-  width:100%;margin-top:14px;border-radius:24px;
-  background:rgba(255,255,255,.58);
-  -webkit-backdrop-filter:blur(18px) saturate(1.15);backdrop-filter:blur(18px) saturate(1.15);
-  box-shadow:0 0 0 1px rgba(255,255,255,.8) inset, 0 24px 70px rgba(10,40,90,.22);
-  padding:20px 26px 18px;text-align:left;
+  width:min(380px,100%);border-radius:18px;text-align:left;
+  background:rgba(255,255,255,.94);
+  box-shadow:0 18px 50px rgba(0,8,30,.45);
+  padding:16px 18px;
 }
-.gate-card .field{margin-bottom:12px;text-align:left;}
+.gate-card .field{margin-bottom:10px;text-align:left;}
 .gate-card .ro{background:rgba(255,255,255,.7);}
-/* 板の中の欄（メール・お名前・職種）。白い札に、左に絵 */
-.glab{display:block;font-size:13px;font-weight:700;color:#26364a;margin:10px 0 5px;letter-spacing:.04em;}
-.gpill{
-  display:flex;align-items:center;gap:12px;min-height:46px;padding:9px 14px;
-  background:rgba(255,255,255,.9);border:1px solid rgba(170,195,225,.7);border-radius:13px;
-  font-size:15px;color:#26364a;box-shadow:0 2px 8px rgba(10,40,90,.06);
+.gate-card .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+/* ログイン中の人：ゲームのプレイヤー表示のように、暗いガラスに顔と名前 */
+.gate-card.player{
+  display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;
+  background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.05));
+  border:1px solid rgba(255,255,255,.28);color:#eef4ff;
+  -webkit-backdrop-filter:blur(16px) saturate(1.2);backdrop-filter:blur(16px) saturate(1.2);
+  box-shadow:0 18px 50px rgba(0,8,30,.35), inset 0 1px 0 rgba(255,255,255,.25);
+  padding:12px 16px 12px 12px;
 }
-.gpill .ic{color:#2c6fd6;flex:none;font-size:22px;}
-.gpill.name{font-size:19px;font-weight:700;color:#1a2b44;}
-.gpill .mail{word-break:break-all;}
-.gpill .sep{color:#8aa0b8;margin:0 6px;}
-/* アプリは横長の札。左に丸みのある四角の絵、名前は大きく、右に「入る」の矢印 */
-.gate-apps{display:grid;gap:10px;margin-top:14px;}
+.pl-av{
+  grid-row:span 3;width:58px;height:58px;border-radius:16px;overflow:hidden;flex:none;
+  display:grid;place-items:center;font-size:26px;font-weight:800;color:#0a1a3a;
+  background:linear-gradient(145deg,#ffe07a,#ffb020);
+  box-shadow:0 0 0 2px rgba(255,255,255,.9),0 0 22px rgba(255,200,60,.45);
+}
+.pl-av img{width:100%;height:100%;object-fit:cover;display:block;}
+.pl-lab{
+  display:flex;align-items:center;gap:7px;font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;letter-spacing:.26em;color:rgba(238,244,255,.75);
+}
+.pl-lab::before{content:"";width:7px;height:7px;border-radius:50%;background:#3ee08f;box-shadow:0 0 8px #3ee08f;}
+.gate-card.player .gpill.name{
+  display:block;min-height:0;padding:0;background:none;border:0;box-shadow:none;
+  font-size:21px;font-weight:800;color:#fff;letter-spacing:.04em;line-height:1.25;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.pl-meta{font-size:12.5px;color:rgba(238,244,255,.85);line-height:1.5;min-width:0;}
+.pl-meta .sep{color:rgba(238,244,255,.45);margin:0 6px;}
+.pl-mail{
+  grid-column:1 / -1;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.16);
+  display:flex;align-items:center;gap:8px;font-size:11.5px;color:rgba(238,244,255,.7);word-break:break-all;
+}
+.pl-mail .ic{font-size:14px;flex:none;}
+.pl-note{grid-column:1 / -1;font-size:11px;color:rgba(238,244,255,.6);margin-top:2px;}
+.gate-card.player .gate-adm{grid-column:1 / -1;border-top-color:rgba(255,255,255,.16);}
+.gate-card.player .gate-adm button{color:#fff;}
+.gate-card.player .gate-adm button:hover{background:rgba(255,255,255,.12);color:#fff;}
+
+/* アプリのカード。横一列に大きく並べる（ステージ選択のように） */
+.gate-apps{
+  width:100%;display:grid;gap:clamp(12px,1.6vw,24px);
+  grid-template-columns:repeat(var(--n,4),minmax(0,1fr));
+}
 .gate-app{
-  display:flex;align-items:center;gap:14px;width:100%;padding:10px 12px;
-  background:rgba(255,255,255,.92);border:1.5px solid rgba(170,195,225,.7);border-radius:18px;
-  cursor:pointer;color:#1a2b44;text-align:left;box-shadow:0 4px 14px rgba(10,40,90,.08);
-  transition:transform .14s, box-shadow .14s, border-color .14s;
+  --c1:#6aa6ff;--c2:#2563eb;--glow:rgba(80,140,255,.55);
+  position:relative;overflow:hidden;isolation:isolate;
+  display:grid;grid-template-rows:auto 1fr auto auto;justify-items:center;text-align:center;
+  min-height:clamp(250px,40vh,360px);padding:14px 16px 16px;border-radius:22px;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.14) 0%,rgba(255,255,255,.05) 55%,rgba(255,255,255,.08) 100%);
+  border:1px solid rgba(255,255,255,.22);
+  -webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);
+  box-shadow:0 20px 50px rgba(0,8,30,.45), inset 0 1px 0 rgba(255,255,255,.25);
+  color:#fff;cursor:pointer;
+  transition:transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .28s, border-color .28s, opacity .28s, filter .28s;
+  animation:gaIn .6s cubic-bezier(.2,.8,.2,1) backwards;animation-delay:calc(var(--i,0) * 80ms);
+}
+/* 上の色の光 */
+.gate-app::before{
+  content:"";position:absolute;inset:0;z-index:-1;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 30%,var(--glow) 0%,transparent 65%),
+    repeating-linear-gradient(135deg,rgba(255,255,255,.05) 0 2px,transparent 2px 12px);
+  opacity:.55;transition:opacity .28s;
+}
+/* 選んだときに走る光の筋 */
+.gate-app::after{
+  content:"";position:absolute;top:-20%;bottom:-20%;left:-60%;width:40%;z-index:1;pointer-events:none;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);
+  transform:skewX(-18deg) translateX(0);opacity:0;
+}
+.ga-no{
+  justify-self:start;font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;
+  letter-spacing:.12em;color:rgba(255,255,255,.7);
+}
+.ga-tag{
+  position:absolute;top:14px;right:14px;font-family:"IBM Plex Mono",monospace;font-size:10px;
+  letter-spacing:.2em;padding:3px 8px;border-radius:999px;color:#fff;
+  background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.3);
 }
 .gate-app .hub-i{
-  width:56px;height:56px;border-radius:16px;margin:0;flex:none;
-  display:grid;place-items:center;color:#2c6fd6;background:#e3eefc;
-  box-shadow:0 6px 16px rgba(30,90,180,.18);
+  align-self:center;width:clamp(84px,9vw,112px);height:clamp(84px,9vw,112px);border-radius:30px;margin:6px 0 10px;
+  display:grid;place-items:center;color:#fff;
+  background:linear-gradient(150deg,var(--c1),var(--c2));
+  box-shadow:0 14px 34px var(--glow), inset 0 2px 0 rgba(255,255,255,.35), inset 0 -6px 14px rgba(0,0,0,.18);
+  transition:transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .28s;
 }
-.gate-app .hub-i .ic{font-size:30px;}
-.gate-app .hub-t{flex:1;min-width:0;display:grid;gap:3px;}
-.gate-app b{font-size:19px;font-weight:700;line-height:1.3;color:#1a2b44;letter-spacing:.02em;}
-.gate-app .hub-s{font-size:13px;color:#4a5c6b;line-height:1.5;}
-.gate-app .arrow{
-  flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
-  background:#eef3fb;color:#2c6fd6;
+.gate-app .hub-i .ic{font-size:clamp(40px,4.4vw,54px);}
+.gate-app .hub-t{display:grid;gap:6px;min-width:0;}
+.gate-app b{font-size:clamp(18px,1.6vw,23px);font-weight:800;line-height:1.3;color:#fff;letter-spacing:.04em;}
+.gate-app .hub-s{font-size:12.5px;color:rgba(238,244,255,.78);line-height:1.55;}
+.ga-go{
+  margin-top:14px;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:10px 12px;border-radius:12px;font-size:14px;font-weight:700;letter-spacing:.2em;
+  color:#fff;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);
+  transition:background .28s, color .28s, border-color .28s, box-shadow .28s;
 }
-.gate-app .arrow svg{width:18px;height:18px;}
+.ga-go svg{width:16px;height:16px;transition:transform .28s;}
+/* 選ばれているカード（マウスを乗せた・キーで選んだ） */
 .gate-app:hover,.gate-app:focus-visible{
-  outline:none;border-color:#3b82f6;transform:translateY(-1px);
-  box-shadow:0 0 0 3px rgba(59,130,246,.22), 0 10px 26px rgba(10,40,90,.14);
+  outline:none;transform:translateY(-10px) scale(1.025);
+  border-color:var(--c1);
+  box-shadow:0 0 0 2px var(--c1), 0 26px 60px rgba(0,8,30,.55), 0 0 60px var(--glow);
 }
-.gate-app.off{opacity:.55;cursor:default;}
-.gate-app.c-shinsei .hub-i{color:#fff;background:linear-gradient(160deg,#4a90f0,#1e5fd0);}
-.gate-app.c-lms .hub-i{color:#2c6fd6;background:#e3eefc;}
-.gate-app.c-connect .hub-i{color:#2c6fd6;background:#e3eefc;}
-.gate-app.c-staff .hub-i{color:#4b4f6b;background:#ececf4;border:2px dashed rgba(75,79,107,.35);}
-.gate-app.c-staff b{color:#4b4f6b;}
-.cardnote{margin-top:12px;font-size:12.5px;color:#3b4c5c;text-align:center;letter-spacing:.04em;}
+.gate-app:hover::before,.gate-app:focus-visible::before{opacity:1;}
+.gate-app:hover::after,.gate-app:focus-visible::after{animation:gaShine .9s ease-out;}
+.gate-app:hover .hub-i,.gate-app:focus-visible .hub-i{transform:translateY(-4px) scale(1.06);box-shadow:0 20px 44px var(--glow), inset 0 2px 0 rgba(255,255,255,.35), inset 0 -6px 14px rgba(0,0,0,.18);}
+.gate-app:hover .ga-go,.gate-app:focus-visible .ga-go{
+  background:linear-gradient(90deg,var(--c1),var(--c2));border-color:transparent;color:#fff;
+  box-shadow:0 8px 22px var(--glow);
+}
+.gate-app:hover .ga-go svg,.gate-app:focus-visible .ga-go svg{transform:translateX(4px);}
+.gate-app:active{transform:translateY(-6px) scale(1.01);}
+/* ひとつを選んでいる間、ほかは少し暗く（マウスのある端末だけ。スマホでは押せないように見えるため） */
+@media (hover:hover){
+  .gate-apps:has(.gate-app:hover) .gate-app:not(:hover),
+  .gate-apps:has(.gate-app:focus-visible) .gate-app:not(:focus-visible):not(:hover){opacity:.62;filter:saturate(.7);}
+}
+.gate-app.off{opacity:.45;cursor:default;filter:grayscale(.6);}
+.gate-app.off:hover{transform:none;box-shadow:0 20px 50px rgba(0,8,30,.45);border-color:rgba(255,255,255,.22);}
+/* アプリごとの色 */
+.gate-app.c-shinsei{--c1:#5b9dff;--c2:#1f5fe0;--glow:rgba(70,140,255,.55);}
+.gate-app.c-lms    {--c1:#ffcf4a;--c2:#f08a00;--glow:rgba(255,180,40,.5);}
+.gate-app.c-connect{--c1:#3ee0b8;--c2:#0e9f8a;--glow:rgba(40,210,170,.45);}
+.gate-app.c-staff  {--c1:#b69cff;--c2:#6d4fd8;--glow:rgba(150,110,255,.5);}
+@keyframes gaIn{from{opacity:0;transform:translateY(24px) scale(.97);}to{opacity:1;transform:none;}}
+@keyframes gaShine{from{transform:skewX(-18deg) translateX(0);opacity:1;}to{transform:skewX(-18deg) translateX(420%);opacity:0;}}
+@media (prefers-reduced-motion:reduce){
+  .gate-app{animation:none;transition:none;}
+  .gate-app:hover::after,.gate-app:focus-visible::after{animation:none;}
+}
+.cardnote{margin-top:10px;font-size:12px;color:#3b4c5c;text-align:center;letter-spacing:.04em;}
 /* 入口：ログイン中のメールアドレス（名簿に無い人のとき） */
 .who-me{
   display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 13px;
@@ -637,18 +740,22 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .gate-adm button:hover{color:var(--acc);background:var(--surface-2);}
 .ver{margin-top:20px;font-size:11.5px;letter-spacing:.1em;color:#4a5c6b;}
 
-/* 板の下：使い方のボタンと、ポータル名・法人名 */
-.gate-help{position:relative;width:100%;margin-top:14px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;}
+/* 下の帯：左に使い方と法人名、右に一言 */
+.gate-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px 24px;flex-wrap:wrap;}
+.gate-help{position:relative;display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
 .hbtn{
-  display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.22);color:#fff;
-  border:1px solid rgba(255,255,255,.7);border-radius:12px;padding:11px 18px;font-size:14px;font-weight:700;
-  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
-  box-shadow:0 5px 18px rgba(4,26,60,.18);letter-spacing:.06em;
+  display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.1);color:#fff;
+  border:1px solid rgba(255,255,255,.4);border-radius:12px;padding:9px 16px;font-size:13.5px;font-weight:700;
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);letter-spacing:.06em;
 }
-.hbtn:hover{background:rgba(255,255,255,.4);}
+.hbtn:hover{background:rgba(255,255,255,.22);}
 .hbtn .ic{font-size:16px;}
-.gate-foot{font-size:12.5px;color:#fff;letter-spacing:.06em;line-height:1.6;text-shadow:0 1px 8px rgba(10,40,90,.55);}
-.gate-foot .sep{margin:0 10px;opacity:.7;}
+.gate-foot{font-size:12px;color:rgba(238,244,255,.75);letter-spacing:.06em;line-height:1.6;}
+.gate-foot .sep{margin:0 10px;opacity:.6;}
+.gate-tag{color:rgba(238,244,255,.9);font-size:13.5px;letter-spacing:.2em;font-weight:500;
+  display:flex;align-items:center;gap:12px;text-align:right;}
+.gate-tag::after{content:"";display:block;width:36px;height:1.5px;background:#ffd23f;}
+.gate-tag small{display:block;font-size:10.5px;letter-spacing:.2em;color:rgba(238,244,255,.6);margin-top:3px;}
 .hbox{
   position:absolute;left:0;bottom:calc(100% + 10px);z-index:5;
   width:min(400px,86vw);background:#fff;border-radius:11px;padding:18px 20px;text-align:left;
@@ -661,44 +768,47 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
 .hbox .btn{margin-top:12px;}
 
 /* Creator の枠は縦が短いことがある（800px 前後）。切れないように詰める */
-@media (max-height:900px){
-  .gate{padding:10px clamp(16px,3vw,40px) 12px;}
-  .gate-logo{padding:6px 18px;}
-  .wordmark{margin-top:5px;font-size:clamp(34px,3.6vw,46px);}
-  .wordsub{margin-top:4px;font-size:13px;}
-  .wordsub-rule{margin-top:4px;}
-  .gate-catch{margin-top:4px;font-size:15px;}
-  .gate-catch-sub{margin-top:4px;}
-  .gate-card{margin-top:8px;padding:12px 22px 10px;}
-  .glab{margin:7px 0 4px;}
-  .gpill{min-height:42px;padding:8px 13px;}
-  .gate-apps{gap:7px;margin-top:9px;}
-  .gate-app{padding:7px 10px;}
-  .gate-app .hub-i{width:48px;height:48px;border-radius:14px;}
-  .gate-app .hub-i .ic{font-size:26px;}
-  .gate-app b{font-size:18px;}
-  .cardnote{margin-top:8px;}
-  .gate-adm{margin-top:7px;padding-top:6px;}
-  .gate-help{margin-top:8px;}
+@media (max-height:860px){
+  .gate-in{gap:10px;padding-top:12px;padding-bottom:10px;}
+  .gate-stage{gap:12px;}
+  .gate-head{gap:4px;}
+  .gate-head h2{font-size:clamp(22px,2.2vw,32px);}
+  .gate-app{min-height:clamp(230px,38vh,300px);padding:12px 14px 14px;}
+  .gate-app .hub-i{width:84px;height:84px;border-radius:26px;margin:2px 0 8px;}
+  .gate-app .hub-i .ic{font-size:40px;}
+  .ga-go{margin-top:10px;padding:8px 10px;}
+}
+@media (max-height:720px){
+  .gate-head p,.gate-script{display:none;}
+}
+/* 横幅が狭いときは 2 列に */
+@media (max-width:980px){
+  .gate-apps{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .gate-app{min-height:0;}
+  .gate-sel .keys{display:none;}
 }
 @media (max-width:640px){
-  .gate{padding:20px 16px 24px;}
-  .gate-logo{padding:9px 18px;}
-  .wordmark{font-size:40px;}
-  .wordsub{font-size:12px;letter-spacing:.26em;}
-  .gate-catch{font-size:14px;letter-spacing:.08em;}
-  .gate-card{border-radius:22px;padding:18px 16px 16px;}
-  .gpill{min-height:46px;padding:9px 13px;font-size:14px;}
-  .gpill.name{font-size:17px;}
-  .gate-apps{gap:10px;}
-  .gate-app{gap:12px;padding:10px 10px 10px 12px;border-radius:16px;}
-  .gate-app .hub-i{width:50px;height:50px;border-radius:14px;}
-  .gate-app .hub-i .ic{font-size:26px;}
-  .gate-app b{font-size:18px;}
-  .gate-app .hub-s{font-size:12px;}
-  .gate-app .arrow{width:32px;height:32px;}
+  .gate-in{padding:14px 14px 18px;gap:16px;}
+  .gate-top{flex-direction:column;align-items:stretch;}
+  .gate-id{gap:10px 12px;flex-wrap:wrap;}
+  .gate-logo{padding:6px 12px;}
+  .gate-logo .logo-wd{font-size:18px;}
+  .wordmark{font-size:28px;}
+  .gate-script{letter-spacing:.24em;font-size:10.5px;}
+  .wordsub{font-size:11px;letter-spacing:.26em;}
+  .gate-card{width:100%;}
   .gate-card .two{grid-template-columns:1fr;}
-  .gate-help{gap:12px;}
+  .gate-head h2{font-size:22px;letter-spacing:.06em;}
+  .gate-apps{gap:12px;}
+  .gate-app{padding:12px 10px 12px;border-radius:18px;}
+  .gate-app .hub-i{width:64px;height:64px;border-radius:20px;margin:2px 0 8px;}
+  .gate-app .hub-i .ic{font-size:32px;}
+  .gate-app b{font-size:16px;}
+  .gate-app .hub-s{font-size:11.5px;}
+  .ga-go{margin-top:10px;padding:8px 6px;font-size:13px;letter-spacing:.1em;}
+  .ga-tag{top:10px;right:10px;}
+  .gate-bottom{flex-direction:column;align-items:flex-start;}
+  .gate-tag{display:none;}
   .hbox{width:100%;}
 }
 
@@ -4285,109 +4395,129 @@ function viewGate(){
   var mode = meRow ? 'known' : (demo ? 'demo' : 'none');
 
   var br = function(t){ return esc(String(t || '')).replace(/\n/g, '<br>'); };
+  /* 1行にまとめる（日本語は改行をそのまま詰める） */
+  var one = function(t){ return esc(String(t || '').replace(/\s*\n\s*/g, '')); };
   var h = '<div class="gate">';
-  h +=   '<div class="hero">' + heroHTML() + '</div><span class="hero-veil"></span>';
-  /* 左：ロゴ・タイトル・板 */
-  h +=   '<div class="gate-l">';
-  h +=     '<div class="gate-logo brand">' + logoHTML(34) + '</div>';
-  if(cfg.brandSub) h += '<div class="gate-brand-sub">' + esc(cfg.brandSub) + '</div>';
-  h +=     '<h1 class="wordmark">' + wordmarkHTML(cfg.portalName || 'Portal') + '</h1>';
+  h +=   '<div class="hero">' + heroHTML() + '</div><span class="hero-veil"></span>' +
+         '<span class="gate-floor" aria-hidden="true"></span>';
+  h +=   '<div class="gate-in">';
+
+  /* ── 上の帯：左にロゴと名前、右にログイン中の人 ── */
+  h +=   '<header class="gate-top">';
+  h +=     '<div class="gate-id">';
+  h +=       '<div class="gate-logo brand">' + logoHTML(30) + '</div>';
+  h +=       '<div class="gate-title">';
+  h +=         '<h1 class="wordmark">' + wordmarkHTML(cfg.portalName || 'Portal') + '</h1>';
   if(cfg.portalSub) h += '<div class="wordsub">' + esc(cfg.portalSub) + '</div>';
-  h +=     '<div class="wordsub-rule"></div>';
+  if(cfg.brandSub)  h += '<div class="gate-brand-sub">' + esc(cfg.brandSub) + '</div>';
   if(cfg.catchCopy) h += '<div class="gate-catch">' + br(cfg.catchCopy) + '</div>';
   if(cfg.catchSub)  h += '<div class="gate-catch-sub">' + br(cfg.catchSub) + '</div>';
-  h +=     '<div class="gate-card' + (mode === 'known' ? '' : ' tall') + '">';
+  h +=       '</div>';
+  h +=     '</div>';
 
-  if(mode === 'known'){
-    /* ① 名簿にある。お名前を出して、本人に確かめてもらう */
-    if(LOGIN_EMAIL) h += '<div class="gpill">' + ic('mail') + '<span class="mail">' + esc(LOGIN_EMAIL) + '</span></div>';
-    h +=   '<span class="glab">お名前</span>' +
-           '<div class="gpill name">' + ic('user') + '<b>' + esc(meRow.name) + '</b></div>';
-    var whoParts = [meRow.dept || '職種未設定', meRow.group || 'グループ未設定', meRow.title || ''].filter(Boolean);
-    h +=   '<span class="glab">職種・グループ</span>' +
-           '<div class="gpill">' + ic('users') + '<span>' +
-             whoParts.map(esc).join('<span class="sep">·</span>') + '</span></div>';
-    /* 見た目の確認用に .ro-lg の印は残す（名前を確かめて入る、という意味） */
-    h +=   '<span class="ro-lg" hidden></span>';
-  }else if(mode === 'none'){
-    /* ② 名簿に無い。勝手に登録させない */
-    if(LOGIN_EMAIL) h += '<div class="who-me">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
-    h +=   '<div class="note" style="margin-bottom:4px;text-align:left">' +
-             '<b>' + (roster.length ? 'まだ登録されていません' : '名簿がまだ登録されていません') +
-             '</b><br>' +
-             (roster.length
-               ? 'このメールアドレスは受講者名簿に登録されていません。'
-               : '受講者名簿がまだ作られていません。') +
-             '研修担当にご連絡ください。' +
-             (noMail.length
-               ? '<br><span class="cap">（メールアドレスが未登録の方が ' + noMail.length +
-                 ' 名います）</span>'
-               : '') +
-           '</div>';
-  }else{
-    /* ④ 動作確認用（ファイルを直接開いたとき） */
-    h +=   '<div class="note" style="margin-bottom:14px;font-size:12.5px">' +
-             '<b>動作確認用の入口です</b>　' +
-             'Zoho Creator に繋がっていないため、お名前を入れて試せます。' +
-             '本番では、システム管理者が登録した名簿の方だけが入れます。</div>';
-    h +=   '<div class="field"><label for="gName">お名前</label>' +
-             '<input id="gName" placeholder="例）山田 太郎" autocomplete="name" value="' +
-             esc(prev.name || '') + '"></div>';
-    h +=   '<div class="two">';
-    h +=     '<div class="field"><label for="gDept">職種</label><select id="gDept">' +
-               '<option value="">選択してください</option>' +
-               depts().map(function(d){
-                 return '<option' + (prev.dept === d ? ' selected' : '') + '>' + esc(d) + '</option>';
-               }).join('') + '</select></div>';
-    h +=     '<div class="field"><label for="gGrp">グループ</label><select id="gGrp">' +
-               '<option value="">選択してください</option>' +
-               groups().map(function(d){
-                 return '<option' + (prev.group === d ? ' selected' : '') + '>' + esc(d) + '</option>';
-               }).join('') + '</select></div>';
-    h +=   '</div>';
-  }
-
-  /* Zoho にログインできている時点で本人確認は済んでいる。
-     名簿で権限が付いている人は、そのままアプリに入って管理の項目が出るので、
-     ここに入口は要らない。
-     必要なのは
+  /* Zoho にログインできている時点で本人確認は済んでいる。ここに管理の入口が要るのは
        ・まだ管理できる人が一人もいない（最初の1人を決める）
-       ・Creator に繋がっていない動作確認用（暗証番号）
+       ・Creator に繋がっていない動作確認用
      の2つだけ。 */
   var admShow = demo || noAdminYet();
-  /* 3つのアプリ。押した瞬間にそのアプリへ入る */
-  /* 職員登録の入口は、名簿でシステム管理者の人と、動作確認（暗証番号あり）のときだけ */
-  var gateAdmin = demo || (meRow && roleOf(meRow) === 'admin');
-  h +=   (mode === 'none') ? '' : appPickHTML(gateAdmin);
+  var admHTML = admShow
+    ? '<div class="gate-adm"><button id="gAdm">' + ic('gear') +
+        (demo ? '管理画面をひらく' : 'はじめに管理者を登録する') + '</button></div>'
+    : '';
+
   if(mode === 'known'){
-    h += '<p class="cardnote">お名前が違う場合は、研修担当にご連絡ください。</p>';
-  }else if(mode === 'demo'){
-    h += '<p class="cardnote">お名前を入れて、上のアプリを押してください</p>';
+    /* ① 名簿にある。ゲームのプレイヤー表示のように、顔・名前・職種を出す */
+    var myPh = safeImageURI(meRow.photo);
+    var whoParts = [meRow.dept || '職種未設定', meRow.group || 'グループ未設定', meRow.title || ''].filter(Boolean);
+    h +=   '<div class="gate-card player">';
+    h +=     '<span class="pl-av" aria-hidden="true">' +
+               (myPh ? '<img src="' + esc(myPh) + '" alt="">' : esc(String(meRow.name || '？').charAt(0))) + '</span>';
+    h +=     '<span class="pl-lab">ログイン中</span>';
+    h +=     '<div class="gpill name"><b>' + esc(meRow.name) + '</b></div>';
+    h +=     '<div class="pl-meta">' + whoParts.map(esc).join('<span class="sep">/</span>') + '</div>';
+    if(LOGIN_EMAIL) h += '<div class="pl-mail">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
+    h +=     '<p class="pl-note">お名前が違う場合は、研修担当にご連絡ください。</p>';
+    /* 見た目の確認用に .ro-lg の印は残す（名前を確かめて入る、という意味） */
+    h +=     '<span class="ro-lg" hidden></span>';
+    h +=     admHTML;
+    h +=   '</div>';
+  }else if(mode === 'none'){
+    /* ② 名簿に無い。勝手に登録させない */
+    h +=   '<div class="gate-card">';
+    if(LOGIN_EMAIL) h += '<div class="who-me">' + ic('mail') + '<span>' + esc(LOGIN_EMAIL) + '</span></div>';
+    h +=     '<div class="note" style="margin-bottom:4px;text-align:left">' +
+               '<b>' + (roster.length ? 'まだ登録されていません' : '名簿がまだ登録されていません') +
+               '</b><br>' +
+               (roster.length
+                 ? 'このメールアドレスは受講者名簿に登録されていません。'
+                 : '受講者名簿がまだ作られていません。') +
+               '研修担当にご連絡ください。' +
+               (noMail.length
+                 ? '<br><span class="cap">（メールアドレスが未登録の方が ' + noMail.length +
+                   ' 名います）</span>'
+                 : '') +
+             '</div>';
+    h +=     admHTML;
+    h +=   '</div>';
+  }else{
+    /* ③ 動作確認用（ファイルを直接開いたとき） */
+    h +=   '<div class="gate-card">';
+    h +=     '<div class="note" style="margin-bottom:10px;font-size:12px">' +
+               '<b>動作確認用の入口です</b>　' +
+               'Zoho Creator に繋がっていないため、お名前を入れて試せます。' +
+               '本番では、システム管理者が登録した名簿の方だけが入れます。</div>';
+    h +=     '<div class="field"><label for="gName">お名前</label>' +
+               '<input id="gName" placeholder="例）山田 太郎" autocomplete="name" value="' +
+               esc(prev.name || '') + '"></div>';
+    h +=     '<div class="two">';
+    h +=       '<div class="field"><label for="gDept">職種</label><select id="gDept">' +
+                 '<option value="">選択してください</option>' +
+                 depts().map(function(d){
+                   return '<option' + (prev.dept === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+                 }).join('') + '</select></div>';
+    h +=       '<div class="field"><label for="gGrp">グループ</label><select id="gGrp">' +
+                 '<option value="">選択してください</option>' +
+                 groups().map(function(d){
+                   return '<option' + (prev.group === d ? ' selected' : '') + '>' + esc(d) + '</option>';
+                 }).join('') + '</select></div>';
+    h +=     '</div>';
+    h +=     '<p class="cardnote">お名前を入れて、下のアプリを押してください</p>';
+    h +=     admHTML;
+    h +=   '</div>';
   }
-  if(admShow){
-    h +=   '<div class="gate-adm"><button id="gAdm">' + ic('gear') +
-             (demo ? '管理画面をひらく' : 'はじめに管理者を登録する') +
-           '</button></div>';
+  h +=   '</header>';
+
+  /* ── 真ん中：大きな言葉と、アプリのカード ── */
+  var sideParts = String(cfg.sideCopy || '').split(/\n\s*\n/);
+  h +=   '<main class="gate-stage">';
+  if(sideParts[0] || cfg.scriptCopy){
+    h +=   '<div class="gate-head">' +
+             (cfg.scriptCopy ? '<div class="gate-script">' + one(String(cfg.scriptCopy).replace(/\n/g, ' ')) + '</div>' : '') +
+             (sideParts[0] ? '<h2>' + one(sideParts[0]) + '</h2>' : '') +
+             (sideParts[1] ? '<p>' + one(sideParts[1]) + '</p>' : '') +
+           '</div>';
   }
-  h +=     '</div>';   /* gate-card */
-  /* 板の下：使い方と、ポータル名・法人名 */
+  /* 職員登録の入口は、名簿でシステム管理者の人と、動作確認のときだけ */
+  var gateAdmin = demo || (meRow && roleOf(meRow) === 'admin');
+  if(mode !== 'none'){
+    h +=   '<div class="gate-sel"><b>SELECT</b>アプリを選んでください' +
+             '<span class="keys" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd>で選ぶ　<kbd>Enter</kbd>で開く</span></div>';
+    h +=   appPickHTML(gateAdmin);
+  }
+  h +=   '</main>';
+
+  /* ── 下の帯：使い方・法人名・右下の一言 ── */
+  h +=   '<footer class="gate-bottom">';
   h +=     '<div class="gate-help">';
   h +=       '<button class="hbtn" id="gHelp">' + ic('book') + '使い方</button>';
   h +=       '<span class="gate-foot">' + esc(cfg.portalName) + (cfg.orgName ? '<span class="sep">｜</span>' + esc(cfg.orgName) : '') + '</span>';
   h +=     '</div>';
-  h +=   '</div>';     /* gate-l */
-  /* 右：大きな言葉と、右下の一言 */
-  var sideParts = String(cfg.sideCopy || '').split(/\n\s*\n/);
-  h +=   '<div class="gate-r">';
-  h +=     '<div class="gate-copy"><h2>' + br(sideParts[0] || '') + '</h2>' +
-             (sideParts[1] ? '<hr><p>' + br(sideParts[1]) + '</p>' : '') +
-             (cfg.scriptCopy ? '<div class="gate-script">' + br(cfg.scriptCopy) + '</div>' : '') +
-           '</div>';
   if(cfg.tagline || cfg.taglineSub){
     h +=   '<div class="gate-tag"><span>' + esc(cfg.tagline || '') +
              (cfg.taglineSub ? '<small>' + esc(cfg.taglineSub) + '</small>' : '') + '</span></div>';
   }
-  h +=   '</div>';     /* gate-r */
+  h +=   '</footer>';
+  h +=   '</div>';     /* gate-in */
   h += '</div>';
   document.getElementById('gate').innerHTML = h;
 
@@ -4459,28 +4589,45 @@ function viewGate(){
   Array.prototype.forEach.call(document.querySelectorAll('#gate [data-app]'), function(b){
     b.onclick = function(){ go(b.getAttribute('data-app')); };
   });
+  /* ゲームの選択画面のように、← → でカードを選べる */
+  var cards = Array.prototype.slice.call(document.querySelectorAll('#gate [data-app]:not([disabled])'));
+  cards.forEach(function(b, i){
+    b.addEventListener('keydown', function(e){
+      var d = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1
+            : (e.key === 'ArrowLeft' || e.key === 'ArrowUp') ? -1 : 0;
+      if(!d) return;
+      e.preventDefault();
+      cards[(i + d + cards.length) % cards.length].focus();
+    });
+  });
   if(inp){
     inp.addEventListener('keydown', function(e){ if(e.key === 'Enter') go('lms'); });
     inp.focus();
   }else{
+    /* マウスのある端末では、最初のカードを選んだ状態から始める（← → ですぐ動かせる） */
     var first = document.querySelector('#gate [data-app]:not([disabled])');
-    if(first) first.focus();
+    var hoverable = false;
+    try{ hoverable = window.matchMedia('(hover:hover)').matches; }catch(e){}
+    if(first && hoverable) first.focus();
   }
 }
 /* 入口に並べる3つのアプリ */
 function appPickHTML(isAdmin){
-  var h = '<div class="gate-apps">';
-  APPS.forEach(function(base){
-    if(base.admin && !isAdmin) return;
+  var list = APPS.filter(function(base){ return !(base.admin && !isAdmin); });
+  var h = '<div class="gate-apps" style="--n:' + list.length + '">';
+  list.forEach(function(base, i){
     var a = appDef(base.id);
     var ready = !!a.go;
     h += '<button class="gate-app c-' + a.id + (ready ? '' : ' off') + '" data-app="' + a.id + '"' +
-         (ready ? '' : ' disabled') + '>' +
+         ' style="--i:' + i + '"' + (ready ? '' : ' disabled') + '>' +
+         '<span class="ga-no">' + (i < 9 ? '0' : '') + (i + 1) + '</span>' +
+         (a.admin ? '<span class="ga-tag">ADMIN</span>' : '') +
          '<span class="hub-i">' + ic(a.icon) + '</span>' +
          '<span class="hub-t"><b>' + esc(a.name) + '</b>' +
          '<span class="hub-s">' + esc(a.sub) + (ready ? '' : '　（準備中）') + '</span></span>' +
-         '<span class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-           'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>' +
+         '<span class="ga-go" aria-hidden="true">' + (ready ? 'はじめる' : '準備中') +
+           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" ' +
+           'stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>' +
          '</button>';
   });
   h += '</div>';
@@ -9206,9 +9353,9 @@ function viewASettings(){
            '<input class="inp" id="cfCatch" value="' + esc(cfg.catchCopy) + '"></div>';
   h +=   '<div class="field"><label for="cfCatchSub">タイトルの下の説明<span class="note-s">空なら出ません</span></label>' +
            '<textarea class="inp" id="cfCatchSub" rows="2">' + esc(cfg.catchSub) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfSide">右の大きな言葉<span class="note-s">空行で上下を分けます</span></label>' +
+  h +=   '<div class="field"><label for="cfSide">カードの上の大きな言葉<span class="note-s">空行で上下を分けます</span></label>' +
            '<textarea class="inp" id="cfSide" rows="4">' + esc(cfg.sideCopy) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfScript">右の言葉の下の英語<span class="note-s">空なら出ません</span></label>' +
+  h +=   '<div class="field"><label for="cfScript">大きな言葉の上の英語<span class="note-s">空なら出ません</span></label>' +
            '<textarea class="inp" id="cfScript" rows="3">' + esc(cfg.scriptCopy) + '</textarea></div>';
   h +=   '<div class="field"><label for="cfBrandSub">ロゴの下の一言<span class="note-s">空なら出ません</span></label>' +
            '<input class="inp" id="cfBrandSub" value="' + esc(cfg.brandSub) + '"></div>';
