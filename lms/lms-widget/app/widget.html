@@ -10950,7 +10950,7 @@ function viewASettings(){
        '<button class="btn sub" id="mlTest">' + ic('mail') + '自分にテストメールを送る</button>' +
        '<button class="btn sub" id="mlCheck">' + ic('history') + '送信状況を確かめる</button>' +
        '<span class="cap" id="mlState">' + (myTest
-         ? '最後のテスト：' + esc(ymdhm(myTest.at)) + '　' + esc(mailState(myTest).t)
+         ? '最後のテスト：' + esc(ymdhm(myTest.at)) + '　' + esc(mailState(myTest).t) + '　宛先：' + esc(myTest.to || '（不明）')
          : 'まだテストしていません') + '</span></div>';
   h += '</div>';
 
@@ -11071,7 +11071,7 @@ function viewASettings(){
     var n = { id:'test', title:'テストメール', group:'', by:(me() || {}).name || '', at:nowISO(),
               body:'これは ' + (config().portalName || 'ポータル') + ' の「重要なお知らせのメール」のテストです。\n' +
                    'このメールが届いていれば、設定はできています。' };
-    document.getElementById('mlState').textContent = 'テストメールを頼んでいます…';
+    document.getElementById('mlState').textContent = a + ' にテストメールを頼んでいます…';
     sendImportantMail(n, [a], 'test').then(function(){ if(VIEW_NOW === 'asettings') viewASettings(); });
   };
   document.getElementById('mlCheck').onclick = function(){
