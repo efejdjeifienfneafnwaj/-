@@ -15,6 +15,7 @@ export const PerfStats = {
   batchesCreated: 0,
   batchReverts: 0,
   batchMs: -1,
+  batchRejects: {} as Record<string, number>,
   lightsAdmitted: 0,
   lightsCandidates: 0,
   warmupMs: -1,

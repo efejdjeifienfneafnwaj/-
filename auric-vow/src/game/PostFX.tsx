@@ -257,6 +257,7 @@ import { useGameStore, selectQualityTier } from './store'
 import { PostFxSignals, caImpulse, nowSec } from './vfx/VFXBus'
 // read-only: the radial blur is driven by how fast the player is actually moving
 import { PlayerAnim } from './player/PlayerRef'
+import { shareN8AOTransparency } from './perf/n8aoShare'
 
 const QS = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
 
@@ -272,6 +273,8 @@ const AO_DISABLED = QS?.has('noao') ?? false
  * capture cost on the software rasteriser without losing the look entirely.
  */
 const AO_ROOM_DISABLED = QS?.has('noroomao') ?? false
+/** QA: ?noaoshare lets each N8AO pass draw its own transparency renders again */
+const AO_SHARE_DISABLED = QS?.has('noaoshare') ?? false
 const QA_MODE = QS?.has('qa') ?? false
 
 const CA = POSTFX.chromaticAberration
@@ -785,6 +788,8 @@ export default function PostFX() {
   const composerRef = useRef<EffectComposerImpl>(null)
   const bloomRef = useRef<BloomEffect>(null)
   const bloomWideRef = useRef<BloomEffect>(null)
+  const aoCavityRef = useRef<unknown>(null)
+  const aoRoomRef = useRef<unknown>(null)
 
   const tone = useMemo(() => new AuricToneEffect(), [])
   const film = useMemo(() => new AuricFilmEffect(), [])
@@ -1118,6 +1123,12 @@ export default function PostFX() {
 
   const aoOn = qualityTier < 2 && !AO_DISABLED
 
+  // the room tap reuses the cavity tap's transparency renders (perf/n8aoShare)
+  useEffect(() => {
+    if (!aoOn || qualityTier !== 0 || AO_SHARE_DISABLED) return
+    return shareN8AOTransparency(aoCavityRef.current, aoRoomRef.current)
+  }, [aoOn, qualityTier])
+
   return (
     /*
      * mergeMode="none" — see the header. SMAA and the chromatic-aberration
@@ -1176,6 +1187,7 @@ export default function PostFX() {
           darkened cavities rather than compositing over a flat frame */}
       {aoOn ? (
         <N8AO
+          ref={aoCavityRef}
           aoRadius={AO_CAVITY.radius}
           distanceFalloff={AO_CAVITY.distanceFalloff}
           intensity={AO_CAVITY.intensity}
@@ -1195,6 +1207,7 @@ export default function PostFX() {
           that carries the machined read. */}
       {aoOn && qualityTier === 0 && !AO_ROOM_DISABLED ? (
         <N8AO
+          ref={aoRoomRef}
           aoRadius={AO_ROOM.radius}
           distanceFalloff={AO_ROOM.distanceFalloff}
           intensity={AO_ROOM.intensity}

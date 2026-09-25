@@ -107,6 +107,8 @@ export class StaticBatcher {
   private watched = new Map<THREE.Object3D, Watched>()
   sourcesBatched = 0
   reverts = 0
+  /** why candidates were turned away (QA) */
+  rejects: Record<string, number> = {}
 
   private root: THREE.Object3D
   private hide: (o: THREE.Object3D) => void
@@ -127,24 +129,38 @@ export class StaticBatcher {
     const root = this.root
     root.updateMatrixWorld(true)
     const groups = new Map<string, THREE.Mesh[]>()
+    const rej = (why: string) => {
+      this.rejects[why] = (this.rejects[why] || 0) + 1
+    }
     root.traverse((o) => {
       const m = o as THREE.Mesh
       if (!m.isMesh) return
-      if ((m as THREE.InstancedMesh).isInstancedMesh || (m as THREE.SkinnedMesh).isSkinnedMesh) return
+      if ((m as THREE.InstancedMesh).isInstancedMesh || (m as THREE.SkinnedMesh).isSkinnedMesh) return rej('instanced')
       if (m.userData.__perfChunkOf || m.userData.__perfBatch) return
-      if (m.userData.__perfLayerSaved !== undefined) return
-      if (!m.frustumCulled || !m.layers.test(camLayers)) return
-      if (m.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return
-      if (m.onAfterRender !== THREE.Object3D.prototype.onAfterRender) return
-      if (Array.isArray(m.material) || !m.material || !worldSafeMaterial(m.material)) return
-      if (!effectivelyVisibleTo(m, root)) return
+      if (m.userData.__perfLayerSaved !== undefined) return rej('hidden')
+      if (!m.frustumCulled) return rej('noCull')
+      if (!m.layers.test(camLayers)) return rej('layer')
+      if (m.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return rej('onBeforeRender')
+      if (m.onAfterRender !== THREE.Object3D.prototype.onAfterRender) return rej('onAfterRender')
+      if (Array.isArray(m.material) || !m.material) return rej('multiMat')
+      if (!worldSafeMaterial(m.material)) {
+        const mm = m.material
+        return rej(
+          mm.transparent || mm.blending !== THREE.NormalBlending
+            ? 'transparent'
+            : (mm as THREE.ShaderMaterial).isShaderMaterial
+              ? 'shaderMat'
+              : 'patchedMat',
+        )
+      }
+      if (!effectivelyVisibleTo(m, root)) return rej('invisible')
       const sig = attrSignature(m.geometry)
-      if (!sig) return
+      if (!sig) return rej('attrs')
       if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere()
       _sph.copy(m.geometry.boundingSphere!).applyMatrix4(m.matrixWorld)
       const cell = `${Math.floor(_sph.center.x / BATCH_CELL)},${Math.floor(_sph.center.z / BATCH_CELL)}`
       const det = m.matrixWorld.determinant()
-      if (!Number.isFinite(det) || det === 0) return
+      if (!Number.isFinite(det) || det === 0) return rej('det')
       const key = [
         m.material.uuid,
         m.castShadow ? 1 : 0,
@@ -163,7 +179,10 @@ export class StaticBatcher {
     })
 
     for (const list of groups.values()) {
-      if (list.length < 2) continue
+      if (list.length < 2) {
+        rej('singleton')
+        continue
+      }
       const first = list[0]
       const mirrored = first.matrixWorld.determinant() < 0
       const baked: THREE.BufferGeometry[] = []

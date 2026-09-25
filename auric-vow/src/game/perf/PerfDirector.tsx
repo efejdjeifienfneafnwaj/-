@@ -372,6 +372,7 @@ export default function PerfDirector() {
         b.build(camera.layers)
         batcher.current = b
         PerfStats.batchMs = Math.round(performance.now() - t0)
+        PerfStats.batchRejects = b.rejects
       }
     }
     // same frame as any change, before anything is drawn
