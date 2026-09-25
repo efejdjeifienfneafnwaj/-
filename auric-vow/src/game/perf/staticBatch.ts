@@ -203,6 +203,13 @@ export class StaticBatcher {
       this.batches.push(batch)
       for (const m of list) {
         this.hide(m)
+        // a hidden leaf never needs its world matrix again unless it moves,
+        // and moving dissolves the batch first — skip it in the scene update
+        if (m.children.length === 0) {
+          m.userData.__perfMatrixAuto = m.matrixAutoUpdate
+          m.matrixAutoUpdate = false
+          m.matrixWorldAutoUpdate = false
+        }
         this.watch(m, batch, true)
         for (let a = m.parent; a; a = a.parent) {
           this.watch(a, batch, false)
@@ -260,7 +267,16 @@ export class StaticBatcher {
     b.dead = true
     b.mesh.removeFromParent()
     b.mesh.geometry.dispose()
-    for (const m of b.sources) this.restore(m)
+    for (const m of b.sources) {
+      this.restore(m)
+      if (m.userData.__perfMatrixAuto !== undefined) {
+        m.matrixAutoUpdate = m.userData.__perfMatrixAuto
+        delete m.userData.__perfMatrixAuto
+        m.matrixWorldAutoUpdate = true
+        if (m.matrixAutoUpdate) m.updateMatrix()
+        m.matrixWorldNeedsUpdate = true
+      }
+    }
     this.reverts++
   }
 
