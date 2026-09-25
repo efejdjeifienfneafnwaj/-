@@ -73,6 +73,30 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
   console.log('scene renders in one frame:', rl.length); for (const l of rl.slice(0, 30)) console.log('  ', l)
   const bumped = await page.evaluate(() => { const out = []; for (const [m, v] of window.__v0) if (m.version !== v) out.push(`${m.type}:${m.name} +${m.version - v}`); return out })
   console.log('materials whose version changed:', bumped.length); for (const l of bumped.slice(0, 20)) console.log('  ', l)
+
+  if (process.env.TRAP) {
+    await page.evaluate(() => {
+      const { scene } = window.__qa
+      const hits = (window.__vh = new Map())
+      const seen = new Set()
+      scene.traverse((o) => {
+        const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : []
+        for (const m of mats) {
+          if (seen.has(m)) continue; seen.add(m)
+          let v = m.version
+          Object.defineProperty(m, 'version', { configurable: true, get() { return v }, set(n) {
+            v = n
+            const st = new Error().stack.split('\n').slice(2, 6).map((l) => l.trim().replace(/\(.*\/([^/]+:\d+):\d+\)/, '($1)')).join(' < ')
+            const k = `${m.type}:${m.name}:${o.name || o.parent?.name || ''} ${st}`
+            hits.set(k, (hits.get(k) || 0) + 1)
+          } })
+        }
+      })
+    })
+    await step(5)
+    const vh = await page.evaluate(() => [...window.__vh.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12))
+    console.log('version bumps over 5 frames:'); for (const [k, v] of vh) console.log(String(v).padStart(4), k.slice(0, 380))
+  }
   await step(10)
   const r = await page.evaluate(() => {
     const out = [...window.__pc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
