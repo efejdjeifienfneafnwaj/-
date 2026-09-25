@@ -61,7 +61,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     // renders per frame and their targets
     const log = (window.__rl = [])
     const orig = gl.render.bind(gl)
-    gl.render = function (sc, cam) { const t = gl.getRenderTarget(); log.push(`${sc.type}${sc === scene ? '(main)' : ''}:${cam.type}->${t ? (t.texture?.colorSpace || 'rt') + ':' + t.width + 'x' + t.height : 'SCREEN'}`); return orig(sc, cam) }
+    gl.render = function (sc, cam) { const t = gl.getRenderTarget(); if (sc === scene) log.push(new Error().stack.split('\n').slice(2, 7).map((l) => l.trim().replace(/\(.*\/([^/]+:\d+):\d+\)/, '($1)')).join(' < ')); log.push(`${sc.type}${sc === scene ? '(main)' : ''}:${cam.type}->${t ? (t.texture?.colorSpace || 'rt') + ':' + t.width + 'x' + t.height : 'SCREEN'}`); return orig(sc, cam) }
     return mixed
   })
   console.log('materials shared across differing object kinds:', sig.length)
@@ -69,7 +69,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
   await step(1)
   await page.evaluate(() => { window.__rl.length = 0 })
   await step(1)
-  const rl = await page.evaluate(() => window.__rl.filter((x) => x.includes('(main)') || !x.includes('Mesh')))
+  const rl = await page.evaluate(() => window.__rl.filter((x) => !x.includes('OrthographicCamera')))
   console.log('scene renders in one frame:', rl.length); for (const l of rl.slice(0, 30)) console.log('  ', l)
   const bumped = await page.evaluate(() => { const out = []; for (const [m, v] of window.__v0) if (m.version !== v) out.push(`${m.type}:${m.name} +${m.version - v}`); return out })
   console.log('materials whose version changed:', bumped.length); for (const l of bumped.slice(0, 20)) console.log('  ', l)
