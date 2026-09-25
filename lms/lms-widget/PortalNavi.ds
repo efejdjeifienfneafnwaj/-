@@ -1994,6 +1994,23 @@ application "PortalNavi"
 				column = 1
 				width = medium
 			)
+			prof_json
+			(
+				type = textarea
+				displayname = "プロフィール（資格・趣味など JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			notify_email
+			(
+				type = text
+				displayname = "重要なお知らせの受け取りメール"
+				row = 1
+				column = 1
+				width = medium
+			)
 			actions
 			{
 				on add
@@ -2595,6 +2612,14 @@ application "PortalNavi"
 				column = 1
 				width = medium
 			)
+			important
+			(
+				type = text
+				displayname = "重要（true）"
+				row = 1
+				column = 1
+				width = medium
+			)
 			actions
 			{
 				on add
@@ -2836,6 +2861,154 @@ application "PortalNavi"
 			(
 				type = text
 				displayname = "最終送信日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Lms_Mail_Form
+		{
+			displayname = "【システム用】重要なお知らせのメール"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			mail_key
+			(
+				type = text
+				displayname = "メールキー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			ref_key
+			(
+				type = text
+				displayname = "お知らせキー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			kind
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			mail_subject
+			(
+				type = text
+				displayname = "件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			mail_body
+			(
+				type = textarea
+				displayname = "本文"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			mail_html
+			(
+				type = textarea
+				displayname = "本文（HTML）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			to_list
+			(
+				type = textarea
+				displayname = "宛先（カンマ区切り）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			to_count
+			(
+				type = number
+				displayname = "宛先の数"
+				row = 1
+				column = 1
+				width = medium
+			)
+			requested_by
+			(
+				type = text
+				displayname = "依頼した人"
+				row = 1
+				column = 1
+				width = medium
+			)
+			requested_at
+			(
+				type = text
+				displayname = "依頼日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			status
+			(
+				type = text
+				displayname = "状態（ワークフローが書く）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			sent_count
+			(
+				type = number
+				displayname = "送った数（ワークフローが書く）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			sent_at
+			(
+				type = text
+				displayname = "送った日時（ワークフローが書く）"
 				row = 1
 				column = 1
 				width = medium
@@ -3246,6 +3419,8 @@ application "PortalNavi"
 				is_active as "在籍（true/false）"
 				photo as "顔写真（データURI）"
 				profile as "自己紹介"
+				prof_json as "プロフィール（資格・趣味など JSON）"
+				notify_email as "重要なお知らせの受け取りメール"
 			)
 		}
 		list Lms_Record_Report
@@ -3330,6 +3505,7 @@ application "PortalNavi"
 				posted_by as "投稿者"
 				posted_at as "投稿日時"
 				deleted as "削除"
+				important as "重要（true）"
 			)
 		}
 		list Lms_Post_Report
@@ -3364,6 +3540,26 @@ application "PortalNavi"
 				active as "送る（true/false）"
 				refreshed_at as "更新日時"
 				last_sent_on as "最終送信日"
+			)
+		}
+		list Lms_Mail_Report
+		{
+			displayName = "重要なお知らせのメール"
+			show all rows from Lms_Mail_Form
+			(
+				mail_key as "メールキー"
+				ref_key as "お知らせキー"
+				kind as "種別"
+				mail_subject as "件名"
+				mail_body as "本文"
+				mail_html as "本文（HTML）"
+				to_list as "宛先（カンマ区切り）"
+				to_count as "宛先の数"
+				requested_by as "依頼した人"
+				requested_at as "依頼日時"
+				status as "状態（ワークフローが書く）"
+				sent_count as "送った数（ワークフローが書く）"
+				sent_at as "送った日時（ワークフローが書く）"
 			)
 		}
 		list Lms_React_Report
@@ -3508,6 +3704,10 @@ application "PortalNavi"
 				label placement = left
 			}
 			form Lms_Remind_Form
+			{
+				label placement = left
+			}
+			form Lms_Mail_Form
 			{
 				label placement = left
 			}
@@ -4724,6 +4924,8 @@ application "PortalNavi"
 										is_active as "在籍（true/false）"
 										photo as "顔写真（データURI）"
 										profile as "自己紹介"
+										prof_json as "プロフィール（資格・趣味など JSON）"
+										notify_email as "重要なお知らせの受け取りメール"
 							)
 						)
 					)
@@ -4784,6 +4986,8 @@ application "PortalNavi"
 										is_active as "在籍（true/false）"
 										photo as "顔写真（データURI）"
 										profile as "自己紹介"
+										prof_json as "プロフィール（資格・趣味など JSON）"
+										notify_email as "重要なお知らせの受け取りメール"
 							)
 						)
 					)
@@ -5165,6 +5369,7 @@ application "PortalNavi"
 										posted_by as "投稿者"
 										posted_at as "投稿日時"
 										deleted as "削除"
+										important as "重要（true）"
 							)
 						)
 					)
@@ -5212,6 +5417,7 @@ application "PortalNavi"
 										posted_by as "投稿者"
 										posted_at as "投稿日時"
 										deleted as "削除"
+										important as "重要（true）"
 							)
 						)
 					)
@@ -5384,6 +5590,98 @@ application "PortalNavi"
 										active as "送る（true/false）"
 										refreshed_at as "更新日時"
 										last_sent_on as "最終送信日"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Lms_Mail_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+										mail_key as "メールキー"
+										ref_key as "お知らせキー"
+										kind as "種別"
+										mail_subject as "件名"
+										mail_body as "本文"
+										mail_html as "本文（HTML）"
+										to_list as "宛先（カンマ区切り）"
+										to_count as "宛先の数"
+										requested_by as "依頼した人"
+										requested_at as "依頼日時"
+										status as "状態（ワークフローが書く）"
+										sent_count as "送った数（ワークフローが書く）"
+										sent_at as "送った日時（ワークフローが書く）"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+										mail_key as "メールキー"
+										ref_key as "お知らせキー"
+										kind as "種別"
+										mail_subject as "件名"
+										mail_body as "本文"
+										mail_html as "本文（HTML）"
+										to_list as "宛先（カンマ区切り）"
+										to_count as "宛先の数"
+										requested_by as "依頼した人"
+										requested_at as "依頼日時"
+										status as "状態（ワークフローが書く）"
+										sent_count as "送った数（ワークフローが書く）"
+										sent_at as "送った日時（ワークフローが書く）"
 							)
 						)
 					)
@@ -5577,6 +5875,10 @@ application "PortalNavi"
 					{
 						icon = "files-paper"
 					}
+					report Lms_Mail_Report
+					{
+						icon = "files-paper"
+					}
 					report Lms_React_Report
 					{
 						icon = "files-paper"
@@ -5662,6 +5964,10 @@ application "PortalNavi"
 						icon = "ui-2-settings-90"
 					}
 					form Lms_Remind_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Mail_Form
 					{
 						icon = "ui-2-settings-90"
 					}
@@ -5794,6 +6100,10 @@ application "PortalNavi"
 			{
 				label placement = auto
 			}
+			form Lms_Mail_Form
+			{
+				label placement = auto
+			}
 			form Lms_React_Form
 			{
 				label placement = auto
@@ -5899,6 +6209,10 @@ application "PortalNavi"
 				label placement = auto
 			}
 			form Lms_Remind_Form
+			{
+				label placement = auto
+			}
+			form Lms_Mail_Form
 			{
 				label placement = auto
 			}

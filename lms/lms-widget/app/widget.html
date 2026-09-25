@@ -293,6 +293,8 @@ a{color:var(--acc);}
 .pad{padding:20px 22px;}
 .field{display:grid;gap:5px;}
 .field label{font-size:13px;font-weight:700;color:var(--ink-2);}
+/* 見出しの横の小さな補足（「200文字まで」など） */
+.note-s{margin-left:8px;font-size:11.5px;font-weight:500;color:var(--ink-3);}
 .inp,.field input,.field select{
   background:var(--surface);border:1px solid var(--rule-2);border-radius:var(--r-sm);
   padding:10px 13px;font-size:14px;width:100%;
@@ -1043,6 +1045,74 @@ kbd{
 .mem .mem-t{font-size:12px;color:var(--ink-3);}
 .mem .mem-b{font-size:12.5px;line-height:1.6;color:var(--ink-2);word-break:break-word;}
 .mem .mem-aw{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#7d5200;}
+.mem{position:relative;transition:border-color .15s, box-shadow .15s, transform .15s;}
+.mem:hover{border-color:var(--acc);box-shadow:var(--sh-2);transform:translateY(-2px);}
+/* カード全体を押せるようにする（中のタグは別に押せる） */
+.mem-open{position:absolute;inset:0;border-radius:inherit;z-index:0;}
+.mem-open:focus-visible{outline:2px solid var(--acc);outline-offset:2px;}
+.mem .ptags{position:relative;z-index:1;}
+/* プロフィールのタグ（資格＝青・スキル＝紫・趣味＝緑） */
+.ptags{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.ptags.c{justify-content:center;margin-top:4px;}
+.ptag{
+  display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;line-height:1.4;
+  padding:4px 10px;border-radius:999px;border:1px solid transparent;white-space:nowrap;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;
+}
+button.ptag:hover{filter:brightness(.96);text-decoration:underline;}
+.ptag.q{background:#e5f0ff;color:#0f4c9e;border-color:#c5dcfb;}
+.ptag.s{background:#f1eaff;color:#5b34b0;border-color:#dccdfb;}
+.ptag.h{background:#e3f6ee;color:#146b4a;border-color:#bfe7d4;}
+.ptag.ed{padding-right:4px;}
+.ptag.ed button{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;color:inherit;}
+.ptag.ed button:hover{background:rgba(0,0,0,.08);}
+.ptag.ed .ic{font-size:11px;}
+.ptag.on{font-size:12.5px;padding:6px 6px 6px 12px;}
+:root[data-theme="dark"] .ptag.q{background:#17304f;color:#9cc6ff;border-color:#24466f;}
+:root[data-theme="dark"] .ptag.s{background:#2c2150;color:#c9b4ff;border-color:#3d2e6d;}
+:root[data-theme="dark"] .ptag.h{background:#143a2d;color:#8fe0bd;border-color:#1f5140;}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .ptag.q{background:#17304f;color:#9cc6ff;border-color:#24466f;}
+  :root:not([data-theme="light"]) .ptag.s{background:#2c2150;color:#c9b4ff;border-color:#3d2e6d;}
+  :root:not([data-theme="light"]) .ptag.h{background:#143a2d;color:#8fe0bd;border-color:#1f5140;}
+}
+/* プロフィールの編集 */
+.pf-card{display:grid;gap:14px;margin-bottom:14px;}
+.pf-h{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--ink);}
+.pf-h .ic{color:var(--acc);}
+.pf-add{display:flex;gap:8px;margin-top:8px;}
+.pf-add .inp{max-width:280px;}
+.pf-save{position:sticky;bottom:0;z-index:5;background:var(--surface);border:1px solid var(--rule);
+  border-radius:var(--r-md);padding:12px 14px;box-shadow:var(--sh-2);}
+/* 今月お誕生日の方 */
+.mem-bday{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;padding:10px 14px;
+  background:var(--warn-soft);border:1px solid var(--rule);border-radius:var(--r-md);font-size:13px;color:var(--warn-ink);}
+.mem-bday button{padding:4px 10px;border-radius:999px;background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:700;border:1px solid var(--rule);}
+.mem-bday button small{font-weight:500;color:var(--ink-3);margin-left:5px;}
+/* 資格・スキル・趣味で探す */
+.tagtbl{display:grid;}
+.tagrow{display:grid;grid-template-columns:minmax(120px,240px) 56px 1fr;gap:10px;align-items:center;
+  padding:10px 14px;border-bottom:1px solid var(--rule);}
+.tagrow:last-child{border-bottom:0;}
+.tagrow .ptag{justify-self:start;}
+.tagn{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--ink-2);}
+.tagw{display:flex;flex-wrap:wrap;gap:4px 10px;}
+.tagw button{font-size:12.5px;color:var(--acc);}
+.tagw button:hover{text-decoration:underline;}
+@media (max-width:640px){ .tagrow{grid-template-columns:1fr auto;} .tagw{grid-column:1 / -1;} }
+/* 1人のプロフィール */
+.psheet-h{display:flex;gap:22px;align-items:center;padding:22px;margin-bottom:14px;flex-wrap:wrap;}
+.ava.big{width:120px;height:120px;font-size:42px;flex:none;}
+.psheet-id{display:grid;gap:4px;min-width:0;flex:1;}
+.psheet-id h2{margin:0;font-size:24px;}
+.psheet-f{display:flex;flex-wrap:wrap;gap:8px 22px;margin:10px 0 0;}
+.psheet-f div{display:grid;gap:1px;}
+.psheet-f dt{font-size:11px;color:var(--ink-3);letter-spacing:.06em;}
+.psheet-f dd{margin:0;font-size:13.5px;font-weight:700;color:var(--ink);}
+.psheet-bio{margin-bottom:14px;font-size:14px;line-height:1.8;white-space:pre-wrap;color:var(--ink);}
+.psheet-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px;}
+.psheet-s{display:grid;gap:12px;align-content:start;}
+.psheet-t{font-size:13.5px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
 /* 表彰の札と、受賞者の行 */
 .pill.aw{background:#fff3d6;color:#7d5200;border-color:#f0d9a0;}
 .fd-aw .aw-name{margin-left:10px;padding:2px 10px;border-radius:12px;background:#fff3d6;color:#7d5200;font-size:12px;font-weight:700;}
@@ -1155,6 +1225,42 @@ kbd{
   font-size:13px;line-height:1.6;box-shadow:0 10px 30px rgba(10,20,30,.4);
 }
 .holdbar[hidden]{display:none;}
+/* 重要なお知らせの帯（どのアプリでも上に出す） */
+.alertbar{padding:12px 26px 0;}
+.alertbar[hidden]{display:none;}
+.ab-in{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:linear-gradient(90deg,#b3261e,#d9480f);color:#fff;border-radius:14px;
+  padding:12px 14px 12px 16px;box-shadow:0 10px 26px rgba(179,38,30,.28);
+}
+.ab-ic{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.18);flex:none;}
+.ab-ic .ic{font-size:20px;}
+.ab-t{flex:1;min-width:220px;display:grid;gap:2px;}
+.ab-lab{display:flex;align-items:center;gap:10px;font-size:11.5px;letter-spacing:.12em;font-weight:700;opacity:.9;}
+.ab-more-n{padding:1px 8px;border-radius:999px;background:rgba(255,255,255,.2);letter-spacing:.02em;}
+.ab-at{font-family:"IBM Plex Mono",monospace;font-weight:500;letter-spacing:0;opacity:.85;}
+.ab-t b{font-size:15px;line-height:1.45;}
+.ab-t p{margin:6px 0 0;font-size:13px;line-height:1.7;white-space:pre-wrap;opacity:.95;}
+.ab-b{display:flex;gap:8px;flex-wrap:wrap;}
+.ab-more{padding:9px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.6);color:#fff;font-weight:700;font-size:13px;}
+.ab-more:hover{background:rgba(255,255,255,.14);}
+.ab-ok{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:10px;background:#fff;color:#b3261e;font-weight:800;font-size:13px;}
+.ab-ok:hover{background:#ffecec;}
+@media (max-width:860px){ .alertbar{padding:10px 14px 0;} }
+/* お知らせ：重要 */
+.news-imp{border-color:#e7b3ad;box-shadow:inset 4px 0 0 #c0392b;}
+.imp-chk{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1.5px solid #f0c4be;border-radius:12px;background:var(--bad-soft);cursor:pointer;}
+.imp-chk input{width:20px;height:20px;margin-top:2px;accent-color:#c0392b;flex:none;}
+.imp-chk b{display:flex;align-items:center;gap:6px;color:var(--bad-ink);font-size:14px;}
+.imp-chk small{display:block;margin-top:3px;font-size:12px;color:var(--ink-2);line-height:1.6;}
+tr.imp-open td{background:var(--surface-2);}
+.imp-d{display:grid;gap:12px;padding:6px 2px;white-space:normal;}
+.imp-names{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
+.imp-names span{padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--rule);font-size:12.5px;}
+.imp-names span.nomail{border-style:dashed;color:var(--bad-ink);}
+.imp-mails{display:grid;gap:6px;margin-top:6px;}
+.imp-mails div{display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:12.5px;}
+.note.bad{background:var(--bad-soft);border-color:#f0c4be;color:var(--bad-ink);}
 .holdbar button{
   flex:none;background:#fff;color:#7a1f1f;font-weight:700;font-size:12.5px;
   border-radius:8px;padding:8px 13px;
@@ -1267,6 +1373,7 @@ kbd{
 
     <div class="body">
       <div class="crumb-bar"><nav class="crumb" id="crumb"></nav></div>
+      <div class="alertbar" id="alertBar" hidden></div>
       <main id="main"></main>
       <!-- 社内申請システム。画面の枠（上の帯・左メニュー・ログイン）は統合側のものを使い、
            中身だけをここに描く。元のアプリが id で探す部品は、隠したまま置いておく。 -->
@@ -1609,7 +1716,9 @@ var FORM = {
   post:  'Lms_Post_Form',   postR:  'Lms_Post_Report',
   react: 'Lms_React_Form',  reactR: 'Lms_React_Report',
   /* 自動リマインド（Creator のスケジュールが、この表を見てメールを送る） */
-  remind:'Lms_Remind_Form', remindR:'Lms_Remind_Report'
+  remind:'Lms_Remind_Form', remindR:'Lms_Remind_Report',
+  /* 重要なお知らせのメール。行が増えたら Creator のワークフローが1人ずつ送る */
+  mail:  'Lms_Mail_Form',   mailR:  'Lms_Mail_Report'
 };
 var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 /* ポータルにログインしている人のメールアドレス。
@@ -1617,14 +1726,15 @@ var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 var LOGIN_EMAIL = '';
 
 var MEM = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{}, reminds:{},
+            posts:{}, reacts:{}, reminds:{}, mails:{},
             courses:null, config:null };                     /* 画面が読む写し */
 var RID = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{}, reminds:{},
+            posts:{}, reacts:{}, reminds:{}, mails:{},
             courses:null };                                  /* Creatorのレコード番号 */
 /* kind → RID の中のどの入れ物を使うか（'quiz' は 'quizzes' なので機械的に s を付けられない） */
 var RID_BOX = { person:'people', record:'records', quiz:'quizzes', daily:'daily',
-                survey:'surveys', news:'news', post:'posts', react:'reacts', remind:'reminds' };
+                survey:'surveys', news:'news', post:'posts', react:'reacts', remind:'reminds',
+                mail:'mails' };
 var LOADED = { person:'', all:false, truncated:false, daily:'',
                partial:false,   /* 読めなかったものがあった */
                lastErr:'' };
@@ -1663,6 +1773,7 @@ MEM.news    = KEEP_LOCAL ? LS.get('news', {})    : {};
 MEM.posts   = KEEP_LOCAL ? LS.get('posts', {})   : {};
 MEM.reacts  = KEEP_LOCAL ? LS.get('reacts', {})  : {};
 MEM.reminds = KEEP_LOCAL ? LS.get('reminds', {}) : {};
+MEM.mails   = KEEP_LOCAL ? LS.get('mails', {})   : {};
 MEM.courses = KEEP_LOCAL ? LS.get('courses', null) : null;
 MEM.config  = KEEP_LOCAL ? LS.get('config', null) : null;
 /* この仕組みを入れる前に保存された記録を、年度つきのキーに直す（起動時に1回だけ） */
@@ -1747,7 +1858,7 @@ function people(){ return MEM.people; }
 /* 社内申請だけが使う項目。空のときは Creator に送らない
    （その項目を Creator に足していない環境で、名簿の保存が止まらないように） */
 var PERSON_EXTRA = ['kana', 'manager', 'joined', 'leave', 'deputy', 'deputyFrom', 'deputyTo',
-                    'photo', 'bio'];
+                    'photo', 'bio', 'prof', 'notify'];
 function registerPerson(o){
   var prev = MEM.people[normName(o.name)];
   var title = (o.title !== undefined) ? o.title : (prev && prev.title) || '';
@@ -1767,6 +1878,8 @@ function registerPerson(o){
   PERSON_EXTRA.forEach(function(k){
     var v = (o[k] !== undefined) ? o[k] : (prev ? prev[k] : undefined);
     if(v !== undefined && v !== null && v !== '') row[k] = v;
+    /* 入っていた値を空にしたときは、空を Creator へ送る（送らないと Creator に古い値が残る） */
+    else if(v === '' && o[k] === '' && prev && prev[k] !== undefined && prev[k] !== '') row[k] = '';
   });
   if(o.active !== undefined) row.active = !!o.active;
   else if(prev && prev.active !== undefined) row.active = prev.active;
@@ -2330,6 +2443,136 @@ function delNews(id){
   cacheFlush('news');
   queueSync('news', id);
 }
+/* ── 重要なお知らせ ──
+   ・ポータルでは、どのアプリを開いていても上に赤い帯で出し、「確認しました」を押すまで消えない
+   ・メールは Lms_Mail に1行書き、Creator のワークフローが宛先の1人ずつに送る
+   ・確認した印は、いいね・コメントと同じ表（Lms_React）に kind = ack で残す */
+function newsTargetOK(n, p){
+  return !n.group || n.group === (p.group || '') || n.group === (p.dept || '');
+}
+/* メールの宛先。プロフィールの「受け取るメールアドレス」があればそちら、無ければ名簿のもの */
+function mailTargets(group, only){
+  var ps = people() || {}, list = [], none = [], seen = {};
+  Object.keys(ps).sort().forEach(function(n){
+    var p = ps[n];
+    if(p.active === false || n.indexOf('__') === 0) return;
+    if(!newsTargetOK({ group:group }, p)) return;
+    if(only && only.indexOf(n) < 0) return;
+    var a = String(p.notify || '').trim() || String(p.email || '').trim();
+    if(!isMail(a)){ none.push(n); return; }
+    if(seen[a.toLowerCase()]) return;
+    seen[a.toLowerCase()] = 1;
+    list.push({ name:n, addr:a });
+  });
+  return { list:list, none:none };
+}
+function newsAudience(n){
+  var ps = people() || {};
+  return Object.keys(ps).filter(function(k){
+    return ps[k].active !== false && k.indexOf('__') !== 0 && newsTargetOK(n, ps[k]);
+  }).sort();
+}
+function newsAckedBy(id, name){
+  return reactsOf(id, 'ack').some(function(r){ return normName(r.by) === normName(name); });
+}
+function newsAckNames(id){
+  var o = {};
+  reactsOf(id, 'ack').forEach(function(r){ o[normName(r.by)] = r.at; });
+  return o;
+}
+function ackNews(id){
+  var u = me() || {};
+  if(!u.name || newsAckedBy(id, u.name)) return;
+  putReact({ post:id, kind:'ack', by:u.name });
+  toast('確認しました');
+}
+function importantMailText(n){
+  var cfg = config();
+  var body = '【重要なお知らせ】\n' + n.title + '\n\n' + (n.body ? n.body + '\n\n' : '') +
+    '――――――――――――――――\n' +
+    '配信先：' + (n.group || '全員') + '\n' +
+    (n.by ? '配信者：' + n.by + '\n' : '') +
+    '配信日時：' + ymdhm(n.at) + '\n' +
+    (cfg.portalUrl ? '\nポータルで確認する：\n' + cfg.portalUrl + '\n' : '') +
+    '\nポータルを開いたら「確認しました」を押してください。\n' +
+    'このメールは ' + (cfg.portalName || 'ポータル') + ' から自動で送っています。返信しても届きません。';
+  return { subject:'【重要】' + n.title, body:body };
+}
+/* メールを頼む（Lms_Mail に1行書き、Creator から読み返して確かめる） */
+function sendImportantMail(n, addrs, kind){
+  var t = importantMailText(n);
+  var k = newKey('m');
+  MEM.mails[k] = { id:k, ref:n.id || '', kind:kind || 'news', subject:t.subject, body:t.body,
+                   to:addrs.join(','), count:addrs.length, by:(me() || {}).name || '', at:nowISO(),
+                   status:'', sentAt:'', sentCount:0 };
+  cacheFlush('mails');
+  if(!ON_CREATOR) return Promise.resolve(null);
+  return sendNow('mail', k).then(function(row){
+    if(row) rowsToMails([row]);
+    toast(row ? 'メールの送信を Creator に頼みました（' + addrs.length + '通）'
+              : 'メールの依頼を送りましたが、読み返すと見つかりません');
+    return row;
+  }).catch(function(e){
+    toast('メールの依頼を Creator に書けませんでした：' + errText(e) + '（画面を開いている間、自動で再送します）');
+    return null;
+  });
+}
+/* 1通の依頼の状況 */
+function mailState(m){
+  if(!m) return { t:'—', c:'no' };
+  if(m.sentAt || /sent|送信済/.test(m.status || '')){
+    return { t:'送信済み ' + (m.sentCount || m.count) + '通', c:'ok', at:m.sentAt };
+  }
+  if(!ON_CREATOR) return { t:'動作確認用（メールは送られません）', c:'no' };
+  var k = 'mail\u0000' + m.id;
+  if(SYNC.hold[k] || MISSING.mail) return { t:'Creator に Lms_Mail の表がありません', c:'bad' };
+  if(SYNC.pend[k]) return { t:'Creator へ書き込み中', c:'mid' };
+  var age = Date.now() - Date.parse(m.at || '');
+  if(isFinite(age) && age > 5 * 60000){
+    return { t:'送信待ちのまま ' + Math.floor(age / 60000) + '分', c:'bad', warn:true };
+  }
+  return { t:'送信待ち（Creator が送ります）', c:'mid' };
+}
+function mailsOf(ref){
+  return Object.keys(MEM.mails).map(function(k){ return MEM.mails[k]; })
+    .filter(function(m){ return m.ref === ref; })
+    .sort(function(a, b){ return String(a.at) < String(b.at) ? 1 : -1; });
+}
+/* 自分あての、まだ確認していない重要なお知らせ（新しい順） */
+function importantForMe(){
+  var u = me();
+  if(!u || !u.name) return [];
+  return newsFor(myPerson()).filter(function(n){ return n.important && !newsAckedBy(n.id, u.name); });
+}
+var ALERT_OPEN = '';
+/* どのアプリを開いていても、上に出す赤い帯 */
+function drawAlert(){
+  var box = document.getElementById('alertBar');
+  if(!box) return;
+  var list = importantForMe();
+  if(!list.length){ box.hidden = true; box.innerHTML = ''; return; }
+  var n = list[0], open = ALERT_OPEN === n.id;
+  box.hidden = false;
+  box.innerHTML = '<div class="ab-in" role="alert">' +
+    '<span class="ab-ic">' + ic('alert') + '</span>' +
+    '<div class="ab-t"><span class="ab-lab">重要なお知らせ' +
+      (list.length > 1 ? '<span class="ab-more-n">ほかに ' + (list.length - 1) + '件</span>' : '') +
+      '<span class="ab-at">' + esc(ymdhm(n.at)) + '</span></span>' +
+      '<b>' + esc(n.title) + '</b>' +
+      (open && n.body ? '<p>' + esc(n.body) + '</p>' : '') + '</div>' +
+    '<div class="ab-b">' +
+      (n.body ? '<button class="ab-more" id="abMore" aria-expanded="' + open + '">' + (open ? '閉じる' : '内容を見る') + '</button>' : '') +
+      '<button class="ab-ok" id="abOk">' + ic('check') + '確認しました</button></div></div>';
+  var mo = document.getElementById('abMore');
+  if(mo) mo.onclick = function(){ ALERT_OPEN = open ? '' : n.id; drawAlert(); };
+  document.getElementById('abOk').onclick = function(){
+    ackNews(n.id);
+    ALERT_OPEN = '';
+    drawAlert();
+    if(VIEW_NOW === 'mynews' || VIEW_NOW === 'home') route(VIEW_NOW);
+  };
+}
+
 /* 未読のお知らせの数（読んだ印はこの端末に持つ） */
 function newsUnread(person){
   var seen = LS.get('newsSeen', {});
@@ -2398,6 +2641,7 @@ function pollNow(){
   if(mineList) jobs.push(function(){ LOADED.person = ''; LOADED.daily = ''; return loadPerson(u.name); });
   return runLimited(jobs, 1)
     .then(function(){
+      drawAlert();
       var n = newsUnread(myPerson()) - beforeN, f = feedUnread() - beforeF;
       var changed = JSON.stringify([courses(), config(), Object.keys(people() || {}).sort()]) !== before;
       if((changed || adminList || mineList) && REFRESH_OK[VIEW_NOW]){
@@ -2471,6 +2715,8 @@ var DEFAULT_CONFIG = {
   /* 自動リマインド。未修了の人あてに、Creator のスケジュールが週1回メールを送る。
      ウィジェットは「誰に・何を送るか」の表（Lms_Remind）を最新にしておく係 */
   remindOn:true,
+  /* 重要なお知らせのメールに載せるポータルのURL */
+  portalUrl:'',
   remindSubject:'【研修】未修了の研修のご案内',
   remindBody:'{name} さん\n\nお疲れさまです。研修の受講状況をご連絡します。\n' +
              '下記の研修が未修了となっています。期限までにご受講ください。\n\n{list}\n\n' +
@@ -3045,6 +3291,7 @@ function isMissingBox(e){
 /* 表の名前をやさしい言い方に。管理者に「どれを入れ直せばよいか」を伝えるため */
 var BOX_LABEL = {
   remind:'自動リマインド（Lms_Remind）', news:'お知らせ（Lms_News）',
+  mail:'重要なお知らせのメール（Lms_Mail）',
   post:'掲示板（Lms_Post）',            react:'いいね・コメント（Lms_React）',
   record:'視聴記録（Lms_Record）',      quiz:'テスト結果（Lms_Quiz）',
   survey:'アンケート（Lms_Survey）',    daily:'学習時間（Lms_Daily）',
@@ -3168,9 +3415,24 @@ function payloadFor(kind, key){
   if(kind === 'news'){
     var nw = MEM.news[key];
     if(!nw) return null;
-    return { news_key:key, title:nw.title || '', body:nw.body || '',
-             target:nw.group || '', posted_by:nw.by || '', posted_at:nw.at || '',
-             deleted:nw.deleted ? 'あり' : '' };
+    var np = { news_key:key, title:nw.title || '', body:nw.body || '',
+               target:nw.group || '', posted_by:nw.by || '', posted_at:nw.at || '',
+               deleted:nw.deleted ? 'あり' : '' };
+    /* 「重要」の項目は、重要なときだけ送る（項目を足す前の Creator でも普通のお知らせは出せるように） */
+    if(nw.important) np.important = 'true';
+    return np;
+  }
+  if(kind === 'mail'){
+    var ml = MEM.mails[key];
+    if(!ml) return null;
+    /* 送った印（status・sent_at・sent_count）は Creator のワークフローだけが書く。
+       ここで送ると、送り直しのたびに「送信済み」を消してしまう */
+    return { mail_key:key, ref_key:ml.ref || '', kind:ml.kind || 'news',
+             mail_subject:ml.subject || '', mail_body:ml.body || '',
+             /* Creator の sendmail は本文を HTML として扱うので、改行を <br> にしたものも渡す */
+             mail_html:esc(ml.body || '').replace(/\n/g, '<br>'),
+             to_list:ml.to || '', to_count:ml.count || 0,
+             requested_by:ml.by || '', requested_at:ml.at || '' };
   }
   if(kind === 'post'){
     var po = MEM.posts[key];
@@ -3206,9 +3468,12 @@ function payloadFor(kind, key){
     /* 社内申請の項目は、入っているときだけ送る */
     var xm = { kana:'kana', manager:'manager_name', joined:'join_date', leave:'leave_balance',
                deputy:'deputy_name', deputyFrom:'deputy_from', deputyTo:'deputy_to',
-               photo:'photo', bio:'profile' };
+               photo:'photo', bio:'profile', prof:'prof_json', notify:'notify_email' };
     Object.keys(xm).forEach(function(k){
-      if(p[k] !== undefined && p[k] !== null && p[k] !== '') pp[xm[k]] = p[k];
+      if(p[k] === undefined || p[k] === null) return;
+      /* 空は「消した」ときだけ（registerPerson が残した印）。それ以外の空は送らない */
+      if(p[k] === '' && !Object.prototype.hasOwnProperty.call(p, k)) return;
+      pp[xm[k]] = (k === 'prof') ? JSON.stringify(p[k]) : p[k];
     });
     if(p.active === true)  pp.is_active = 'true';
     if(p.active === false) pp.is_active = 'false';
@@ -3270,7 +3535,8 @@ var MINE_KIND = { record:1, quiz:1, survey:1, daily:1 };
 var KEY_FIELD = { course:null, person:'person_key', record:'rec_key',
                   quiz:'quiz_key', daily:'day_key',
                   survey:'survey_key', news:'news_key',
-                  post:'post_key', react:'react_key', remind:'remind_key' };
+                  post:'post_key', react:'react_key', remind:'remind_key',
+                  mail:'mail_key' };
 
 /* 行列の見た目。預かりだけが残っているときは、受講者を不安にさせない言い方にする */
 function syncRest(){
@@ -3508,6 +3774,8 @@ function rowsToPeople(rows){
     if(r.deputy_to) row.deputyTo = r.deputy_to;
     if(r.photo) row.photo = safeImageURI(r.photo);
     if(r.profile) row.bio = r.profile;
+    if(r.prof_json){ try{ row.prof = JSON.parse(r.prof_json); }catch(e){ console.warn('プロフィールを読めませんでした', n); } }
+    if(r.notify_email) row.notify = String(r.notify_email).trim();
     var ia = String(r.is_active === undefined || r.is_active === null ? '' : r.is_active).trim().toLowerCase();
     if(ia === 'true') row.active = true;
     if(ia === 'false') row.active = false;
@@ -3536,10 +3804,24 @@ function rowsToNews(rows){
     if(!k) return;
     MEM.news[k] = { id:k, title:r.title || '', body:r.body || '', group:r.target || '',
                     by:r.posted_by || '', at:r.posted_at || r.updated_at || '',
+                    important:String(r.important || '').toLowerCase() === 'true',
                     deleted:String(r.deleted || '') !== '' };
     if(r.ID) RID.news[k] = String(r.ID);
   });
   cacheFlush('news');
+}
+function rowsToMails(rows){
+  rows.forEach(function(r){
+    var k = r.mail_key;
+    if(!k) return;
+    MEM.mails[k] = { id:k, ref:r.ref_key || '', kind:r.kind || 'news',
+                     subject:r.mail_subject || '', body:r.mail_body || '',
+                     to:r.to_list || '', count:Number(r.to_count) || 0,
+                     by:r.requested_by || '', at:r.requested_at || '',
+                     status:r.status || '', sentAt:r.sent_at || '', sentCount:Number(r.sent_count) || 0 };
+    if(r.ID) RID.mails[k] = String(r.ID);
+  });
+  cacheFlush('mails');
 }
 /* ── 社内コミュニティ ── */
 function rowsToPosts(rows){
@@ -3586,10 +3868,10 @@ function stampDataset(id){
   if(prev === id) return;
   if(prev){
     console.warn('別の Creator のデータに切り替わったので、端末の控え（受講記録・送信待ち）を捨てます', prev, '→', id);
-    ['people','records','quizzes','surveys','daily','news','posts','reacts','reminds','newsSeen','feedSeen','pend','noCrit']
+    ['people','records','quizzes','surveys','daily','news','posts','reacts','reminds','mails','newsSeen','feedSeen','pend','noCrit']
       .forEach(function(k){ try{ localStorage.removeItem(LS.key(k)); }catch(e){} });
     MEM.people = {}; MEM.records = {}; MEM.quizzes = {}; MEM.surveys = {}; MEM.daily = {};
-    MEM.news = {}; MEM.posts = {}; MEM.reacts = {}; MEM.reminds = {};
+    MEM.news = {}; MEM.posts = {}; MEM.reacts = {}; MEM.reminds = {}; MEM.mails = {};
     Object.keys(RID).forEach(function(k){ if(RID[k] && typeof RID[k] === 'object') RID[k] = {}; });
     SYNC.pend = {}; SYNC.hold = {}; NO_CRIT_ALL = false;
     LOADED.all = false; LOADED.person = ''; LOADED.daily = '';
@@ -3607,6 +3889,15 @@ function fetchLive(rep){
 }
 function loadNews(){
   return fetchLive(FORM.newsR).then(rowsToNews);
+}
+/* 重要なお知らせのメールの送信状況（管理者だけが見る） */
+function loadMails(){
+  if(MISSING.mail) return Promise.resolve();
+  return fetchRows(FORM.mailR).then(rowsToMails).catch(function(e){
+    if(isNoRows(e)) return;
+    if(isMissingBox(e)){ boxMissing('mail'); return; }
+    throw e;
+  });
 }
 /* 社内コミュニティの読み込み。消したものまで毎回読むと、何年も経つと重くなる */
 function loadFeed(){
@@ -3819,7 +4110,7 @@ function leaveDevice(){
 }
 function wipeDevice(){
   ['me','admin','people','records','quizzes','surveys','daily','news','newsSeen','pend',
-   'posts','reacts','reminds','feedSeen','noCrit','dataset']
+   'posts','reacts','reminds','mails','feedSeen','noCrit','dataset']
     .forEach(function(k){ try{ localStorage.removeItem('lms_' + k); }catch(e){} });
   try{ sessionStorage.clear(); }catch(e){}
   location.reload();
@@ -5035,14 +5326,22 @@ function viewMyNews(){
   }else{
     h += '<div style="display:grid;gap:12px">';
     list.forEach(function(n){
-      h += '<div class="card pad">' +
+      var acked = n.important && newsAckedBy(n.id, u.name);
+      h += '<div class="card pad' + (n.important ? ' news-imp' : '') + '">' +
         '<div class="bar" style="margin-bottom:7px">' +
+          (n.important ? '<span class="pill bad">' + ic('alert') + '重要</span>' : '') +
           '<b style="font-size:14px">' + esc(n.title) + '</b>' +
           (n.group ? '<span class="pill no">' + esc(n.group) + '</span>' : '') +
           '<span class="sp"></span>' +
           '<span class="cap mono">' + ymdhm(n.at) + '</span></div>' +
         (n.body ? '<div style="font-size:13px;color:var(--ink-2);white-space:pre-wrap">' +
                   esc(n.body) + '</div>' : '') +
+        (n.important
+          ? '<div class="bar" style="margin-top:10px">' +
+              (acked ? '<span class="pill ok">' + ic('check') + '確認済み</span>'
+                     : '<button class="btn sm" data-ack="' + esc(n.id) + '">' + ic('check') + '確認しました</button>') +
+            '</div>'
+          : '') +
         '</div>';
     });
     h += '</div>';
@@ -5050,6 +5349,9 @@ function viewMyNews(){
   h += '</div>';
   document.getElementById('main').innerHTML = h;
   drawNav('mynews');
+  eachIn('[data-ack]', function(b){
+    b.onclick = function(){ ackNews(b.getAttribute('data-ack')); drawAlert(); viewMyNews(); };
+  });
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -5603,15 +5905,99 @@ function shrinkPhoto(file){
     img.src = url;
   });
 }
-var PROF = { photo:null };   /* 保存前の写真（null＝変更なし、''＝消す） */
+/* プロフィールの項目。カオナビのプロフィールブックを参考に、福祉の現場で話のきっかけになるもの。
+   タグ（資格・スキル・趣味）は候補から選べ、ほかの人が使った言葉も候補に出す（表記がそろうように） */
+var PROF_TAGS = [
+  ['quals', '資格・免許', 'q', '例）介護福祉士',
+   ['介護福祉士', '社会福祉士', '精神保健福祉士', '保育士', '看護師', '准看護師', '保健師',
+    '理学療法士', '作業療法士', '言語聴覚士', '公認心理師', '管理栄養士', '調理師',
+    '介護支援専門員（ケアマネジャー）', '社会福祉主事任用資格', '児童指導員任用資格',
+    '介護職員初任者研修', '介護福祉士実務者研修', '喀痰吸引等研修', '強度行動障害支援者養成研修',
+    'サービス管理責任者研修', '児童発達支援管理責任者研修', '相談支援従事者研修',
+    '普通自動車免許', '中型自動車免許', '防火管理者', '普通救命講習', '日商簿記2級']],
+  ['skills', '得意なこと・スキル', 's', '例）レクリエーション',
+   ['レクリエーション', '音楽・楽器', 'ピアノ', '手話', '工作', '運動・体操', '料理',
+    '運転・送迎', 'Excel', 'パソコン全般', '書類作成', '写真撮影', 'イラスト・デザイン',
+    '動画編集', 'SNS発信', '英語', '中国語', 'ベトナム語', 'タガログ語']],
+  ['hobbies', '趣味', 'h', '例）登山',
+   ['登山', 'キャンプ', '釣り', 'ゴルフ', 'ランニング', '筋トレ', 'ヨガ', 'サッカー', '野球',
+    'バスケットボール', '旅行', 'ドライブ', '温泉', 'サウナ', 'カフェ巡り', '料理', 'お菓子作り',
+    '読書', '映画', '音楽', 'カラオケ', 'ゲーム', 'アニメ・漫画', '写真', 'ガーデニング',
+    'DIY', '犬', '猫', 'ペット']]
+];
+/* [項目, 見出し, 例, 文字数の上限, 複数行か] */
+var PROF_TEXT = [
+  ['hometown', '出身地', '例）千葉県東金市', 40, 0],
+  ['now', '最近ハマっていること', '例）休日のパン屋めぐり', 60, 0],
+  ['weekend', '休日の過ごし方', '例）子どもと公園、夜は映画', 60, 0],
+  ['food', '好きな食べ物', '例）ラーメン、いちご', 40, 0],
+  ['motto', '大切にしていること', '例）利用者さんの「できた」を一緒に喜ぶ', 80, 0],
+  ['ask', 'こんな話題で話しかけてください', '例）おすすめのキャンプ場を教えてください', 80, 0],
+  ['career', 'これまでの経歴', '例）2019年 入社（生活介護）\n2023年〜 児童発達支援', 400, 1]
+];
+function profOf(p){
+  var s = (p && p.prof) || {};
+  if(typeof s === 'string'){ try{ s = JSON.parse(s); }catch(e){ s = {}; } }
+  var o = {};
+  PROF_TAGS.forEach(function(t){
+    o[t[0]] = Array.isArray(s[t[0]]) ? s[t[0]].map(function(x){ return String(x).trim(); }).filter(Boolean) : [];
+  });
+  PROF_TEXT.forEach(function(t){ o[t[0]] = String(s[t[0]] || ''); });
+  o.bday = /^\d{2}-\d{2}$/.test(String(s.bday || '')) ? s.bday : '';
+  return o;
+}
+/* 探すときに見る文字（名前・職種・自己紹介・プロフィールの全部） */
+function profHay(n, p){
+  var f = profOf(p);
+  var parts = [n, p.kana || '', p.dept || '', p.title || '', p.group || '', p.bio || '', f.bday ? bdayLabel(f.bday) : ''];
+  PROF_TAGS.forEach(function(t){ parts = parts.concat(f[t[0]]); });
+  PROF_TEXT.forEach(function(t){ parts.push(f[t[0]]); });
+  return parts.join('\n').toLowerCase();
+}
+function bdayLabel(b){
+  var m = /^(\d{2})-(\d{2})$/.exec(String(b || ''));
+  return m ? (Number(m[1]) + '月' + Number(m[2]) + '日') : '';
+}
+/* 入社日から「勤続○年○か月」 */
+function tenure(joined){
+  var m = /^(\d{4})[-\/.](\d{1,2})(?:[-\/.](\d{1,2}))?/.exec(String(joined || ''));
+  if(!m) return '';
+  var now = new Date(), mon = (now.getFullYear() - Number(m[1])) * 12 + (now.getMonth() + 1 - Number(m[2]));
+  if(m[3] && now.getDate() < Number(m[3])) mon--;
+  if(mon < 0) return '';
+  var y = Math.floor(mon / 12), r = mon % 12;
+  return '勤続' + (y ? y + '年' : '') + (r || !y ? r + 'か月' : '');
+}
+/* タグの候補：決まった候補に、みんなが使っている言葉を足す（多い順） */
+function tagSuggest(kind){
+  var cnt = {};
+  var ps = people() || {};
+  Object.keys(ps).forEach(function(n){ profOf(ps[n])[kind].forEach(function(t){ cnt[t] = (cnt[t] || 0) + 1; }); });
+  var def = (PROF_TAGS.filter(function(t){ return t[0] === kind; })[0] || [])[4] || [];
+  var used = Object.keys(cnt).sort(function(a, b){ return cnt[b] - cnt[a] || a.localeCompare(b, 'ja'); });
+  return used.concat(def.filter(function(t){ return !cnt[t]; }));
+}
+function tagHTML(kind, cls, v, attr){
+  return '<button class="ptag ' + cls + '" ' + attr + '="' + esc(kind) + '" data-tv="' + esc(v) + '">' + esc(v) + '</button>';
+}
+
+/* 編集中のプロフィール（タグを足しても、ほかの欄の入力を消さないため画面全体は描き直さない） */
+/* photo：保存前の写真（null＝変更なし、''＝消す） */
+var PROF = { photo:null, draft:null, bio:null, notify:null };
 function viewProfile(){
   var u = me() || {};
   var p = people()[normName(u.name)] || {};
   var ph = (PROF.photo === null) ? safeImageURI(p.photo) : PROF.photo;
-  var h = '<div class="wrap" style="max-width:640px">';
+  var f = PROF.draft || profOf(p);
+  PROF.draft = f;
+  var h = '<div class="wrap" style="max-width:780px">';
   h += '<div class="ph"><div><h2>プロフィール</h2>' +
-       '<div class="sub">顔写真と自己紹介は、掲示板やメンバー一覧でみなさんに見えます。</div></div></div>';
-  h += '<div class="card pad" style="display:grid;gap:16px">';
+       '<div class="sub">ここに書いたことは、メンバー一覧でみなさんに見えます。書ける範囲で大丈夫です。</div></div>' +
+       '<button class="btn sub" id="pfView">' + ic('eye') + 'みんなからの見え方</button></div>';
+
+  /* 顔写真・自己紹介 */
+  h += '<div class="card pad pf-card">';
+  h += '<div class="pf-h">' + ic('user') + '顔写真と自己紹介</div>';
   h += '<div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">';
   h +=   '<div class="prof-photo" style="background:' + avaColor(u.name) + '">' +
            (ph ? '<img src="' + esc(ph) + '" alt="">' : esc(initial(u.name))) + '</div>';
@@ -5628,83 +6014,251 @@ function viewProfile(){
            esc([p.dept || '—', p.title || ''].filter(Boolean).join('　·　')) + '</div></div>';
   h += '</div>';
   h += '<div class="field"><label for="pfBio">自己紹介<span class="note-s">200文字まで</span></label>' +
-       '<textarea class="inp" id="pfBio" rows="4" maxlength="200" style="resize:vertical" ' +
+       '<textarea class="inp" id="pfBio" rows="3" maxlength="200" style="resize:vertical" ' +
        'placeholder="例）介護職3年目です。趣味は登山。気軽に声をかけてください。">' +
-       esc(p.bio || '') + '</textarea></div>';
-  h += '<div class="bar"><button class="btn" id="pfSave">' + ic('check') + '保存する</button>' +
-       '<span class="cap">お名前や職種は、研修担当が名簿で直します</span></div>';
-  h += '</div></div>';
+       esc(PROF.bio != null ? PROF.bio : (p.bio || '')) + '</textarea></div>';
+  h += '</div>';
+
+  /* 仕事のこと */
+  h += '<div class="card pad pf-card">';
+  h += '<div class="pf-h">' + ic('medal') + '仕事のこと</div>';
+  if(p.joined){
+    h += '<div class="cap">入社日 ' + esc(p.joined) + (tenure(p.joined) ? '（' + tenure(p.joined) + '）' : '') +
+         '　※入社日は研修担当が名簿で入れます</div>';
+  }
+  h += tagEditHTML(PROF_TAGS[0], f) + tagEditHTML(PROF_TAGS[1], f);
+  h += profTextHTML(PROF_TEXT[6], f);
+  h += '</div>';
+
+  /* 趣味 */
+  h += '<div class="card pad pf-card">';
+  h += '<div class="pf-h">' + ic('flag') + '趣味</div>';
+  h += tagEditHTML(PROF_TAGS[2], f);
+  h += '</div>';
+
+  /* わたしのこと */
+  h += '<div class="card pad pf-card">';
+  h += '<div class="pf-h">' + ic('users') + 'わたしのこと</div>';
+  h += '<div class="two-g">' + profTextHTML(PROF_TEXT[0], f);
+  var bm = f.bday ? Number(f.bday.slice(0, 2)) : 0, bd = f.bday ? Number(f.bday.slice(3)) : 0;
+  h += '<div class="field"><label for="pfBm">誕生日<span class="note-s">月日だけ。空なら出ません</span></label>' +
+       '<div style="display:flex;gap:8px"><select class="inp" id="pfBm"><option value="">月</option>';
+  for(var mi = 1; mi <= 12; mi++) h += '<option value="' + mi + '"' + (bm === mi ? ' selected' : '') + '>' + mi + '月</option>';
+  h += '</select><select class="inp" id="pfBd"><option value="">日</option>';
+  for(var di = 1; di <= 31; di++) h += '<option value="' + di + '"' + (bd === di ? ' selected' : '') + '>' + di + '日</option>';
+  h += '</select></div></div></div>';
+  h += '<div class="two-g">' + profTextHTML(PROF_TEXT[1], f) + profTextHTML(PROF_TEXT[2], f) + '</div>';
+  h += '<div class="two-g">' + profTextHTML(PROF_TEXT[3], f) + profTextHTML(PROF_TEXT[4], f) + '</div>';
+  h += profTextHTML(PROF_TEXT[5], f);
+  h += '</div>';
+
+  /* 重要なお知らせの受け取り先 */
+  var roster = String(p.email || '').trim();
+  h += '<div class="card pad pf-card">';
+  h += '<div class="pf-h">' + ic('mail') + '重要なお知らせの受け取り先</div>';
+  h += '<div class="cap">「重要」のお知らせは、ポータルに加えてメールでも届きます。' +
+       'スマホで受け取りたいときは、スマホで見られるメールアドレスを入れてください。</div>';
+  h += '<div class="field"><label for="pfNotify">受け取るメールアドレス' +
+       '<span class="note-s">空なら ' + (roster ? esc(roster) : '名簿のメールアドレス') + ' に届きます</span></label>' +
+       '<input class="inp" id="pfNotify" type="email" inputmode="email" autocomplete="email" placeholder="例）taro@example.com" value="' +
+       esc(PROF.notify != null ? PROF.notify : (p.notify || '')) + '"></div>';
+  h += '</div>';
+
+  h += '<div class="bar pf-save"><button class="btn" id="pfSave">' + ic('check') + '保存する</button>' +
+       '<span class="cap">お名前・職種・入社日は、研修担当が名簿で直します</span></div>';
+  h += '</div>';
   document.getElementById('main').innerHTML = h;
 
+  var keep = function(){
+    PROF.bio = document.getElementById('pfBio').value;
+    PROF.notify = document.getElementById('pfNotify').value;
+    readProfText();
+  };
   var file = document.getElementById('pfFile');
   document.getElementById('pfPick').onclick = function(){ file.click(); };
   file.onchange = function(){
-    var f = file.files && file.files[0];
-    if(!f) return;
-    shrinkPhoto(f).then(function(uri){
+    var fl = file.files && file.files[0];
+    if(!fl) return;
+    keep();
+    shrinkPhoto(fl).then(function(uri){
       PROF.photo = uri;
       viewProfile();
       toast('写真を選びました。「保存する」で確定します');
     }).catch(function(e){ toast(e.message || '画像を読み込めませんでした'); });
   };
   var clr = document.getElementById('pfClear');
-  if(clr) clr.onclick = function(){ PROF.photo = ''; viewProfile(); };
+  if(clr) clr.onclick = function(){ keep(); PROF.photo = ''; viewProfile(); };
+  document.getElementById('pfView').onclick = function(){ keep(); MEM_SEL = normName(u.name); route('members'); };
+  PROF_TAGS.forEach(function(t){ bindTagEdit(t); });
+
   document.getElementById('pfSave').onclick = function(){
-    var o = { name:u.name, bio:String(document.getElementById('pfBio').value || '').trim() };
+    readProfText();
+    var nt = String(document.getElementById('pfNotify').value || '').trim();
+    if(nt && !isMail(nt)){
+      document.getElementById('pfNotify').focus();
+      toast('メールアドレスの形が正しくありません（例：taro@example.com）');
+      return;
+    }
+    var o = { name:u.name, bio:String(document.getElementById('pfBio').value || '').trim(),
+              prof:PROF.draft, notify:nt };
     if(PROF.photo !== null) o.photo = PROF.photo;
     registerPerson(o);
     /* 空にしたときは、名簿の写真を消す */
     if(PROF.photo === ''){ delete MEM.people[normName(u.name)].photo; cacheFlush('people'); queueSync('person', normName(u.name)); }
-    PROF.photo = null;
+    PROF.photo = null; PROF.draft = null; PROF.bio = null; PROF.notify = null;
     toast('プロフィールを保存しました');
     drawNav('profile');
     viewProfile();
   };
 }
+function isMail(v){ return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(v || '').trim()); }
+function profTextHTML(t, f){
+  var id = 'pfT_' + t[0];
+  var lab = '<label for="' + id + '">' + esc(t[1]) + '</label>';
+  if(t[4]){
+    return '<div class="field">' + lab + '<textarea class="inp" id="' + id + '" rows="3" maxlength="' + t[3] +
+           '" style="resize:vertical" placeholder="' + esc(t[2]) + '">' + esc(f[t[0]]) + '</textarea></div>';
+  }
+  return '<div class="field">' + lab + '<input class="inp" id="' + id + '" maxlength="' + t[3] +
+         '" placeholder="' + esc(t[2]) + '" value="' + esc(f[t[0]]) + '"></div>';
+}
+function readProfText(){
+  var f = PROF.draft;
+  if(!f) return;
+  PROF_TEXT.forEach(function(t){
+    var e = document.getElementById('pfT_' + t[0]);
+    if(e) f[t[0]] = String(e.value || '').trim();
+  });
+  var bm = document.getElementById('pfBm'), bd = document.getElementById('pfBd');
+  if(bm && bd){
+    f.bday = (bm.value && bd.value) ? ('0' + bm.value).slice(-2) + '-' + ('0' + bd.value).slice(-2) : '';
+  }
+}
+function tagEditHTML(t, f){
+  var k = t[0];
+  return '<div class="field"><label for="pfA_' + k + '">' + esc(t[1]) +
+         '<span class="note-s">候補から選ぶか、打って Enter</span></label>' +
+         '<div class="ptags" id="pfL_' + k + '">' + tagListHTML(t, f) + '</div>' +
+         '<div class="pf-add"><input class="inp" id="pfA_' + k + '" list="pfD_' + k + '" maxlength="30" placeholder="' + esc(t[3]) + '">' +
+         '<button class="btn sub" id="pfB_' + k + '">' + ic('plus') + '足す</button></div>' +
+         '<datalist id="pfD_' + k + '">' + tagSuggest(k).map(function(v){ return '<option value="' + esc(v) + '">'; }).join('') +
+         '</datalist></div>';
+}
+function tagListHTML(t, f){
+  var list = f[t[0]];
+  if(!list.length) return '<span class="cap">まだありません</span>';
+  return list.map(function(v, i){
+    return '<span class="ptag ' + t[2] + ' ed">' + esc(v) +
+           '<button aria-label="' + esc(v) + 'を外す" data-tdel="' + esc(t[0]) + '" data-ti="' + i + '">' + ic('cross') + '</button></span>';
+  }).join('');
+}
+function bindTagEdit(t){
+  var k = t[0], inp = document.getElementById('pfA_' + k);
+  var draw = function(){
+    var box = document.getElementById('pfL_' + k);
+    box.innerHTML = tagListHTML(t, PROF.draft);
+    Array.prototype.forEach.call(box.querySelectorAll('[data-tdel]'), function(b){
+      b.onclick = function(){
+        PROF.draft[k].splice(Number(b.getAttribute('data-ti')), 1);
+        draw();
+      };
+    });
+  };
+  var add = function(){
+    var vs = String(inp.value || '').split(/[,、，\n]/).map(function(x){ return x.trim(); }).filter(Boolean);
+    if(!vs.length){ inp.focus(); return; }
+    vs.forEach(function(v){
+      v = v.slice(0, 30);
+      if(PROF.draft[k].indexOf(v) < 0 && PROF.draft[k].length < 20) PROF.draft[k].push(v);
+    });
+    inp.value = '';
+    draw();
+    inp.focus();
+  };
+  document.getElementById('pfB_' + k).onclick = add;
+  inp.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && !e.isComposing){ e.preventDefault(); add(); }
+  });
+  draw();
+}
 
-/* ── 画面：メンバー（顔写真と自己紹介の一覧） ── */
-var MEM_Q = '';
-function viewMembers(){
+/* ── 画面：メンバー（顔写真・プロフィールの一覧） ──
+   カオナビのように、顔から人を知る・同じ資格や趣味の人を探す */
+var MEM_Q = '', MEM_TAG = null, MEM_TAB = 'list', MEM_SEL = '';
+function memberNames(){
   var ps = people() || {};
-  var names = Object.keys(ps).filter(function(n){ return ps[n].active !== false; })
+  return Object.keys(ps).filter(function(n){ return ps[n].active !== false && n.indexOf('__') !== 0; })
     .sort(function(a, b){
       return String(ps[a].dept || '').localeCompare(String(ps[b].dept || ''), 'ja') ||
              a.localeCompare(b, 'ja');
     });
-  var kw = MEM_Q.trim();
-  var shown = kw ? names.filter(function(n){
+}
+function viewMembers(){
+  var ps = people() || {};
+  if(MEM_SEL && ps[MEM_SEL]){ viewMemberSheet(MEM_SEL); return; }
+  MEM_SEL = '';
+  var names = memberNames();
+  var kw = MEM_Q.trim().toLowerCase();
+  var shown = names.filter(function(n){
     var p = ps[n];
-    return n.indexOf(kw) >= 0 || String(p.dept || '').indexOf(kw) >= 0 ||
-           String(p.title || '').indexOf(kw) >= 0 || String(p.bio || '').indexOf(kw) >= 0;
-  }) : names;
+    if(MEM_TAG && profOf(p)[MEM_TAG.k].indexOf(MEM_TAG.v) < 0) return false;
+    return !kw || profHay(n, p).indexOf(kw) >= 0;
+  });
   var aw = awardCount();
   var h = '<div class="wrap">';
   h += '<div class="ph"><div><h2>メンバー</h2>' +
-       '<div class="sub">職員の顔と自己紹介です。自分の分は「マイページ → プロフィール」で直せます。</div>' +
-       '</div></div>';
-  h += '<div class="bar" style="margin-bottom:14px">' +
-       '<input class="inp" id="memQ" placeholder="名前・職種・自己紹介で探す" value="' + esc(MEM_Q) +
-       '" style="max-width:300px"><span class="sp"></span>' +
-       '<span class="cnt">' + shown.length + ' / ' + names.length + '名</span></div>';
-  if(!shown.length){
-    h += '<div class="card"><div class="empty">' + ic('users') + '該当する方がいません。</div></div>';
+       '<div class="sub">顔・資格・趣味から職員を知る一覧です。自分の分は「プロフィール」で直せます。</div>' +
+       '</div><button class="btn sub" id="memMine">' + ic('user') + '自分のプロフィールを書く</button></div>';
+  h += '<div class="seg" style="margin-bottom:16px;width:max-content;max-width:100%">' +
+       '<button data-mtab="list" aria-pressed="' + (MEM_TAB === 'list') + '">メンバー一覧</button>' +
+       '<button data-mtab="tags" aria-pressed="' + (MEM_TAB === 'tags') + '">資格・スキル・趣味で探す</button></div>';
+
+  if(MEM_TAB === 'tags'){
+    h += memberTagsHTML(names);
   }else{
-    h += '<div class="members">';
-    shown.forEach(function(n){
-      var p = ps[n];
-      h += '<div class="mem">' + ava(n) +
-           '<b>' + esc(n) + '</b>' +
-           '<span class="mem-t">' + esc([p.dept || '', p.title || ''].filter(Boolean).join('　·　') || '—') + '</span>' +
-           (aw[n] ? '<span class="mem-aw">' + ic('trophy') + '受賞 ' + aw[n] + '回</span>' : '') +
-           (p.bio ? '<span class="mem-b">' + esc(p.bio) + '</span>' : '') +
-           '</div>';
-    });
-    h += '</div>';
+    h += '<div class="bar" style="margin-bottom:12px">' +
+         '<input class="inp" id="memQ" placeholder="名前・職種・資格・趣味・出身地で探す" value="' + esc(MEM_Q) +
+         '" style="max-width:340px">' +
+         (MEM_TAG ? '<span class="ptag ' + tagCls(MEM_TAG.k) + ' ed on">' + esc(tagLabel(MEM_TAG.k)) + '：' + esc(MEM_TAG.v) +
+                    '<button aria-label="絞り込みを外す" id="memTagX">' + ic('cross') + '</button></span>' : '') +
+         '<span class="sp"></span><span class="cnt">' + shown.length + ' / ' + names.length + '名</span></div>';
+    /* 今月お誕生日の方 */
+    var mon = ('0' + (new Date().getMonth() + 1)).slice(-2);
+    var bdays = names.filter(function(n){ return profOf(ps[n]).bday.slice(0, 2) === mon; })
+      .sort(function(a, b){ return profOf(ps[a]).bday < profOf(ps[b]).bday ? -1 : 1; });
+    if(bdays.length && !kw && !MEM_TAG){
+      h += '<div class="mem-bday">' + ic('medal') + '<b>' + Number(mon) + '月生まれの方</b>' +
+           bdays.map(function(n){
+             return '<button data-mem="' + esc(n) + '">' + esc(n) + '<small>' + esc(bdayLabel(profOf(ps[n]).bday)) + '</small></button>';
+           }).join('') + '</div>';
+    }
+    if(!shown.length){
+      h += '<div class="card"><div class="empty">' + ic('users') + '該当する方がいません。</div></div>';
+    }else{
+      h += '<div class="members">';
+      shown.forEach(function(n){
+        var p = ps[n], f = profOf(p);
+        var tags = [];
+        PROF_TAGS.forEach(function(t){ f[t[0]].forEach(function(v){ tags.push([t, v]); }); });
+        h += '<div class="mem">' +
+             '<button class="mem-open" data-mem="' + esc(n) + '" aria-label="' + esc(n) + 'さんのプロフィール"></button>' +
+             ava(n) + '<b>' + esc(n) + '</b>' +
+             '<span class="mem-t">' + esc([p.dept || '', p.title || ''].filter(Boolean).join('　·　') || '—') + '</span>' +
+             (aw[n] ? '<span class="mem-aw">' + ic('trophy') + '受賞 ' + aw[n] + '回</span>' : '') +
+             (p.bio ? '<span class="mem-b">' + esc(p.bio) + '</span>' : '') +
+             (tags.length ? '<span class="ptags c">' + tags.slice(0, 5).map(function(x){
+                return tagHTML(x[0][0], x[0][2], x[1], 'data-tag');
+              }).join('') + (tags.length > 5 ? '<span class="cap">ほか' + (tags.length - 5) + '</span>' : '') + '</span>' : '') +
+             '</div>';
+      });
+      h += '</div>';
+    }
   }
   h += '</div>';
   document.getElementById('main').innerHTML = h;
+  bindMembers();
   var q = document.getElementById('memQ');
-  q.oninput = function(){
+  if(q) q.oninput = function(){
     MEM_Q = this.value;
     clearTimeout(q._t);
     q._t = setTimeout(function(){
@@ -5713,6 +6267,104 @@ function viewMembers(){
       if(nx){ nx.focus(); nx.setSelectionRange(nx.value.length, nx.value.length); }
     }, 250);
   };
+  var tx = document.getElementById('memTagX');
+  if(tx) tx.onclick = function(){ MEM_TAG = null; viewMembers(); };
+}
+function tagCls(k){ return (PROF_TAGS.filter(function(t){ return t[0] === k; })[0] || [0, 0, ''])[2]; }
+function tagLabel(k){ return (PROF_TAGS.filter(function(t){ return t[0] === k; })[0] || [0, ''])[1]; }
+/* 資格・スキル・趣味ごとに、持っている人の数と名前 */
+function memberTagsHTML(names){
+  var ps = people() || {};
+  var h = '';
+  PROF_TAGS.forEach(function(t){
+    var map = {};
+    names.forEach(function(n){ profOf(ps[n])[t[0]].forEach(function(v){ (map[v] = map[v] || []).push(n); }); });
+    var keys = Object.keys(map).sort(function(a, b){ return map[b].length - map[a].length || a.localeCompare(b, 'ja'); });
+    h += '<div class="cat">' + esc(t[1]) + '<span class="num">' + keys.length + '種類</span></div>';
+    if(!keys.length){
+      h += '<div class="card" style="margin-bottom:16px"><div class="empty">まだ登録がありません。</div></div>';
+      return;
+    }
+    h += '<div class="card tagtbl" style="margin-bottom:18px">';
+    keys.forEach(function(v){
+      h += '<div class="tagrow">' + tagHTML(t[0], t[2], v, 'data-tag') +
+           '<span class="tagn">' + map[v].length + '名</span>' +
+           '<span class="tagw">' + map[v].map(function(n){
+             return '<button data-mem="' + esc(n) + '">' + esc(n) + '</button>';
+           }).join('') + '</span></div>';
+    });
+    h += '</div>';
+  });
+  return h;
+}
+function bindMembers(){
+  eachIn('[data-mtab]', function(b){
+    b.onclick = function(){ MEM_TAB = b.getAttribute('data-mtab'); viewMembers(); };
+  });
+  eachIn('[data-mem]', function(b){
+    b.onclick = function(){ MEM_SEL = b.getAttribute('data-mem'); viewMembers(); window.scrollTo(0, 0); };
+  });
+  eachIn('[data-tag]', function(b){
+    b.onclick = function(e){
+      if(e) e.stopPropagation();
+      MEM_TAG = { k:b.getAttribute('data-tag'), v:b.getAttribute('data-tv') };
+      MEM_TAB = 'list'; MEM_SEL = ''; MEM_Q = '';
+      viewMembers(); window.scrollTo(0, 0);
+    };
+  });
+  var mine = document.getElementById('memMine');
+  if(mine) mine.onclick = function(){ route('profile'); };
+}
+/* 1人のプロフィール（プロフィールブックの1枚） */
+function viewMemberSheet(n){
+  var p = people()[n] || {}, f = profOf(p), u = me() || {};
+  var aw = awardCount()[n] || 0;
+  var h = '<div class="wrap" style="max-width:860px">';
+  h += '<div class="bar" style="margin-bottom:12px"><button class="btn sub" id="memBack">' + ic('back') + 'メンバー一覧へ</button>' +
+       '<span class="sp"></span>' +
+       (normName(u.name) === n
+         ? '<button class="btn" id="memEdit">' + ic('user') + 'プロフィールを直す</button>'
+         : '<button class="btn" id="memThanks">' + ic('medal') + 'サンクスカードを送る</button>') + '</div>';
+  var facts = [];
+  if(p.joined && tenure(p.joined)) facts.push(['入社', esc(p.joined) + '（' + esc(tenure(p.joined)) + '）']);
+  if(f.bday) facts.push(['誕生日', esc(bdayLabel(f.bday))]);
+  if(f.hometown) facts.push(['出身地', esc(f.hometown)]);
+  if(aw) facts.push(['表彰', '受賞 ' + aw + '回']);
+  h += '<div class="card psheet-h">' + ava(n, 'big') +
+       '<div class="psheet-id">' +
+         (p.kana ? '<span class="cap">' + esc(p.kana) + '</span>' : '') +
+         '<h2>' + esc(n) + '</h2>' +
+         '<div class="mem-t">' + esc([p.dept || '', p.title || '', p.group || ''].filter(Boolean).join('　·　') || '—') + '</div>' +
+         (facts.length ? '<dl class="psheet-f">' + facts.map(function(x){ return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl>' : '') +
+       '</div></div>';
+  if(p.bio) h += '<div class="card pad psheet-bio">' + esc(p.bio) + '</div>';
+  var sec = function(title, icon, body){
+    return body ? '<div class="card pad psheet-s"><div class="pf-h">' + ic(icon) + title + '</div>' + body + '</div>' : '';
+  };
+  var tags = function(t){
+    return f[t[0]].length ? '<div class="field"><label>' + esc(t[1]) + '</label><div class="ptags">' +
+      f[t[0]].map(function(v){ return tagHTML(t[0], t[2], v, 'data-tag'); }).join('') + '</div></div>' : '';
+  };
+  var txt = function(t){
+    return f[t[0]] ? '<div class="field"><label>' + esc(t[1]) + '</label><div class="psheet-t">' + esc(f[t[0]]) + '</div></div>' : '';
+  };
+  var body = '';
+  h += '<div class="psheet-g">';
+  h += sec('仕事のこと', 'medal', tags(PROF_TAGS[0]) + tags(PROF_TAGS[1]) + txt(PROF_TEXT[6]));
+  h += sec('趣味', 'flag', tags(PROF_TAGS[2]));
+  body = txt(PROF_TEXT[1]) + txt(PROF_TEXT[2]) + txt(PROF_TEXT[3]) + txt(PROF_TEXT[4]) + txt(PROF_TEXT[5]);
+  h += sec('わたしのこと', 'users', body);
+  h += '</div>';
+  var empty = !p.bio && !PROF_TAGS.some(function(t){ return f[t[0]].length; }) && !PROF_TEXT.some(function(t){ return f[t[0]]; });
+  if(empty) h += '<div class="card"><div class="empty">' + ic('user') + 'まだプロフィールが書かれていません。</div></div>';
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  bindMembers();
+  document.getElementById('memBack').onclick = function(){ MEM_SEL = ''; viewMembers(); };
+  var ed = document.getElementById('memEdit');
+  if(ed) ed.onclick = function(){ MEM_SEL = ''; route('profile'); };
+  var th = document.getElementById('memThanks');
+  if(th) th.onclick = function(){ MEM_SEL = ''; FEED.to = n; route('thanks'); };
 }
 
 /* 投稿の箱にボタンを付ける（掲示板・サンクス共通） */
@@ -8451,16 +9103,26 @@ function viewAAssign(courseId){
 /* ══════════════════════════════════════════════════════════════
    画面：お知らせの配信（管理）
    ══════════════════════════════════════════════════════════════ */
+var NEWSADM = { at:0, open:'' };
 function viewANews(){
+  /* 送信状況と「確認しました」を読み直す（開くたび。続けて開いたときは20秒あける） */
+  if(ON_CREATOR && Date.now() - NEWSADM.at > 20000){
+    NEWSADM.at = Date.now();
+    runLimited([function(){ return loadMails(); },
+                function(){ return MISSING.react ? null : fetchLive(FORM.reactR).then(rowsToReacts); }], 1)
+      .then(function(){ if(VIEW_NOW === 'anews') viewANews(); })
+      .catch(function(e){ console.warn('送信状況を読めませんでした', e); });
+  }
   var list = Object.keys(MEM.news).map(function(k){ return MEM.news[k]; })
                .filter(function(n){ return n && !n.deleted; })
                .sort(function(a, b){ return String(b.at) < String(a.at) ? -1 : 1; });
   var all = adminMatrix();
   var o = admOptions(all);
 
-  var h = '<div class="wrap" style="max-width:900px">';
+  var h = '<div class="wrap" style="max-width:980px">';
   h += '<div class="ph"><div><h2>お知らせ</h2>' +
-       '<div class="sub">受講者のマイダッシュボードと、ベルのアイコンに出ます。</div></div></div>';
+       '<div class="sub">受講者のマイダッシュボードとベルに出ます。「重要」にすると、どのアプリを開いても上に赤い帯で出し、メールでも送ります。</div></div>' +
+       '<button class="btn sub" id="nwReload">' + ic('history') + '状況を読み直す</button></div>';
 
   h += '<div class="card pad" style="margin-bottom:18px;display:grid;gap:12px">';
   h += '<div class="field"><label for="nwT">件名</label>' +
@@ -8475,6 +9137,10 @@ function viewANews(){
        '</select></div>';
   h += '<div class="bar" style="align-items:flex-end"><button class="btn" id="nwGo">' +
        ic('mail') + '配信する</button></div></div>';
+  h += '<label class="imp-chk"><input type="checkbox" id="nwImp">' +
+       '<span><b>' + ic('alert') + '重要なお知らせにする</b>' +
+       '<small>対象の全員に、メール（スマホ）でも送ります。ポータルでは「確認しました」を押すまで上に出し続けます。</small></span></label>';
+  h += '<div class="cap" id="nwTo"></div>';
   h += '</div>';
 
   h += '<div class="cat">' + ic('history') + '配信済みのお知らせ' +
@@ -8483,27 +9149,93 @@ function viewANews(){
     h += '<div class="card"><div class="empty">' + ic('mail') + 'まだお知らせはありません。</div></div>';
   }else{
     h += '<div class="tbl-wrap"><table><thead><tr><th class="stick">件名</th>' +
-         '<th>本文</th><th>配信先</th><th class="n">配信日時</th><th></th></tr></thead><tbody>';
+         '<th>配信先</th><th class="n">配信日時</th><th>確認</th><th>メール</th><th></th></tr></thead><tbody>';
     list.forEach(function(n){
-      h += '<tr><td class="stick"><b>' + esc(n.title) + '</b></td>';
-      h += '<td style="max-width:320px">' + esc(String(n.body).slice(0, 64)) +
-           (String(n.body).length > 64 ? '…' : '') + '</td>';
+      var aud = n.important ? newsAudience(n) : [];
+      var ack = n.important ? newsAckNames(n.id) : {};
+      var nAck = aud.filter(function(x){ return ack[x]; }).length;
+      var ms = n.important ? mailsOf(n.id) : [];
+      var st = n.important ? mailState(ms[0]) : null;
+      h += '<tr' + (n.important ? ' class="imp-row"' : '') + '><td class="stick">' +
+           (n.important ? '<span class="pill bad">重要</span> ' : '') + '<b>' + esc(n.title) + '</b>' +
+           (n.body ? '<div class="cap" style="max-width:320px">' + esc(String(n.body).slice(0, 60)) +
+                     (String(n.body).length > 60 ? '…' : '') + '</div>' : '') + '</td>';
       h += '<td class="nw">' + (n.group ? esc(n.group) : '全員') + '</td>';
       h += '<td class="n">' + ymdhm(n.at) + '</td>';
-      h += '<td class="n"><button class="btn sub sm" data-del="' + esc(n.id) + '">削除</button></td></tr>';
+      h += '<td class="nw">' + (n.important
+             ? '<span class="pill ' + (nAck >= aud.length ? 'ok' : 'mid') + '">' + nAck + ' / ' + aud.length + '名</span>' : '—') + '</td>';
+      h += '<td class="nw">' + (st ? '<span class="pill ' + st.c + '">' + esc(st.t) + '</span>' +
+             (st.at ? '<div class="cap">' + esc(ymdhm(st.at) || st.at) + '</div>' : '') : '—') + '</td>';
+      h += '<td class="n nw">' +
+           (n.important ? '<button class="btn sub sm" data-nopen="' + esc(n.id) + '">' + (NEWSADM.open === n.id ? '閉じる' : '詳しく') + '</button> ' : '') +
+           '<button class="btn sub sm" data-del="' + esc(n.id) + '">削除</button></td></tr>';
+      if(n.important && NEWSADM.open === n.id){
+        var notYet = aud.filter(function(x){ return !ack[x]; });
+        var tg = mailTargets(n.group);
+        h += '<tr class="imp-open"><td colspan="6"><div class="imp-d">';
+        if(st && st.warn){
+          h += '<div class="note bad"><b>5分たってもメールが送られていません。</b>' +
+               'Creator のワークフロー（Lms_Mail の「レコードの作成時」）が有効か確かめてください。手順は docs/重要なお知らせのメール.md にあります。</div>';
+        }
+        h += '<div><b>まだ確認していない方（' + notYet.length + '名）</b><div class="imp-names">' +
+             (notYet.length ? notYet.map(function(x){
+               var pp = people()[x] || {}, a = String(pp.notify || pp.email || '').trim();
+               return '<span' + (isMail(a) ? '' : ' class="nomail" title="メールアドレスが未登録"') + '>' + esc(x) + '</span>';
+             }).join('') : '<span class="cap">全員が確認しました</span>') + '</div></div>';
+        if(tg.none.length){
+          h += '<div class="cap">メールアドレスが無いため送れない方：' + tg.none.map(esc).join('、') +
+               '（名簿かプロフィールで入れてください）</div>';
+        }
+        h += '<div><b>メールの依頼</b><div class="imp-mails">' +
+             (ms.length ? ms.map(function(m){
+               var s2 = mailState(m);
+               return '<div><span class="mono cap">' + esc(ymdhm(m.at)) + '</span>' +
+                      '<span>' + m.count + '名あて' + (m.kind === 'resend' ? '（再送）' : '') + '</span>' +
+                      '<span class="pill ' + s2.c + '">' + esc(s2.t) + '</span></div>';
+             }).join('') : '<span class="cap">まだありません</span>') + '</div></div>';
+        h += '<div class="bar">' +
+             (mailTargets(n.group, notYet).list.length ? '<button class="btn" data-nresend="' + esc(n.id) + '">' + ic('mail') +
+                '確認していない ' + mailTargets(n.group, notYet).list.length + '名にもう一度メール</button>' : '') +
+             '<button class="btn sub" data-nresall="' + esc(n.id) + '">' + ic('mail') + '全員にもう一度メール</button></div>';
+        h += '</div></td></tr>';
+      }
     });
     h += '</tbody></table></div>';
   }
   h += '</div>';
   document.getElementById('main').innerHTML = h;
 
+  var impBox = document.getElementById('nwImp'), gSel = document.getElementById('nwG');
+  var drawTo = function(){
+    var el = document.getElementById('nwTo');
+    if(!impBox.checked){ el.textContent = ''; return; }
+    var tg = mailTargets(gSel.value);
+    el.innerHTML = ic('mail') + 'メールが届く方：<b>' + tg.list.length + '名</b>' +
+      (tg.none.length ? '　／　メールアドレスが無く届かない方：' + tg.none.length + '名（' +
+        tg.none.slice(0, 8).map(esc).join('、') + (tg.none.length > 8 ? ' ほか' : '') + '）' : '') +
+      (config().portalUrl ? '' : '　／　メールにポータルのURLを載せるときは、設定の「重要なお知らせのメール」で入れてください');
+  };
+  impBox.onchange = drawTo; gSel.onchange = drawTo;
+  document.getElementById('nwReload').onclick = function(){ NEWSADM.at = 0; viewANews(); };
+
   document.getElementById('nwGo').onclick = function(){
     var t = document.getElementById('nwT').value.trim();
     var b = document.getElementById('nwB').value.trim();
+    var imp = impBox.checked;
     if(!t){ toast('件名を入力してください'); return; }
-    putNews({ title:t, body:b, group:document.getElementById('nwG').value,
-              by:me().name, at:new Date().toISOString() });
-    toast('お知らせを配信しました');
+    var tg = imp ? mailTargets(gSel.value) : null;
+    if(imp && !window.confirm('重要なお知らせとして配信し、' + tg.list.length + '名にメールを送ります。よろしいですか')) return;
+    var n = { title:t, body:b, group:gSel.value, by:me().name, at:new Date().toISOString() };
+    if(imp) n.important = true;
+    putNews(n);
+    if(imp){
+      NEWSADM.open = n.id;
+      if(tg.list.length) sendImportantMail(n, tg.list.map(function(x){ return x.addr; }), 'news')
+        .then(function(){ if(VIEW_NOW === 'anews') viewANews(); });
+      else toast('メールアドレスが登録されている方がいないため、メールは送れませんでした');
+    }
+    toast(imp ? '重要なお知らせを配信しました' : 'お知らせを配信しました');
+    drawAlert();
     viewANews();
   };
   eachIn('[data-del]', function(b){
@@ -8511,9 +9243,31 @@ function viewANews(){
       if(!window.confirm('このお知らせを削除しますか')) return;
       delNews(b.getAttribute('data-del'));
       toast('削除しました');
+      drawAlert();
       viewANews();
     };
   });
+  eachIn('[data-nopen]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-nopen');
+      NEWSADM.open = (NEWSADM.open === id) ? '' : id;
+      viewANews();
+    };
+  });
+  var resend = function(id, onlyNotYet){
+    var n = MEM.news[id];
+    if(!n) return;
+    var ack = newsAckNames(id);
+    var who = onlyNotYet ? newsAudience(n).filter(function(x){ return !ack[x]; }) : null;
+    var tg = mailTargets(n.group, who);
+    if(!tg.list.length){ toast('メールを送れる方がいません（メールアドレス未登録）'); return; }
+    if(!window.confirm(tg.list.length + '名にもう一度メールを送ります。よろしいですか')) return;
+    sendImportantMail(n, tg.list.map(function(x){ return x.addr; }), 'resend')
+      .then(function(){ if(VIEW_NOW === 'anews') viewANews(); });
+    viewANews();
+  };
+  eachIn('[data-nresend]', function(b){ b.onclick = function(){ resend(b.getAttribute('data-nresend'), true); }; });
+  eachIn('[data-nresall]', function(b){ b.onclick = function(){ resend(b.getAttribute('data-nresall'), false); }; });
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -9478,6 +10232,32 @@ function viewASettings(){
        '</span></div>';
   h += '</div>';
 
+  /* 重要なお知らせのメール */
+  var mlT = mailTargets('');
+  var myTest = Object.keys(MEM.mails).map(function(k){ return MEM.mails[k]; })
+    .filter(function(m){ return m.kind === 'test'; })
+    .sort(function(a, b){ return String(a.at) < String(b.at) ? 1 : -1; })[0];
+  h += '<div class="cat">' + ic('alert') + '重要なお知らせのメール</div>';
+  h += '<div class="note calm" style="margin-bottom:12px">' +
+       '<b>しくみ</b>　お知らせを「重要」にして配信すると、ウィジェットが Creator の表 <span class="mono">Lms_Mail</span> に' +
+       '宛先と文面を1行書きます。<b>実際にメールを送るのは Creator のワークフロー</b>（行が追加されたとき）です。' +
+       '最初に1回だけ Creator の画面で設定してください（手順は docs/重要なお知らせのメール.md）。' +
+       '設定したら、下の「自分にテストメールを送る」で届くことを確かめてください。</div>';
+  h += '<div class="card pad" style="display:grid;gap:13px;margin-bottom:16px">';
+  h += '<div class="field"><label for="mlUrl">メールに載せるポータルのURL<span class="note-s">空なら載せません</span></label>' +
+       '<input class="inp" id="mlUrl" inputmode="url" placeholder="例）https://xxxx.zohocreatorportal.jp/" value="' + esc(cfg.portalUrl || '') + '"></div>';
+  h += '<div class="cap">' + ic('mail') + 'メールが届く方：' + mlT.list.length + '名' +
+       (mlT.none.length ? '　／　メールアドレスが無い方：' + mlT.none.length + '名（' + mlT.none.slice(0, 10).map(esc).join('、') +
+         (mlT.none.length > 10 ? ' ほか' : '') + '）' : '') +
+       '　※スマホで受け取りたい方は、各自のプロフィールで受け取るメールアドレスを入れられます</div>';
+  h += '<div class="bar"><button class="btn" id="mlSave">' + ic('check') + '保存する</button>' +
+       '<button class="btn sub" id="mlTest">' + ic('mail') + '自分にテストメールを送る</button>' +
+       '<button class="btn sub" id="mlCheck">' + ic('history') + '送信状況を確かめる</button>' +
+       '<span class="cap" id="mlState">' + (myTest
+         ? '最後のテスト：' + esc(ymdhm(myTest.at)) + '　' + esc(mailState(myTest).t)
+         : 'まだテストしていません') + '</span></div>';
+  h += '</div>';
+
   h += '<div class="cat">' + ic('gear') + 'コースの設定</div>';
   h += '<div class="tbl-wrap" style="margin-bottom:16px"><table><thead><tr>' +
        '<th class="stick">コース</th><th class="c">必須</th><th class="c">受講サイクル</th>' +
@@ -9719,6 +10499,30 @@ function viewASettings(){
     var n = refreshAllReminds();
     toast('保存しました（' + n + '名の行を更新）');
     viewASettings();
+  };
+  document.getElementById('mlSave').onclick = function(){
+    var v = String(document.getElementById('mlUrl').value || '').trim();
+    if(v && !/^https:\/\/[^\s"'<>]+$/i.test(v)){ toast('URL は https:// で始まる形で入れてください'); return; }
+    var c = config();
+    c.portalUrl = v;
+    setConfig(c);
+    toast('保存しました');
+    viewASettings();
+  };
+  document.getElementById('mlTest').onclick = function(){
+    var mine = myPerson();
+    var a = String(mine.notify || '').trim() || String(mine.email || LOGIN_EMAIL || '').trim();
+    if(!isMail(a)){ toast('あなたのメールアドレスが名簿にもプロフィールにもありません'); return; }
+    var n = { id:'test', title:'テストメール', group:'', by:(me() || {}).name || '', at:nowISO(),
+              body:'これは ' + (config().portalName || 'ポータル') + ' の「重要なお知らせのメール」のテストです。\n' +
+                   'このメールが届いていれば、設定はできています。' };
+    document.getElementById('mlState').textContent = 'テストメールを頼んでいます…';
+    sendImportantMail(n, [a], 'test').then(function(){ if(VIEW_NOW === 'asettings') viewASettings(); });
+  };
+  document.getElementById('mlCheck').onclick = function(){
+    document.getElementById('mlState').textContent = '読み直しています…';
+    loadMails().then(function(){ if(VIEW_NOW === 'asettings') viewASettings(); })
+      .catch(function(e){ document.getElementById('mlState').textContent = '読めませんでした：' + errText(e); });
   };
   document.getElementById('rmNow').onclick = function(){
     var n = refreshAllReminds();
@@ -10528,6 +11332,7 @@ function route(view, a, b){
 
   document.getElementById('app').classList.add('on');
   drawNav(view);
+  drawAlert();
   crumb(crumbFor(view, a));
 
   try{
