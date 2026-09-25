@@ -8,17 +8,47 @@
  *
  * 事前に: npm install playwright（ブラウザは PLAYWRIGHT_BROWSERS_PATH のものを使う）
  */
-const { chromium } = require('playwright');
+/* --- playwright の読み込み（環境によって置き場所が違うため順に探す） --- */
+function loadPlaywright() {
+  const tried = [];
+  const names = ['playwright', 'playwright-core'];
+  try {
+    const root = require('child_process').execSync('npm root -g', { encoding: 'utf8' }).trim();
+    if (root) names.push(require('path').join(root, 'playwright'), require('path').join(root, 'playwright-core'));
+  } catch (e) { /* npm が無い環境は無視して次を試す */ }
+  for (const n of names) {
+    try { return require(n); } catch (e) { tried.push(n); }
+  }
+  console.error('playwright を読み込めませんでした。次を実行してから、もう一度お試しください。\n' +
+    '  npm i -D playwright && npx playwright install chromium\n' +
+    '探した場所: ' + tried.join(' / '));
+  process.exit(2);
+}
+const { chromium } = loadPlaywright();
+
+/* --- ブラウザの起動（CHROME_PATH → playwright 同梱 → 端末の Chrome の順に試す） --- */
+async function launchBrowser() {
+  const attempts = [];
+  if (process.env.CHROME_PATH) attempts.push({ executablePath: process.env.CHROME_PATH });
+  attempts.push({});                      // playwright install で入れたブラウザ
+  attempts.push({ channel: 'chrome' });   // 端末にインストール済みの Chrome
+  let last = null;
+  for (const opt of attempts) {
+    try { return await chromium.launch(opt); } catch (e) { last = e; }
+  }
+  console.error('ブラウザを起動できませんでした。`npx playwright install chromium` を実行するか、\n' +
+    'CHROME_PATH に Chrome の実行ファイルのパスを指定してください。\n' + (last && last.message));
+  process.exit(2);
+}
 const path = require('path');
 
 const target = process.argv[2];
 if (!target) { console.error('使い方: node verify/sdk-mock-test.js <app/widget.html>'); process.exit(2); }
 const url = 'file://' + path.resolve(target);
-const exe = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 (async () => {
   const errs = [];
-  const browser = await chromium.launch({ executablePath: exe });
+  const browser = await launchBrowser();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
   page.on('console', m => {

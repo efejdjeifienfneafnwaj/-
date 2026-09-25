@@ -64,6 +64,20 @@ Claude Code に任せる場合は、zip を渡して次のように頼んでく�
 インストールは不要ですが、会話ごとに貼り直す必要があります。
 一度きりの作業ならこれが手軽です。
 
+### 検証スクリプトを使う場合（任意）
+
+`verify/` の3本のうち、ブラウザを使う2本（`demo-smoke-test.js` / `sdk-mock-test.js`）は
+Playwright が要ります。入っていなければ、プロジェクトで一度だけ実行してください。
+
+```
+npm i -D playwright && npx playwright install chromium
+```
+
+`schema-check.js`（項目名の突き合わせ）は Node だけで動くので、準備は要りません。
+
+> claude.ai のチャット版では、ブラウザを使う2本は動きません。
+> `.ds` とウィジェットの作成そのものは問題なくできます。
+
 ### 入ったか確かめる
 
 Claude Code に次のように聞いてください。

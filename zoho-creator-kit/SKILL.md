@@ -21,7 +21,7 @@ description: Zoho Creator のアプリ（.ds ファイル）とウィジェッ�
 3. `reference/pitfalls.md` を読む（実際に踏んだ落とし穴）
 4. `template/generate_ds.py` のスキーマ定義を書き換えて .ds を生成する
 5. `template/widget/` を土台にウィジェットを作る
-6. `verify/smoke-test.js` でブラウザ検証する
+6. `verify/` の3本で検証する（項目名の突き合わせ・SDK の呼び方・ブラウザでの動作）
 
 ## 設計の基本方針
 
