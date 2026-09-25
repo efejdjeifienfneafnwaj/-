@@ -48,10 +48,12 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
         const pos = m.geometry.attributes.position, idx = m.geometry.index
         const count = m.isInstancedMesh ? m.count : 1
         const triN = idx ? idx.count / 3 : pos.count / 3
-        if (triN * count > 400000) return
         for (let k = 0; k < count; k++) {
           const W = tmp.copy(m.matrixWorld)
           if (m.isInstancedMesh) { const im = new M(); m.getMatrixAt(k, im); W.multiply(im) }
+          // ray vs bounding sphere prefilter
+          if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere()
+          { const bs = m.geometry.boundingSphere; const cc = bs.center.clone().applyMatrix4(W); const rr = bs.radius * W.getMaxScaleOnAxis(); const oc = cc.clone().sub(o); const tp = oc.dot(d); const d2 = oc.lengthSq() - tp * tp; if (d2 > rr * rr || tp < -rr) continue }
           let best = Infinity
           for (let t = 0; t < triN; t++) {
             const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2
