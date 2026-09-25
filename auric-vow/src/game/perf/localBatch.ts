@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { attrSignature, bakeKeepsSurface, bakeTransform, sameSnap, snapOf } from './staticBatch'
+import { attrSignature, bakeTransform, sameSnap, snapOf } from './staticBatch'
 
 const _S = new THREE.Matrix4().makeScale(-1, 1, 1)
 const _M = new THREE.Matrix4()
@@ -118,7 +118,7 @@ export class LocalBatcher {
         ) {
           if (m.matrixAutoUpdate) m.updateMatrix()
           const det = m.matrix.determinant()
-          if (Number.isFinite(det) && det !== 0 && bakeKeepsSurface(mat, m.geometry, m.matrix)) {
+          if (Number.isFinite(det) && det !== 0) {
             const key = [
               m.parent!.uuid,
               mat.uuid,
@@ -172,7 +172,7 @@ export class LocalBatcher {
       g.clearGroups()
       _M.copy(m.matrix)
       if (mirrored) _M.premultiply(_S)
-      bakeTransform(g, _M)
+      bakeTransform(g, _M, !!(first.material as THREE.Material).userData.avSurfaceOpts)
       baked.push(g)
     }
     const merged = mergeGeometries(baked, false)

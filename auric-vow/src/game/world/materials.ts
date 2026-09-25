@@ -361,6 +361,12 @@ function worldUvChunk(uvScale: number): string {
         #endif
         avWp = modelMatrix * avWp;
         avN = normalize( mat3( modelMatrix ) * avN );
+        // perf/staticBatch: a baked batch carries each piece's own
+        // mat3(model) * normal in avProjN (w = 0), because its model matrix
+        // no longer holds that piece's scale. Unbaked meshes never bind the
+        // attribute, and an unbound attribute reads w = 1, so they keep the
+        // line above.
+        if ( avProjN.w < 0.5 ) avN = normalize( mat3( modelMatrix ) * avProjN.xyz );
         vec3 avA = abs( avN );
         vec2 avUv = avA.y > max( avA.x, avA.z )
           ? avWp.xz
@@ -635,7 +641,7 @@ function applyWorldSurface(
           }`
   mat.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${AV_VARYINGS}`)
+      .replace('#include <common>', `#include <common>\n${AV_VARYINGS}\nattribute vec4 avProjN;`)
       .replace('#include <uv_vertex>', chunk)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${AV_VARYINGS}${AV_SURFACE_PARS}`)

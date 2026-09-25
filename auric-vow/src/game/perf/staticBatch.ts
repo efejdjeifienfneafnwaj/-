@@ -77,9 +77,26 @@ const _T = new THREE.Vector3()
  * interpolation, so renormalising per vertex (as BufferGeometry.applyMatrix4
  * does) would shift the interpolated normal wherever M is non-uniform.
  */
-export function bakeTransform(g: THREE.BufferGeometry, M: THREE.Matrix4) {
+export function bakeTransform(g: THREE.BufferGeometry, M: THREE.Matrix4, worldSurface = false) {
   g.attributes.position.applyMatrix4(M)
   const n = g.attributes.normal as THREE.BufferAttribute | undefined
+  if (worldSurface) {
+    // The world-surface patch projects with normalize(mat3(model) * normal),
+    // which is not the lighting normal under a non-uniform scale. Carry that
+    // exact vector per vertex (see materials.ts, avProjN); w = 0 marks it.
+    const count = g.attributes.position.count
+    const pn = new Float32Array(count * 4)
+    const e = M.elements
+    if (n) {
+      for (let i = 0; i < count; i++) {
+        const x = n.getX(i), y = n.getY(i), z = n.getZ(i)
+        pn[i * 4] = e[0] * x + e[4] * y + e[8] * z
+        pn[i * 4 + 1] = e[1] * x + e[5] * y + e[9] * z
+        pn[i * 4 + 2] = e[2] * x + e[6] * y + e[10] * z
+      }
+    }
+    g.setAttribute('avProjN', new THREE.BufferAttribute(pn, 4))
+  }
   if (n) n.applyMatrix3(_N3.getNormalMatrix(M))
   const t = g.attributes.tangent as THREE.BufferAttribute | undefined
   if (t) {
@@ -91,48 +108,6 @@ export function bakeTransform(g: THREE.BufferGeometry, M: THREE.Matrix4) {
     }
   }
   for (const k in g.attributes) g.attributes[k].needsUpdate = true
-}
-
-const _axisAligned = new WeakMap<THREE.BufferGeometry, boolean>()
-
-function normalsAxisAligned(g: THREE.BufferGeometry): boolean {
-  const cached = _axisAligned.get(g)
-  if (cached !== undefined) return cached
-  const n = g.attributes.normal as THREE.BufferAttribute | undefined
-  let ok = true
-  if (n) {
-    for (let i = 0; i < n.count && ok; i++) {
-      const nz =
-        (Math.abs(n.getX(i)) > 1e-4 ? 1 : 0) +
-        (Math.abs(n.getY(i)) > 1e-4 ? 1 : 0) +
-        (Math.abs(n.getZ(i)) > 1e-4 ? 1 : 0)
-      if (nz > 1) ok = false
-    }
-  }
-  _axisAligned.set(g, ok)
-  return ok
-}
-
-function uniformScale(M: THREE.Matrix4): boolean {
-  const e = M.elements
-  const a = Math.hypot(e[0], e[1], e[2])
-  const b = Math.hypot(e[4], e[5], e[6])
-  const c = Math.hypot(e[8], e[9], e[10])
-  const lo = Math.min(a, b, c)
-  return lo > 0 && Math.max(a, b, c) / lo < 1 + 1e-4
-}
-
-/**
- * The world-surface patch derives its projection normal as
- * normalize(mat3(modelMatrix) * normal), while three's lighting uses the
- * true normal matrix. The two only agree under a uniform scale or on normals
- * that lie along a local axis. A baked mesh has an identity model matrix, so
- * it can match one of them, not both: pieces where they disagree stay as
- * they are, or the texture projection would change on them.
- */
-export function bakeKeepsSurface(mat: THREE.Material, g: THREE.BufferGeometry, M: THREE.Matrix4): boolean {
-  if (!mat.userData.avSurfaceOpts) return true
-  return uniformScale(M) || normalsAxisAligned(g)
 }
 
 export function snapOf(o: THREE.Object3D): number[] {
@@ -226,11 +201,6 @@ export class StaticBatcher {
       _sph.copy(g.boundingSphere!).applyMatrix4(world)
       const det = world.determinant()
       if (!Number.isFinite(det) || det === 0) return rej('det')
-      if (!bakeKeepsSurface(m.material as THREE.Material, g, world)) {
-        // an instanced source must go whole or not at all
-        failedSources.add(m)
-        return rej('surfaceSkew')
-      }
       // three picks the front face from the OBJECT's matrixWorld alone, never
       // from an instance matrix, so a mirrored instance of an unmirrored
       // InstancedMesh is drawn with the object's winding. The bake keeps
@@ -312,7 +282,7 @@ export class StaticBatcher {
         g.clearGroups()
         _M.copy(it.world)
         if (mirrored) _M.premultiply(_S)
-        bakeTransform(g, _M)
+        bakeTransform(g, _M, !!(first.material as THREE.Material).userData.avSurfaceOpts)
         baked.push(g)
       }
       const merged = mergeGeometries(baked, false)
