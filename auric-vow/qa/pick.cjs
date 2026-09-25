@@ -63,7 +63,15 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
           }
           if (best < Infinity) {
             let path = []; for (let n = m; n && n !== scene; n = n.parent) path.push(n.name || n.type)
-            hits.push({ t: +best.toFixed(2), name: path.slice(0, 5).join(' < '), layers: m.layers.mask, inst: m.isInstancedMesh ? k : -1, fc: m.frustumCulled, mat: m.material?.type + ':' + (m.material?.name || ''), tr: !!m.material?.transparent, perf: JSON.stringify(Object.keys(m.userData).filter((x) => x.startsWith('__perf'))) })
+            // would three's frustum test keep it? (cached bounds, as the renderer sees them)
+            let inFr = null
+            if (!m.isInstancedMesh && m.geometry.boundingSphere) {
+              camera.updateMatrixWorld(); const pm = new M().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); const e = pm.elements
+              const pl = [[e[3]-e[0],e[7]-e[4],e[11]-e[8],e[15]-e[12]],[e[3]+e[0],e[7]+e[4],e[11]+e[8],e[15]+e[12]],[e[3]+e[1],e[7]+e[5],e[11]+e[9],e[15]+e[13]],[e[3]-e[1],e[7]-e[5],e[11]-e[9],e[15]-e[13]],[e[3]-e[2],e[7]-e[6],e[11]-e[10],e[15]-e[14]],[e[3]+e[2],e[7]+e[6],e[11]+e[10],e[15]+e[14]]].map((p) => { const l = Math.hypot(p[0], p[1], p[2]); return p.map((v) => v / l) })
+              const cc = m.geometry.boundingSphere.center.clone().applyMatrix4(m.matrixWorld); const rr = m.geometry.boundingSphere.radius * m.matrixWorld.getMaxScaleOnAxis()
+              inFr = pl.every((p) => p[0] * cc.x + p[1] * cc.y + p[2] * cc.z + p[3] >= -rr)
+            }
+            hits.push({ inFr, uuid: m.uuid.slice(0, 8), t: +best.toFixed(2), name: path.slice(0, 5).join(' < '), layers: m.layers.mask, inst: m.isInstancedMesh ? k : -1, fc: m.frustumCulled, mat: m.material?.type + ':' + (m.material?.name || ''), tr: !!m.material?.transparent, perf: JSON.stringify(Object.keys(m.userData).filter((x) => x.startsWith('__perf'))) })
           }
         }
       })

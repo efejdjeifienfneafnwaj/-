@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { attrSignature, sameSnap, snapOf } from './staticBatch'
+import { attrSignature, bakeTransform, sameSnap, snapOf } from './staticBatch'
 
 const _S = new THREE.Matrix4().makeScale(-1, 1, 1)
 const _M = new THREE.Matrix4()
@@ -172,7 +172,7 @@ export class LocalBatcher {
       g.clearGroups()
       _M.copy(m.matrix)
       if (mirrored) _M.premultiply(_S)
-      g.applyMatrix4(_M)
+      bakeTransform(g, _M)
       baked.push(g)
     }
     const merged = mergeGeometries(baked, false)

@@ -61,9 +61,37 @@ const INSTANCED_BAKE_MAX_TRIS = 60000
 interface Item {
   mesh: THREE.Mesh
   world: THREE.Matrix4
+  /** the source object's own winding (see build) */
+  mirrored: boolean
 }
 const _M = new THREE.Matrix4()
 const _sph = new THREE.Sphere()
+
+const _N3 = new THREE.Matrix3()
+const _T = new THREE.Vector3()
+
+/**
+ * Bake a transform into a geometry the way the vertex shader would have
+ * applied it: positions by M, normals by M's normal matrix and tangents by
+ * M's upper 3x3 — WITHOUT renormalising. The shader normalises only after
+ * interpolation, so renormalising per vertex (as BufferGeometry.applyMatrix4
+ * does) would shift the interpolated normal wherever M is non-uniform.
+ */
+export function bakeTransform(g: THREE.BufferGeometry, M: THREE.Matrix4) {
+  g.attributes.position.applyMatrix4(M)
+  const n = g.attributes.normal as THREE.BufferAttribute | undefined
+  if (n) n.applyMatrix3(_N3.getNormalMatrix(M))
+  const t = g.attributes.tangent as THREE.BufferAttribute | undefined
+  if (t) {
+    for (let i = 0; i < t.count; i++) {
+      const x = t.getX(i), y = t.getY(i), z = t.getZ(i)
+      const e = M.elements
+      _T.set(e[0] * x + e[4] * y + e[8] * z, e[1] * x + e[5] * y + e[9] * z, e[2] * x + e[6] * y + e[10] * z)
+      t.setXYZ(i, _T.x, _T.y, _T.z)
+    }
+  }
+  for (const k in g.attributes) g.attributes[k].needsUpdate = true
+}
 
 export function snapOf(o: THREE.Object3D): number[] {
   const p = o.position, q = o.quaternion, s = o.scale
@@ -156,6 +184,11 @@ export class StaticBatcher {
       _sph.copy(g.boundingSphere!).applyMatrix4(world)
       const det = world.determinant()
       if (!Number.isFinite(det) || det === 0) return rej('det')
+      // three picks the front face from the OBJECT's matrixWorld alone, never
+      // from an instance matrix, so a mirrored instance of an unmirrored
+      // InstancedMesh is drawn with the object's winding. The bake keeps
+      // exactly that rule.
+      const mirrored = m.matrixWorld.determinant() < 0
       const cell = `${Math.floor(_sph.center.x / BATCH_CELL)},${Math.floor(_sph.center.z / BATCH_CELL)}`
       const mat = m.material as THREE.Material
       const key = [
@@ -164,7 +197,7 @@ export class StaticBatcher {
         m.receiveShadow ? 1 : 0,
         m.layers.mask,
         m.renderOrder,
-        det < 0 ? '-' : '+',
+        mirrored ? '-' : '+',
         m.customDepthMaterial?.uuid ?? '',
         m.customDistanceMaterial?.uuid ?? '',
         sig,
@@ -172,7 +205,7 @@ export class StaticBatcher {
       ].join('|')
       let list = groups.get(key)
       if (!list) groups.set(key, (list = []))
-      list.push({ mesh: m, world: world.clone() })
+      list.push({ mesh: m, world: world.clone(), mirrored })
     }
 
     root.traverse((o) => {
@@ -225,14 +258,14 @@ export class StaticBatcher {
         continue
       }
       const first = list[0].mesh
-      const mirrored = list[0].world.determinant() < 0
+      const mirrored = list[0].mirrored
       const baked: THREE.BufferGeometry[] = []
       for (const it of list) {
         const g = it.mesh.geometry.clone()
         g.clearGroups()
         _M.copy(it.world)
         if (mirrored) _M.premultiply(_S)
-        g.applyMatrix4(_M)
+        bakeTransform(g, _M)
         baked.push(g)
       }
       const merged = mergeGeometries(baked, false)
