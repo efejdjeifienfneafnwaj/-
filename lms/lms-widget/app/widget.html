@@ -518,18 +518,17 @@ tbody tr.sel td.stick{background:var(--acc-soft);}
     linear-gradient(180deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,0) 50%,rgba(255,255,255,.12) 100%);
 }
 .gate .hero-img,.gate .hero-file{filter:saturate(1.08);transform-origin:58% 45%;
-  animation:heroDrift 42s ease-in-out infinite alternate;will-change:transform;}
-/* 背景の写真をゆっくり寄せて横に流す（静止画をゆっくり動かす）。気づくか気づかないかの速さ */
+  transform-origin:50% 50%;animation:heroDrift 26s ease-in-out infinite alternate;will-change:transform;}
+/* 背景の写真を横に大きく流す（右 → 左 → 右）。1.22倍に広げてあるので、左右に8%動かしても端は見えない */
 @keyframes heroDrift{
-  0%  {transform:scale(1.04) translate3d(0,0,0);}
-  50% {transform:scale(1.1) translate3d(-1.4%,-.8%,0);}
-  100%{transform:scale(1.07) translate3d(1.2%,-1.4%,0);}
+  0%  {transform:scale(1.22) translate3d(8%,0,0);}
+  100%{transform:scale(1.22) translate3d(-8%,-1%,0);}
 }
 /* 窓から差す光の筋が、ゆっくり横切る */
 .hero::after{
   content:"";position:absolute;inset:-20% -40%;pointer-events:none;
-  background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.28) 46%,rgba(255,255,255,.08) 52%,transparent 60%);
-  animation:heroLight 16s ease-in-out infinite;
+  background:linear-gradient(105deg,transparent 36%,rgba(255,255,255,.42) 45%,rgba(255,255,255,.12) 51%,transparent 60%);
+  animation:heroLight 9s ease-in-out infinite;
 }
 @keyframes heroLight{0%{transform:translateX(-35%);opacity:0;}20%{opacity:1;}60%{opacity:1;}100%{transform:translateX(35%);opacity:0;}}
 @media (prefers-reduced-motion:reduce){ .gate .hero-img,.gate .hero-file,.hero::after{animation:none;} }
