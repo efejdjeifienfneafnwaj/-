@@ -71,6 +71,9 @@ FORMS = [
     ('requested_by', '依頼した人', T), ('requested_at', '依頼日時', T),
     ('status', '状態（ワークフローが書く）', T), ('sent_count', '送った数（ワークフローが書く）', N),
     ('sent_at', '送った日時（ワークフローが書く）', T)]),
+  ('Lms_Chat_Form', 'Lms_Chat_Report', '【システム用】チャット', 'チャット', [
+    ('chat_key', '発言キー', T), ('room', '部屋', T), ('chat_month', '月（YYYY-MM）', T),
+    ('person_name', '発言した人', T), ('body', '本文', A), ('posted_at', '日時', T), ('deleted', '削除', T)]),
   ('Lms_React_Form', 'Lms_React_Report', '【システム用】いいね・コメント', 'いいね・コメント', [
     ('react_key', '反応キー', T), ('post_key', '投稿キー', T), ('kind', '種別', T),
     ('person_name', '名前', T), ('body', 'コメント本文', A), ('at', '日時', T), ('deleted', '削除', T)]),

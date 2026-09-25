@@ -3043,6 +3043,104 @@ application "PortalNavi"
 				}
 			}
 		}
+		form Lms_Chat_Form
+		{
+			displayname = "【システム用】チャット"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			chat_key
+			(
+				type = text
+				displayname = "発言キー"
+				row = 1
+				column = 1
+				width = medium
+			)
+			room
+			(
+				type = text
+				displayname = "部屋"
+				row = 1
+				column = 1
+				width = medium
+			)
+			chat_month
+			(
+				type = text
+				displayname = "月（YYYY-MM）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			person_name
+			(
+				type = text
+				displayname = "発言した人"
+				row = 1
+				column = 1
+				width = medium
+			)
+			body
+			(
+				type = textarea
+				displayname = "本文"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			posted_at
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deleted
+			(
+				type = text
+				displayname = "削除"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
 		form Lms_React_Form
 		{
 			displayname = "【システム用】いいね・コメント"
@@ -3562,6 +3660,20 @@ application "PortalNavi"
 				sent_at as "送った日時（ワークフローが書く）"
 			)
 		}
+		list Lms_Chat_Report
+		{
+			displayName = "チャット"
+			show all rows from Lms_Chat_Form
+			(
+				chat_key as "発言キー"
+				room as "部屋"
+				chat_month as "月（YYYY-MM）"
+				person_name as "発言した人"
+				body as "本文"
+				posted_at as "日時"
+				deleted as "削除"
+			)
+		}
 		list Lms_React_Report
 		{
 			displayName = "いいね・コメント"
@@ -3708,6 +3820,10 @@ application "PortalNavi"
 				label placement = left
 			}
 			form Lms_Mail_Form
+			{
+				label placement = left
+			}
+			form Lms_Chat_Form
 			{
 				label placement = left
 			}
@@ -5696,6 +5812,86 @@ application "PortalNavi"
 					)
 				)
 			}
+			report Lms_Chat_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+										chat_key as "発言キー"
+										room as "部屋"
+										chat_month as "月（YYYY-MM）"
+										person_name as "発言した人"
+										body as "本文"
+										posted_at as "日時"
+										deleted as "削除"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+										chat_key as "発言キー"
+										room as "部屋"
+										chat_month as "月（YYYY-MM）"
+										person_name as "発言した人"
+										body as "本文"
+										posted_at as "日時"
+										deleted as "削除"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
 			report Lms_React_Report
 			{
 				quickview
@@ -5879,6 +6075,10 @@ application "PortalNavi"
 					{
 						icon = "files-paper"
 					}
+					report Lms_Chat_Report
+					{
+						icon = "files-paper"
+					}
 					report Lms_React_Report
 					{
 						icon = "files-paper"
@@ -5968,6 +6168,10 @@ application "PortalNavi"
 						icon = "ui-2-settings-90"
 					}
 					form Lms_Mail_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Lms_Chat_Form
 					{
 						icon = "ui-2-settings-90"
 					}
@@ -6104,6 +6308,10 @@ application "PortalNavi"
 			{
 				label placement = auto
 			}
+			form Lms_Chat_Form
+			{
+				label placement = auto
+			}
 			form Lms_React_Form
 			{
 				label placement = auto
@@ -6213,6 +6421,10 @@ application "PortalNavi"
 				label placement = auto
 			}
 			form Lms_Mail_Form
+			{
+				label placement = auto
+			}
+			form Lms_Chat_Form
 			{
 				label placement = auto
 			}

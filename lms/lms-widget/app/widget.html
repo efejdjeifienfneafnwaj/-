@@ -1158,6 +1158,73 @@ button.ptag:hover{filter:brightness(.96);text-decoration:underline;}
   font-size:13px;line-height:1.6;box-shadow:0 10px 30px rgba(10,20,30,.4);
 }
 .holdbar[hidden]{display:none;}
+/* チャット */
+.chat-wrap{max-width:1180px;}
+.chat{display:grid;grid-template-columns:290px minmax(0,1fr);height:calc(100vh - var(--top-h) - 120px);min-height:460px;
+  background:var(--surface);border:1px solid var(--rule);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--sh);}
+.chat-rooms{display:grid;grid-template-rows:auto 1fr auto;border-right:1px solid var(--rule);background:var(--surface-2);min-height:0;}
+.chr-h{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:14px 14px 10px;}
+.chr-h b{display:flex;align-items:center;gap:7px;font-size:15px;color:var(--ink);}
+.chr-h b .ic{color:var(--acc);}
+.chr-list{overflow:auto;padding:0 8px 8px;display:grid;align-content:start;gap:2px;}
+.chr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;text-align:left;color:var(--ink);}
+.chr:hover{background:var(--surface);}
+.chr[aria-current="true"]{background:var(--acc-soft);box-shadow:inset 3px 0 0 var(--acc);}
+.chr-ic{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--surface);border:1px solid var(--rule);color:var(--acc);}
+.chr-t{display:grid;min-width:0;}
+.chr-t b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chr-t small{font-size:11.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.chr-n{min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#e5484d;color:#fff;font-size:11.5px;font-weight:700;display:grid;place-items:center;}
+.chat-note{display:flex;gap:6px;margin:0;padding:10px 14px 14px;font-size:11.5px;line-height:1.6;color:var(--ink-3);border-top:1px solid var(--rule);}
+.chat-note .ic{flex:none;margin-top:2px;}
+.chat-main{position:relative;display:grid;grid-template-rows:auto minmax(0,1fr) auto;min-height:0;}
+.chat-top{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--rule);}
+.chat-top-t{display:grid;min-width:0;flex:1;}
+.chat-top-t b{font-size:15.5px;color:var(--ink);}
+.chat-top-t small{font-size:12px;color:var(--ink-3);}
+.chat-back{display:none;}
+.chat-log{overflow:auto;padding:12px 18px 18px;display:grid;align-content:start;gap:2px;background:var(--surface);}
+.cm-more{display:flex;justify-content:center;padding:4px 0 10px;}
+.cm-day{display:flex;align-items:center;gap:10px;margin:12px 0 6px;font-size:11.5px;color:var(--ink-3);font-weight:700;}
+.cm-day::before,.cm-day::after{content:"";flex:1;height:1px;background:var(--rule);}
+.cm{position:relative;display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:10px;align-items:start;padding:3px 0;}
+.cm.mine{grid-template-columns:auto minmax(0,1fr);justify-items:end;}
+.cm-av .ava{width:36px;height:36px;font-size:14px;}
+.cm-b{display:grid;gap:3px;max-width:min(560px,100%);}
+.cm.mine .cm-b{justify-items:end;}
+.cm-h{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--ink-3);margin-top:6px;}
+.cm-h b{font-size:12.5px;color:var(--ink);}
+.cm-t{padding:8px 12px;border-radius:4px 14px 14px 14px;background:var(--surface-2);border:1px solid var(--rule);
+  font-size:14px;line-height:1.65;color:var(--ink);word-break:break-word;white-space:normal;}
+.cm.mine .cm-t{border-radius:14px 4px 14px 14px;background:var(--pri);border-color:var(--pri);color:#fff;}
+.cm.mine .cm-t a{color:#fff;}
+.cm-t a{color:var(--acc);text-decoration:underline;}
+.cm-st{font-size:11px;color:var(--ink-3);}
+.cm-st.bad{color:var(--bad-ink);}
+.cm-del{opacity:0;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--ink-3);align-self:center;}
+.cm:hover .cm-del,.cm-del:focus-visible{opacity:1;}
+.cm-del:hover{background:var(--bad-soft);color:var(--bad-ink);}
+.cm-del .ic{font-size:12px;}
+.cm.mine .cm-del{order:-1;}
+.cm-empty{display:grid;justify-items:center;gap:6px;padding:60px 20px;color:var(--ink-3);font-size:13px;text-align:center;}
+.cm-empty .ic{font-size:30px;color:var(--acc);}
+.cm-empty b{color:var(--ink);font-size:14.5px;}
+.chat-form{display:flex;gap:10px;align-items:flex-end;padding:12px 16px;border-top:1px solid var(--rule);background:var(--surface);}
+.chat-form textarea{flex:1;resize:none;min-height:44px;max-height:160px;line-height:1.6;}
+.chat-newpill{position:absolute;left:50%;bottom:84px;transform:translateX(-50%);display:inline-flex;align-items:center;gap:6px;
+  padding:7px 14px;border-radius:999px;background:var(--pri);color:#fff;font-size:12.5px;font-weight:700;box-shadow:var(--sh-2);}
+.chat-newpill[hidden]{display:none;}
+.chat-edit{padding:22px;display:grid;gap:14px;align-content:start;max-width:520px;}
+.chat-edit h3{margin:0;font-size:16px;}
+@media (max-width:860px){
+  .chat{grid-template-columns:1fr;height:calc(100vh - var(--top-h) - 96px);}
+  .chat .chat-main{display:none;}
+  .chat.open .chat-rooms{display:none;}
+  .chat.open .chat-main{display:grid;}
+  .chat-back{display:inline-flex;}
+  .chat-log{padding:10px 12px 14px;}
+  .cm-del{opacity:1;}
+}
 /* 重要なお知らせの帯（どのアプリでも上に出す） */
 .alertbar{padding:12px 26px 0;}
 .alertbar[hidden]{display:none;}
@@ -1374,7 +1441,8 @@ var SVG = {
   trophy:'<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/>',
   history:'<path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.2 4v4h4"/><path d="M12 7.6V12l3.2 2"/>',
   target:'<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
-  flag:'<path d="M6 3.5V21"/><path d="M6 4.6h12l-2.4 4.4L18 13.4H6z"/>'
+  flag:'<path d="M6 3.5V21"/><path d="M6 4.6h12l-2.4 4.4L18 13.4H6z"/>',
+  chat:'<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z"/><path d="M8 9h8M8 12.2h5"/>'
 };
 function ic(name, cls){
   return '<span class="ic' + (cls ? ' ' + cls : '') + '" aria-hidden="true">' +
@@ -1651,7 +1719,9 @@ var FORM = {
   /* 自動リマインド（Creator のスケジュールが、この表を見てメールを送る） */
   remind:'Lms_Remind_Form', remindR:'Lms_Remind_Report',
   /* 重要なお知らせのメール。行が増えたら Creator のワークフローが1人ずつ送る */
-  mail:  'Lms_Mail_Form',   mailR:  'Lms_Mail_Report'
+  mail:  'Lms_Mail_Form',   mailR:  'Lms_Mail_Report',
+  /* 社内コミュニティのチャット（部屋ごとの発言） */
+  chat:  'Lms_Chat_Form',   chatR:  'Lms_Chat_Report'
 };
 var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 /* ポータルにログインしている人のメールアドレス。
@@ -1659,15 +1729,15 @@ var ON_CREATOR = (typeof ZOHO !== 'undefined' && !!ZOHO.CREATOR);
 var LOGIN_EMAIL = '';
 
 var MEM = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{}, reminds:{}, mails:{},
+            posts:{}, reacts:{}, reminds:{}, mails:{}, chats:{},
             courses:null, config:null };                     /* 画面が読む写し */
 var RID = { people:{}, records:{}, quizzes:{}, daily:{}, surveys:{}, news:{},
-            posts:{}, reacts:{}, reminds:{}, mails:{},
+            posts:{}, reacts:{}, reminds:{}, mails:{}, chats:{},
             courses:null };                                  /* Creatorのレコード番号 */
 /* kind → RID の中のどの入れ物を使うか（'quiz' は 'quizzes' なので機械的に s を付けられない） */
 var RID_BOX = { person:'people', record:'records', quiz:'quizzes', daily:'daily',
                 survey:'surveys', news:'news', post:'posts', react:'reacts', remind:'reminds',
-                mail:'mails' };
+                mail:'mails', chat:'chats' };
 var LOADED = { person:'', all:false, truncated:false, daily:'',
                partial:false,   /* 読めなかったものがあった */
                lastErr:'' };
@@ -1707,6 +1777,7 @@ MEM.posts   = KEEP_LOCAL ? LS.get('posts', {})   : {};
 MEM.reacts  = KEEP_LOCAL ? LS.get('reacts', {})  : {};
 MEM.reminds = KEEP_LOCAL ? LS.get('reminds', {}) : {};
 MEM.mails   = KEEP_LOCAL ? LS.get('mails', {})   : {};
+MEM.chats   = KEEP_LOCAL ? LS.get('chats', {})   : {};
 MEM.courses = KEEP_LOCAL ? LS.get('courses', null) : null;
 MEM.config  = KEEP_LOCAL ? LS.get('config', null) : null;
 /* この仕組みを入れる前に保存された記録を、年度つきのキーに直す（起動時に1回だけ） */
@@ -2557,12 +2628,13 @@ function pollNow(){
   var u = me();
   if(!u || !u.name) return Promise.resolve();
   POLL.busy = true;
-  var beforeN = newsUnread(myPerson()), beforeF = feedUnread();
+  var beforeN = newsUnread(myPerson()), beforeF = feedUnread(), beforeC = chatUnread();
   /* 掲示板を開いているときは feedWatch が見ているので、こちらは読まない */
   var watching = (VIEW_NOW === 'feed' || VIEW_NOW === 'thanks' || VIEW_NOW === 'awards');
   var jobs = [];
   if(!MISSING.news) jobs.push(function(){ return loadNews(); });
   if(!watching && !MISSING.post) jobs.push(function(){ return loadFeed(); });
+  if(APP_NOW === 'connect' && VIEW_NOW !== 'chat' && !MISSING.chat) jobs.push(function(){ return loadChatMonth(curMonth()); });
   /* 変更を、相手が再読み込みしなくても見えるように：コース定義・設定・名簿も読み直す。
      一覧の画面にいるときは、変わっていれば描き直す（動画・テスト・入力中の画面は触らない） */
   var before = JSON.stringify([courses(), config(), Object.keys(people() || {}).sort()]);
@@ -2575,16 +2647,17 @@ function pollNow(){
   return runLimited(jobs, 1)
     .then(function(){
       drawAlert();
-      var n = newsUnread(myPerson()) - beforeN, f = feedUnread() - beforeF;
+      var n = newsUnread(myPerson()) - beforeN, f = feedUnread() - beforeF, c = chatUnread() - beforeC;
       var changed = JSON.stringify([courses(), config(), Object.keys(people() || {}).sort()]) !== before;
       if((changed || adminList || mineList) && REFRESH_OK[VIEW_NOW]){
         if(changed) applyTheme();
         route(VIEW_NOW);
       }
-      if(n <= 0 && f <= 0) return;
+      if(n <= 0 && f <= 0 && c <= 0) return;
       var msg = [];
       if(n > 0) msg.push('お知らせ ' + n + ' 件');
       if(f > 0) msg.push('掲示板 ' + f + ' 件');
+      if(c > 0) msg.push('チャット ' + c + ' 件');
       toast('新しい' + msg.join('と') + 'が届いています');
       /* メニューの数字を直し、いま見ている画面が一覧ならその場で描き直す */
       if(VIEW_NOW) drawNav(VIEW_NOW);
@@ -2650,6 +2723,8 @@ var DEFAULT_CONFIG = {
   remindOn:true,
   /* 重要なお知らせのメールに載せるポータルのURL */
   portalUrl:'',
+  /* チャットで管理者が作った部屋 [{id, name, desc, target, off}] */
+  chatRooms:[],
   remindSubject:'【研修】未修了の研修のご案内',
   remindBody:'{name} さん\n\nお疲れさまです。研修の受講状況をご連絡します。\n' +
              '下記の研修が未修了となっています。期限までにご受講ください。\n\n{list}\n\n' +
@@ -3225,6 +3300,7 @@ function isMissingBox(e){
 var BOX_LABEL = {
   remind:'自動リマインド（Lms_Remind）', news:'お知らせ（Lms_News）',
   mail:'重要なお知らせのメール（Lms_Mail）',
+  chat:'チャット（Lms_Chat）',
   post:'掲示板（Lms_Post）',            react:'いいね・コメント（Lms_React）',
   record:'視聴記録（Lms_Record）',      quiz:'テスト結果（Lms_Quiz）',
   survey:'アンケート（Lms_Survey）',    daily:'学習時間（Lms_Daily）',
@@ -3355,6 +3431,13 @@ function payloadFor(kind, key){
     if(nw.important) np.important = 'true';
     return np;
   }
+  if(kind === 'chat'){
+    var ch = MEM.chats[key];
+    if(!ch) return null;
+    return { chat_key:key, room:ch.room || 'all', chat_month:localMonth(ch.at),
+             person_name:ch.by || '', body:ch.body || '', posted_at:ch.at || '',
+             deleted:ch.deleted ? 'あり' : '' };
+  }
   if(kind === 'mail'){
     var ml = MEM.mails[key];
     if(!ml) return null;
@@ -3469,7 +3552,7 @@ var KEY_FIELD = { course:null, person:'person_key', record:'rec_key',
                   quiz:'quiz_key', daily:'day_key',
                   survey:'survey_key', news:'news_key',
                   post:'post_key', react:'react_key', remind:'remind_key',
-                  mail:'mail_key' };
+                  mail:'mail_key', chat:'chat_key' };
 
 /* 行列の見た目。預かりだけが残っているときは、受講者を不安にさせない言い方にする */
 function syncRest(){
@@ -3743,6 +3826,20 @@ function rowsToNews(rows){
   });
   cacheFlush('news');
 }
+function rowsToChats(rows){
+  rows.forEach(function(r){
+    var k = r.chat_key;
+    if(!k) return;
+    if(r.ID) RID.chats[k] = String(r.ID);
+    /* まだ Creator へ送っていない変更（消した等）は、読み込んだ古い行で上書きしない */
+    if(SYNC.pend['chat\u0000' + k]) return;
+    MEM.chats[k] = { id:k, room:r.room || 'all', by:r.person_name || '', body:r.body || '',
+                     at:r.posted_at || '', deleted:String(r.deleted || '') !== '' };
+    if(r.ID) RID.chats[k] = String(r.ID);
+  });
+  cacheFlush('chats');
+  return rows.length;
+}
 function rowsToMails(rows){
   rows.forEach(function(r){
     var k = r.mail_key;
@@ -3761,6 +3858,8 @@ function rowsToPosts(rows){
   rows.forEach(function(r){
     var k = r.post_key;
     if(!k) return;
+    /* まだ Creator へ送っていない変更（消した等）は、読み込んだ古い行で上書きしない */
+    if(SYNC.pend['post\u0000' + k]){ if(r.ID) RID.posts[k] = String(r.ID); return; }
     MEM.posts[k] = { id:k, kind:r.kind || 'post',
                      by:r.author_name || '', byMail:r.author_email || '',
                      to:r.to_name || '', title:r.title || '', body:r.body || '',
@@ -3774,6 +3873,7 @@ function rowsToReacts(rows){
   rows.forEach(function(r){
     var k = r.react_key;
     if(!k) return;
+    if(SYNC.pend['react\u0000' + k]){ if(r.ID) RID.reacts[k] = String(r.ID); return; }
     MEM.reacts[k] = { id:k, post:r.post_key || '', kind:r.kind || 'like',
                       by:r.person_name || '', body:r.body || '', at:r.at || '',
                       deleted:String(r.deleted || '') !== '' };
@@ -3801,10 +3901,10 @@ function stampDataset(id){
   if(prev === id) return;
   if(prev){
     console.warn('別の Creator のデータに切り替わったので、端末の控え（受講記録・送信待ち）を捨てます', prev, '→', id);
-    ['people','records','quizzes','surveys','daily','news','posts','reacts','reminds','mails','newsSeen','feedSeen','pend','noCrit']
+    ['people','records','quizzes','surveys','daily','news','posts','reacts','reminds','mails','chats','chatSeen','newsSeen','feedSeen','pend','noCrit']
       .forEach(function(k){ try{ localStorage.removeItem(LS.key(k)); }catch(e){} });
     MEM.people = {}; MEM.records = {}; MEM.quizzes = {}; MEM.surveys = {}; MEM.daily = {};
-    MEM.news = {}; MEM.posts = {}; MEM.reacts = {}; MEM.reminds = {}; MEM.mails = {};
+    MEM.news = {}; MEM.posts = {}; MEM.reacts = {}; MEM.reminds = {}; MEM.mails = {}; MEM.chats = {};
     Object.keys(RID).forEach(function(k){ if(RID[k] && typeof RID[k] === 'object') RID[k] = {}; });
     SYNC.pend = {}; SYNC.hold = {}; NO_CRIT_ALL = false;
     LOADED.all = false; LOADED.person = ''; LOADED.daily = '';
@@ -4043,7 +4143,7 @@ function leaveDevice(){
 }
 function wipeDevice(){
   ['me','admin','people','records','quizzes','surveys','daily','news','newsSeen','pend',
-   'posts','reacts','reminds','mails','feedSeen','noCrit','dataset']
+   'posts','reacts','reminds','mails','chats','chatSeen','chatRoom','feedSeen','noCrit','dataset']
     .forEach(function(k){ try{ localStorage.removeItem('lms_' + k); }catch(e){} });
   try{ sessionStorage.clear(); }catch(e){}
   location.reload();
@@ -4307,7 +4407,7 @@ function viewApps(view){
   var v = String(view || '');
   if(v === 'hub') return ['lms', 'connect', 'shinsei'];
   if(v.indexOf('s_') === 0) return ['shinsei'];
-  if(v === 'feed' || v === 'thanks' || v === 'awards' || v === 'members' || v === 'profile') return ['connect'];
+  if(v === 'feed' || v === 'chat' || v === 'thanks' || v === 'awards' || v === 'members' || v === 'profile') return ['connect'];
   /* 職員登録（職員・職種・権限）は、ログイン画面の専用の入口からだけ */
   if(v === 'aimport' || v === 'ajobs' || v === 'atitles' || v === 'aroles') return ['staff'];
   return ['lms'];
@@ -4327,6 +4427,7 @@ var NAV_USER = [
 var NAV_CONNECT = [
   { go:'hub',     icon:'folder', label:'アプリを選ぶ' },
   { go:'feed',    icon:'mail',   label:'掲示板', badge:'feed' },
+  { go:'chat',    icon:'chat',   label:'チャット', badge:'chat' },
   { go:'thanks',  icon:'medal',  label:'サンクスカード' },
   { go:'awards',  icon:'trophy', label:'表彰' },
   { go:'members', icon:'users',  label:'メンバー' },
@@ -4376,7 +4477,7 @@ function navFor(list){
 var NAV_OPEN = {};
 /* 画面 → メニューのどの項目を光らせるか */
 var NAV_OF = {
-  hub:'hub', feed:'feed', thanks:'thanks', awards:'awards', afeed:'afeed',
+  hub:'hub', feed:'feed', chat:'chat', thanks:'thanks', awards:'awards', afeed:'afeed',
   s_mine:'s_mine', s_new:'s_new', s_form:'s_new', s_inbox:'s_inbox', s_dashboard:'s_dashboard',
   s_access:'s_access', s_search:'s_search', s_finance:'s_finance', s_routes:'s_routes',
   s_admin:'s_admin', s_templates:'s_templates',
@@ -4415,11 +4516,11 @@ function drawNav(view){
   }
   var pendS = (inS && typeof App !== 'undefined' && App.pendingCount) ? App.pendingCount() : 0;
   /* 未読のお知らせと、掲示板の新着。気づけないと「通知されない」と感じるので数字で出す */
-  var pendN = 0, pendF = 0;
+  var pendN = 0, pendF = 0, pendC = 0;
   try{
     if((me() || {}).name){
       pendN = newsUnread(myPerson());
-      if(APP_NOW === 'connect') pendF = feedUnread();
+      if(APP_NOW === 'connect'){ pendF = feedUnread(); pendC = chatUnread(); }
     }
   }catch(e){}
   var cur = NAV_OF[view] || '';
@@ -4464,6 +4565,8 @@ function drawNav(view){
              ? '<span class="pill req" style="margin-left:auto">' + pendS + '</span>' : '') +
            (n.badge === 'feed' && pendF
              ? '<span class="pill req" style="margin-left:auto">' + pendF + '</span>' : '') +
+           (n.badge === 'chat' && pendC
+             ? '<span class="pill req" style="margin-left:auto">' + pendC + '</span>' : '') +
            '</button>';
     }
   });
@@ -6312,6 +6415,372 @@ function viewMemberSheet(n){
   if(ed) ed.onclick = function(){ MEM_SEL = ''; route('profile'); };
   var th = document.getElementById('memThanks');
   if(th) th.onclick = function(){ MEM_SEL = ''; FEED.to = n; route('thanks'); };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   チャット（部屋ごと）
+   ・部屋は「全員」、職種ごと（自動）、管理者が作る部屋。個人どうしの部屋は作らない
+     （Creator の表は利用者全員が読めるため。みんなが見られる前提の場にする）
+   ・読むのは今月と先月だけ。それより前は「もっと前を読む」で1か月ずつ
+   ・チャットを開いている間は、いまの部屋を数秒ごとに読みに行く
+   ══════════════════════════════════════════════════════════════ */
+var CHAT = { room:'', draft:{}, loaded:false, loading:false, oldest:{}, end:{},
+             timer:0, tick:0, atBottom:true, edit:null };
+var CHAT_EVERY = 8000;
+function localMonth(iso){
+  var d = new Date(iso || Date.now());
+  if(isNaN(d.getTime())) d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+}
+function curMonth(){ return localMonth(new Date().toISOString()); }
+function prevMonth(m){
+  var y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7)) - 1;
+  if(mo < 1){ mo = 12; y--; }
+  return y + '-' + ('0' + mo).slice(-2);
+}
+function monthLabel(m){ return Number(m.slice(0, 4)) + '年' + Number(m.slice(5, 7)) + '月'; }
+function loadChatMonth(m){
+  if(MISSING.chat) return Promise.resolve(0);
+  return fetchRows(FORM.chatR, '(chat_month == "' + crit(m) + '")').then(rowsToChats);
+}
+function loadChatRoom(room, m){
+  if(MISSING.chat) return Promise.resolve(0);
+  return fetchRows(FORM.chatR, '(room == "' + crit(room) + '") && (chat_month == "' + crit(m) + '")').then(rowsToChats);
+}
+function chatRoomsAll(){
+  var rooms = [{ id:'all', name:'全員', desc:'職員みんなの部屋です', target:'' }];
+  jobs().forEach(function(d){ rooms.push({ id:'dept:' + d, name:d, desc:d + 'の方の部屋です', target:d, auto:true }); });
+  (config().chatRooms || []).forEach(function(r){ if(r && r.id && !r.off) rooms.push(r); });
+  return rooms;
+}
+function roomVisible(r){
+  if(!r.target || canAdmin()) return true;
+  var p = myPerson();
+  return r.target === (p.dept || '') || r.target === (p.group || '');
+}
+function chatRooms(){ return chatRoomsAll().filter(roomVisible); }
+function chatMsgs(room){
+  return Object.keys(MEM.chats).map(function(k){ return MEM.chats[k]; })
+    .filter(function(m){ return m.room === room && !m.deleted; })
+    .sort(function(a, b){ return String(a.at) < String(b.at) ? -1 : String(a.at) > String(b.at) ? 1 : 0; });
+}
+function chatSeen(){ return LS.get('chatSeen', null); }
+function chatUnreadRoom(room){
+  var seen = chatSeen() || {}, s = seen[room] || seen.__start || '', mine = normName((me() || {}).name || '');
+  return chatMsgs(room).filter(function(m){ return String(m.at) > s && normName(m.by) !== mine; }).length;
+}
+function chatUnread(){
+  if(!chatSeen()) return 0;
+  var n = 0;
+  chatRooms().forEach(function(r){ n += chatUnreadRoom(r.id); });
+  return n;
+}
+function markChatSeen(room){
+  var seen = chatSeen() || { __start:nowISO() };
+  var ms = chatMsgs(room), last = ms.length ? ms[ms.length - 1].at : '';
+  seen[room] = last > (seen[room] || '') ? last : (seen[room] || nowISO());
+  LS.set('chatSeen', seen);
+}
+/* 社内コミュニティに入ったら、今月の発言を1回読んでおく（メニューの未読の数のため） */
+function chatPrime(){
+  if(CHAT.loaded || CHAT.loading || !ON_CREATOR) return;
+  CHAT.loading = true;
+  runLimited([function(){ return loadChatMonth(curMonth()); },
+              function(){ return loadChatMonth(prevMonth(curMonth())); }], 1)
+    .then(function(){
+      CHAT.loaded = true;
+      /* はじめて使う端末では、いまある発言は「読んだ」ことにする（未読が何百件にもならないように） */
+      if(!chatSeen()) LS.set('chatSeen', { __start:nowISO() });
+      if(VIEW_NOW) drawNav(VIEW_NOW);
+      if(VIEW_NOW === 'chat') redrawChat(true);
+    })
+    .catch(function(e){ console.warn('チャットを読めませんでした', e); })
+    .then(function(){ CHAT.loading = false; });
+}
+function chatSig(){
+  var n = 0, last = '';
+  Object.keys(MEM.chats).forEach(function(k){
+    var m = MEM.chats[k];
+    n += m.deleted ? 1000 : 1;
+    if(String(m.at) > last) last = String(m.at);
+  });
+  return n + '|' + last;
+}
+function chatWatch(on){
+  clearTimeout(CHAT.timer);
+  CHAT.timer = 0;
+  if(!on || !ON_CREATOR) return;
+  CHAT.timer = setTimeout(function(){
+    if(document.hidden || MISSING.chat || VIEW_NOW !== 'chat'){ chatWatch(VIEW_NOW === 'chat'); return; }
+    var before = chatSig();
+    CHAT.tick++;
+    /* ふだんは今の部屋だけ。5回に1回は、ほかの部屋の未読のために今月をまるごと */
+    var job = (CHAT.tick % 5 === 0) ? loadChatMonth(curMonth()) : loadChatRoom(CHAT.room || 'all', curMonth());
+    job.then(function(){
+      if(VIEW_NOW === 'chat' && chatSig() !== before) redrawChat();
+      chatWatch(VIEW_NOW === 'chat');
+    }).catch(function(){ chatWatch(VIEW_NOW === 'chat'); });
+  }, CHAT_EVERY);
+}
+function chatWide(){
+  try{ return window.matchMedia('(min-width:861px)').matches; }catch(e){ return true; }
+}
+function chatBodyHTML(t){
+  /* 文字はすべてエスケープしてから、URL だけをリンクにする */
+  return esc(t).replace(/(https:\/\/[^\s<>"']+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+               .replace(/\n/g, '<br>');
+}
+function chatTime(iso){
+  var d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+function chatDay(iso){
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  var w = '日月火水木金土'.charAt(d.getDay());
+  var today = new Date(), y = new Date(Date.now() - 86400000);
+  var same = function(a, b){ return a.toDateString() === b.toDateString(); };
+  if(same(d, today)) return '今日';
+  if(same(d, y)) return '昨日';
+  return (d.getMonth() + 1) + '月' + d.getDate() + '日（' + w + '）';
+}
+function chatLogHTML(room){
+  var u = me() || {}, mine = normName(u.name || ''), admin = canAdmin();
+  var ms = chatMsgs(room);
+  var oldest = CHAT.oldest[room] || prevMonth(curMonth());
+  var h = '';
+  if(ON_CREATOR){
+    h += '<div class="cm-more">' + (CHAT.end[room]
+      ? '<span class="cap">' + esc(monthLabel(oldest)) + 'より前の発言はありません</span>'
+      : '<button class="btn sub sm" id="chMore">' + ic('history') + esc(monthLabel(prevMonth(oldest))) + 'の発言を読む</button>') + '</div>';
+  }
+  if(!ms.length){
+    return h + '<div class="cm-empty">' + ic('chat') + '<b>まだ発言がありません</b><span>最初のひとことをどうぞ。</span></div>';
+  }
+  var lastDay = '', lastBy = '', lastT = 0;
+  ms.forEach(function(m){
+    var day = chatDay(m.at), t = Date.parse(m.at) || 0;
+    if(day !== lastDay){ h += '<div class="cm-day"><span>' + esc(day) + '</span></div>'; lastBy = ''; }
+    var me2 = normName(m.by) === mine;
+    var cont = m.by === lastBy && t - lastT < 5 * 60000;
+    var k = 'chat\u0000' + m.id;
+    var st = SYNC.hold[k] ? '<span class="cm-st bad">未送信（表がありません）</span>'
+           : SYNC.pend[k] ? '<span class="cm-st">送信中…</span>' : '';
+    h += '<div class="cm' + (me2 ? ' mine' : '') + (cont ? ' cont' : '') + '" data-cid="' + esc(m.id) + '">' +
+         (me2 ? '' : '<span class="cm-av">' + (cont ? '' : ava(m.by)) + '</span>') +
+         '<div class="cm-b">' +
+           (cont ? '' : '<div class="cm-h">' + (me2 ? '' : '<b>' + esc(m.by) + '</b>') + '<time>' + esc(chatTime(m.at)) + '</time></div>') +
+           '<div class="cm-t">' + chatBodyHTML(m.body) + '</div>' + st +
+         '</div>' +
+         ((me2 || admin) ? '<button class="cm-del" data-cdel="' + esc(m.id) + '" aria-label="この発言を消す">' + ic('cross') + '</button>' : '') +
+         '</div>';
+    lastDay = day; lastBy = m.by; lastT = t;
+  });
+  return h;
+}
+function chatRoomsHTML(){
+  var h = '';
+  chatRooms().forEach(function(r){
+    var ms = chatMsgs(r.id), last = ms[ms.length - 1], n = chatUnreadRoom(r.id);
+    h += '<button class="chr" data-room="' + esc(r.id) + '"' + (r.id === CHAT.room ? ' aria-current="true"' : '') + '>' +
+         '<span class="chr-ic">' + (r.id === 'all' ? ic('users') : r.auto ? ic('medal') : ic('chat')) + '</span>' +
+         '<span class="chr-t"><b>' + esc(r.name) + '</b><small>' +
+           (last ? esc(last.by) + '：' + esc(String(last.body).replace(/\s+/g, ' ').slice(0, 26)) : esc(r.desc || '')) +
+         '</small></span>' +
+         (n && r.id !== CHAT.room ? '<span class="chr-n">' + n + '</span>' : '') +
+         '</button>';
+  });
+  return h;
+}
+function viewChat(){
+  var rooms = chatRooms();
+  if(CHAT.room && !rooms.some(function(r){ return r.id === CHAT.room; })) CHAT.room = '';
+  if(!CHAT.room && chatWide()){
+    var keep = LS.get('chatRoom', '');
+    CHAT.room = rooms.some(function(r){ return r.id === keep; }) ? keep : 'all';
+  }
+  var room = rooms.filter(function(r){ return r.id === CHAT.room; })[0];
+  var admin = canAdmin();
+  var h = '<div class="wrap chat-wrap"><div class="chat' + (CHAT.room ? ' open' : '') + '">';
+  h += '<aside class="chat-rooms"><div class="chr-h"><b>' + ic('chat') + 'チャット</b>' +
+       (admin ? '<button class="btn sub sm" id="chNew">' + ic('plus') + '部屋を作る</button>' : '') + '</div>' +
+       '<div class="chr-list" id="chRooms">' + chatRoomsHTML() + '</div>' +
+       '<p class="chat-note">' + ic('eye') + 'チャットは職員みんなが見られる場です。個人的なやりとりや、利用者さまの個人情報は書かないでください。</p></aside>';
+  h += '<section class="chat-main">';
+  if(CHAT.edit){
+    h += chatEditHTML();
+  }else if(room){
+    h += '<header class="chat-top">' +
+         '<button class="btn sub sm chat-back" id="chBack" aria-label="部屋の一覧へ">' + ic('back') + '</button>' +
+         '<div class="chat-top-t"><b># ' + esc(room.name) + '</b><small>' + esc(room.desc || '') +
+           (room.target ? '（' + esc(room.target) + 'の方と管理者が見られます）' : '') + '</small></div>' +
+         (admin && !room.auto && room.id !== 'all' ? '<button class="btn sub sm" id="chEdit">' + ic('gear') + '部屋の設定</button>' : '') +
+         '</header>';
+    h += '<div class="chat-log" id="chLog" aria-live="polite">' + chatLogHTML(room.id) + '</div>';
+    h += '<button class="chat-newpill" id="chNewPill" hidden>' + ic('chat') + '新しい発言があります</button>';
+    h += '<div class="chat-form"><textarea class="inp" id="chIn" rows="1" maxlength="1000" placeholder="# ' + esc(room.name) +
+         ' に書く（Enter で送信・Shift+Enter で改行）">' + esc(CHAT.draft[room.id] || '') + '</textarea>' +
+         '<button class="btn" id="chSend">' + ic('chat') + '送信</button></div>';
+  }else{
+    h += '<div class="cm-empty">' + ic('chat') + '<b>部屋を選んでください</b></div>';
+  }
+  h += '</section></div></div>';
+  document.getElementById('main').innerHTML = h;
+  if(room && !CHAT.edit){ markChatSeen(room.id); LS.set('chatRoom', room.id); }
+  drawNav('chat');
+  bindChat();
+  if(ON_CREATOR && !CHAT.loaded) chatPrime();
+}
+/* 入力中の文字や位置を消さないよう、発言と部屋の一覧だけを描き直す */
+function redrawChat(toBottom){
+  var log = document.getElementById('chLog');
+  if(!log){ if(VIEW_NOW === 'chat' && !CHAT.edit) viewChat(); return; }
+  var atBottom = toBottom || CHAT.atBottom;
+  var before = log.scrollHeight;
+  log.innerHTML = chatLogHTML(CHAT.room);
+  var rl = document.getElementById('chRooms');
+  if(rl){ rl.innerHTML = chatRoomsHTML(); bindChatRooms(); }
+  bindChatLog();
+  if(atBottom){ log.scrollTop = log.scrollHeight; markChatSeen(CHAT.room); }
+  else if(log.scrollHeight > before){ var pill = document.getElementById('chNewPill'); if(pill) pill.hidden = false; }
+  drawNav('chat');
+}
+function bindChatRooms(){
+  eachIn('[data-room]', function(b){
+    b.onclick = function(){
+      var t = document.getElementById('chIn');
+      if(t) CHAT.draft[CHAT.room] = t.value;
+      CHAT.room = b.getAttribute('data-room'); CHAT.edit = null; CHAT.atBottom = true;
+      viewChat();
+      if(ON_CREATOR) loadChatRoom(CHAT.room, curMonth()).then(function(){ if(VIEW_NOW === 'chat') redrawChat(true); });
+    };
+  });
+}
+function bindChatLog(){
+  eachIn('[data-cdel]', function(b){
+    b.onclick = function(){
+      var id = b.getAttribute('data-cdel'), m = MEM.chats[id];
+      if(!m || !window.confirm('この発言を消しますか')) return;
+      m.deleted = true;
+      cacheFlush('chats');
+      queueSync('chat', id);
+      redrawChat();
+    };
+  });
+  var more = document.getElementById('chMore');
+  if(more) more.onclick = function(){
+    var room = CHAT.room, m = prevMonth(CHAT.oldest[room] || prevMonth(curMonth()));
+    more.disabled = true;
+    var log = document.getElementById('chLog'), h0 = log.scrollHeight;
+    loadChatRoom(room, m).then(function(n){
+      CHAT.oldest[room] = m;
+      if(!n) CHAT.end[room] = true;
+      CHAT.atBottom = false;
+      redrawChat();
+      var lg = document.getElementById('chLog');
+      if(lg) lg.scrollTop = lg.scrollHeight - h0;
+    });
+  };
+}
+function bindChat(){
+  bindChatRooms();
+  var nw = document.getElementById('chNew');
+  if(nw) nw.onclick = function(){ CHAT.edit = { id:'', name:'', desc:'', target:'' }; viewChat(); };
+  var ed = document.getElementById('chEdit');
+  if(ed) ed.onclick = function(){
+    var r = (config().chatRooms || []).filter(function(x){ return x.id === CHAT.room; })[0];
+    if(r){ CHAT.edit = { id:r.id, name:r.name, desc:r.desc || '', target:r.target || '' }; viewChat(); }
+  };
+  var back = document.getElementById('chBack');
+  if(back) back.onclick = function(){ CHAT.room = ''; viewChat(); };
+  if(CHAT.edit){ bindChatEdit(); return; }
+  var log = document.getElementById('chLog');
+  if(!log) return;
+  bindChatLog();
+  log.scrollTop = log.scrollHeight;
+  CHAT.atBottom = true;
+  log.addEventListener('scroll', function(){
+    CHAT.atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    if(CHAT.atBottom){ var p0 = document.getElementById('chNewPill'); if(p0) p0.hidden = true; markChatSeen(CHAT.room); drawNav('chat'); }
+  });
+  var pill = document.getElementById('chNewPill');
+  pill.onclick = function(){ log.scrollTop = log.scrollHeight; pill.hidden = true; };
+  var inp = document.getElementById('chIn');
+  var grow = function(){ inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 160) + 'px'; };
+  inp.addEventListener('input', function(){ CHAT.draft[CHAT.room] = inp.value; grow(); });
+  /* パソコンは Enter で送る。スマホ（指で触る端末）は Enter で改行し、送信ボタンで送る */
+  var touch = false;
+  try{ touch = window.matchMedia('(hover:none)').matches; }catch(e){}
+  inp.addEventListener('keydown', function(e){
+    if(touch) return;
+    if(e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229){ e.preventDefault(); sendChat(); }
+  });
+  if(touch) inp.placeholder = '# ' + ((chatRooms().filter(function(r){ return r.id === CHAT.room; })[0] || {}).name || '') + ' に書く';
+  document.getElementById('chSend').onclick = sendChat;
+  grow();
+  if(chatWide()) inp.focus();
+}
+function sendChat(){
+  var inp = document.getElementById('chIn');
+  var v = String(inp.value || '').replace(/\s+$/, '').replace(/^\s*\n/, '');
+  if(!v.trim()){ inp.focus(); return; }
+  if(v.length > 1000){ toast('1回に書けるのは1000文字までです'); return; }
+  var u = me() || {};
+  var k = newKey('c');
+  MEM.chats[k] = { id:k, room:CHAT.room, by:u.name, body:v, at:nowISO(), deleted:false };
+  cacheFlush('chats');
+  queueSync('chat', k);
+  inp.value = ''; CHAT.draft[CHAT.room] = '';
+  inp.style.height = 'auto';
+  CHAT.atBottom = true;
+  redrawChat(true);
+  inp.focus();
+  /* 届いたら「送信中…」を消す */
+  [2500, 6000].forEach(function(t){ setTimeout(function(){ if(VIEW_NOW === 'chat') redrawChat(); }, t); });
+}
+/* 部屋を作る・直す（管理者） */
+function chatEditHTML(){
+  var e = CHAT.edit;
+  var opts = [''].concat(jobs()).concat(groups().filter(function(g){ return jobs().indexOf(g) < 0; }));
+  return '<div class="chat-edit"><h3>' + (e.id ? '部屋の設定' : '部屋を作る') + '</h3>' +
+    '<div class="field"><label for="chRn">部屋の名前</label><input class="inp" id="chRn" maxlength="30" placeholder="例）送迎チーム" value="' + esc(e.name) + '"></div>' +
+    '<div class="field"><label for="chRd">説明<span class="note-s">部屋の一覧に出ます</span></label><input class="inp" id="chRd" maxlength="60" placeholder="例）送迎の連絡用" value="' + esc(e.desc) + '"></div>' +
+    '<div class="field"><label for="chRt">見られる人</label><select class="inp" id="chRt">' +
+      opts.map(function(o){ return '<option value="' + esc(o) + '"' + (o === e.target ? ' selected' : '') + '>' + (o ? esc(o) + 'の方（と管理者）' : '全員') + '</option>'; }).join('') +
+    '</select></div>' +
+    '<p class="cap">チャットの中身は、技術的には職員みんなが読める場所に保存されます。「見られる人」は一覧に出す人を分けるためのものです。</p>' +
+    '<div class="bar"><button class="btn" id="chRs">' + ic('check') + '保存する</button>' +
+    '<button class="btn sub" id="chRc">やめる</button>' +
+    (e.id ? '<span class="sp"></span><button class="btn sub" id="chRx">' + ic('cross') + 'この部屋を閉じる</button>' : '') + '</div></div>';
+}
+function bindChatEdit(){
+  var e = CHAT.edit;
+  document.getElementById('chRc').onclick = function(){ CHAT.edit = null; viewChat(); };
+  document.getElementById('chRs').onclick = function(){
+    var name = document.getElementById('chRn').value.trim();
+    if(!name){ document.getElementById('chRn').focus(); toast('部屋の名前を入れてください'); return; }
+    var c = config(), list = (c.chatRooms || []).slice();
+    var o = { id:e.id || ('r-' + Date.now().toString(36)), name:name,
+              desc:document.getElementById('chRd').value.trim(), target:document.getElementById('chRt').value };
+    var i = list.map(function(x){ return x.id; }).indexOf(o.id);
+    if(i >= 0) list[i] = o; else list.push(o);
+    c.chatRooms = list;
+    setConfig(c);
+    CHAT.edit = null; CHAT.room = o.id;
+    toast(e.id ? '部屋を直しました' : '部屋を作りました');
+    viewChat();
+  };
+  var x = document.getElementById('chRx');
+  if(x) x.onclick = function(){
+    if(!window.confirm('この部屋を一覧から外しますか（これまでの発言は残ります）')) return;
+    var c = config();
+    c.chatRooms = (c.chatRooms || []).map(function(r){ return r.id === e.id ? Object.assign({}, r, { off:true }) : r; });
+    setConfig(c);
+    CHAT.edit = null; CHAT.room = 'all';
+    toast('部屋を閉じました');
+    viewChat();
+  };
+  document.getElementById('chRn').focus();
 }
 
 /* 投稿の箱にボタンを付ける（掲示板・サンクス共通） */
@@ -11179,6 +11648,7 @@ var CRUMB = {
   anews:    ['管理ダッシュボード|adash', 'お知らせ配信'],
   hub:      ['アプリを選ぶ'],
   feed:     ['アプリを選ぶ|hub', '{connect}', '掲示板'],
+  chat:     ['アプリを選ぶ|hub', '{connect}', 'チャット'],
   thanks:   ['アプリを選ぶ|hub', '{connect}', 'サンクスカード'],
   awards:   ['アプリを選ぶ|hub', '{connect}', '表彰'],
   members:  ['アプリを選ぶ|hub', '{connect}', 'メンバー'],
@@ -11222,7 +11692,7 @@ function crumbFor(view, arg){
 }
 
 var USER_VIEWS = {
-  feed:viewFeed, thanks:viewThanks, awards:viewAwards, members:viewMembers, profile:viewProfile,
+  feed:viewFeed, chat:viewChat, thanks:viewThanks, awards:viewAwards, members:viewMembers, profile:viewProfile,
   home:viewHome, courses:viewCourses, history:viewHistory, mytime:viewMyTime,
   certs:viewCerts, mynews:viewMyNews
 };
@@ -11233,6 +11703,7 @@ function route(view, a, b){
   /* アプリを選び直すときは、入口（ログイン画面）に戻る */
   if(view === 'hub'){
     feedWatch(false);
+    chatWatch(false);
     pollStop();
     if(typeof App !== 'undefined' && App.setActive) App.setActive(false);
     document.getElementById('shinsei').hidden = true;
@@ -11272,6 +11743,8 @@ function route(view, a, b){
   VIEW_NOW = view;
   /* 掲示板を開いているあいだだけ、細かく新着を見に行く */
   feedWatch(view === 'feed' || view === 'thanks' || view === 'awards');
+  chatWatch(view === 'chat');
+  if(APP_NOW === 'connect') chatPrime();
   /* どのアプリにいても新着に気づけるように、こちらは常に回す */
   if(!POLL.timer) pollStart();
   /* 掲示板・サンクスカードを開いたら、その時点の投稿は読んだことにする */
