@@ -15,7 +15,13 @@
  *     iframe 内での接続失敗 / デモモード の各場面
  *   - 各画面とモーダルが 375px 幅で横スクロールしないか
  *
- * 実際の Creator での動作を保証するものではない（モックはスキルの資料に書かれた挙動を再現したもの）。
+ * モックは SDK の形を2通り用意し、同じ場面を両方で通す。
+ *   skill : スキルの資料の形（init() あり・getInitParams() は同期・updateRecord・応答は { data: { ID } }）
+ *   v2doc : Zoho の JS API v2 の資料の形（init() なし・getInitParams() は Promise・updateRecordById・
+ *           追加の応答は REST API v2.1 形式の { result: [ { code, data: { ID } } ] }）
+ *   実際の Creator では「init() が無い」ために止まったことがあり、v2doc はその再現でもある。
+ *
+ * 実際の Creator での動作を保証するものではない（モックは資料に書かれた挙動を再現したもの）。
  */
 const fs = require('fs');
 const os = require('os');
@@ -114,6 +120,7 @@ const SEED = {
 function installMock(a) {
   window.__calls = []; window.__violations = [];
   const db = JSON.parse(JSON.stringify(a.seed));
+  const v2 = a.variant === 'v2doc';
   let seq = 0;
   const bad = (msg) => { window.__violations.push(msg); return Promise.reject({ code: 9999, message: 'MOCK: ' + msg }); };
   const camel = (q) => Object.keys(q || {}).filter(k => /[A-Z]/.test(k));
@@ -127,51 +134,69 @@ function installMock(a) {
     }
     return null;
   }
-  window.ZOHO = { CREATOR: {
-    init: () => a.initMode === 'reject' ? Promise.reject(new Error('init failed')) : Promise.resolve(),
-    UTIL: { getInitParams: () => ({ loginUser: a.login }) },
-    DATA: {
-      getRecords: (q) => {
-        window.__calls.push({ op: 'get', q: JSON.parse(JSON.stringify(q)) });
-        if (camel(q).length) return bad('get: camelCase のパラメータ ' + camel(q));
-        const form = a.reports[q.report_name];
-        if (!form) return bad('get: 不明なレポート ' + q.report_name);
-        if (!(q.max_records > 0 && q.max_records <= 1000)) return bad('get: max_records が不正');
-        if (a.faults[q.report_name]) return Promise.reject(a.faults[q.report_name]);
-        let rows = db[form] || [];
-        if (q.criteria != null) {
-          const m = String(q.criteria).match(/^(\w+) == "([^"\\]*)"$/);
-          if (!m || !a.forms[form][m[1]]) return bad('get: 実績のない形の criteria ' + q.criteria);
-          rows = rows.filter(r => String(r[m[1]] == null ? '' : r[m[1]]) === m[2]);
-        }
-        if (!rows.length) return Promise.reject({ code: 9220, message: 'No records found' });
-        return Promise.resolve({ code: 3000, data: JSON.parse(JSON.stringify(rows)) });
-      },
-      addRecords: (q) => {
-        window.__calls.push({ op: 'add', q: JSON.parse(JSON.stringify(q)) });
-        if (camel(q).length) return bad('add: camelCase のパラメータ ' + camel(q));
-        if (!a.forms[q.form_name]) return bad('add: 不明なフォーム ' + q.form_name);
-        const e = checkData(q.form_name, q.payload && q.payload.data, 'add');
-        if (e) return bad(e);
-        const id = String(4200000000000000 + (++seq));
-        (db[q.form_name] = db[q.form_name] || []).push(Object.assign({ ID: id }, q.payload.data));
-        return Promise.resolve({ code: 3000, data: { ID: id }, message: 'Data Added Successfully' });
-      },
-      updateRecord: (q) => {
-        window.__calls.push({ op: 'update', q: JSON.parse(JSON.stringify(q)) });
-        if (camel(q).length) return bad('update: camelCase のパラメータ ' + camel(q));
-        const form = a.reports[q.report_name];
-        if (!form) return bad('update: 不明なレポート ' + q.report_name);
-        if (typeof q.id !== 'string' || !q.id) return bad('update: id は文字列で送る');
-        const e = checkData(form, q.payload && q.payload.data, 'update');
-        if (e) return bad(e);
-        const row = (db[form] || []).find(r => String(r.ID) === q.id);
-        if (!row) return bad('update: レコードが無い ' + q.id);
-        Object.assign(row, q.payload.data);
-        return Promise.resolve({ code: 3000, data: { ID: q.id }, message: 'Data Updated Successfully' });
+  const DATA = {
+    getRecords: (q) => {
+      window.__calls.push({ op: 'get', q: JSON.parse(JSON.stringify(q)) });
+      if (camel(q).length) return bad('get: camelCase のパラメータ ' + camel(q));
+      const form = a.reports[q.report_name];
+      if (!form) return bad('get: 不明なレポート ' + q.report_name);
+      if (!(q.max_records > 0 && q.max_records <= 1000)) return bad('get: max_records が不正');
+      if (a.faults[q.report_name]) return Promise.reject(a.faults[q.report_name]);
+      let rows = db[form] || [];
+      if (q.criteria != null) {
+        const m = String(q.criteria).match(/^(\w+) == "([^"\\]*)"$/);
+        if (!m || !a.forms[form][m[1]]) return bad('get: 実績のない形の criteria ' + q.criteria);
+        rows = rows.filter(r => String(r[m[1]] == null ? '' : r[m[1]]) === m[2]);
       }
+      if (!rows.length) return Promise.reject({ code: 9220, message: 'No records found' });
+      return Promise.resolve({ code: 3000, data: JSON.parse(JSON.stringify(rows)) });
+    },
+    addRecords: (q) => {
+      window.__calls.push({ op: 'add', q: JSON.parse(JSON.stringify(q)) });
+      if (camel(q).length) return bad('add: camelCase のパラメータ ' + camel(q));
+      if (!a.forms[q.form_name]) return bad('add: 不明なフォーム ' + q.form_name);
+      const e = checkData(q.form_name, q.payload && q.payload.data, 'add');
+      if (e) return bad(e);
+      /* レコード単位の入力エラー（全体の code は 3000 のまま、result の中が失敗） */
+      if (a.addFaults[q.form_name]) {
+        return Promise.resolve({ code: 3000, result: [{ code: 3001, error: { [Object.keys(q.payload.data)[0]]: 'Invalid value' }, message: 'Data validation failed' }] });
+      }
+      const id = String(4200000000000000 + (++seq));
+      (db[q.form_name] = db[q.form_name] || []).push(Object.assign({ ID: id }, q.payload.data));
+      return Promise.resolve(v2
+        ? { code: 3000, result: [{ code: 3000, data: { ID: id }, message: 'success' }] }
+        : { code: 3000, data: { ID: id }, message: 'Data Added Successfully' });
     }
-  } };
+  };
+  function update(fn) {
+    return (q) => {
+      window.__calls.push({ op: 'update', fn: fn, q: JSON.parse(JSON.stringify(q)) });
+      if (camel(q).length) return bad('update: camelCase のパラメータ ' + camel(q));
+      const form = a.reports[q.report_name];
+      if (!form) return bad('update: 不明なレポート ' + q.report_name);
+      if (typeof q.id !== 'string' || !q.id) return bad('update: id は文字列で送る');
+      const e = checkData(form, q.payload && q.payload.data, 'update');
+      if (e) return bad(e);
+      const row = (db[form] || []).find(r => String(r.ID) === q.id);
+      if (!row) return bad('update: レコードが無い ' + q.id);
+      Object.assign(row, q.payload.data);
+      return Promise.resolve({ code: 3000, data: { ID: q.id }, message: 'Data Updated Successfully' });
+    };
+  }
+  if (v2) DATA.updateRecordById = update('updateRecordById');
+  else DATA.updateRecord = update('updateRecord');
+  const CREATOR = {
+    UTIL: {
+      getInitParams: v2
+        ? () => Promise.resolve({ scope: 'widget', appLinkName: 'sales-test', loginUser: a.login })
+        : () => ({ loginUser: a.login })
+    },
+    DATA: DATA
+  };
+  if (!v2) CREATOR.init = () => a.initMode === 'reject' ? Promise.reject(new Error('init failed')) : Promise.resolve();
+  if (a.variant === 'broken') delete CREATOR.DATA;   /* 想定と違う形の SDK */
+  const install = () => { window.ZOHO = { CREATOR: CREATOR }; };
+  if (a.lateMs) setTimeout(install, a.lateMs); else install();
 }
 
 /* --- 検証の記録 --- */
@@ -190,7 +215,8 @@ async function openApp(opt) {
   if (opt.mock) {
     await ctx.addInitScript(installMock, {
       seed: opt.seed || SEED, forms: SCHEMA.forms, reports: SCHEMA.reports,
-      login: opt.login, faults: opt.faults || {}, initMode: opt.initMode || 'ok'
+      login: opt.login, faults: opt.faults || {}, addFaults: opt.addFaults || {}, initMode: opt.initMode || 'ok',
+      variant: opt.variant || 'v2doc', lateMs: opt.lateMs || 0
     });
   }
   const page = await ctx.newPage();
@@ -231,9 +257,9 @@ async function closeModal(f) { await f.click('#modal [data-close].btn'); await f
 const lastAdd = async (f, form) => (await calls(f, 'add')).filter(c => c.q.form_name === form).pop();
 
 /* ======================================================================= */
-async function managerScenario() {
-  console.log('\n■ マネージャー（Creator 接続・モック）');
-  const { ctx, f, errors } = await openApp({ mock: true, login: 'Yamada@Example.co.jp' });
+async function managerScenario(variant) {
+  console.log('\n■ マネージャー（Creator 接続・モック：' + variant + '）');
+  const { ctx, f, errors } = await openApp({ mock: true, variant, login: 'Yamada@Example.co.jp' });
   ok('大文字小文字が違うログインIDでも本人と判定する', /山田 花子（マネージャー）/.test(await f.$eval('#who', e => e.textContent)));
   ok('マネージャーには全タブが出る', (await tabs(f)).join(',') === 'dashboard,deals,customers,activities,targets,staff');
   const gets = await calls(f, 'get');
@@ -288,7 +314,7 @@ async function managerScenario() {
   err = await submitModal(f);
   ok('ステージ変更を保存できる', err === null, err);
   const up = (await calls(f, 'update')).pop();
-  ok('updateRecord をレポート名と文字列の id で呼ぶ', up && up.q.report_name === 'Sales_Deal_Report' && up.q.id === '301');
+  ok('更新をレポート名と文字列の id で呼ぶ', up && up.q.report_name === 'Sales_Deal_Report' && up.q.id === '301');
   ok('更新内容（受注・確度100・確定日）', up && up.q.payload.data.deal_stage === '受注' && up.q.payload.data.win_prob === 100 && up.q.payload.data.closed_on === TODAY);
   ok('メールが空だった案件も、保存するとメールが埋まる', (await calls(f, 'update')).some(c => c.q.id === '301') && up.q.payload.data.owner_email === 'ito@example.co.jp');
   await tab(f, 'dashboard');
@@ -388,15 +414,18 @@ async function managerScenario() {
   await closeModal(f);
   ok('375px 幅で全画面・モーダルとも横スクロールしない', widths.every(w => w.endsWith(':0')), widths.join(' '));
 
+  const ups = await calls(f, 'update');
+  const want = variant === 'v2doc' ? 'updateRecordById' : 'updateRecord';
+  ok('更新は SDK にある関数（' + want + '）で呼ぶ', ups.length > 0 && ups.every(c => c.fn === want), [...new Set(ups.map(c => c.fn))].join(','));
   const v = await violations(f);
   ok('SDK の呼び方の違反が0件', v.length === 0, v.join(' / '));
   ok('ページエラー・コンソールエラーが0件', errors.length === 0, errors.join(' / '));
   await ctx.close();
 }
 
-async function memberScenario() {
-  console.log('\n■ 担当者（伊藤）');
-  let { ctx, f, errors } = await openApp({ mock: true, login: 'ito@example.co.jp' });
+async function memberScenario(variant) {
+  console.log('\n■ 担当者（伊藤・' + variant + '）');
+  let { ctx, f, errors } = await openApp({ mock: true, variant, login: 'ito@example.co.jp' });
   ok('目標・担当者タブが出ない', (await tabs(f)).join(',') === 'dashboard,deals,customers,activities');
   const gets = await calls(f, 'get');
   const scoped = gets.filter(c => /Deal|Activity|Target/.test(c.q.report_name));
@@ -422,8 +451,8 @@ async function memberScenario() {
   ok('ページエラー・コンソールエラーが0件', errors.length === 0, errors.join(' / '));
   await ctx.close();
 
-  console.log('\n■ 担当者（渡辺：マスタは大文字のメール・案件と目標は名前だけ）');
-  ({ ctx, f, errors } = await openApp({ mock: true, login: 'watanabe@example.co.jp' }));
+  console.log('\n■ 担当者（渡辺：マスタは大文字のメール・案件と目標は名前だけ・' + variant + '）');
+  ({ ctx, f, errors } = await openApp({ mock: true, variant, login: 'watanabe@example.co.jp' }));
   ok('本人と判定できる', /渡辺 さくら/.test(await f.$eval('#who', e => e.textContent)));
   ok('名前だけの受注（案件B）が自分の実績に入る', await kpi(f, 'won') === '2000000', await kpi(f, 'won'));
   ok('名前だけの目標（400万）が自分の目標に入る → 50%', await kpi(f, 'rate') === '50', await kpi(f, 'rate'));
@@ -431,9 +460,9 @@ async function memberScenario() {
   await ctx.close();
 }
 
-async function stopScenarios() {
-  console.log('\n■ 担当者マスタに無いアカウント');
-  let { ctx, f, errors } = await openApp({ mock: true, login: 'nobody@example.co.jp' });
+async function stopScenarios(variant) {
+  console.log('\n■ 担当者マスタに無いアカウント（' + variant + '）');
+  let { ctx, f, errors } = await openApp({ mock: true, variant, login: 'nobody@example.co.jp' });
   let gets = await calls(f, 'get');
   ok('止める画面を出す', /登録されていません/.test(await viewText(f)));
   ok('担当者マスタ以外は読まない', gets.length === 1 && gets[0].q.report_name === 'Sales_Staff_Report', gets.map(c => c.q.report_name).join(' '));
@@ -442,13 +471,13 @@ async function stopScenarios() {
   await ctx.close();
 
   console.log('\n■ 在籍なしのアカウント');
-  ({ ctx, f, errors } = await openApp({ mock: true, login: 'ogawa@example.co.jp' }));
+  ({ ctx, f, errors } = await openApp({ mock: true, variant, login: 'ogawa@example.co.jp' }));
   gets = await calls(f, 'get');
   ok('止める画面を出し、担当者マスタ以外は読まない', /在籍なし/.test(await viewText(f)) && gets.length === 1);
   await ctx.close();
 
   console.log('\n■ 担当者マスタを読めない（権限エラー）');
-  ({ ctx, f, errors } = await openApp({ mock: true, login: 'yamada@example.co.jp', faults: { Sales_Staff_Report: { code: 2933, message: 'No permission to access the report' } } }));
+  ({ ctx, f, errors } = await openApp({ mock: true, variant, login: 'yamada@example.co.jp', faults: { Sales_Staff_Report: { code: 2933, message: 'No permission to access the report' } } }));
   gets = await calls(f, 'get');
   const t = await viewText(f);
   ok('「0件」と取り違えず、エラーとして止める', /読み込めませんでした/.test(t) && /2933/.test(t));
@@ -457,13 +486,13 @@ async function stopScenarios() {
   await ctx.close();
 
   console.log('\n■ 案件レポートだけ読めない');
-  ({ ctx, f, errors } = await openApp({ mock: true, login: 'yamada@example.co.jp', faults: { Sales_Deal_Report: { code: 2933, message: 'No permission' } } }));
+  ({ ctx, f, errors } = await openApp({ mock: true, variant, login: 'yamada@example.co.jp', faults: { Sales_Deal_Report: { code: 2933, message: 'No permission' } } }));
   ok('画面は出して、読めなかったことを明示する', /案件を読み込めませんでした/.test(await viewText(f)) && (await tabs(f)).length === 6);
   await ctx.close();
 
   console.log('\n■ 担当者マスタが空（初回導入）');
   const empty = Object.assign({}, SEED, { Sales_Staff_Form: [] });
-  ({ ctx, f, errors } = await openApp({ mock: true, login: 'first@example.co.jp', seed: empty }));
+  ({ ctx, f, errors } = await openApp({ mock: true, variant, login: 'first@example.co.jp', seed: empty }));
   ok('初回登録画面を出す', !!(await f.$('[data-act="bootstrap"]')));
   await f.click('[data-act="bootstrap"]');
   ok('氏名が空なら登録しない', /氏名を入れてください/.test(await f.$eval('#boot-error', e => e.textContent)));
@@ -480,15 +509,47 @@ async function stopScenarios() {
 }
 
 async function frameScenarios() {
+  console.log('\n■ Creator の中（iframe）で動かす');
+  let { ctx, f, errors } = await openApp({ mock: true, variant: 'v2doc', login: 'yamada@example.co.jp', iframe: true });
+  ok('init() の無い SDK（v2 の資料の形）でも接続して画面を出す', await f.evaluate(() => DB.isConnected()) === true && (await tabs(f)).length === 6);
+  ok('ページエラー・コンソールエラーが0件', errors.length === 0, errors.join(' / '));
+  await ctx.close();
+  ({ ctx, f } = await openApp({ mock: true, variant: 'v2doc', login: 'yamada@example.co.jp', iframe: true, lateMs: 800 }));
+  ok('SDK が少し遅れて使えるようになっても接続する', await f.evaluate(() => DB.isConnected()) === true && (await tabs(f)).length === 6);
+  await ctx.close();
+
   console.log('\n■ Creator の中（iframe）で接続に失敗');
-  let { ctx, f } = await openApp({ mock: true, login: 'yamada@example.co.jp', iframe: true, initMode: 'reject' });
+  ({ ctx, f } = await openApp({ mock: true, variant: 'skill', login: 'yamada@example.co.jp', iframe: true, initMode: 'reject' }));
   ok('SDK の初期化に失敗したらデモに落とさず止める', /接続できませんでした/.test(await viewText(f)) && await f.evaluate(() => DB.isDemo()) === false);
   await ctx.close();
   ({ ctx, f } = await openApp({ mock: false, iframe: true }));
   ok('SDK を読み込めなかったらデモに落とさず止める', /接続できませんでした/.test(await viewText(f)) && await f.evaluate(() => DB.isDemo()) === false);
+  ok('止めた画面に診断情報（ZOHO が無い）を出す', /診断情報[\s\S]*ZOHO=undefined/.test(await viewText(f)));
+  await ctx.close();
+  ({ ctx, f } = await openApp({ mock: true, variant: 'broken', login: 'yamada@example.co.jp', iframe: true }));
+  const diag = await viewText(f);
+  ok('想定と違う形の SDK なら止めて、SDK が持つ関数を表示する', /接続できませんでした/.test(diag) && /DATA=なし/.test(diag) && /UTIL=getInitParams/.test(diag), diag.split('\n').pop());
   await ctx.close();
   ({ ctx, f } = await openApp({ mock: false, iframe: true, query: '?demo=1' }));
   ok('iframe の中でも ?demo=1 ならデモで動く', await f.evaluate(() => DB.isDemo()) === true && (await tabs(f)).length === 6);
+  await ctx.close();
+}
+
+async function resultErrorScenario() {
+  console.log('\n■ 追加の応答で、レコード単位のエラーが返る（v2doc）');
+  const { ctx, f, errors } = await openApp({ mock: true, variant: 'v2doc', login: 'yamada@example.co.jp', addFaults: { Sales_Deal_Form: true } });
+  await tab(f, 'deals');
+  const before = (await f.$$('#list tbody tr')).length;
+  await f.click('[data-act="newDeal"]');
+  await f.fill('#f_Name', '入力エラーになる案件');
+  await f.selectOption('#f_Customer_ID', '201');
+  const err = await submitModal(f);
+  ok('全体の code が 3000 でも、中のエラーを保存失敗として表示する', err && /3001/.test(err) && /Invalid value/.test(err), err);
+  await closeModal(f);
+  ok('失敗した案件は一覧に増えない', (await f.$$('#list tbody tr')).length === before);
+  const logs = (await calls(f, 'add')).filter(c => c.q.form_name === 'Sales_Log_Form');
+  ok('失敗した保存は操作記録に残さない', logs.length === 0, String(logs.length));
+  ok('ページエラー・コンソールエラーが0件', errors.length === 0, errors.join(' / '));
   await ctx.close();
 }
 
@@ -526,9 +587,12 @@ async function demoScenario() {
 (async () => {
   browser = await launchBrowser();
   console.log('.ds から読んだフォーム: ' + Object.keys(SCHEMA.forms).map(k => k + '(' + Object.keys(SCHEMA.forms[k]).length + ')').join(' '));
-  await managerScenario();
-  await memberScenario();
-  await stopScenarios();
+  for (const variant of ['v2doc', 'skill']) {
+    await managerScenario(variant);
+    await memberScenario(variant);
+    await stopScenarios(variant);
+  }
+  await resultErrorScenario();
   await frameScenarios();
   await demoScenario();
   await browser.close();

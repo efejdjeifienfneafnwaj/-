@@ -5,10 +5,14 @@
  *   2) ローカルで開いたときはデモモード（localStorage）に自動で切り替わる
  *
  * スキルの雛形（template/widget/app/js/data.js）からの変更点：
+ *   - SDK v2 には ZOHO.CREATOR.init() が無い（実際の Creator で「init が無い」ために止まった）。
+ *     init は「あれば呼ぶ」扱いにし、SDK の有無はデータ操作の関数があるかで判定する
+ *   - getInitParams() は v2 では Promise を返す。同期の値でも Promise でも受け取れるようにする
+ *   - 更新は v2 の資料にある updateRecordById を優先し、無ければ updateRecord を使う
  *   - Creator の中（iframe の中）で SDK が使えないときは、デモへ落とさずエラーで止める
- *     （利用者が「保存されない画面」に入力してしまうのを防ぐ）
+ *     （利用者が「保存されない画面」に入力してしまうのを防ぐ）。止めるときは SDK の形を表示する
  *   - 取得エラーのうち「0件」だけを空配列にし、権限エラーなどは呼び出し側へ返す
- *   - 追加・更新の応答の code を確認する（成功は 3000）
+ *   - 追加・更新の応答の code を確認する（成功は 3000。REST API v2.1 形式の result 配列も見る）
  *   - 更新日時は FIELD_MAP に Updated_At がある項目にだけ書く（操作記録には送らない）
  * ========================================================================= */
 var DB = (function () {
@@ -25,7 +29,10 @@ var DB = (function () {
   function errText(e) {
     if (e == null) return '不明なエラー';
     if (typeof e === 'string') return e;
-    if (e.message) return String(e.message) + (e.code ? '（code ' + e.code + '）' : '');
+    var s = e.message ? String(e.message) : '';
+    if (e.code) s += (s ? '' : 'エラー') + '（code ' + e.code + '）';
+    if (e.error) { try { s += ' ' + (typeof e.error === 'string' ? e.error : JSON.stringify(e.error)); } catch (x) { /* 表示できない値は省く */ } }
+    if (s) return s;
     try { return JSON.stringify(e); } catch (x) { return String(e); }
   }
 
@@ -44,39 +51,72 @@ var DB = (function () {
   function inFrame() { try { return window.self !== window.top; } catch (e) { return true; } }
   function demoAllowed() { return !inFrame() || /[?&]demo=1(&|$)/.test(location.search); }
 
+  /* ---------- SDK の判定 ---------- */
+  /* データ操作に使う関数があれば「SDK あり」とする（init の有無では判定しない） */
+  function sdkReady() {
+    return typeof ZOHO !== 'undefined' && !!ZOHO && !!ZOHO.CREATOR && !!ZOHO.CREATOR.DATA &&
+      typeof ZOHO.CREATOR.DATA.getRecords === 'function';
+  }
+  /* SDK が持っている関数の一覧（止めたときの診断表示用。プロトタイプ上の関数も拾う） */
+  function fnNames(o) {
+    var out = [];
+    for (var p = o; p && p !== Object.prototype; p = Object.getPrototypeOf(p)) {
+      Object.getOwnPropertyNames(p).forEach(function (k) {
+        try { if (k !== 'constructor' && typeof o[k] === 'function' && out.indexOf(k) < 0) out.push(k); } catch (e) { /* 読めない項目は飛ばす */ }
+      });
+    }
+    return out.sort().join(',') || '（なし）';
+  }
+  function sdkShape() {
+    if (typeof ZOHO === 'undefined' || !ZOHO) return 'ZOHO=' + typeof ZOHO;
+    var c = ZOHO.CREATOR;
+    if (!c) return 'ZOHO=' + Object.keys(ZOHO).join(',') + ' / CREATOR=なし';
+    return 'CREATOR=' + Object.keys(c).sort().join(',') + ' / init=' + typeof c.init +
+      ' / DATA=' + (c.DATA ? fnNames(c.DATA) : 'なし') + ' / UTIL=' + (c.UTIL ? fnNames(c.UTIL) : 'なし');
+  }
+
   /* ---------- 初期化 ---------- */
   function init(seedFn) {
     return new Promise(function (resolve, reject) {
-      var done = false, timer = null;
+      var done = false, timer = null, waited = 0;
       function fallback(reason) {
         if (done) return;
         done = true; clearTimeout(timer);
-        if (demoAllowed()) { startDemo(reason, seedFn); resolve({ connected: false, reason: reason }); }
-        else reject(new Error('Zoho Creator に接続できませんでした（' + reason + '）'));
+        if (demoAllowed()) { startDemo(reason, seedFn); resolve({ connected: false, reason: reason }); return; }
+        var err = new Error('Zoho Creator に接続できませんでした（' + reason + '）');
+        err.diag = sdkShape();
+        reject(err);
       }
-
-      var hasSDK = (typeof ZOHO !== 'undefined' && ZOHO.CREATOR && typeof ZOHO.CREATOR.init === 'function');
-      if (!hasSDK) return fallback('SDK未検出');
-
-      /* 応答が無いまま固まるのを防ぐ */
-      timer = setTimeout(function () { fallback('SDK応答なし'); }, 6000);
-      try {
-        ZOHO.CREATOR.init().then(function () {
-          var p = null;
-          try { p = ZOHO.CREATOR.UTIL && ZOHO.CREATOR.UTIL.getInitParams(); } catch (e) { p = null; }
-          return Promise.resolve(p).catch(function () { return null; });
+      function connect() {
+        var c = ZOHO.CREATOR;
+        /* 応答が無いまま固まるのを防ぐ */
+        timer = setTimeout(function () { fallback('SDK応答なし'); }, 8000);
+        Promise.resolve().then(function () {
+          /* v1 形式の SDK は init() が必要。v2 には無いので、あるときだけ呼ぶ */
+          return typeof c.init === 'function' ? c.init() : null;
+        }).then(function () {
+          /* v2 の getInitParams() は Promise を返す。同期で値を返す形にも対応する */
+          var p = (c.UTIL && typeof c.UTIL.getInitParams === 'function') ? c.UTIL.getInitParams() : null;
+          return Promise.resolve(p).catch(function (e) { console.warn('[営業管理] getInitParams に失敗', e); return null; });
         }).then(function (p) {
           if (done) return;
           done = true; clearTimeout(timer);
           connected = true;
-          initParams = p || {};
+          p = p || {};
+          initParams = (!p.loginUser && p.data && p.data.loginUser) ? p.data : p;
           resolve({ connected: true });
         }).catch(function (e) {
           fallback('SDK初期化エラー: ' + errText(e));
         });
-      } catch (e) {
-        fallback('SDK例外: ' + errText(e));
       }
+      /* SDK は <head> で同期的に読み込むので通常はすぐ見つかる。
+         Creator の中でだけ、念のため少し待ってから判定する */
+      (function check() {
+        if (sdkReady()) return connect();
+        if (!inFrame() || waited >= 2000) return fallback('SDK未検出');
+        waited += 100;
+        setTimeout(check, 100);
+      })();
     });
   }
   function startDemo(reason, seedFn) {
@@ -101,16 +141,30 @@ var DB = (function () {
       throw e;
     });
   }
-  /* 失敗が resolve で返ってくる場合に備えて code を確認する（成功は 3000） */
+  /* 失敗が resolve で返ってくる場合に備えて code を確認する（成功は 3000）。
+     REST API v2.1 形式では、レコードごとの結果が result 配列に入る */
   function checkRes(res) {
     if (res && res.code != null && String(res.code) !== '3000') throw res;
+    if (res && Array.isArray(res.result)) {
+      res.result.forEach(function (r) { if (r && r.code != null && String(r.code) !== '3000') throw r; });
+    }
     return res;
+  }
+  function recordId(res) {
+    var d = res && res.data;
+    if (d && d.ID) return d.ID;
+    if (Array.isArray(d) && d[0] && d[0].ID) return d[0].ID;
+    var r = res && Array.isArray(res.result) ? res.result[0] : null;
+    return (r && r.data && (r.data.ID || (r.data[0] && r.data[0].ID))) || null;
   }
   function sdkAdd(formName, data) {
     return ZOHO.CREATOR.DATA.addRecords({ form_name: formName, payload: { data: data } }).then(checkRes);
   }
   function sdkUpdate(reportName, id, data) {
-    return ZOHO.CREATOR.DATA.updateRecord({ report_name: reportName, id: String(id), payload: { data: data } }).then(checkRes);
+    var D = ZOHO.CREATOR.DATA;
+    /* v2 の資料では updateRecordById。スキルの資料では updateRecord。ある方を使う */
+    var fn = typeof D.updateRecordById === 'function' ? 'updateRecordById' : 'updateRecord';
+    return D[fn]({ report_name: reportName, id: String(id), payload: { data: data } }).then(checkRes);
   }
 
   /* デモモードでは criteria を解釈できないので、単純な等値条件だけ手元で絞る */
@@ -145,9 +199,8 @@ var DB = (function () {
       return Promise.resolve(obj);
     }
     return sdkAdd(CFG.FORMS[entity], Mapper.toCreator(entity, obj)).then(function (res) {
-      var d = res && res.data;
-      var id = d && (d.ID || (d[0] && d[0].ID));
-      if (!id) throw new Error('保存結果にレコードIDがありません: ' + errText(res));
+      var id = recordId(res);
+      if (!id) throw new Error('保存はできた可能性がありますが、レコードIDを受け取れませんでした。再読み込みして確認してください: ' + errText(res));
       obj.ID = String(id);
       return obj;
     });
@@ -173,6 +226,7 @@ var DB = (function () {
     isConnected: function () { return connected; },
     isDemo: function () { return demo; },
     initParams: function () { return initParams; },
+    sdkShape: sdkShape,
     resetDemo: function (seedFn) { store = seedFn ? seedFn() : {}; persist(); },
     uid: uid, lsGet: lsGet, lsSet: lsSet, errText: errText
   };

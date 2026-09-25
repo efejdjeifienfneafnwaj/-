@@ -90,7 +90,8 @@ var App = (function () {
     }, function (e) {
       $('mode').textContent = '未接続';
       stop('Zoho Creator に接続できませんでした', [DB.errText(e),
-        'ページを再読み込みしてください。続く場合は管理者に連絡してください。']);
+        'ページを再読み込みしてください。続く場合は、下の診断情報を添えて管理者に連絡してください。'],
+        'SDK の状態：' + ((e && e.diag) || DB.sdkShape()));
     });
   }
 
@@ -103,7 +104,8 @@ var App = (function () {
       : String(DB.lsGet('demo_login', '') || Seed.DEFAULT_LOGIN);
     renderWho(); renderTabs();
     if (!state.login) {
-      return stop('ログインしている利用者を確認できませんでした', ['Creator にログインした状態で開いてください。']);
+      return stop('ログインしている利用者を確認できませんでした', ['Creator にログインした状態で開いてください。'],
+        DB.isConnected() ? 'getInitParams の結果：' + (Object.keys(DB.initParams() || {}).join(',') || '（空）') + ' / SDK の状態：' + DB.sdkShape() : '');
     }
     setView(loading());
     DB.list('Staff').then(function (staff) {
@@ -127,7 +129,9 @@ var App = (function () {
       return loadBusiness().then(function () { linkRefs(); renderTabs(); render(); });
     }, function (e) {
       stop('担当者マスタを読み込めませんでした', [DB.errText(e),
-        'Creator の権限設定で、この利用者が「担当者 一覧」レポートを閲覧できるか確認してください。']);
+        'Creator の権限設定で、この利用者が「担当者 一覧」レポートを閲覧できるか確認してください。',
+        '担当者マスタがまだ空の場合は、Creator の「担当者 一覧」から自分を1件登録してから開き直してください' +
+        '（メールアドレスはログインID、権限は manager、在籍は true）。']);
     }).catch(function (e) {
       console.error(e);
       stop('画面の表示中に問題が発生しました', [DB.errText(e)]);
@@ -207,11 +211,12 @@ var App = (function () {
   }
 
   /* ---------- 止める画面・初回登録 ---------- */
-  function stop(title, lines) {
+  function stop(title, lines, diag) {
     state.me = null; state.isManager = false;
     renderTabs(); renderWho();
     setView('<div class="card narrow stop"><h2>' + esc(title) + '</h2>' +
-      lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') + '</div>');
+      lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') +
+      (diag ? '<div class="diag"><div class="muted small">診断情報</div><code>' + esc(diag) + '</code></div>' : '') + '</div>');
   }
   function showBootstrap() {
     setView('<div class="card narrow"><h2>はじめに：管理者の登録</h2>' +
