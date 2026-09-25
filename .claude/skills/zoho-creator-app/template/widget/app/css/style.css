@@ -8,6 +8,7 @@ body{background:var(--bg);color:var(--text);font-family:"Hiragino Kaku Gothic Pr
 .chip{font-size:11px;color:var(--muted);background:var(--bg);border-radius:6px;padding:3px 8px}
 .view{padding:20px 16px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
+.diag{margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:11.5px;word-break:break-all}
 /* 表は必ず折り返さず横スクロールさせる。ページ全体が横に伸びると
    スマホで操作できなくなるため、スクロールは表の内側に閉じ込める */
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}

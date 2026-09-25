@@ -60,7 +60,9 @@ zip は `widget/` の中身を固めたもの。**`plugin-manifest.json` が zip
 ## 完成前の確認
 
 `reference/checklist.md` の全項目を自分で確認してから完成とする。
-特に次の2つは、確認せずに渡すと必ず後で問題になる。
+特に次の3つは、確認せずに渡すと必ず後で問題になる。
 
+- **SDK の判定に `ZOHO.CREATOR.init` を使っていないか**（v2 の SDK には `init` が無く、実際の Creator で
+  「SDK未検出」で止まった。判定は `ZOHO.CREATOR.DATA.getRecords` で行い、`init` はあれば呼ぶだけ。雛形の `data.js` のままでよい）
 - **SDK のパラメータ名が snake_case になっているか**（`reportName` ではなく `report_name`）
-- **Creator 未接続時にデモモードで動くか**（アップロード前に画面を確認できる）
+- **Creator 未接続時にデモモードで動くか**（アップロード前に画面を確認できる。ただし Creator の中ではデモへ落とさない）

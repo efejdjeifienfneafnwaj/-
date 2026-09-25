@@ -4,6 +4,8 @@
  *   node verify/demo-smoke-test.js <path/to/app/widget.html>
  *
  * アップロード前にここを通しておくと、Creator 上での確認が1往復で済む。
+ *
+ * 本物の SDK は読み込ませない（Creator 未接続の状態を、ネットワークの有無に関係なく再現する）。
  */
 /* --- playwright の読み込み（環境によって置き場所が違うため順に探す） --- */
 function loadPlaywright() {
@@ -46,7 +48,9 @@ const url = 'file://' + path.resolve(target);
 (async () => {
   const errs = [];
   const browser = await launchBrowser();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await ctx.route(/widgetsdk-min\.js/, r => r.abort());
+  const page = await ctx.newPage();
   page.on('pageerror', e => errs.push('PAGEERROR: ' + e.message));
   page.on('console', m => {
     if (m.type() === 'error' && !/zohostatic|ERR_|net::/i.test(m.text())) errs.push('CONSOLE: ' + m.text());
@@ -55,8 +59,14 @@ const url = 'file://' + path.resolve(target);
   await page.goto(url);
   await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
   await page.reload();
-  /* SDK の読み込み失敗を待ってデモモードに落ちるまで */
-  await page.waitForTimeout(8000);
+  /* デモモードに切り替わるまで待つ（isDemo が無いアプリは従来どおり時間で待つ） */
+  const hasIsDemo = await page.evaluate(() => typeof DB !== 'undefined' && typeof DB.isDemo === 'function').catch(() => false);
+  if (hasIsDemo) {
+    await page.waitForFunction(() => DB.isDemo() === true, null, { timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  } else {
+    await page.waitForTimeout(8000);
+  }
 
   const ok = (label, cond, extra) => {
     console.log((cond ? '✓ ' : '✗ ') + label + (extra ? '  ' + extra : ''));

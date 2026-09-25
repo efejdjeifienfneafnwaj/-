@@ -45,8 +45,11 @@ var App = (function () {
       render();
     }).catch(function (e) {
       console.error(e);
+      document.getElementById('mode').textContent = '未接続';
+      /* Creator の中で SDK が使えないときは、デモへ落とさずここで止まる。SDK の形を出しておくと原因が分かる */
       document.getElementById('view').innerHTML =
-        '<div class="card">起動に失敗しました：' + esc(e && e.message ? e.message : e) + '</div>';
+        '<div class="card">起動に失敗しました：' + esc(DB.errText(e)) +
+        (e && e.diag ? '<div class="diag">SDK の状態：' + esc(e.diag) + '</div>' : '') + '</div>';
     });
   }
 
@@ -106,7 +109,7 @@ var App = (function () {
       state.items.push(saved);
       log('追加', saved.ID, saved.Item_Name);
       render();
-    }).catch(function (e) { alert('保存に失敗しました：' + (e && e.message ? e.message : e)); });
+    }).catch(function (e) { alert('保存に失敗しました：' + DB.errText(e)); });
   }
 
   function toggle(id) {
@@ -117,7 +120,7 @@ var App = (function () {
       r.Is_Active = next;
       log('状態変更', id, r.Item_Name + ' → ' + (next ? '有効' : '停止'));
       render();
-    }).catch(function (e) { alert('更新に失敗しました：' + (e && e.message ? e.message : e)); });
+    }).catch(function (e) { alert('更新に失敗しました：' + DB.errText(e)); });
   }
 
   return { boot: boot, state: state, render: render, seed: seed };

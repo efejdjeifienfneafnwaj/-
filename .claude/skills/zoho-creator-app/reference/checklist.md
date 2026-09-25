@@ -26,11 +26,15 @@
 
 ## SDK の呼び方
 
+- [ ] SDK の有無を `ZOHO.CREATOR.DATA.getRecords` で判定している（**`init` の有無で判定していない**）
+- [ ] `ZOHO.CREATOR.init()` は、あるときだけ呼んでいる（v2 の SDK には無い）
+- [ ] `getInitParams()` を **Promise** として受け取っている（`Promise.resolve()` で包む）
 - [ ] `getRecords({ report_name, max_records })` — **snake_case**
 - [ ] `addRecords({ form_name, payload: { data: {...} } })` — data は**オブジェクト**
-- [ ] `updateRecord({ report_name, id, payload: { data } })` — `updateRecordById` ではない
+- [ ] 追加の応答の ID を `data` と `result` の両方から読み、`code` と `result[].code` を確かめている
+- [ ] 更新は `updateRecordById` があればそれを、無ければ `updateRecord` を呼んでいる
 - [ ] 0件のレポートで `catch` して空配列を返している
-- [ ] `verify/sdk-mock-test.js` が通る
+- [ ] `verify/sdk-mock-test.js` が通る（v2 の形・初版の形・iframe の中、のすべて）
 
 ## データの扱い
 
@@ -44,6 +48,7 @@
 ## 動作
 
 - [ ] Creator 未接続でもデモモードで動く（ローカルで `app/widget.html` を開いて確認した）
+- [ ] Creator の中（iframe の中）で SDK が使えないときは、デモへ落ちずにエラー画面で止まる
 - [ ] `verify/demo-smoke-test.js` が通る
 - [ ] コンソールエラーが0件
 - [ ] 375px 幅で横スクロールが発生しない

@@ -5,6 +5,13 @@
 実際に Zoho Creator 上で動作しているウィジェットの zip を展開して確認した内容。
 SDK の呼び出し方は、その中で実際に動いているコードから読み取った。
 
+**2026年9月に訂正**：初版の「`ZOHO.CREATOR.init()` で初期化する」は誤り。
+v2 の SDK（`version/2.0/widgetsdk-min.js`）には `init()` が無く、`init` の有無で SDK を判定した
+ウィジェットは、実際の Creator（JP データセンター）で SDK が読み込まれているのに「SDK未検出」で止まった。
+判定をデータ操作の関数に変えて直ったことを、同じ環境で確認済み。
+あわせて、Zoho の JS API v2 の資料と食い違っていた点（`getInitParams()` の戻り値、更新の関数名、
+追加の応答の形）は、**どちらの形でも動く書き方**に改めた（下記）。
+
 ---
 
 ## zip の構造
@@ -101,34 +108,56 @@ ZOHO.CREATOR.DATA.getRecords({
 ZOHO.CREATOR.DATA.addRecords({
   form_name: 'Wf_Employee_Form',
   payload: { data: { emp_name: '山田 直樹', leave_balance: 12 } }
-}).then(function (res) {
-  var d = res && res.data;
-  var id = d && (d.ID || (d[0] && d[0].ID));
+}).then(checkRes).then(function (res) {
+  var id = recordId(res);   // 読めなければ仮の ID を振らずにエラーにする
 });
 ```
 
 `payload.data` は**オブジェクト**（配列ではない）。
 
+応答の形は2通りありうる。**両方から ID を読む**こと（雛形の `recordId()`）。
+
+```js
+{ code: 3000, data: { ID: '…' } }                              // このスキルの初版で観測した形
+{ code: 3000, result: [ { code: 3000, data: { ID: '…' } } ] }   // REST API v2.1 の形
+```
+
+後者では、全体の `code` が 3000 でも、`result` の中のレコードが失敗（3001 など）していることがある。
+`code` と `result[].code` の両方を確かめる（雛形の `checkRes()`）。
+
 ### 更新
 
 ```js
-ZOHO.CREATOR.DATA.updateRecord({
+var D = ZOHO.CREATOR.DATA;
+var fn = typeof D.updateRecordById === 'function' ? 'updateRecordById' : 'updateRecord';
+D[fn]({
   report_name: 'Wf_Employee_Report',
   id: String(recordId),
   payload: { data: { leave_balance: 10 } }
-});
+}).then(checkRes);
 ```
 
-関数名は `updateRecord`。`updateRecordById` ではない。
+関数名は資料によって食い違う。Zoho の JS API v2 の資料では `updateRecordById`、
+このスキルの初版（観測したコード）では `updateRecord`。**ある方を呼ぶ**。
+どちらが実際に使えるかは、まだ実機で確かめていない。
 
 ### 初期化とログインユーザー
 
+**v2 の SDK には `ZOHO.CREATOR.init()` が無い。** 読み込めばそのまま `DATA` / `UTIL` が使える。
+`init` は v1 の SDK の関数で、「あれば呼ぶ」だけにする。**`init` の有無で SDK を判定してはいけない**
+（実際の Creator で、SDK が読み込まれているのに「SDK未検出」で止まった）。
+
 ```js
-ZOHO.CREATOR.init().then(function () {
-  var p = ZOHO.CREATOR.UTIL.getInitParams() || {};
-  var login = p.loginUser;   // ログインしている人のメールアドレス
-});
+var C = ZOHO.CREATOR;
+Promise.resolve(typeof C.init === 'function' ? C.init() : null)   // v2 には無い
+  .then(function () { return C.UTIL.getInitParams(); })              // v2 は Promise を返す
+  .then(function (p) {
+    var login = (p || {}).loginUser;   // ログインしている人のメールアドレス
+  });
 ```
+
+`getInitParams()` は v2 では **Promise** を返す（初版の資料は同期の値として書いていた）。
+`Promise.resolve()` で包めば、どちらでも受け取れる。
 
 `loginUser` は**サーバーが保証する値**。本人判定はこれを社員マスタのメールと突き合わせて行う。
 クライアントが名乗る値を信用しないこと。
@@ -137,11 +166,12 @@ ZOHO.CREATOR.init().then(function () {
 
 | 操作 | 関数 | パラメータ |
 |---|---|---|
+| SDK の判定 | `CREATOR.DATA.getRecords` が関数か | — （`init` の有無で判定しない） |
+| 初期化 | 不要（v2）。`CREATOR.init` が**あるときだけ**呼ぶ | — |
+| ログイン情報 | `UTIL.getInitParams()`（v2 は **Promise**） | — |
 | 取得 | `DATA.getRecords` | `report_name` / `max_records` / `criteria` |
-| 追加 | `DATA.addRecords` | `form_name` / `payload.data`（オブジェクト） |
-| 更新 | `DATA.updateRecord` | `report_name` / `id` / `payload.data` |
-| 初期化 | `CREATOR.init()` | — |
-| ログイン情報 | `UTIL.getInitParams()` | — |
+| 追加 | `DATA.addRecords` | `form_name` / `payload.data`（オブジェクト）。ID は `data` と `result` の両方から読む |
+| 更新 | `DATA.updateRecordById`（無ければ `DATA.updateRecord`） | `report_name` / `id` / `payload.data` |
 
 ---
 
@@ -151,26 +181,37 @@ ZOHO.CREATOR.init().then(function () {
 これが無いと、修正のたびに zip を作り直してアップロードすることになり、開発が進まない。
 
 ```js
-var hasSDK = (typeof ZOHO !== 'undefined' && ZOHO.CREATOR && typeof ZOHO.CREATOR.init === 'function');
-if (!hasSDK) { startDemo('SDK未検出'); return; }
+// SDK の判定はデータ操作の関数で行う（v2 には init が無いので、init で判定すると必ず「未検出」になる）
+function sdkReady() {
+  return typeof ZOHO !== 'undefined' && ZOHO && ZOHO.CREATOR && ZOHO.CREATOR.DATA &&
+    typeof ZOHO.CREATOR.DATA.getRecords === 'function';
+}
+// Creator のウィジェットは iframe の中で動く。デモへ落としてよいのは iframe の外（ローカル）だけ
+function inFrame() { try { return window.self !== window.top; } catch (e) { return true; } }
 
-// 応答が無いまま固まるのを防ぐ
-var timer = setTimeout(function () { startDemo('SDK応答なし'); }, 6000);
-ZOHO.CREATOR.init().then(function () {
-  clearTimeout(timer);
-  connected = true;
-}).catch(function () {
-  clearTimeout(timer);
-  startDemo('SDK初期化エラー');
-});
+if (!sdkReady()) {
+  if (!inFrame()) startDemo('SDK未検出');
+  else showError('Zoho Creator に接続できませんでした（SDK未検出）', sdkShape());   // SDK が持つ関数を表示
+  return;
+}
+var C = ZOHO.CREATOR;
+var timer = setTimeout(function () { failOrDemo('SDK応答なし'); }, 8000);   // 固まるのを防ぐ
+Promise.resolve(typeof C.init === 'function' ? C.init() : null)
+  .then(function () { return C.UTIL.getInitParams(); })
+  .then(function (p) { clearTimeout(timer); connected = true; initParams = p || {}; })
+  .catch(function (e) { clearTimeout(timer); failOrDemo('SDK初期化エラー'); });
 ```
+
+実際の書き方（Creator の中では2秒まで待ってから判定する、止めた画面に SDK の形を出す、など）は
+`template/widget/app/js/data.js` の `init()` を使うこと。
 
 デモモードでは localStorage 上の疑似データで全機能が動くようにする。
 ローカルで `app/widget.html` をブラウザで開くだけで確認できる状態になる。
 
-**ただし本番では注意**：Creator 上で動いているのに SDK が一時的に応答しないと、
-デモモードで起動してしまう。本番向けには「`ZOHO` が存在するならデモへ落とさずエラー画面で止める」
-という分岐を入れる方が安全。
+**Creator の中（iframe の中）ではデモへ落とさない。** SDK が使えないままデモで起動すると、
+利用者は保存されない画面に入力してしまう。雛形は iframe の中ではエラー画面で止め、
+SDK が持っている関数の一覧（診断情報）を表示する。確認のために iframe の中でデモを使いたいときは、
+URL に `?demo=1` を付ける。
 
 ---
 
