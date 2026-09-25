@@ -8,3 +8,4 @@ qa/parity-diff-*.png
 dist-batch
 dist-dbg
 dist-b2
+dist-b3

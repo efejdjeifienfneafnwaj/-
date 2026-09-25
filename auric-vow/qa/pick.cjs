@@ -71,7 +71,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
               const cc = m.geometry.boundingSphere.center.clone().applyMatrix4(m.matrixWorld); const rr = m.geometry.boundingSphere.radius * m.matrixWorld.getMaxScaleOnAxis()
               inFr = pl.every((p) => p[0] * cc.x + p[1] * cc.y + p[2] * cc.z + p[3] >= -rr)
             }
-            hits.push({ inFr, uuid: m.uuid.slice(0, 8), t: +best.toFixed(2), name: path.slice(0, 5).join(' < '), layers: m.layers.mask, inst: m.isInstancedMesh ? k : -1, fc: m.frustumCulled, mat: m.material?.type + ':' + (m.material?.name || ''), tr: !!m.material?.transparent, perf: JSON.stringify(Object.keys(m.userData).filter((x) => x.startsWith('__perf'))) })
+            hits.push({ side: m.material?.side, det: +m.matrixWorld.determinant().toFixed(3), idet: m.isInstancedMesh ? +(() => { const im = new M(); m.getMatrixAt(k, im); return im.determinant() })().toFixed(3) : null, g: m.geometry.type, mv: m.material?.visible, cw: m.material?.colorWrite, op: m.material?.opacity, inFr, uuid: m.uuid.slice(0, 8), t: +best.toFixed(2), name: path.slice(0, 5).join(' < '), layers: m.layers.mask, inst: m.isInstancedMesh ? k : -1, fc: m.frustumCulled, mat: m.material?.type + ':' + (m.material?.name || ''), tr: !!m.material?.transparent, perf: JSON.stringify(Object.keys(m.userData).filter((x) => x.startsWith('__perf'))) })
           }
         }
       })
