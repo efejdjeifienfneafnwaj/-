@@ -864,6 +864,8 @@ export default function PostFX() {
         const lum = new Float32Array(n)
         let overKnee = 0
         let overWide = 0
+        let nonFinite = 0
+        for (let i = 0; i < n * 4; i++) if (!Number.isFinite(buf[i])) nonFinite++
         for (let i = 0; i < n; i++) {
           const l =
             buf[i * 4] * 0.2126 + buf[i * 4 + 1] * 0.7152 + buf[i * 4 + 2] * 0.0722
@@ -877,6 +879,7 @@ export default function PostFX() {
           rendererExposure: gl.toneMappingExposure,
           postExposure: U.exposure.value,
           bloomKnee: POSTFX.bloom.luminanceThreshold,
+          nonFiniteChannels: nonFinite,
           fracOverBloomKnee: +(overKnee / n).toFixed(4),
           fracOverWideKnee: +(overWide / n).toFixed(4),
           ...summarise(lum, n),

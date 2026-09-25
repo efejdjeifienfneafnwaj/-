@@ -32,8 +32,13 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     await step(24) // let springs, cascades and cached shadows settle
     await page.evaluate(([lx, ly, lz]) => window.__qa.lookAt(lx, ly, lz), [lx, ly, lz])
     await step(2)
-    await page.screenshot({ path: path.join(OUT, name + '.png'), timeout: 180000 })
-    console.log('shot', name)
+    const png = await page.screenshot({ path: path.join(OUT, name + '.png'), timeout: 180000 })
+    console.log('shot', name, png.length)
+    if (png.length < 150000) {
+      const rep = await page.evaluate(() => window.__qa.postReport && window.__qa.postReport())
+      console.log('BLANK', name, JSON.stringify(rep))
+      await page.screenshot({ path: path.join(OUT, name + '_retry.png'), timeout: 180000 })
+    }
   }
   await shot('a_spawn', 0, 0.2, 5, 0, 1.5, 40)
   if (ONLY_SPAWN) { await b.close(); srv.close(); return }
