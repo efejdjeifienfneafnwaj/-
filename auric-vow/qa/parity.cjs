@@ -63,6 +63,19 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     })
     await step(2)
     console.log('OCTA draws in 2 frames:', JSON.stringify(await page.evaluate(() => window.__oc)))
+    await page.evaluate(() => {
+      const { scene } = window.__qa
+      scene.traverse((m) => {
+        if (m.isMesh && m.geometry?.type === 'OctahedronGeometry' && Math.abs(m.scale.y - 4.6) < 1e-3) {
+          const Mat = Object.getPrototypeOf(m.material).constructor
+          window.__octaInfo = { mat: m.material.type, alphaTest: m.material.alphaTest, depthFunc: m.material.depthFunc, depthTest: m.material.depthTest, depthWrite: m.material.depthWrite, stencil: m.material.stencilWrite, blending: m.material.blending, transparent: m.material.transparent, opacity: m.material.opacity, renderOrder: m.renderOrder, clip: m.material.clippingPlanes, polygonOffset: m.material.polygonOffset, alphaHash: m.material.alphaHash, map: !!m.material.map, alphaMap: !!m.material.alphaMap }
+          m.material = m.material.clone(); m.material.onBeforeCompile = () => {}; m.material.customProgramCacheKey = () => 'probe'; m.material.color.set(1, 0, 0); m.material.emissive?.set(1, 0, 0); m.material.map = null
+        }
+      })
+    })
+    console.log('OCTA material', JSON.stringify(await page.evaluate(() => window.__octaInfo)))
+    await step(3)
+    await page.screenshot({ path: path.join(OUT, 'octa_red.png') })
   }
   await b.close(); srv.close()
 })().catch((e) => { console.error(e); process.exit(1) })
