@@ -1144,11 +1144,90 @@ button.ptag:hover{filter:brightness(.96);text-decoration:underline;}
    13. その他
    ══════════════════════════════════════════════════════════════ */
 .toast{
-  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#243542;color:#fff;
+  position:fixed;left:50%;bottom:24px;transform:translate(-50%,18px) scale(.96);background:#243542;color:#fff;
   padding:10px 19px;border-radius:22px;font-size:12.5px;box-shadow:var(--sh-2);opacity:0;
-  pointer-events:none;transition:opacity .22s;max-width:min(92vw,520px);z-index:200;text-align:center;
+  pointer-events:none;transition:opacity .22s, transform .38s cubic-bezier(.2,.9,.3,1.25);
+  max-width:min(92vw,520px);z-index:200;text-align:center;
 }
-.toast.on{opacity:1;}
+.toast.on{opacity:1;transform:translate(-50%,0) scale(1);}
+
+/* ══ 画面の動き ══ */
+@keyframes vIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+@keyframes vPop{from{opacity:0;transform:translateY(12px) scale(.965);}to{opacity:1;transform:none;}}
+@keyframes pbGrow{from{transform:scaleX(0);}to{transform:scaleX(1);}}
+@keyframes topIn{from{transform:translateY(-100%);opacity:.4;}to{transform:none;opacity:1;}}
+@keyframes sideIn{from{opacity:0;transform:translateX(-28px);}to{opacity:1;transform:none;}}
+@keyframes navIn{from{opacity:0;transform:translateX(-14px);}to{opacity:1;transform:none;}}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+@keyframes abIn{from{opacity:0;transform:translateY(-10px) scale(.98);}to{opacity:1;transform:none;}}
+@keyframes abPulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,.55);}70%{box-shadow:0 0 0 12px rgba(255,255,255,0);}100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}}
+@keyframes gateFlash{to{opacity:.9;}}
+/* アプリに入ったとき */
+.app.enter .top{animation:topIn .55s cubic-bezier(.2,.8,.2,1) backwards;}
+.app.enter .crumb-bar{animation:fadeIn .5s ease .2s backwards;}
+@media (min-width:861px){
+  .app.enter .side{animation:sideIn .6s cubic-bezier(.2,.8,.2,1) .06s backwards;}
+  .app.enter .side .nav-i{animation:navIn .5s cubic-bezier(.2,.8,.2,1) backwards;}
+}
+/* 画面を開いたとき：上から順に */
+.view-in .wrap > *{animation:vIn .55s cubic-bezier(.2,.8,.2,1) backwards;}
+.view-in .wrap > *:nth-child(2){animation-delay:.05s;}
+.view-in .wrap > *:nth-child(3){animation-delay:.1s;}
+.view-in .wrap > *:nth-child(4){animation-delay:.15s;}
+.view-in .wrap > *:nth-child(5){animation-delay:.2s;}
+.view-in .wrap > *:nth-child(6){animation-delay:.25s;}
+.view-in .wrap > *:nth-child(7){animation-delay:.3s;}
+.view-in .wrap > *:nth-child(n+8){animation-delay:.34s;}
+/* カードの並びは1枚ずつ */
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *{animation:vPop .55s cubic-bezier(.2,.8,.2,1) backwards;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(1){animation-delay:.1s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(2){animation-delay:.15s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(3){animation-delay:.2s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(4){animation-delay:.25s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(5){animation-delay:.3s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(6){animation-delay:.35s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(7){animation-delay:.4s;}
+.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *:nth-child(n+8){animation-delay:.44s;}
+/* 表の行は少しずつ */
+.view-in tbody tr{animation:fadeIn .45s ease backwards;}
+.view-in tbody tr:nth-child(2){animation-delay:.04s;} .view-in tbody tr:nth-child(3){animation-delay:.08s;}
+.view-in tbody tr:nth-child(4){animation-delay:.12s;} .view-in tbody tr:nth-child(5){animation-delay:.16s;}
+.view-in tbody tr:nth-child(n+6){animation-delay:.2s;}
+/* 進み具合の棒は左から伸びる */
+.view-in .pb i,.view-in .brow .tr i{transform-origin:left center;animation:pbGrow .9s cubic-bezier(.2,.8,.2,1) .3s backwards;}
+/* 社内申請の画面 */
+#shinsei.view-in .view{animation:vIn .5s cubic-bezier(.2,.8,.2,1) backwards;}
+/* ボタン・メニューの手ごたえ */
+.btn{transition:filter .14s, transform .12s, box-shadow .14s, background .14s;}
+.btn:active:not(:disabled){transform:translateY(1px) scale(.98);}
+.nav-i .ic{transition:transform .2s cubic-bezier(.2,.8,.2,1);}
+.nav-i:hover .ic{transform:translateX(2px) scale(1.08);}
+.nav-i[aria-current="page"] .ic{transform:scale(1.1);}
+.card,.cc,.mem,.kpi{will-change:auto;}
+.kpi{transition:transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s;}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--sh-2);}
+/* 重要なお知らせの帯・チャットの新しい発言 */
+.ab-in{animation:abIn .5s cubic-bezier(.2,.8,.2,1) backwards;}
+.ab-ic{animation:abPulse 2.4s ease-out infinite;}
+.cm.fresh .cm-b{animation:vPop .38s cubic-bezier(.2,.8,.2,1) backwards;}
+/* 入口 → アプリ */
+.gate.leaving .gate-top,.gate.leaving .gate-hero,.gate.leaving .gate-bottom,.gate.leaving .gate-app:not(.picked){
+  transition:opacity .3s ease, transform .38s cubic-bezier(.4,0,.2,1);opacity:0;transform:translateY(14px) scale(.98);
+}
+.gate.leaving .gate-hero{transform:translateY(-16px) scale(.98);}
+.gate.leaving .gate-app.picked{
+  transition:transform .42s cubic-bezier(.2,.8,.2,1), box-shadow .42s;animation:none;
+  transform:translateY(-10px) scale(1.07);
+  box-shadow:0 36px 80px rgba(40,80,150,.28), 0 0 0 4px var(--ring), 0 0 90px var(--glow);
+}
+.gate.leaving .gate-app.picked .hub-i{transform:scale(1.14) rotate(-6deg);}
+.gate.leaving::after{content:"";position:absolute;inset:0;z-index:6;background:#fff;opacity:0;pointer-events:none;animation:gateFlash .42s ease-in .05s forwards;}
+@media (prefers-reduced-motion:reduce){
+  .app.enter .top,.app.enter .crumb-bar,.app.enter .side,.app.enter .side .nav-i,
+  .view-in .wrap > *,.view-in :is(.kpis,.grid,.members,.hub,.psheet-g) > *,.view-in tbody tr,
+  .view-in .pb i,.view-in .brow .tr i,#shinsei.view-in .view,.ab-in,.ab-ic,.cm.fresh .cm-b{animation:none;}
+  .toast{transition:opacity .2s;}
+}
 /* 画面の下に出したままにする知らせ（保存できていない等）。
    トーストは数秒で消えてしまい「保存できていない」ことに気づけないので、押せるボタンごと残す */
 .holdbar{
@@ -4362,7 +4441,7 @@ var VIEW_RANK = {
   acourses:3, aassign:3, anews:3, asurvey:3, aimport:3,
   ajobs:4, atitles:4,
   acedit:3,
-  asettings:4, aroles:4,
+  asettings:4, aroles:4, aportal:4,
   /* 社内申請の管理側 */
   s_search:4, s_finance:4, s_routes:4, s_admin:4, s_templates:4
 };
@@ -4409,7 +4488,7 @@ function viewApps(view){
   if(v.indexOf('s_') === 0) return ['shinsei'];
   if(v === 'feed' || v === 'chat' || v === 'thanks' || v === 'awards' || v === 'members' || v === 'profile') return ['connect'];
   /* 職員登録（職員・職種・権限）は、ログイン画面の専用の入口からだけ */
-  if(v === 'aimport' || v === 'ajobs' || v === 'atitles' || v === 'aroles') return ['staff'];
+  if(v === 'aimport' || v === 'ajobs' || v === 'atitles' || v === 'aroles' || v === 'aportal') return ['staff'];
   return ['lms'];
 }
 var NAV_USER = [
@@ -4440,7 +4519,8 @@ var NAV_STAFF = [
   { go:'aimport', icon:'users',  label:'職員' },
   { go:'ajobs',   icon:'slider', label:'職種' },
   { go:'atitles', icon:'medal',  label:'役職' },
-  { go:'aroles',  icon:'check',  label:'権限' }
+  { go:'aroles',  icon:'check',  label:'権限' },
+  { go:'aportal', icon:'home',   label:'タイトル画面' }
 ];
 var NAV_ADMIN = [
   { go:'adash',   icon:'home',  label:'管理ダッシュボード' },
@@ -4489,7 +4569,7 @@ var NAV_OF = {
   aoverall:'aoverall', alog:'alog', acourse:'acourse', auser:'auser', aquiz:'aquiz',
   asurvey:'asurvey', anews:'anews', aimport:'aimport', aroles:'aroles',
   aassign:'acourses', acedit:'acourses',
-  ajobs:'ajobs', atitles:'atitles',
+  ajobs:'ajobs', atitles:'atitles', aportal:'aportal',
   asettings:'asettings', audetail:'ausers'
 };
 
@@ -4707,6 +4787,7 @@ function groups(){
 */
 function viewGate(){
   document.getElementById('app').classList.remove('on');
+  APP_ENTERED = false;
   var prev = me() || {}, cfg = config();
 
   var ps = people() || {};
@@ -4923,10 +5004,19 @@ function viewGate(){
         o = { name:n, dept:dv, group:gv, emp:'', email:LOGIN_EMAIL || '' };
       }
     }
-    setMe(o);
-    document.getElementById('gate').innerHTML = '';
-    MODE = 'user';
-    afterLogin(o.name, app.go);
+    var enter = function(){
+      setMe(o);
+      document.getElementById('gate').innerHTML = '';
+      MODE = 'user';
+      afterLogin(o.name, app.go);
+    };
+    var gEl = document.querySelector('#gate .gate');
+    if(gEl && gEl.classList.contains('leaving')) return;      /* 二度押し */
+    if(!gEl || !motionOK()){ enter(); return; }
+    gEl.classList.add('leaving');
+    var picked = document.querySelector('#gate [data-app="' + app.id + '"]');
+    if(picked) picked.classList.add('picked');
+    setTimeout(enter, 420);
   }
   /* アプリのカードを押した瞬間に入る */
   Array.prototype.forEach.call(document.querySelectorAll('#gate [data-app]'), function(b){
@@ -6425,7 +6515,7 @@ function viewMemberSheet(n){
    ・チャットを開いている間は、いまの部屋を数秒ごとに読みに行く
    ══════════════════════════════════════════════════════════════ */
 var CHAT = { room:'', draft:{}, loaded:false, loading:false, oldest:{}, end:{},
-             timer:0, tick:0, atBottom:true, edit:null };
+             timer:0, tick:0, atBottom:true, edit:null, shown:{}, shownRoom:'' };
 var CHAT_EVERY = 8000;
 function localMonth(iso){
   var d = new Date(iso || Date.now());
@@ -6558,6 +6648,9 @@ function chatLogHTML(room){
     return h + '<div class="cm-empty">' + ic('chat') + '<b>まだ発言がありません</b><span>最初のひとことをどうぞ。</span></div>';
   }
   var lastDay = '', lastBy = '', lastT = 0;
+  /* 部屋を開いた最初の描画では動かさない。そのあと増えた発言だけ動かす */
+  var first = CHAT.shownRoom !== room;
+  if(first){ CHAT.shown = {}; CHAT.shownRoom = room; }
   ms.forEach(function(m){
     var day = chatDay(m.at), t = Date.parse(m.at) || 0;
     if(day !== lastDay){ h += '<div class="cm-day"><span>' + esc(day) + '</span></div>'; lastBy = ''; }
@@ -6566,7 +6659,9 @@ function chatLogHTML(room){
     var k = 'chat\u0000' + m.id;
     var st = SYNC.hold[k] ? '<span class="cm-st bad">未送信（表がありません）</span>'
            : SYNC.pend[k] ? '<span class="cm-st">送信中…</span>' : '';
-    h += '<div class="cm' + (me2 ? ' mine' : '') + (cont ? ' cont' : '') + '" data-cid="' + esc(m.id) + '">' +
+    var fresh = !first && !CHAT.shown[m.id];
+    CHAT.shown[m.id] = 1;
+    h += '<div class="cm' + (me2 ? ' mine' : '') + (cont ? ' cont' : '') + (fresh ? ' fresh' : '') + '" data-cid="' + esc(m.id) + '">' +
          (me2 ? '' : '<span class="cm-av">' + (cont ? '' : ava(m.by)) + '</span>') +
          '<div class="cm-b">' +
            (cont ? '' : '<div class="cm-h">' + (me2 ? '' : '<b>' + esc(m.by) + '</b>') + '<time>' + esc(chatTime(m.at)) + '</time></div>') +
@@ -6650,7 +6745,7 @@ function bindChatRooms(){
     b.onclick = function(){
       var t = document.getElementById('chIn');
       if(t) CHAT.draft[CHAT.room] = t.value;
-      CHAT.room = b.getAttribute('data-room'); CHAT.edit = null; CHAT.atBottom = true;
+      CHAT.room = b.getAttribute('data-room'); CHAT.edit = null; CHAT.atBottom = true; CHAT.shownRoom = '';
       viewChat();
       if(ON_CREATOR) loadChatRoom(CHAT.room, curMonth()).then(function(){ if(VIEW_NOW === 'chat') redrawChat(true); });
     };
@@ -9687,6 +9782,261 @@ function viewANews(){
 }
 
 /* ══════════════════════════════════════════════════════════════
+   画面：タイトル画面の設定（職員登録の中。システム管理者だけ）
+     ポータル名・ロゴ・背景画像・配色・アプリのカード。3つのアプリ全部に効くので、
+     e-ラーニングの中ではなく、職員登録に置く。
+   ══════════════════════════════════════════════════════════════ */
+function viewAPortal(){
+  var cfg = config();
+  var h = '<div class="wrap" style="max-width:860px">';
+  h += staffHead('aportal');
+  h += '<div class="note calm" style="margin-bottom:16px">' + ic('home') +
+       'ログインしたあと最初に出る<b>タイトル画面</b>の設定です。ここで変えると、全員のタイトル画面と3つのアプリの見出しに反映されます。</div>';
+  /* ── 見た目（ロゴ・名前・背景画像） ── */
+  h += '<div class="cat">' + ic('gear') + '見た目</div>';
+  h += '<div class="card pad" style="display:grid;gap:14px;margin-bottom:16px">';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="cfPortal">ポータル名<span class="note-s">ログイン画面の見出し</span></label>' +
+           '<input class="inp" id="cfPortal" value="' + esc(cfg.portalName) + '"></div>';
+  h +=   '<div class="field"><label for="cfPortalSub">ポータルのサブタイトル<span class="note-s">いまの入口には出ません</span></label>' +
+           '<input class="inp" id="cfPortalSub" value="' + esc(cfg.portalSub) + '"></div>';
+  h +=   '<div class="field"><label for="cfCatch">タイトルの下の一言<span class="note-s">いまの入口には出ません</span></label>' +
+           '<input class="inp" id="cfCatch" value="' + esc(cfg.catchCopy) + '"></div>';
+  h +=   '<div class="field"><label for="cfCatchSub">タイトルの下の説明<span class="note-s">いまの入口には出ません</span></label>' +
+           '<textarea class="inp" id="cfCatchSub" rows="2">' + esc(cfg.catchSub) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfSide">大きな言葉<span class="note-s">いまの入口には出ません</span></label>' +
+           '<textarea class="inp" id="cfSide" rows="4">' + esc(cfg.sideCopy) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfScript">大きな言葉の英語<span class="note-s">いまの入口には出ません</span></label>' +
+           '<textarea class="inp" id="cfScript" rows="3">' + esc(cfg.scriptCopy) + '</textarea></div>';
+  h +=   '<div class="field"><label for="cfBrandSub">ロゴの下の一言<span class="note-s">左上のロゴの下。空なら出ません</span></label>' +
+           '<input class="inp" id="cfBrandSub" value="' + esc(cfg.brandSub) + '"></div>';
+  h +=   '<div class="field"><label for="cfTagSub">右下の英語の一言<span class="note-s">いまの入口には出ません</span></label>' +
+           '<input class="inp" id="cfTagSub" value="' + esc(cfg.taglineSub) + '"></div>';
+  h +=   '<div class="field"><label for="cfName">アプリ名<span class="note-s">上の見出しと修了証に出ます</span></label>' +
+           '<input class="inp" id="cfName" value="' + esc(cfg.appName) + '"></div>';
+  h +=   '<div class="field"><label for="cfSub">サブタイトル</label>' +
+           '<input class="inp" id="cfSub" value="' + esc(cfg.appSub) + '"></div>';
+  h += '</div>';
+  h += '<div class="two-g">';
+  h +=   '<div class="field"><label for="cfOrg">法人名<span class="note-s">入口の下に出ます</span></label>' +
+           '<input class="inp" id="cfOrg" value="' + esc(cfg.orgName) + '"></div>';
+  h +=   '<div class="field"><label for="cfTag">右下の一言<span class="note-s">いまの入口には出ません</span></label>' +
+           '<input class="inp" id="cfTag" value="' + esc(cfg.tagline) + '"></div>';
+  h += '</div>';
+
+  /* ロゴ */
+  h += '<div class="up"><div class="up-pv">' + logoHTML(26) + '</div>';
+  h +=   '<div class="up-b"><b>ロゴ画像</b>' +
+           '<span>正式なロゴのPNGを登録してください。未登録のときは、仮のロゴを表示します。' +
+           '大きい画像は自動で縮小します（背景の透過は保たれます）。</span>' +
+           '<div class="bar" style="margin-top:8px">' +
+             '<label class="btn sub sm">画像を選ぶ<input type="file" id="cfLogo" accept="image/*" hidden></label>' +
+             (cfg.logo ? '<button class="btn sub sm" id="cfLogoDel">登録を取り消す</button>' : '') +
+           '</div></div></div>';
+
+  /* 背景画像 */
+  h += '<div class="up"><div class="up-pv hero-pv">' + heroHTML() + '</div>';
+  h +=   '<div class="up-b"><b>入口の背景画像</b>' +
+           '<span>Creatorに保存できる大きさに限りがあるため、ここから登録すると自動で縮小されます。' +
+           '<b>画質そのままで入れたい場合は、zipの app/ に bg.jpg として入れてください</b>（制限なし）。' +
+           '権利に問題のない画像だけをお使いください。</span>' +
+           '<div class="bar" style="margin-top:8px">' +
+             '<label class="btn sub sm">画像を選ぶ<input type="file" id="cfHero" accept="image/*" hidden></label>' +
+             (cfg.hero ? '<button class="btn sub sm" id="cfHeroDel">登録を取り消す</button>' : '') +
+           '</div></div></div>';
+
+  /* 配色 */
+  h += '<div class="field"><label>配色</label><div class="seg" id="cfTheme">' +
+       ['auto|端末に合わせる','light|明るい','dark|暗い'].map(function(x){
+         var v = x.split('|');
+         return '<button data-th="' + v[0] + '" aria-pressed="' + (cfg.theme === v[0]) + '">' +
+                v[1] + '</button>';
+       }).join('') + '</div></div>';
+
+  h += '<div class="bar"><button class="btn" id="cfSave">' + ic('check') + '見た目を保存する</button>' +
+       '<button class="btn sub" id="cfTextReset">文字をはじめの値に戻す</button>' +
+       '<span class="cap">ロゴと背景画像は Creator に保存され、全員の画面に反映されます</span></div>';
+  h += '</div>';
+
+  /* ── 入口に並ぶアプリのカード ── */
+  h += '<div class="cat">' + ic('folder') + 'タイトル画面のアプリのカード</div>';
+  h += '<div class="card pad" style="display:grid;gap:16px;margin-bottom:16px">';
+  h += '<div class="cap">ログイン画面に並ぶカードの、名前・説明・アイコンを変えられます。' +
+       '「職員登録」はシステム管理者にだけ出ます。</div>';
+  APPS.forEach(function(base){
+    var a = appDef(base.id);
+    h += '<div class="up"><div class="up-pv" style="display:flex;align-items:center;justify-content:center">' +
+         '<span class="hub-i">' + ic(a.icon) + '</span></div>';
+    h += '<div class="up-b" style="flex:1"><div class="two-g">';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_n">名前</label>' +
+             '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '">' +
+             (base.id === 'lms'
+               ? '<span class="note-s">上の「アプリ名」と同じ名前です。どちらで変えても揃います</span>' : '') +
+           '</div>';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_i">アイコン</label>' +
+             '<select class="inp" id="cfA_' + base.id + '_i">' +
+             APP_ICONS.map(function(k){
+               return '<option value="' + k + '"' + (a.icon === k ? ' selected' : '') + '>' +
+                      esc(APP_ICON_LABEL[k] || k) + '</option>';
+             }).join('') + '</select></div>';
+    h += '</div>';
+    h +=   '<div class="field"><label for="cfA_' + base.id + '_s">説明</label>' +
+             '<input class="inp" id="cfA_' + base.id + '_s" value="' + esc(a.sub) + '"></div>';
+    h += '</div></div>';
+  });
+  h += '<div class="bar"><button class="btn" id="cfAppsSave">' + ic('check') +
+       'アプリのカードを保存する</button>' +
+       '<button class="btn sub" id="cfAppsReset">はじめの状態に戻す</button></div>';
+  h += '</div>';
+
+  h += '</div>';
+  document.getElementById('main').innerHTML = h;
+  bindStaffHead();
+
+  /* ── 見た目の保存 ──
+       Creator の複数行テキスト欄は約64KBまで。データURIはもとの画像の約1.37倍になるので、
+       そのまま入れると保存に失敗する。ここで自動的に縮小・圧縮してから保存する。 */
+  function shrinkImage(file, maxW, budget, keepPng, done){
+    var fr = new FileReader();
+    fr.onerror = function(){ toast('画像を読み込めませんでした'); };
+    fr.onload = function(){
+      var img = new Image();
+      img.onerror = function(){ toast('画像の形式を読み取れませんでした'); };
+      img.onload = function(){
+        var w = img.width, h = img.height;
+        var scale = Math.min(1, maxW / w);
+        var cv = document.createElement('canvas');
+        var out = '';
+        /* 収まるまで、大きさと画質を少しずつ落としていく */
+        for(var step = 0; step < 8; step++){
+          cv.width  = Math.max(16, Math.round(w * scale));
+          cv.height = Math.max(16, Math.round(h * scale));
+          var cx = cv.getContext('2d');
+          if(!keepPng){ cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height); }
+          cx.drawImage(img, 0, 0, cv.width, cv.height);
+          if(keepPng){
+            out = cv.toDataURL('image/png');
+            if(out.length <= budget) break;
+            scale *= 0.8;
+          }else{
+            var q = 0.82;
+            for(var i = 0; i < 6; i++){
+              out = cv.toDataURL('image/jpeg', q);
+              if(out.length <= budget) break;
+              q -= 0.12;
+            }
+            if(out.length <= budget) break;
+            scale *= 0.8;
+          }
+        }
+        done(out, cv.width, cv.height, out.length <= budget);
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  }
+  function readImage(input, key, maxW, budget, keepPng){
+    var f = input.files && input.files[0];
+    if(!f) return;
+    toast('画像を取り込んでいます…');
+    shrinkImage(f, maxW, budget, keepPng, function(uri, w, h, ok){
+      if(!ok){
+        toast('この画像は小さくしても収まりませんでした。' +
+              'zipの app/ に bg.jpg として入れる方法をお使いください');
+        return;
+      }
+      var c = config();
+      c[key] = uri;
+      setConfig(c);
+      toast('登録しました（' + w + '×' + h + '・' + Math.round(uri.length/1024) + 'KB）');
+      viewAPortal();
+    });
+  }
+  /* ロゴは透過を保つので PNG のまま。背景は写真なので JPEG に変換する */
+  document.getElementById('cfLogo').onchange = function(){ readImage(this, 'logo', 420, 16000, true); };
+  document.getElementById('cfHero').onchange = function(){ readImage(this, 'hero', 1400, 34000, false); };
+  var d1 = document.getElementById('cfLogoDel');
+  if(d1) d1.onclick = function(){
+    var c = config(); c.logo = ''; setConfig(c); toast('ロゴの登録を取り消しました'); viewAPortal();
+  };
+  var d2 = document.getElementById('cfHeroDel');
+  if(d2) d2.onclick = function(){
+    var c = config(); c.hero = ''; setConfig(c); toast('背景画像の登録を取り消しました'); viewAPortal();
+  };
+  document.getElementById('cfAppsSave').onclick = function(){
+    var c = config(), ov = {};
+    APPS.forEach(function(base){
+      var n = document.getElementById('cfA_' + base.id + '_n');
+      var s = document.getElementById('cfA_' + base.id + '_s');
+      var i = document.getElementById('cfA_' + base.id + '_i');
+      var one = {};
+      /* 初期値と同じものは持たない。あとで初期値を直したときに追従できるように */
+      var nv = String((n && n.value) || '').trim();
+      if(base.id === 'lms'){
+        /* e-ラーニングの名前は config().appName が正（見出し・修了証も同じ）。
+           このカードで変えたら、上の「アプリ名」も同じ値になる */
+        c.appName = nv || DEFAULT_CONFIG.appName;
+      }else if(nv && nv !== base.name) one.name = nv;
+      var sv = String((s && s.value) || '').trim();
+      if(sv && sv !== base.sub) one.sub = sv;
+      var iv = String((i && i.value) || '');
+      if(iv && iv !== base.icon && SVG[iv]) one.icon = iv;
+      if(Object.keys(one).length) ov[base.id] = one;
+    });
+    c.apps = ov;
+    setConfig(c);
+    toast('アプリのカードを保存しました');
+    viewAPortal();
+  };
+  /* 一度保存すると、あとから組み込みの初期値を直しても Creator の保存分が勝つ。
+     名前や言葉を作り直したときに、打ち直さずに取り込めるようにしておく。
+     ロゴ・背景画像・配色は、登録したものをそのまま残す。 */
+  var CF_TEXT = ['portalName','portalSub','catchCopy','catchSub','sideCopy','scriptCopy',
+                 'brandSub','taglineSub','appName','appSub','orgName','tagline'];
+  document.getElementById('cfTextReset').onclick = function(){
+    if(!window.confirm('名前・見出し・言葉を、はじめの値に戻しますか？' +
+                       '（ロゴと背景画像はそのまま残ります）')) return;
+    var c = config();
+    CF_TEXT.forEach(function(k){ c[k] = DEFAULT_CONFIG[k]; });
+    setConfig(c);
+    toast('はじめの値に戻しました');
+    viewAPortal();
+  };
+  document.getElementById('cfAppsReset').onclick = function(){
+    if(!window.confirm('アプリのカードの名前・説明・アイコンを、はじめの状態に戻しますか？')) return;
+    var c = config(); c.apps = {}; setConfig(c);
+    toast('はじめの状態に戻しました');
+    viewAPortal();
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('#cfTheme button'), function(b){
+    b.onclick = function(){
+      var c = config(); c.theme = b.getAttribute('data-th'); setConfig(c);
+      applyTheme(); viewAPortal();
+    };
+  });
+  document.getElementById('cfSave').onclick = function(){
+    var c = config();
+    c.appName = document.getElementById('cfName').value.trim() || DEFAULT_CONFIG.appName;
+    c.portalName = document.getElementById('cfPortal').value.trim() || DEFAULT_CONFIG.portalName;
+    c.portalSub  = document.getElementById('cfPortalSub').value.trim();
+    c.catchCopy  = document.getElementById('cfCatch').value.trim();
+    c.catchSub   = document.getElementById('cfCatchSub').value.trim();
+    c.sideCopy   = document.getElementById('cfSide').value.trim();
+    c.scriptCopy = document.getElementById('cfScript').value.trim();
+    c.brandSub   = document.getElementById('cfBrandSub').value.trim();
+    c.taglineSub = document.getElementById('cfTagSub').value.trim();
+    c.appSub  = document.getElementById('cfSub').value.trim();
+    c.orgName = document.getElementById('cfOrg').value.trim();
+    c.tagline = document.getElementById('cfTag').value.trim();
+    setConfig(c);
+    applyTheme();
+    toast('保存しました');
+    drawNav('aportal');
+  };
+
+}
+
+/* ══════════════════════════════════════════════════════════════
    画面：受講者の一括登録（管理）
      名簿を貼り付けて、まとめて登録する。
    ══════════════════════════════════════════════════════════════ */
@@ -9694,7 +10044,7 @@ function viewANews(){
 var ROS = { q:'', edit:'' };
 /* 職員登録は1つのページ。職員・職種・権限をタブで切り替える */
 function staffHead(cur){
-  var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['atitles', '役職'], ['aroles', '権限']];
+  var tabs = [['aimport', '職員'], ['ajobs', '職種'], ['atitles', '役職'], ['aroles', '権限'], ['aportal', 'タイトル画面']];
   var h = '<div class="ph"><div><h2>職員登録</h2>' +
           '<div class="sub">ここで登録した内容が、社内申請・e-ラーニング・コネクトの3つ全部に効きます。' +
           '登録する場所はここだけです（3つのアプリの中には登録画面はありません）。</div></div></div>';
@@ -10509,104 +10859,10 @@ function viewASettings(){
   var cfg = config();
   var h = '<div class="wrap" style="max-width:860px">';
   h += '<div class="ph"><div><h2>設定</h2>' +
-       '<div class="sub">見た目・選択肢・コースの設定です。</div></div></div>';
-
-  /* ── 見た目（ロゴ・名前・背景画像） ── */
-  h += '<div class="cat">' + ic('gear') + '見た目</div>';
-  h += '<div class="card pad" style="display:grid;gap:14px;margin-bottom:16px">';
-  h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="cfPortal">ポータル名<span class="note-s">ログイン画面の見出し</span></label>' +
-           '<input class="inp" id="cfPortal" value="' + esc(cfg.portalName) + '"></div>';
-  h +=   '<div class="field"><label for="cfPortalSub">ポータルのサブタイトル<span class="note-s">いまの入口には出ません</span></label>' +
-           '<input class="inp" id="cfPortalSub" value="' + esc(cfg.portalSub) + '"></div>';
-  h +=   '<div class="field"><label for="cfCatch">タイトルの下の一言<span class="note-s">いまの入口には出ません</span></label>' +
-           '<input class="inp" id="cfCatch" value="' + esc(cfg.catchCopy) + '"></div>';
-  h +=   '<div class="field"><label for="cfCatchSub">タイトルの下の説明<span class="note-s">いまの入口には出ません</span></label>' +
-           '<textarea class="inp" id="cfCatchSub" rows="2">' + esc(cfg.catchSub) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfSide">大きな言葉<span class="note-s">いまの入口には出ません</span></label>' +
-           '<textarea class="inp" id="cfSide" rows="4">' + esc(cfg.sideCopy) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfScript">大きな言葉の英語<span class="note-s">いまの入口には出ません</span></label>' +
-           '<textarea class="inp" id="cfScript" rows="3">' + esc(cfg.scriptCopy) + '</textarea></div>';
-  h +=   '<div class="field"><label for="cfBrandSub">ロゴの下の一言<span class="note-s">左上のロゴの下。空なら出ません</span></label>' +
-           '<input class="inp" id="cfBrandSub" value="' + esc(cfg.brandSub) + '"></div>';
-  h +=   '<div class="field"><label for="cfTagSub">右下の英語の一言<span class="note-s">いまの入口には出ません</span></label>' +
-           '<input class="inp" id="cfTagSub" value="' + esc(cfg.taglineSub) + '"></div>';
-  h +=   '<div class="field"><label for="cfName">アプリ名<span class="note-s">上の見出しと修了証に出ます</span></label>' +
-           '<input class="inp" id="cfName" value="' + esc(cfg.appName) + '"></div>';
-  h +=   '<div class="field"><label for="cfSub">サブタイトル</label>' +
-           '<input class="inp" id="cfSub" value="' + esc(cfg.appSub) + '"></div>';
-  h += '</div>';
-  h += '<div class="two-g">';
-  h +=   '<div class="field"><label for="cfOrg">法人名<span class="note-s">入口の下に出ます</span></label>' +
-           '<input class="inp" id="cfOrg" value="' + esc(cfg.orgName) + '"></div>';
-  h +=   '<div class="field"><label for="cfTag">右下の一言<span class="note-s">いまの入口には出ません</span></label>' +
-           '<input class="inp" id="cfTag" value="' + esc(cfg.tagline) + '"></div>';
-  h += '</div>';
-
-  /* ロゴ */
-  h += '<div class="up"><div class="up-pv">' + logoHTML(26) + '</div>';
-  h +=   '<div class="up-b"><b>ロゴ画像</b>' +
-           '<span>正式なロゴのPNGを登録してください。未登録のときは、仮のロゴを表示します。' +
-           '大きい画像は自動で縮小します（背景の透過は保たれます）。</span>' +
-           '<div class="bar" style="margin-top:8px">' +
-             '<label class="btn sub sm">画像を選ぶ<input type="file" id="cfLogo" accept="image/*" hidden></label>' +
-             (cfg.logo ? '<button class="btn sub sm" id="cfLogoDel">登録を取り消す</button>' : '') +
-           '</div></div></div>';
-
-  /* 背景画像 */
-  h += '<div class="up"><div class="up-pv hero-pv">' + heroHTML() + '</div>';
-  h +=   '<div class="up-b"><b>入口の背景画像</b>' +
-           '<span>Creatorに保存できる大きさに限りがあるため、ここから登録すると自動で縮小されます。' +
-           '<b>画質そのままで入れたい場合は、zipの app/ に bg.jpg として入れてください</b>（制限なし）。' +
-           '権利に問題のない画像だけをお使いください。</span>' +
-           '<div class="bar" style="margin-top:8px">' +
-             '<label class="btn sub sm">画像を選ぶ<input type="file" id="cfHero" accept="image/*" hidden></label>' +
-             (cfg.hero ? '<button class="btn sub sm" id="cfHeroDel">登録を取り消す</button>' : '') +
-           '</div></div></div>';
-
-  /* 配色 */
-  h += '<div class="field"><label>配色</label><div class="seg" id="cfTheme">' +
-       ['auto|端末に合わせる','light|明るい','dark|暗い'].map(function(x){
-         var v = x.split('|');
-         return '<button data-th="' + v[0] + '" aria-pressed="' + (cfg.theme === v[0]) + '">' +
-                v[1] + '</button>';
-       }).join('') + '</div></div>';
-
-  h += '<div class="bar"><button class="btn" id="cfSave">' + ic('check') + '見た目を保存する</button>' +
-       '<button class="btn sub" id="cfTextReset">文字をはじめの値に戻す</button>' +
-       '<span class="cap">ロゴと背景画像は Creator に保存され、全員の画面に反映されます</span></div>';
-  h += '</div>';
-
-  /* ── 入口に並ぶアプリのカード ── */
-  h += '<div class="cat">' + ic('folder') + 'ログイン画面のアプリ</div>';
-  h += '<div class="card pad" style="display:grid;gap:16px;margin-bottom:16px">';
-  h += '<div class="cap">ログイン画面に並ぶカードの、名前・説明・アイコンを変えられます。' +
-       '「職員登録」はシステム管理者にだけ出ます。</div>';
-  APPS.forEach(function(base){
-    var a = appDef(base.id);
-    h += '<div class="up"><div class="up-pv" style="display:flex;align-items:center;justify-content:center">' +
-         '<span class="hub-i">' + ic(a.icon) + '</span></div>';
-    h += '<div class="up-b" style="flex:1"><div class="two-g">';
-    h +=   '<div class="field"><label for="cfA_' + base.id + '_n">名前</label>' +
-             '<input class="inp" id="cfA_' + base.id + '_n" value="' + esc(a.name) + '">' +
-             (base.id === 'lms'
-               ? '<span class="note-s">上の「アプリ名」と同じ名前です。どちらで変えても揃います</span>' : '') +
-           '</div>';
-    h +=   '<div class="field"><label for="cfA_' + base.id + '_i">アイコン</label>' +
-             '<select class="inp" id="cfA_' + base.id + '_i">' +
-             APP_ICONS.map(function(k){
-               return '<option value="' + k + '"' + (a.icon === k ? ' selected' : '') + '>' +
-                      esc(APP_ICON_LABEL[k] || k) + '</option>';
-             }).join('') + '</select></div>';
-    h += '</div>';
-    h +=   '<div class="field"><label for="cfA_' + base.id + '_s">説明</label>' +
-             '<input class="inp" id="cfA_' + base.id + '_s" value="' + esc(a.sub) + '"></div>';
-    h += '</div></div>';
-  });
-  h += '<div class="bar"><button class="btn" id="cfAppsSave">' + ic('check') +
-       'アプリのカードを保存する</button>' +
-       '<button class="btn sub" id="cfAppsReset">はじめの状態に戻す</button></div>';
-  h += '</div>';
+       '<div class="sub">選択肢・リマインド・メール・コースの設定です。</div></div></div>';
+  h += '<div class="note calm" style="margin-bottom:16px">' + ic('home') +
+       '<b>タイトル画面の設定は「職員登録 → タイトル画面」に移りました</b>　' +
+       'ポータル名・ロゴ・背景画像・配色・アプリのカードは、タイトル画面の「職員登録（管理者）」から直せます（システム管理者だけ）。</div>';
 
   h += '<div class="cat">' + ic('users') + 'グループの選択肢</div>';
   h += '<div class="note calm" style="margin-bottom:12px">' +
@@ -10764,147 +11020,6 @@ function viewASettings(){
        '空にすると、決め直せます。</div>';
   h += '</div>';
   document.getElementById('main').innerHTML = h;
-
-  /* ── 見た目の保存 ──
-       Creator の複数行テキスト欄は約64KBまで。データURIはもとの画像の約1.37倍になるので、
-       そのまま入れると保存に失敗する。ここで自動的に縮小・圧縮してから保存する。 */
-  function shrinkImage(file, maxW, budget, keepPng, done){
-    var fr = new FileReader();
-    fr.onerror = function(){ toast('画像を読み込めませんでした'); };
-    fr.onload = function(){
-      var img = new Image();
-      img.onerror = function(){ toast('画像の形式を読み取れませんでした'); };
-      img.onload = function(){
-        var w = img.width, h = img.height;
-        var scale = Math.min(1, maxW / w);
-        var cv = document.createElement('canvas');
-        var out = '';
-        /* 収まるまで、大きさと画質を少しずつ落としていく */
-        for(var step = 0; step < 8; step++){
-          cv.width  = Math.max(16, Math.round(w * scale));
-          cv.height = Math.max(16, Math.round(h * scale));
-          var cx = cv.getContext('2d');
-          if(!keepPng){ cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, cv.width, cv.height); }
-          cx.drawImage(img, 0, 0, cv.width, cv.height);
-          if(keepPng){
-            out = cv.toDataURL('image/png');
-            if(out.length <= budget) break;
-            scale *= 0.8;
-          }else{
-            var q = 0.82;
-            for(var i = 0; i < 6; i++){
-              out = cv.toDataURL('image/jpeg', q);
-              if(out.length <= budget) break;
-              q -= 0.12;
-            }
-            if(out.length <= budget) break;
-            scale *= 0.8;
-          }
-        }
-        done(out, cv.width, cv.height, out.length <= budget);
-      };
-      img.src = fr.result;
-    };
-    fr.readAsDataURL(file);
-  }
-  function readImage(input, key, maxW, budget, keepPng){
-    var f = input.files && input.files[0];
-    if(!f) return;
-    toast('画像を取り込んでいます…');
-    shrinkImage(f, maxW, budget, keepPng, function(uri, w, h, ok){
-      if(!ok){
-        toast('この画像は小さくしても収まりませんでした。' +
-              'zipの app/ に bg.jpg として入れる方法をお使いください');
-        return;
-      }
-      var c = config();
-      c[key] = uri;
-      setConfig(c);
-      toast('登録しました（' + w + '×' + h + '・' + Math.round(uri.length/1024) + 'KB）');
-      viewASettings();
-    });
-  }
-  /* ロゴは透過を保つので PNG のまま。背景は写真なので JPEG に変換する */
-  document.getElementById('cfLogo').onchange = function(){ readImage(this, 'logo', 420, 16000, true); };
-  document.getElementById('cfHero').onchange = function(){ readImage(this, 'hero', 1400, 34000, false); };
-  var d1 = document.getElementById('cfLogoDel');
-  if(d1) d1.onclick = function(){
-    var c = config(); c.logo = ''; setConfig(c); toast('ロゴの登録を取り消しました'); viewASettings();
-  };
-  var d2 = document.getElementById('cfHeroDel');
-  if(d2) d2.onclick = function(){
-    var c = config(); c.hero = ''; setConfig(c); toast('背景画像の登録を取り消しました'); viewASettings();
-  };
-  document.getElementById('cfAppsSave').onclick = function(){
-    var c = config(), ov = {};
-    APPS.forEach(function(base){
-      var n = document.getElementById('cfA_' + base.id + '_n');
-      var s = document.getElementById('cfA_' + base.id + '_s');
-      var i = document.getElementById('cfA_' + base.id + '_i');
-      var one = {};
-      /* 初期値と同じものは持たない。あとで初期値を直したときに追従できるように */
-      var nv = String((n && n.value) || '').trim();
-      if(base.id === 'lms'){
-        /* e-ラーニングの名前は config().appName が正（見出し・修了証も同じ）。
-           このカードで変えたら、上の「アプリ名」も同じ値になる */
-        c.appName = nv || DEFAULT_CONFIG.appName;
-      }else if(nv && nv !== base.name) one.name = nv;
-      var sv = String((s && s.value) || '').trim();
-      if(sv && sv !== base.sub) one.sub = sv;
-      var iv = String((i && i.value) || '');
-      if(iv && iv !== base.icon && SVG[iv]) one.icon = iv;
-      if(Object.keys(one).length) ov[base.id] = one;
-    });
-    c.apps = ov;
-    setConfig(c);
-    toast('アプリのカードを保存しました');
-    viewASettings();
-  };
-  /* 一度保存すると、あとから組み込みの初期値を直しても Creator の保存分が勝つ。
-     名前や言葉を作り直したときに、打ち直さずに取り込めるようにしておく。
-     ロゴ・背景画像・配色は、登録したものをそのまま残す。 */
-  var CF_TEXT = ['portalName','portalSub','catchCopy','catchSub','sideCopy','scriptCopy',
-                 'brandSub','taglineSub','appName','appSub','orgName','tagline'];
-  document.getElementById('cfTextReset').onclick = function(){
-    if(!window.confirm('名前・見出し・言葉を、はじめの値に戻しますか？' +
-                       '（ロゴと背景画像はそのまま残ります）')) return;
-    var c = config();
-    CF_TEXT.forEach(function(k){ c[k] = DEFAULT_CONFIG[k]; });
-    setConfig(c);
-    toast('はじめの値に戻しました');
-    viewASettings();
-  };
-  document.getElementById('cfAppsReset').onclick = function(){
-    if(!window.confirm('アプリのカードの名前・説明・アイコンを、はじめの状態に戻しますか？')) return;
-    var c = config(); c.apps = {}; setConfig(c);
-    toast('はじめの状態に戻しました');
-    viewASettings();
-  };
-  Array.prototype.forEach.call(document.querySelectorAll('#cfTheme button'), function(b){
-    b.onclick = function(){
-      var c = config(); c.theme = b.getAttribute('data-th'); setConfig(c);
-      applyTheme(); viewASettings();
-    };
-  });
-  document.getElementById('cfSave').onclick = function(){
-    var c = config();
-    c.appName = document.getElementById('cfName').value.trim() || DEFAULT_CONFIG.appName;
-    c.portalName = document.getElementById('cfPortal').value.trim() || DEFAULT_CONFIG.portalName;
-    c.portalSub  = document.getElementById('cfPortalSub').value.trim();
-    c.catchCopy  = document.getElementById('cfCatch').value.trim();
-    c.catchSub   = document.getElementById('cfCatchSub').value.trim();
-    c.sideCopy   = document.getElementById('cfSide').value.trim();
-    c.scriptCopy = document.getElementById('cfScript').value.trim();
-    c.brandSub   = document.getElementById('cfBrandSub').value.trim();
-    c.taglineSub = document.getElementById('cfTagSub').value.trim();
-    c.appSub  = document.getElementById('cfSub').value.trim();
-    c.orgName = document.getElementById('cfOrg').value.trim();
-    c.tagline = document.getElementById('cfTag').value.trim();
-    setConfig(c);
-    applyTheme();
-    toast('保存しました');
-    drawNav('asettings');
-  };
 
   document.getElementById('rmSave').onclick = function(){
     var c = config();
@@ -11591,11 +11706,11 @@ var ADMIN_VIEWS = {
   auser:viewAUsers, aquiz:viewAQuiz, alog:viewALog, asettings:viewASettings,
   asurvey:viewASurvey, anews:viewANews, aimport:viewAImport, aassign:viewAAssign,
   ajobs:viewAJobs, atitles:viewATitles,
-  aroles:viewARoles, acedit:viewACEdit
+  aroles:viewARoles, aportal:viewAPortal, acedit:viewACEdit
 };
 /* 受講記録がなくても描ける管理画面。全員ぶんの読み込みを待たせない
    （読み込みが詰まると「ボタンを押しても何も起きない」に見える） */
-var LIGHT_ADMIN = { aimport:1, ajobs:1, atitles:1, aroles:1, asettings:1, acourses:1, acedit:1, aassign:1, anews:1 };
+var LIGHT_ADMIN = { aimport:1, ajobs:1, atitles:1, aroles:1, aportal:1, asettings:1, acourses:1, acedit:1, aassign:1, anews:1 };
 function openAdminView(view, arg){
   var fn = ADMIN_VIEWS[view] || viewADash;
   if(!ON_CREATOR || LOADED.all || LIGHT_ADMIN[view]){ fn(arg); return; }
@@ -11657,6 +11772,7 @@ var CRUMB = {
   ajobs:    ['アプリを選ぶ|hub', '職員登録', '職種'],
   atitles:  ['アプリを選ぶ|hub', '職員登録', '役職'],
   aroles:   ['アプリを選ぶ|hub', '職員登録', '権限'],
+  aportal:  ['アプリを選ぶ|hub', '職員登録', 'タイトル画面'],
   acedit:   ['管理ダッシュボード|adash', 'コース管理|acourses', 'コースの編集'],
   aassign:  ['管理ダッシュボード|adash', 'コース管理|acourses', '配信設定'],
   asettings:['管理ダッシュボード|adash', '設定']
@@ -11728,6 +11844,8 @@ function route(view, a, b){
     if(MY_ROLE !== 'learner') toast('この画面を開く権限がありません');
     view = (canAdmin() && APP_NOW === 'lms') ? 'adash' : appHome();
     MODE = (canAdmin() && APP_NOW === 'lms') ? 'admin' : 'user';
+    /* 戻し先（そのアプリの最初の画面）も開けないときは、e-ラーニングのマイダッシュボードへ */
+    if(ADMIN_VIEWS[view] && !canOpen(view)){ APP_NOW = 'lms'; view = 'home'; MODE = 'user'; a = undefined; b = undefined; }
   }
   var inS = String(view).indexOf('s_') === 0;
   if(inS && !canOpen(view)){
@@ -11740,6 +11858,8 @@ function route(view, a, b){
   document.getElementById('main').hidden = inS;
   if(!inS && typeof App !== 'undefined' && App.setActive) App.setActive(false);
 
+  var fresh = (view !== VIEW_NOW) || (a !== ROUTE_ARG);
+  ROUTE_ARG = a;
   VIEW_NOW = view;
   /* 掲示板を開いているあいだだけ、細かく新着を見に行く */
   feedWatch(view === 'feed' || view === 'thanks' || view === 'awards');
@@ -11750,9 +11870,13 @@ function route(view, a, b){
   /* 掲示板・サンクスカードを開いたら、その時点の投稿は読んだことにする */
   if(view === 'feed' || view === 'thanks' || view === 'awards') markFeedSeen();
 
+  /* 入口から入って最初の画面（読み込み中の表示では app が先に出ているので、別の印で見る） */
+  var entering = !APP_ENTERED;
+  APP_ENTERED = true;
   document.getElementById('app').classList.add('on');
   drawNav(view);
   drawAlert();
+  if(entering) playAppIn();
   crumb(crumbFor(view, a));
 
   try{
@@ -11764,6 +11888,7 @@ function route(view, a, b){
     else if(inS)                viewShinsei(view.slice(2));
     else if(USER_VIEWS[view])   USER_VIEWS[view]();
     else                        viewHome();
+    if(fresh) playViewIn(inS ? 'shinsei' : 'main');
   }catch(e){
     /* 途中で落ちると、画面は出ているのにボタンが効かない「無反応」になる。
        それより、何が起きたかを見せるほうがよい */
@@ -11772,6 +11897,65 @@ function route(view, a, b){
   }
 
   window.scrollTo(0, 0);
+}
+
+/* ── 画面の動き ──
+   ・アプリに入ったとき：上の帯が上から、左のメニューが左から1つずつ
+   ・画面を開いたとき：中身が下からふわっと順に。数字は0から数え上がり、進み具合の棒は左から伸びる
+   端末で「視差効果を減らす」を選んでいる人には動かさない */
+var ROUTE_ARG, APP_ENTERED = false;
+function motionOK(){
+  try{ return !window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){ return true; }
+}
+function playAppIn(){
+  if(!motionOK()) return;
+  var app = document.getElementById('app');
+  Array.prototype.forEach.call(document.querySelectorAll('#side .nav-i'), function(b, i){
+    b.style.animationDelay = (0.12 + i * 0.045).toFixed(3) + 's';
+  });
+  app.classList.remove('enter'); void app.offsetWidth;
+  app.classList.add('enter');
+  clearTimeout(playAppIn._t);
+  playAppIn._t = setTimeout(function(){
+    app.classList.remove('enter');
+    Array.prototype.forEach.call(document.querySelectorAll('#side .nav-i'), function(b){ b.style.animationDelay = ''; });
+  }, 1400);
+}
+function playViewIn(id){
+  if(!motionOK()) return;
+  var el = document.getElementById(id);
+  if(!el) return;
+  el.classList.remove('view-in'); void el.offsetWidth;
+  el.classList.add('view-in');
+  clearTimeout(playViewIn['_' + id]);
+  playViewIn['_' + id] = setTimeout(function(){ el.classList.remove('view-in'); }, 1400);
+  countUp(el);
+}
+/* 数字だけの欄（KPI）を 0 から数え上げる */
+function countUp(root){
+  Array.prototype.forEach.call(root.querySelectorAll('.kpi .v'), function(v){
+    var node = v.firstChild;
+    if(!node || node.nodeType !== 3) return;
+    var m = /^(\s*)(\d[\d,]*)(\.\d+)?(\s*)$/.exec(node.nodeValue);
+    if(!m) return;
+    var dec = m[3] ? m[3].length - 1 : 0;
+    var goal = Number((m[2] + (m[3] || '')).replace(/,/g, ''));
+    if(!isFinite(goal) || goal === 0) return;
+    var comma = /,/.test(m[2]);
+    var fmt = function(x){
+      var t = x.toFixed(dec);
+      return comma ? Number(t).toLocaleString('ja-JP', { minimumFractionDigits:dec, maximumFractionDigits:dec }) : t;
+    };
+    var t0 = 0, dur = 700;
+    var step = function(ts){
+      if(!t0) t0 = ts;
+      var k = Math.min(1, (ts - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      node.nodeValue = m[1] + fmt(goal * e) + m[4];
+      if(k < 1 && node.parentNode) requestAnimationFrame(step);
+    };
+    node.nodeValue = m[1] + fmt(0) + m[4];
+    requestAnimationFrame(step);
+  });
 }
 
 /* 画面のエラーを見せる。研修担当がそのまま開発に伝えられる形にする */

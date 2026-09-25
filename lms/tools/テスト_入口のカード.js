@@ -142,9 +142,9 @@ const cardText = (page, id, sel) =>
   check('入る人の名前も 18px 以上', look.name >= 18, look.name + 'px');
 
   console.log('② 設定画面から名前・説明・アイコンを変える');
-  await page.click('#gate [data-app="lms"]');
+  await page.click('#gate [data-app="staff"]');
   await page.waitForSelector('#app.on');
-  await page.evaluate(() => route('asettings'));
+  await page.evaluate(() => route('aportal'));
   await page.waitForSelector('#cfAppsSave');
   /* 「上のアプリ名で変える感じになってるから、ここを普通にいじりたい」への対策。
      カードの名前欄をそのまま書き換えられ、上の「アプリ名」と同じ値になる */
@@ -187,6 +187,15 @@ const cardText = (page, id, sel) =>
   check('アイコンも入った',
     await page.evaluate(() => appDef('shinsei').icon) === 'medal');
 
+  check('タイトル画面の設定は職員登録のタブにある', await page.$eval('[data-stab="aportal"]', e => e.getAttribute('aria-pressed') === 'true'));
+  check('職員登録のメニューにも「タイトル画面」', await page.$$eval('#side .nav-i', e => e.some(x => /タイトル画面/.test(x.textContent))));
+  await page.evaluate(() => { APP_NOW = 'lms'; route('asettings'); });
+  await page.waitForSelector('#rmSave');
+  check('e-ラーニングの設定には、もう見た目の欄が無い', (await page.$('#cfPortal')) === null && (await page.$('#cfAppsSave')) === null);
+  check('e-ラーニングの設定に「移りました」の案内', /タイトル画面の設定は「職員登録 → タイトル画面」に移りました/.test(await page.$eval('#main', e => e.textContent)));
+  await page.evaluate(() => { APP_NOW = 'staff'; route('aportal'); });
+  await page.waitForSelector('#cfAppsSave');
+
   console.log('③ ログイン画面に反映される');
   await page.evaluate(() => route('hub'));
   await page.waitForSelector('#gate [data-app="shinsei"]');
@@ -209,9 +218,9 @@ const cardText = (page, id, sel) =>
     await page.evaluate(() => Object.keys(config().apps).join(',')) === 'shinsei');
 
   console.log('⑤ はじめの状態に戻せる');
-  await page.click('#gate [data-app="lms"]');
+  await page.click('#gate [data-app="staff"]');
   await page.waitForSelector('#app.on');
-  await page.evaluate(() => route('asettings'));
+  await page.evaluate(() => route('aportal'));
   await page.waitForSelector('#cfAppsReset');
   page.once('dialog', d => d.accept());
   await page.click('#cfAppsReset');
@@ -232,12 +241,12 @@ const cardText = (page, id, sel) =>
   check('e-ラーニングのカードは e-ラーニング', (await cardText(page, 'lms', 'b')) === 'e-ラーニング');
 
   console.log('⑦ 保存した文字を、はじめの値に戻せる');
-  await page.click('#gate [data-app="lms"]');
+  await page.click('#gate [data-app="staff"]');
   await page.waitForSelector('#app.on');
   /* ロゴ・背景画像は残ることを確かめるため、先に背景を登録しておく */
   const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4z8AAAAMBAQBFyAEAAAAASUVORK5CYII=';
   await page.evaluate(u => { const c = config(); c.hero = u; setConfig(c); }, PNG);
-  await page.evaluate(() => route('asettings'));
+  await page.evaluate(() => route('aportal'));
   await page.waitForSelector('#cfTextReset');
   await page.fill('#cfPortal', 'べつの名前');
   await page.fill('#cfName', 'べつのアプリ');

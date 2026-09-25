@@ -103,7 +103,7 @@ const STAFF = { person_key:'佐藤 はなこ', person_name:'佐藤 はなこ',
   check('職員登録の左メニューは 職員／職種／役職／権限',
     ['職員', '職種', '役職', '権限'].every(t => side.some(s => s === t)));
   check('上の帯は「職員登録」', (await page.$eval('#topLogo .nm', e => e.textContent)) === '職員登録');
-  check('職員・職種・役職・権限のタブが1つのページにある', (await page.$$('[data-stab]')).length === 4);
+  check('職員・職種・役職・権限・タイトル画面のタブが1つのページにある', (await page.$$('[data-stab]')).length === 5);
 
   console.log('② 1人ずつ登録できること（氏名と職種だけ）');
   check('基本の欄（氏名・職種・メール・権限）がある',
