@@ -36,6 +36,43 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     const gl = window.__qa.gl
     window.__lv = []
   })
+
+  const sig = await page.evaluate(() => {
+    const { scene, gl } = window.__qa
+    const byMat = new Map()
+    const v0 = new Map()
+    scene.traverse((o) => {
+      if (!o.material) return
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      for (const m of mats) {
+        const g = o.geometry || { attributes: {} }
+        const s = [o.isInstancedMesh ? 'I' : '-', o.isInstancedMesh && o.instanceColor ? 'C' : '-', o.isSkinnedMesh ? 'S' : '-',
+          (m.vertexColors && g.attributes.color && g.attributes.color.itemSize === 4) ? 'A' : '-',
+          (g.attributes.tangent && (m.normalMap || m.anisotropy > 0)) ? 'T' : '-',
+          g.morphAttributes && g.morphAttributes.position ? 'M' + g.morphAttributes.position.length : '-',
+          o.isPoints ? 'P' : o.isLine ? 'L' : o.isSprite ? 'Sp' : ''].join('')
+        let e = byMat.get(m); if (!e) byMat.set(m, (e = { sigs: new Map(), name: m.name, type: m.type, obj: o.name || o.parent?.name || '' }))
+        e.sigs.set(s, (e.sigs.get(s) || 0) + 1)
+        v0.set(m, m.version)
+      }
+    })
+    window.__v0 = v0
+    const mixed = [...byMat.values()].filter((e) => e.sigs.size > 1).map((e) => `${e.type}:${e.name}:${e.obj} ${[...e.sigs.entries()].map(([k, v]) => k + 'x' + v).join(' ')}`)
+    // renders per frame and their targets
+    const log = (window.__rl = [])
+    const orig = gl.render.bind(gl)
+    gl.render = function (sc, cam) { const t = gl.getRenderTarget(); log.push(`${sc.type}${sc === scene ? '(main)' : ''}:${cam.type}->${t ? (t.texture?.colorSpace || 'rt') + ':' + t.width + 'x' + t.height : 'SCREEN'}`); return orig(sc, cam) }
+    return mixed
+  })
+  console.log('materials shared across differing object kinds:', sig.length)
+  for (const l of sig.slice(0, 40)) console.log('  ', l)
+  await step(1)
+  await page.evaluate(() => { window.__rl.length = 0 })
+  await step(1)
+  const rl = await page.evaluate(() => window.__rl.filter((x) => x.includes('(main)') || !x.includes('Mesh')))
+  console.log('scene renders in one frame:', rl.length); for (const l of rl.slice(0, 30)) console.log('  ', l)
+  const bumped = await page.evaluate(() => { const out = []; for (const [m, v] of window.__v0) if (m.version !== v) out.push(`${m.type}:${m.name} +${m.version - v}`); return out })
+  console.log('materials whose version changed:', bumped.length); for (const l of bumped.slice(0, 20)) console.log('  ', l)
   await step(10)
   const r = await page.evaluate(() => {
     const out = [...window.__pc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
