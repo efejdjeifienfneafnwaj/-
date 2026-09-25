@@ -1441,6 +1441,8 @@ function addEdgeSheen(
       )
   }
   mat.customProgramCacheKey = () => key
+  // view-space only: perf/localBatch may merge meshes that use it
+  mat.userData.viewSafePatch = true
 }
 
 /**

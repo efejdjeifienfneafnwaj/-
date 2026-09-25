@@ -65,12 +65,12 @@ interface Item {
 const _M = new THREE.Matrix4()
 const _sph = new THREE.Sphere()
 
-function snapOf(o: THREE.Object3D): number[] {
+export function snapOf(o: THREE.Object3D): number[] {
   const p = o.position, q = o.quaternion, s = o.scale
   return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z]
 }
 
-function sameSnap(o: THREE.Object3D, a: number[]): boolean {
+export function sameSnap(o: THREE.Object3D, a: number[]): boolean {
   const p = o.position, q = o.quaternion, s = o.scale
   return (
     p.x === a[0] && p.y === a[1] && p.z === a[2] &&
@@ -90,7 +90,7 @@ function worldSafeMaterial(m: THREE.Material): boolean {
   return true
 }
 
-function attrSignature(g: THREE.BufferGeometry): string | null {
+export function attrSignature(g: THREE.BufferGeometry): string | null {
   if (Object.keys(g.morphAttributes).length) return null
   if (g.drawRange.start !== 0 || g.drawRange.count !== Infinity) return null
   const parts: string[] = []

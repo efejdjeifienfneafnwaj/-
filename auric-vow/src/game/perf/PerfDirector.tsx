@@ -67,6 +67,7 @@ import * as THREE from 'three'
 import { useGameStore } from '../store'
 import { PerfStats } from './stats'
 import { StaticBatcher } from './staticBatch'
+import { LocalBatcher } from './localBatch'
 
 // ---------------------------------------------------------------------------
 // tuning
@@ -90,6 +91,8 @@ const CHUNK_MIN_TRIS_PER_INSTANCE = 150
 /** frames to observe an InstancedMesh for runtime writes before chunking it */
 const CHUNK_OBSERVE_FROM = 30
 const CHUNK_AT = 75
+/** frames between local-batch scans; a piece must hold still across one */
+const LOCAL_SCAN_EVERY = 30
 
 /** point lights admitted to the shader each frame */
 const LIGHT_BUDGET = 10
@@ -105,7 +108,7 @@ const FAR_SHADOW_EVERY = 20
 const SPOT_SHADOW_EVERY = 2
 
 // ---------------------------------------------------------------------------
-// QA switches: ?qa=1&noperf=lights,chunks,batch,shadows,warmup disables a subsystem so
+// QA switches: ?qa=1&noperf=lights,chunks,batch,local,shadows,warmup disables a subsystem so
 // its effect on the image can be isolated by diffing captures.
 // ---------------------------------------------------------------------------
 
@@ -256,6 +259,7 @@ export default function PerfDirector() {
   const pointLights = useRef<THREE.PointLight[]>([])
   const shadowLights = useRef<(THREE.DirectionalLight | THREE.SpotLight)[]>([])
   const batcher = useRef<StaticBatcher | null>(null)
+  const localBatcher = useRef<LocalBatcher | null>(null)
 
   useEffect(() => {
     return () => {
@@ -264,6 +268,8 @@ export default function PerfDirector() {
       chunked.current = []
       batcher.current?.dispose()
       batcher.current = null
+      localBatcher.current?.dispose()
+      localBatcher.current = null
       scene.traverse((o) => restoreLayer(o))
       gl.shadowMap.autoUpdate = true
     }
@@ -379,6 +385,24 @@ export default function PerfDirector() {
         PerfStats.batchMs = Math.round(performance.now() - t0)
         PerfStats.batchRejects = b.rejects
       }
+    }
+    // ---- 1c. local batching of articulated models (player frame) ------------
+    if (f >= CHUNK_AT && f % LOCAL_SCAN_EVERY === 0 && !NOPERF.has('local')) {
+      if (!localBatcher.current) {
+        localBatcher.current = new LocalBatcher(
+          scene,
+          (o) => o.name === 'level-root',
+          (o) => hideOnLayer(o, LAYER_CHUNKED_SOURCE),
+          (o) => restoreLayer(o),
+        )
+      }
+      localBatcher.current.scan(camera.layers)
+    }
+    if (localBatcher.current) {
+      localBatcher.current.check()
+      PerfStats.localBatchedSources = localBatcher.current.sourcesBatched
+      PerfStats.localBatches = localBatcher.current.batches.length
+      PerfStats.localReverts = localBatcher.current.reverts
     }
     // same frame as any change, before anything is drawn
     if (batcher.current) {
