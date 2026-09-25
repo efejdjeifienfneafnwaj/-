@@ -343,11 +343,16 @@ export default function PerfDirector() {
       })
     }
     if (f === CHUNK_AT) {
+      const staticInstanced = new Set<THREE.InstancedMesh>()
       for (const [m, v0] of observed.current) {
         // written to while we watched: it is animated, leave it alone
         if (m.instanceMatrix.version !== v0 || !m.parent) continue
         const chunks = chunkInstancedMesh(m)
-        if (!chunks) continue
+        if (!chunks) {
+          // light enough to bake outright (see 1b)
+          staticInstanced.add(m)
+          continue
+        }
         hideOnLayer(m, LAYER_CHUNKED_SOURCE)
         chunked.current.push({
           source: m,
@@ -369,7 +374,7 @@ export default function PerfDirector() {
           (o) => hideOnLayer(o, LAYER_CHUNKED_SOURCE),
           (o) => restoreLayer(o),
         )
-        b.build(camera.layers)
+        b.build(camera.layers, staticInstanced)
         batcher.current = b
         PerfStats.batchMs = Math.round(performance.now() - t0)
         PerfStats.batchRejects = b.rejects

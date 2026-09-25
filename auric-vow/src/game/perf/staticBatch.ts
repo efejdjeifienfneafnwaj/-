@@ -40,6 +40,8 @@ interface Watched {
   geometry?: THREE.BufferGeometry
   cast?: boolean
   receive?: boolean
+  instVersion?: number
+  instCount?: number
   batches: Set<Batch>
 }
 
@@ -50,6 +52,16 @@ export interface Batch {
 }
 
 const _S = new THREE.Matrix4().makeScale(-1, 1, 1)
+const _I = new THREE.Matrix4()
+const _W = new THREE.Matrix4()
+
+/** an instanced source is baked only if this many triangles or fewer */
+const INSTANCED_BAKE_MAX_TRIS = 60000
+
+interface Item {
+  mesh: THREE.Mesh
+  world: THREE.Matrix4
+}
 const _M = new THREE.Matrix4()
 const _sph = new THREE.Sphere()
 
@@ -104,6 +116,7 @@ function effectivelyVisibleTo(o: THREE.Object3D, root: THREE.Object3D): boolean 
 
 export class StaticBatcher {
   batches: Batch[] = []
+  private batchesOf = new Map<THREE.Mesh, Set<Batch>>()
   private watched = new Map<THREE.Object3D, Watched>()
   sourcesBatched = 0
   reverts = 0
@@ -124,20 +137,55 @@ export class StaticBatcher {
     this.restore = restore
   }
 
-  /** find candidates, merge them, hide the originals */
-  build(camLayers: THREE.Layers) {
+  /**
+   * Find candidates, merge them, hide the originals. `staticInstanced` names
+   * the InstancedMeshes that were observed not to change: those are baked
+   * too, instance by instance, each instance landing in its own cell.
+   */
+  build(camLayers: THREE.Layers, staticInstanced: Set<THREE.InstancedMesh> = new Set()) {
     const root = this.root
     root.updateMatrixWorld(true)
-    const groups = new Map<string, THREE.Mesh[]>()
+    const groups = new Map<string, Item[]>()
+    const failedSources = new Set<THREE.Mesh>()
     const rej = (why: string) => {
       this.rejects[why] = (this.rejects[why] || 0) + 1
     }
+    const add = (m: THREE.Mesh, world: THREE.Matrix4, sig: string) => {
+      const g = m.geometry
+      if (!g.boundingSphere) g.computeBoundingSphere()
+      _sph.copy(g.boundingSphere!).applyMatrix4(world)
+      const det = world.determinant()
+      if (!Number.isFinite(det) || det === 0) return rej('det')
+      const cell = `${Math.floor(_sph.center.x / BATCH_CELL)},${Math.floor(_sph.center.z / BATCH_CELL)}`
+      const mat = m.material as THREE.Material
+      const key = [
+        mat.uuid,
+        m.castShadow ? 1 : 0,
+        m.receiveShadow ? 1 : 0,
+        m.layers.mask,
+        m.renderOrder,
+        det < 0 ? '-' : '+',
+        m.customDepthMaterial?.uuid ?? '',
+        m.customDistanceMaterial?.uuid ?? '',
+        sig,
+        cell,
+      ].join('|')
+      let list = groups.get(key)
+      if (!list) groups.set(key, (list = []))
+      list.push({ mesh: m, world: world.clone() })
+    }
+
     root.traverse((o) => {
       const m = o as THREE.Mesh
       if (!m.isMesh) return
-      if ((m as THREE.InstancedMesh).isInstancedMesh || (m as THREE.SkinnedMesh).isSkinnedMesh) return rej('instanced')
+      const inst = m as THREE.InstancedMesh
+      if ((m as THREE.SkinnedMesh).isSkinnedMesh) return rej('skinned')
       if (m.userData.__perfChunkOf || m.userData.__perfBatch) return
       if (m.userData.__perfLayerSaved !== undefined) return rej('hidden')
+      if (inst.isInstancedMesh) {
+        if (!staticInstanced.has(inst)) return rej('instancedAnimated')
+        if (inst.instanceColor || inst.morphTexture) return rej('instancedColor')
+      }
       if (!m.frustumCulled) return rej('noCull')
       if (!m.layers.test(camLayers)) return rej('layer')
       if (m.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender) return rej('onBeforeRender')
@@ -156,47 +204,44 @@ export class StaticBatcher {
       if (!effectivelyVisibleTo(m, root)) return rej('invisible')
       const sig = attrSignature(m.geometry)
       if (!sig) return rej('attrs')
-      if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere()
-      _sph.copy(m.geometry.boundingSphere!).applyMatrix4(m.matrixWorld)
-      const cell = `${Math.floor(_sph.center.x / BATCH_CELL)},${Math.floor(_sph.center.z / BATCH_CELL)}`
-      const det = m.matrixWorld.determinant()
-      if (!Number.isFinite(det) || det === 0) return rej('det')
-      const key = [
-        m.material.uuid,
-        m.castShadow ? 1 : 0,
-        m.receiveShadow ? 1 : 0,
-        m.layers.mask,
-        m.renderOrder,
-        det < 0 ? '-' : '+',
-        m.customDepthMaterial?.uuid ?? '',
-        m.customDistanceMaterial?.uuid ?? '',
-        sig,
-        cell,
-      ].join('|')
-      let list = groups.get(key)
-      if (!list) groups.set(key, (list = []))
-      list.push(m)
+      if (inst.isInstancedMesh) {
+        const g = m.geometry
+        const triPer = (g.index ? g.index.count : g.attributes.position.count) / 3
+        if (triPer * inst.count > INSTANCED_BAKE_MAX_TRIS) return rej('instancedHeavy')
+        for (let i = 0; i < inst.count; i++) {
+          inst.getMatrixAt(i, _I)
+          add(m, _W.multiplyMatrices(m.matrixWorld, _I), sig)
+        }
+        return
+      }
+      add(m, m.matrixWorld, sig)
     })
 
     for (const list of groups.values()) {
-      if (list.length < 2) {
+      // a lone plain mesh gains nothing; a lone instance still has to be
+      // baked, or its InstancedMesh could not be retired
+      if (list.length < 2 && !(list[0].mesh as THREE.InstancedMesh).isInstancedMesh) {
         rej('singleton')
         continue
       }
-      const first = list[0]
-      const mirrored = first.matrixWorld.determinant() < 0
+      const first = list[0].mesh
+      const mirrored = list[0].world.determinant() < 0
       const baked: THREE.BufferGeometry[] = []
-      for (const m of list) {
-        const g = m.geometry.clone()
+      for (const it of list) {
+        const g = it.mesh.geometry.clone()
         g.clearGroups()
-        _M.copy(m.matrixWorld)
+        _M.copy(it.world)
         if (mirrored) _M.premultiply(_S)
         g.applyMatrix4(_M)
         baked.push(g)
       }
       const merged = mergeGeometries(baked, false)
       for (const g of baked) g.dispose()
-      if (!merged) continue
+      if (!merged) {
+        rej('mergeFailed')
+        for (const it of list) failedSources.add(it.mesh)
+        continue
+      }
       merged.computeBoundingBox()
       merged.computeBoundingSphere()
 
@@ -213,29 +258,46 @@ export class StaticBatcher {
       mesh.customDistanceMaterial = first.customDistanceMaterial
       // flags are copied from the sources; the shadow sweep must not re-decide them
       mesh.userData = { __perfBatch: true, auricNoShadow: true }
-      // root's own transform is baked into matrixWorld, so hang it off the scene
+      // world transforms are baked in, so hang it off the scene itself
       let top: THREE.Object3D = root
       while (top.parent) top = top.parent
       top.add(mesh)
 
-      const batch: Batch = { mesh, sources: list, dead: false }
+      const sources = [...new Set(list.map((it) => it.mesh))]
+      const batch: Batch = { mesh, sources, dead: false }
       this.batches.push(batch)
-      for (const m of list) {
-        this.hide(m)
-        // a hidden leaf never needs its world matrix again unless it moves,
-        // and moving dissolves the batch first — skip it in the scene update
-        if (m.children.length === 0) {
-          m.userData.__perfMatrixAuto = m.matrixAutoUpdate
-          m.matrixAutoUpdate = false
-          m.matrixWorldAutoUpdate = false
+      for (const m of sources) {
+        let bs = this.batchesOf.get(m)
+        if (!bs) this.batchesOf.set(m, (bs = new Set()))
+        bs.add(batch)
+      }
+    }
+
+    // an instanced source whose bake failed anywhere keeps drawing itself
+    const failed = new Set<Batch>()
+    for (const m of failedSources) for (const b of this.batchesOf.get(m) ?? []) failed.add(b)
+    for (const b of failed) this.dissolve(b)
+    this.batches = this.batches.filter((b) => !b.dead)
+
+    for (const b of this.batches) {
+      for (const m of b.sources) {
+        if (m.userData.__perfLayerSaved === undefined) {
+          this.hide(m)
+          // a hidden leaf never needs its world matrix again unless it moves,
+          // and moving dissolves the batch first — skip it in the scene update
+          if (m.children.length === 0) {
+            m.userData.__perfMatrixAuto = m.matrixAutoUpdate
+            m.matrixAutoUpdate = false
+            m.matrixWorldAutoUpdate = false
+          }
+          this.sourcesBatched++
         }
-        this.watch(m, batch, true)
+        this.watch(m, b, true)
         for (let a = m.parent; a; a = a.parent) {
-          this.watch(a, batch, false)
+          this.watch(a, b, false)
           if (a === root) break
         }
       }
-      this.sourcesBatched += list.length
     }
   }
 
@@ -249,6 +311,11 @@ export class StaticBatcher {
         w.geometry = m.geometry
         w.cast = m.castShadow
         w.receive = m.receiveShadow
+        const im = m as THREE.InstancedMesh
+        if (im.isInstancedMesh) {
+          w.instVersion = im.instanceMatrix.version
+          w.instCount = im.count
+        }
       }
       this.watched.set(node, w)
     }
@@ -268,6 +335,13 @@ export class StaticBatcher {
           m.geometry !== w.geometry ||
           m.castShadow !== w.cast ||
           m.receiveShadow !== w.receive
+        if (!changed && w.instVersion !== undefined) {
+          const im = m as THREE.InstancedMesh
+          changed =
+            im.instanceMatrix.version !== w.instVersion ||
+            im.count !== w.instCount ||
+            !!im.instanceColor
+        }
       }
       if (changed) {
         if (!broken) broken = new Set()
@@ -287,6 +361,13 @@ export class StaticBatcher {
     b.mesh.removeFromParent()
     b.mesh.geometry.dispose()
     for (const m of b.sources) {
+      // a restored source draws in full, so every other batch holding a
+      // piece of it has to go too
+      const others = this.batchesOf.get(m)
+      if (others) {
+        this.batchesOf.delete(m)
+        for (const o of others) if (o !== b) this.dissolve(o)
+      }
       this.restore(m)
       if (m.userData.__perfMatrixAuto !== undefined) {
         m.matrixAutoUpdate = m.userData.__perfMatrixAuto
@@ -310,5 +391,6 @@ export class StaticBatcher {
     for (const b of this.batches) this.dissolve(b)
     this.batches = []
     this.watched.clear()
+    this.batchesOf.clear()
   }
 }
