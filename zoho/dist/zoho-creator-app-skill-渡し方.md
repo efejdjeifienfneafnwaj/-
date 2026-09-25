@@ -22,33 +22,50 @@ SDK の呼び方も同じで、パラメータ名を1文字間違えるだけで
 
 #### A. Claude Code で使う場合（おすすめ）
 
-添付の `zoho-creator-app-skill.zip` を、プロジェクトの `.claude/skills/` の中で展開してください。
-zip の中身が `zoho-creator-app/` フォルダごと入っているので、展開するだけで置き場所が揃います。
+置き場所は2通りあります。**どちらか片方で結構です。**
+
+| 置き場所 | 効く範囲 | 向いている場面 |
+|---|---|---|
+| `（プロジェクト）/.claude/skills/` | そのプロジェクトだけ | チームで共有したい。リポジトリに入れて配りたい |
+| `~/.claude/skills/`（ホームの下） | その端末の全プロジェクト | 自分ひとりで、どこでも使いたい |
+
+展開するだけです。zip の中身が `zoho-creator-app/` フォルダごと入っているので、
+置き場所のフォルダを自分で作る必要はありません。
 
 ```
-（プロジェクトのフォルダ）/
-└── .claude/
-    └── skills/
-        └── zoho-creator-app/
-            ├── SKILL.md
-            ├── reference/
-            ├── template/
-            └── verify/
+# プロジェクトに入れる場合
+mkdir -p .claude/skills
+unzip zoho-creator-app-skill.zip -d .claude/skills/
+
+# 端末全体で使う場合
+mkdir -p ~/.claude/skills
+unzip zoho-creator-app-skill.zip -d ~/.claude/skills/
 ```
 
-コマンドで入れる場合：
+Claude Code 自身にやらせる場合は、zip を渡して次のように頼んでください。
+
+> この zip を `.claude/skills/` に展開してください。
+
+**Claude Code を再起動する必要はありません。** 置いた直後の応答から使えるようになります。
+
+##### 注意：ウェブ版（claude.ai/code）を使う場合
+
+ウェブ版はセッションごとに作業環境が作り直され、リポジトリも毎回クローンし直されます。
+そのため `~/.claude/skills/` に置いても**次のセッションでは消えます。**
+
+ウェブ版で使うなら、**リポジトリの `.claude/skills/` に入れてコミットしてください。**
+クローンし直されても一緒についてくるので、以後は何もしなくて済みます。
 
 ```
 mkdir -p .claude/skills
 unzip zoho-creator-app-skill.zip -d .claude/skills/
+git add .claude/skills/zoho-creator-app
+git commit -m "Zoho Creator アプリ作成スキルを追加"
+git push
 ```
 
-Claude Code に任せる場合は、zip を渡して次のように頼んでください。
-
-> この zip を `.claude/skills/` に展開してください。
-
-**個人の端末すべてで使いたい場合**は、`.claude/skills/` の代わりに
-`~/.claude/skills/`（ホームフォルダの下）に置いてください。プロジェクトを問わず効きます。
+> `.gitignore` に `.claude/` が入っていると、コミットしたつもりで入りません。
+> `git status` に出てこない場合はここを確認してください。
 
 #### B. claude.ai（ブラウザ版・デスクトップ版）で使う場合
 
