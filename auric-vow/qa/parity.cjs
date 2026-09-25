@@ -39,5 +39,19 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
   await shot('c_chamber', 0, 0.2, 142, 0, 3, 152)
   await page.evaluate(() => window.__qa.setPhase('EXTERMINATE')); await step(10)
   await shot('d_arena', 0, 0.2, 180, 0, 2, 210)
+  if (process.env.DUMP_OCTA) {
+    const info = await page.evaluate(() => {
+      const { scene, camera } = window.__qa
+      const out = []
+      scene.traverse((m) => {
+        if (!m.isMesh || m.geometry?.type !== 'OctahedronGeometry' || m.isInstancedMesh) return
+        const p = m.getWorldPosition(camera.position.clone())
+        let chain = []; for (let n = m; n; n = n.parent) chain.push((n.name || n.type) + (n.visible ? '' : '(HIDDEN)') + (n.layers.mask !== 1 ? '[L' + n.layers.mask + ']' : ''))
+        out.push({ pos: [p.x, p.y, p.z].map((v) => +v.toFixed(1)), scale: [m.scale.x, m.scale.y, m.scale.z], chain: chain.join(' < '), perf: Object.keys(m.userData).filter((k) => k.startsWith('__perf')), mat: m.material.type, side: m.material.side, mwU: m.matrixWorldAutoUpdate, mU: m.matrixAutoUpdate })
+      })
+      return out
+    })
+    for (const o of info) console.log('OCTA', JSON.stringify(o))
+  }
   await b.close(); srv.close()
 })().catch((e) => { console.error(e); process.exit(1) })
