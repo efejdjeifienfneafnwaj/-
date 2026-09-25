@@ -52,6 +52,17 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
       return out
     })
     for (const o of info) console.log('OCTA', JSON.stringify(o))
+    await page.evaluate(() => {
+      const { scene, gl } = window.__qa
+      window.__oc = []
+      scene.traverse((m) => {
+        if (m.isMesh && m.geometry?.type === 'OctahedronGeometry' && Math.abs(m.scale.y - 4.6) < 1e-3) {
+          m.onAfterRender = function (r, sc, cam) { const t = r.getRenderTarget(); window.__oc.push((cam.type) + '->' + (t ? t.width + 'x' + t.height : 'screen') + ' layers=' + m.layers.mask) }
+        }
+      })
+    })
+    await step(2)
+    console.log('OCTA draws in 2 frames:', JSON.stringify(await page.evaluate(() => window.__oc)))
   }
   await b.close(); srv.close()
 })().catch((e) => { console.error(e); process.exit(1) })
