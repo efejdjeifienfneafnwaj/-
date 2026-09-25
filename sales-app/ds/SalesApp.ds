@@ -1,0 +1,1565 @@
+/*
+ * 営業管理テスト
+ * このファイルはスクリプトで生成されています。手で編集しないでください。
+ */
+application "営業管理テスト"
+{
+	date format = "yyyy-MM-dd"
+	time zone = "Asia/Tokyo"
+	time format = "24-hr"
+
+	forms
+	{
+		form Sales_Staff_Form
+		{
+			displayname = "【システム用】担当者マスタ"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			staff_name
+			(
+				type = text
+				displayname = "氏名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_email
+			(
+				type = text
+				displayname = "メールアドレス（ログインID）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_team
+			(
+				type = text
+				displayname = "チーム"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_role
+			(
+				type = text
+				displayname = "権限（manager / member）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "在籍（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sales_Customer_Form
+		{
+			displayname = "【システム用】顧客"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			cust_name
+			(
+				type = text
+				displayname = "会社名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			industry
+			(
+				type = text
+				displayname = "業種"
+				row = 1
+				column = 1
+				width = medium
+			)
+			cust_rank
+			(
+				type = text
+				displayname = "ランク（A/B/C）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			contact_person
+			(
+				type = text
+				displayname = "先方担当者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			cust_phone
+			(
+				type = text
+				displayname = "電話番号"
+				row = 1
+				column = 1
+				width = medium
+			)
+			cust_address
+			(
+				type = text
+				displayname = "所在地"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_id
+			(
+				type = text
+				displayname = "主担当ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_name
+			(
+				type = text
+				displayname = "主担当"
+				row = 1
+				column = 1
+				width = medium
+			)
+			cust_note
+			(
+				type = textarea
+				displayname = "備考"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "取引中（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sales_Deal_Form
+		{
+			displayname = "【システム用】案件"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			deal_name
+			(
+				type = text
+				displayname = "案件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			customer_id
+			(
+				type = text
+				displayname = "顧客ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			customer_name
+			(
+				type = text
+				displayname = "顧客名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_id
+			(
+				type = text
+				displayname = "担当者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_name
+			(
+				type = text
+				displayname = "担当者名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			owner_email
+			(
+				type = text
+				displayname = "担当者メール（権限設定用）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deal_stage
+			(
+				type = text
+				displayname = "ステージ"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deal_amount
+			(
+				type = number
+				displayname = "金額（円）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			win_prob
+			(
+				type = number
+				displayname = "確度（%）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			close_plan
+			(
+				type = text
+				displayname = "受注予定日（yyyy-MM-dd）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			closed_on
+			(
+				type = text
+				displayname = "確定日（受注・失注）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			next_action
+			(
+				type = text
+				displayname = "次回アクション"
+				row = 1
+				column = 1
+				width = medium
+			)
+			next_action_on
+			(
+				type = text
+				displayname = "次回アクション日"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deal_note
+			(
+				type = textarea
+				displayname = "備考"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sales_Activity_Form
+		{
+			displayname = "【システム用】活動履歴"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			act_date
+			(
+				type = text
+				displayname = "活動日（yyyy-MM-dd）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			act_type
+			(
+				type = text
+				displayname = "種別"
+				row = 1
+				column = 1
+				width = medium
+			)
+			customer_id
+			(
+				type = text
+				displayname = "顧客ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			customer_name
+			(
+				type = text
+				displayname = "顧客名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deal_id
+			(
+				type = text
+				displayname = "案件ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			deal_name
+			(
+				type = text
+				displayname = "案件名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_id
+			(
+				type = text
+				displayname = "担当者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_name
+			(
+				type = text
+				displayname = "担当者名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_email
+			(
+				type = text
+				displayname = "担当者メール（権限設定用）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			act_summary
+			(
+				type = textarea
+				displayname = "内容"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sales_Target_Form
+		{
+			displayname = "【システム用】月次目標"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			target_month
+			(
+				type = text
+				displayname = "対象月（yyyy-MM）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_id
+			(
+				type = text
+				displayname = "担当者ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_name
+			(
+				type = text
+				displayname = "担当者名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			staff_email
+			(
+				type = text
+				displayname = "担当者メール（権限設定用）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_amount
+			(
+				type = number
+				displayname = "目標金額（円）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sales_Log_Form
+		{
+			displayname = "【システム用】操作記録"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			log_time
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_name
+			(
+				type = text
+				displayname = "操作者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			log_action
+			(
+				type = text
+				displayname = "操作"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_id
+			(
+				type = text
+				displayname = "対象ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			log_detail
+			(
+				type = textarea
+				displayname = "内容"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+	}
+
+	reports
+	{
+		list Sales_Staff_Report
+		{
+			displayName = "担当者 一覧"
+			show all rows from Sales_Staff_Form
+			(
+				staff_name as "氏名"
+				staff_email as "メールアドレス（ログインID）"
+				staff_team as "チーム"
+				staff_role as "権限（manager / member）"
+				is_active as "在籍（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Sales_Customer_Report
+		{
+			displayName = "顧客 一覧"
+			show all rows from Sales_Customer_Form
+			(
+				cust_name as "会社名"
+				industry as "業種"
+				cust_rank as "ランク（A/B/C）"
+				contact_person as "先方担当者"
+				cust_phone as "電話番号"
+				cust_address as "所在地"
+				owner_id as "主担当ID"
+				owner_name as "主担当"
+				cust_note as "備考"
+				is_active as "取引中（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Sales_Deal_Report
+		{
+			displayName = "案件 一覧"
+			show all rows from Sales_Deal_Form
+			(
+				deal_name as "案件名"
+				customer_id as "顧客ID"
+				customer_name as "顧客名"
+				owner_id as "担当者ID"
+				owner_name as "担当者名"
+				owner_email as "担当者メール（権限設定用）"
+				deal_stage as "ステージ"
+				deal_amount as "金額（円）"
+				win_prob as "確度（%）"
+				close_plan as "受注予定日（yyyy-MM-dd）"
+				closed_on as "確定日（受注・失注）"
+				next_action as "次回アクション"
+				next_action_on as "次回アクション日"
+				deal_note as "備考"
+				updated_at as "更新日時"
+			)
+		}
+		list Sales_Activity_Report
+		{
+			displayName = "活動履歴 一覧"
+			show all rows from Sales_Activity_Form
+			(
+				act_date as "活動日（yyyy-MM-dd）"
+				act_type as "種別"
+				customer_id as "顧客ID"
+				customer_name as "顧客名"
+				deal_id as "案件ID"
+				deal_name as "案件名"
+				staff_id as "担当者ID"
+				staff_name as "担当者名"
+				staff_email as "担当者メール（権限設定用）"
+				act_summary as "内容"
+				updated_at as "更新日時"
+			)
+		}
+		list Sales_Target_Report
+		{
+			displayName = "月次目標 一覧"
+			show all rows from Sales_Target_Form
+			(
+				target_month as "対象月（yyyy-MM）"
+				staff_id as "担当者ID"
+				staff_name as "担当者名"
+				staff_email as "担当者メール（権限設定用）"
+				target_amount as "目標金額（円）"
+				updated_at as "更新日時"
+			)
+		}
+		list Sales_Log_Report
+		{
+			displayName = "操作記録 一覧"
+			show all rows from Sales_Log_Form
+			(
+				log_time as "日時"
+				actor_name as "操作者"
+				log_action as "操作"
+				target_id as "対象ID"
+				log_detail as "内容"
+			)
+		}
+	}
+
+	pages
+	{
+		page Sales_Console
+		{
+			displayname="営業コンソール"
+			Content=""
+		}
+	}
+
+	share_settings
+	{
+		"Developer"
+		{
+			name = "Developer"
+			type = Developer
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Developer Profile\n"
+		}
+		"Administrator"
+		{
+			name = "Administrator"
+			type = Users_Permissions
+			permissions = {Chat:true, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Full access profile\n"
+		}
+		"Customer"
+		{
+			name = "Customer"
+			type = Customer_Portal
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Default portal profile\n"
+		}
+		roles
+		{
+			"CEO"
+			{
+				description = "All access"
+			}
+		}
+	}
+
+	web
+	{
+		forms
+		{
+			form Sales_Staff_Form
+			{
+				label placement = left
+			}
+			form Sales_Customer_Form
+			{
+				label placement = left
+			}
+			form Sales_Deal_Form
+			{
+				label placement = left
+			}
+			form Sales_Activity_Form
+			{
+				label placement = left
+			}
+			form Sales_Target_Form
+			{
+				label placement = left
+			}
+			form Sales_Log_Form
+			{
+				label placement = left
+			}
+		}
+		reports
+		{
+			report Sales_Staff_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									staff_name as "氏名"
+									staff_email as "メールアドレス（ログインID）"
+									staff_team as "チーム"
+									staff_role as "権限（manager / member）"
+									is_active as "在籍（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									staff_name as "氏名"
+									staff_email as "メールアドレス（ログインID）"
+									staff_team as "チーム"
+									staff_role as "権限（manager / member）"
+									is_active as "在籍（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sales_Customer_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									cust_name as "会社名"
+									industry as "業種"
+									cust_rank as "ランク（A/B/C）"
+									contact_person as "先方担当者"
+									cust_phone as "電話番号"
+									cust_address as "所在地"
+									owner_id as "主担当ID"
+									owner_name as "主担当"
+									cust_note as "備考"
+									is_active as "取引中（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									cust_name as "会社名"
+									industry as "業種"
+									cust_rank as "ランク（A/B/C）"
+									contact_person as "先方担当者"
+									cust_phone as "電話番号"
+									cust_address as "所在地"
+									owner_id as "主担当ID"
+									owner_name as "主担当"
+									cust_note as "備考"
+									is_active as "取引中（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sales_Deal_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									deal_name as "案件名"
+									customer_id as "顧客ID"
+									customer_name as "顧客名"
+									owner_id as "担当者ID"
+									owner_name as "担当者名"
+									owner_email as "担当者メール（権限設定用）"
+									deal_stage as "ステージ"
+									deal_amount as "金額（円）"
+									win_prob as "確度（%）"
+									close_plan as "受注予定日（yyyy-MM-dd）"
+									closed_on as "確定日（受注・失注）"
+									next_action as "次回アクション"
+									next_action_on as "次回アクション日"
+									deal_note as "備考"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									deal_name as "案件名"
+									customer_id as "顧客ID"
+									customer_name as "顧客名"
+									owner_id as "担当者ID"
+									owner_name as "担当者名"
+									owner_email as "担当者メール（権限設定用）"
+									deal_stage as "ステージ"
+									deal_amount as "金額（円）"
+									win_prob as "確度（%）"
+									close_plan as "受注予定日（yyyy-MM-dd）"
+									closed_on as "確定日（受注・失注）"
+									next_action as "次回アクション"
+									next_action_on as "次回アクション日"
+									deal_note as "備考"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sales_Activity_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									act_date as "活動日（yyyy-MM-dd）"
+									act_type as "種別"
+									customer_id as "顧客ID"
+									customer_name as "顧客名"
+									deal_id as "案件ID"
+									deal_name as "案件名"
+									staff_id as "担当者ID"
+									staff_name as "担当者名"
+									staff_email as "担当者メール（権限設定用）"
+									act_summary as "内容"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									act_date as "活動日（yyyy-MM-dd）"
+									act_type as "種別"
+									customer_id as "顧客ID"
+									customer_name as "顧客名"
+									deal_id as "案件ID"
+									deal_name as "案件名"
+									staff_id as "担当者ID"
+									staff_name as "担当者名"
+									staff_email as "担当者メール（権限設定用）"
+									act_summary as "内容"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sales_Target_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									target_month as "対象月（yyyy-MM）"
+									staff_id as "担当者ID"
+									staff_name as "担当者名"
+									staff_email as "担当者メール（権限設定用）"
+									target_amount as "目標金額（円）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									target_month as "対象月（yyyy-MM）"
+									staff_id as "担当者ID"
+									staff_name as "担当者名"
+									staff_email as "担当者メール（権限設定用）"
+									target_amount as "目標金額（円）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sales_Log_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									log_time as "日時"
+									actor_name as "操作者"
+									log_action as "操作"
+									target_id as "対象ID"
+									log_detail as "内容"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									log_time as "日時"
+									actor_name as "操作者"
+									log_action as "操作"
+									target_id as "対象ID"
+									log_detail as "内容"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+		}
+		menu
+		{
+			space Space
+			{
+				displayname = "Space"
+				icon = "objects-spaceship"
+				section Section_App
+				{
+					displayname = "営業管理"
+					icon = "files-paper"
+					page Sales_Console
+					{
+						icon = "tech-desktop"
+					}
+					report Sales_Staff_Report
+					{
+						icon = "users-multiple-11"
+					}
+					report Sales_Customer_Report
+					{
+						icon = "files-paper"
+					}
+					report Sales_Deal_Report
+					{
+						icon = "design-todo"
+					}
+					report Sales_Activity_Report
+					{
+						icon = "files-paper"
+					}
+					report Sales_Target_Report
+					{
+						icon = "design-todo"
+					}
+					report Sales_Log_Report
+					{
+						icon = "files-archive"
+					}
+					form Sales_Staff_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sales_Customer_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sales_Deal_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sales_Activity_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sales_Target_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sales_Log_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+				}
+				section ZC_App_Preferences
+				{
+					displayname = "App Preferences"
+					icon = "design-app"
+					systemcomponent
+					{
+						type = localization
+						displayname = "Language Selection"
+						icon = "education-language"
+					}
+				}
+			}
+			preference
+			{
+				icon
+				{
+					style = solid
+					show = {space,section,component}
+				}
+			}
+		}
+		customize
+		{
+			new theme = 4
+			font = "lato"
+			color options
+			{
+				color = "2"
+			}
+			logo
+			{
+				preference = "none"
+				placement = "left"
+			}
+		}
+	}
+	phone
+	{
+		forms
+		{
+			form Sales_Staff_Form
+			{
+				label placement = auto
+			}
+			form Sales_Customer_Form
+			{
+				label placement = auto
+			}
+			form Sales_Deal_Form
+			{
+				label placement = auto
+			}
+			form Sales_Activity_Form
+			{
+				label placement = auto
+			}
+			form Sales_Target_Form
+			{
+				label placement = auto
+			}
+			form Sales_Log_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	tablet
+	{
+		forms
+		{
+			form Sales_Staff_Form
+			{
+				label placement = auto
+			}
+			form Sales_Customer_Form
+			{
+				label placement = auto
+			}
+			form Sales_Deal_Form
+			{
+				label placement = auto
+			}
+			form Sales_Activity_Form
+			{
+				label placement = auto
+			}
+			form Sales_Target_Form
+			{
+				label placement = auto
+			}
+			form Sales_Log_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	translation
+	{
+		{"Language_Settings":{"LANGAGUE_WITH_LOGIN":"browser"}}
+	}
+}

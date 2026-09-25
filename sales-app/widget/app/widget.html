@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>営業管理テスト</title>
+<link rel="stylesheet" href="css/style.css">
+<!-- Creator の SDK。ここだけ外部読み込みが許される -->
+<script src="https://js.zohostatic.com/creator/widgets/version/2.0/widgetsdk-min.js"></script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <strong class="brand">営業管理テスト</strong>
+    <span id="mode" class="chip">接続確認中…</span>
+    <span class="spacer"></span>
+    <span id="who" class="chip"></span>
+    <span id="demo-tools" class="demo-tools" hidden>
+      <label class="sr-only" for="demo-as">デモで使う利用者</label>
+      <select id="demo-as" class="select-sm"></select>
+      <button id="demo-reset" type="button" class="btn btn-sm">デモを初期化</button>
+    </span>
+    <button id="reload" type="button" class="btn btn-sm">再読み込み</button>
+  </header>
+  <nav id="tabs" class="tabs" role="tablist" aria-label="画面の切り替え" hidden></nav>
+  <main id="view" class="view"></main>
+</div>
+<div id="modal"></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
