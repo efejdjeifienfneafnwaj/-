@@ -93,6 +93,48 @@ export function bakeTransform(g: THREE.BufferGeometry, M: THREE.Matrix4) {
   for (const k in g.attributes) g.attributes[k].needsUpdate = true
 }
 
+const _axisAligned = new WeakMap<THREE.BufferGeometry, boolean>()
+
+function normalsAxisAligned(g: THREE.BufferGeometry): boolean {
+  const cached = _axisAligned.get(g)
+  if (cached !== undefined) return cached
+  const n = g.attributes.normal as THREE.BufferAttribute | undefined
+  let ok = true
+  if (n) {
+    for (let i = 0; i < n.count && ok; i++) {
+      const nz =
+        (Math.abs(n.getX(i)) > 1e-4 ? 1 : 0) +
+        (Math.abs(n.getY(i)) > 1e-4 ? 1 : 0) +
+        (Math.abs(n.getZ(i)) > 1e-4 ? 1 : 0)
+      if (nz > 1) ok = false
+    }
+  }
+  _axisAligned.set(g, ok)
+  return ok
+}
+
+function uniformScale(M: THREE.Matrix4): boolean {
+  const e = M.elements
+  const a = Math.hypot(e[0], e[1], e[2])
+  const b = Math.hypot(e[4], e[5], e[6])
+  const c = Math.hypot(e[8], e[9], e[10])
+  const lo = Math.min(a, b, c)
+  return lo > 0 && Math.max(a, b, c) / lo < 1 + 1e-4
+}
+
+/**
+ * The world-surface patch derives its projection normal as
+ * normalize(mat3(modelMatrix) * normal), while three's lighting uses the
+ * true normal matrix. The two only agree under a uniform scale or on normals
+ * that lie along a local axis. A baked mesh has an identity model matrix, so
+ * it can match one of them, not both: pieces where they disagree stay as
+ * they are, or the texture projection would change on them.
+ */
+export function bakeKeepsSurface(mat: THREE.Material, g: THREE.BufferGeometry, M: THREE.Matrix4): boolean {
+  if (!mat.userData.avSurfaceOpts) return true
+  return uniformScale(M) || normalsAxisAligned(g)
+}
+
 export function snapOf(o: THREE.Object3D): number[] {
   const p = o.position, q = o.quaternion, s = o.scale
   return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z]
@@ -184,6 +226,11 @@ export class StaticBatcher {
       _sph.copy(g.boundingSphere!).applyMatrix4(world)
       const det = world.determinant()
       if (!Number.isFinite(det) || det === 0) return rej('det')
+      if (!bakeKeepsSurface(m.material as THREE.Material, g, world)) {
+        // an instanced source must go whole or not at all
+        failedSources.add(m)
+        return rej('surfaceSkew')
+      }
       // three picks the front face from the OBJECT's matrixWorld alone, never
       // from an instance matrix, so a mirrored instance of an unmirrored
       // InstancedMesh is drawn with the object's winding. The bake keeps
@@ -306,7 +353,7 @@ export class StaticBatcher {
       }
     }
 
-    // an instanced source whose bake failed anywhere keeps drawing itself
+    // a source whose bake failed or was refused anywhere keeps drawing itself
     const failed = new Set<Batch>()
     for (const m of failedSources) for (const b of this.batchesOf.get(m) ?? []) failed.add(b)
     for (const b of failed) this.dissolve(b)

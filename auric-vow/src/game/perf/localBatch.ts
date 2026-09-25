@@ -29,7 +29,7 @@
  */
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { attrSignature, bakeTransform, sameSnap, snapOf } from './staticBatch'
+import { attrSignature, bakeKeepsSurface, bakeTransform, sameSnap, snapOf } from './staticBatch'
 
 const _S = new THREE.Matrix4().makeScale(-1, 1, 1)
 const _M = new THREE.Matrix4()
@@ -118,7 +118,7 @@ export class LocalBatcher {
         ) {
           if (m.matrixAutoUpdate) m.updateMatrix()
           const det = m.matrix.determinant()
-          if (Number.isFinite(det) && det !== 0) {
+          if (Number.isFinite(det) && det !== 0 && bakeKeepsSurface(mat, m.geometry, m.matrix)) {
             const key = [
               m.parent!.uuid,
               mat.uuid,
