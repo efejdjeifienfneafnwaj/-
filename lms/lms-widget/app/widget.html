@@ -9700,7 +9700,15 @@ function viewANews(){
         h += '<tr class="imp-open"><td colspan="6"><div class="imp-d">';
         if(st && st.warn){
           h += '<div class="note bad"><b>5分たってもメールが送られていません。</b>' +
-               'Creator のワークフロー（Lms_Mail の「レコードの作成時」）が有効か確かめてください。手順は docs/重要なお知らせのメール.md にあります。</div>';
+               (RID.mails[ms[0].id] ? '依頼は Creator の表 Lms_Mail に届いています（行 ' + esc(RID.mails[ms[0].id]) + '）。' +
+                 '<b>Creator 側のワークフローが動いていません。</b>' : '依頼がまだ Creator の表に届いていません。') +
+               '<br>次の順に確かめてください。' +
+               '<ol style="margin:6px 0 0 1.3em;display:grid;gap:3px">' +
+               '<li>Creator の「ワークフロー → フォームワークフロー」に、<b>フォーム Lms_Mail_Form</b> のワークフローがあるか</li>' +
+               '<li>実行のタイミングが<b>「作成時」</b>、動作が<b>「送信成功時（On Success）」</b>になっているか（「読み込み時」「入力時」では動きません）</li>' +
+               '<li>ワークフローが<b>有効（オン）</b>になっているか。API やインポートで追加した行を対象から外す設定があれば、外さない</li>' +
+               '<li>Creator で Lms_Mail_Report を開き、この行の「状態」が「送信済み」になっていないか（なっていれば、送信はできています）</li>' +
+               '</ol>設定したら、設定画面の「自分にテストメールを送る」で確かめられます。手順の全文は docs/重要なお知らせのメール.md にあります。</div>';
         }
         h += '<div><b>まだ確認していない方（' + notYet.length + '名）</b><div class="imp-names">' +
              (notYet.length ? notYet.map(function(x){
@@ -9716,7 +9724,9 @@ function viewANews(){
                var s2 = mailState(m);
                return '<div><span class="mono cap">' + esc(ymdhm(m.at)) + '</span>' +
                       '<span>' + m.count + '名あて' + (m.kind === 'resend' ? '（再送）' : '') + '</span>' +
-                      '<span class="pill ' + s2.c + '">' + esc(s2.t) + '</span></div>';
+                      '<span class="pill ' + s2.c + '">' + esc(s2.t) + '</span>' +
+                      (ON_CREATOR ? '<span class="cap">' + (RID.mails[m.id] ? 'Creator の行 ' + esc(RID.mails[m.id]) : 'Creator の行：未確認') + '</span>' : '') +
+                      '</div>';
              }).join('') : '<span class="cap">まだありません</span>') + '</div></div>';
         h += '<div class="bar">' +
              (mailTargets(n.group, notYet).list.length ? '<button class="btn" data-nresend="' + esc(n.id) + '">' + ic('mail') +
