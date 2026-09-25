@@ -93,27 +93,28 @@ const cardText = (page, id, sel) =>
     const cs = getComputedStyle(b);
     return { app: parseFloat(cs.fontSize),
              name: name ? parseFloat(getComputedStyle(name).fontSize) : 0,
-             white: cs.color === 'rgb(255, 255, 255)' && parseInt(cs.fontWeight, 10) >= 700 };
+             dark: (cs.color.match(/\d+/g) || [255]).slice(0, 3).every(v => Number(v) < 90) && parseInt(cs.fontWeight, 10) >= 700 };
   });
   check('アプリの名前は 18px 以上', look.app >= 18, look.app + 'px');
-  check('アプリの名前は白い太字（暗いガラスの板の上で読める）', look.white);
+  check('アプリの名前は濃い色の太字（明るいガラスの板の上で読める）', look.dark);
 
-  console.log('①-2 ゲームの選択画面のように、大きなカードを横一列に並べる');
+  console.log('①-2 いただいた画像のとおり、大きなカード3枚を横一列に並べる');
   const row = await page.evaluate(() => {
-    const cs = Array.prototype.map.call(document.querySelectorAll('#gate [data-app]'),
+    const cs = Array.prototype.map.call(document.querySelectorAll('#gate .gate-app'),
       e => e.getBoundingClientRect());
-    const els = document.querySelectorAll('#gate [data-app]');
+    const els = document.querySelectorAll('#gate .gate-app');
     /* 選ばれたカードは浮き上がるので、浮き上がりの前の位置（offsetTop）で比べる */
     return { n: cs.length, tops: Array.prototype.map.call(els, e => e.offsetTop), w: Math.round(cs[0].width), h: Math.round(cs[0].height),
              lefts: cs.map(r => Math.round(r.left)) };
   });
-  check('4枚が同じ高さの一列に並ぶ（管理者）', row.n === 4 && Math.max.apply(null, row.tops) - Math.min.apply(null, row.tops) <= 12,
+  check('3枚が同じ高さの一列に並ぶ', row.n === 3 && Math.max.apply(null, row.tops) - Math.min.apply(null, row.tops) <= 12,
     JSON.stringify(row.tops));
   check('左から順に並ぶ', row.lefts.every((l, i) => !i || l > row.lefts[i - 1]));
   check('カードは大きい（幅 200px・高さ 240px 以上）', row.w >= 200 && row.h >= 240, row.w + '×' + row.h);
-  check('番号（01〜）が付く',
-    (await page.$eval('#gate [data-app="shinsei"] .ga-no', e => e.textContent)) === '01');
-  check('職員登録には ADMIN の札', (await page.$('#gate [data-app="staff"] .ga-tag')) !== null);
+  check('「ようこそ、○○ さん」が出る',
+    /ようこそ、田中 一郎 さん/.test(await page.$eval('#gate .gate-welcome', e => e.textContent)));
+  check('職員登録は下の小さなボタン（管理者だけ）', (await page.$('#gate .gate-bottom .hbtn.staff[data-app="staff"]')) !== null);
+  check('長いアプリ名も1行に収まる', await page.$$eval('#gate .gate-app b', els => els.every(e => e.getClientRects().length === 1 && e.scrollWidth <= e.parentElement.parentElement.clientWidth)));
   await page.focus('#gate [data-app="shinsei"]');
   await page.keyboard.press('ArrowRight');
   check('→ キーで隣のカードへ',
@@ -132,10 +133,10 @@ const cardText = (page, id, sel) =>
     const m = await sp.evaluate(() => {
       const cs = Array.prototype.map.call(document.querySelectorAll('#gate [data-app]'), e => e.getBoundingClientRect());
       return { sw: document.documentElement.scrollWidth, iw: innerWidth,
-               cols: new Set(Array.prototype.map.call(document.querySelectorAll('#gate [data-app]'), e => e.offsetLeft)).size };
+               cols: new Set(Array.prototype.map.call(document.querySelectorAll('#gate .gate-app'), e => e.offsetLeft)).size };
     });
     check('スマホでは横にはみ出さない', m.sw <= m.iw, m.sw + '/' + m.iw);
-    check('スマホでは 2 列に並ぶ', m.cols === 2, String(m.cols));
+    check('スマホでは縦に1列', m.cols === 1, String(m.cols));
     await sp.context().close();
   }
   check('入る人の名前も 18px 以上', look.name >= 18, look.name + 'px');
