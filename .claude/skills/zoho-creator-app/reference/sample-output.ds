@@ -1,0 +1,588 @@
+/*
+ * サンプルアプリ
+ * このファイルはスクリプトで生成されています。手で編集しないでください。
+ */
+application "サンプルアプリ"
+{
+	date format = "yyyy-MM-dd"
+	time zone = "Asia/Tokyo"
+	time format = "24-hr"
+
+	forms
+	{
+		form Sample_Item_Form
+		{
+			displayname = "【システム用】品目"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			item_id
+			(
+				type = text
+				displayname = "品目ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			item_name
+			(
+				type = text
+				displayname = "品名"
+				row = 1
+				column = 1
+				width = medium
+			)
+			category
+			(
+				type = text
+				displayname = "区分"
+				row = 1
+				column = 1
+				width = medium
+			)
+			qty
+			(
+				type = number
+				displayname = "数量"
+				row = 1
+				column = 1
+				width = medium
+			)
+			unit_price
+			(
+				type = number
+				displayname = "単価"
+				row = 1
+				column = 1
+				width = medium
+			)
+			note
+			(
+				type = textarea
+				displayname = "備考"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			data_json
+			(
+				type = textarea
+				displayname = "付帯情報（JSON）"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			is_active
+			(
+				type = text
+				displayname = "有効（true/false）"
+				row = 1
+				column = 1
+				width = medium
+			)
+			updated_at
+			(
+				type = text
+				displayname = "更新日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+		form Sample_Log_Form
+		{
+			displayname = "【システム用】操作記録"
+			success message = "保存しました。"
+			Section
+			(
+				type = section
+				row = 1
+				column = 0
+				width = medium
+			)
+			log_time
+			(
+				type = text
+				displayname = "日時"
+				row = 1
+				column = 1
+				width = medium
+			)
+			actor_name
+			(
+				type = text
+				displayname = "操作者"
+				row = 1
+				column = 1
+				width = medium
+			)
+			action
+			(
+				type = text
+				displayname = "操作"
+				row = 1
+				column = 1
+				width = medium
+			)
+			target_id
+			(
+				type = text
+				displayname = "対象ID"
+				row = 1
+				column = 1
+				width = medium
+			)
+			detail
+			(
+				type = textarea
+				displayname = "内容"
+				height = 300px
+				row = 1
+				column = 1
+				width = medium
+			)
+			actions
+			{
+				on add
+				{
+					submit
+					(
+						type = submit
+						displayname = "送信"
+					)
+					reset
+					(
+						type = reset
+						displayname = "リセット"
+					)
+				}
+				on edit
+				{
+					update
+					(
+						type = submit
+						displayname = "更新"
+					)
+					cancel
+					(
+						type = cancel
+						displayname = "キャンセル"
+					)
+				}
+			}
+		}
+	}
+
+	reports
+	{
+		list Sample_Item_Report
+		{
+			displayName = "品目 一覧"
+			show all rows from Sample_Item_Form
+			(
+				item_id as "品目ID"
+				item_name as "品名"
+				category as "区分"
+				qty as "数量"
+				unit_price as "単価"
+				note as "備考"
+				data_json as "付帯情報（JSON）"
+				is_active as "有効（true/false）"
+				updated_at as "更新日時"
+			)
+		}
+		list Sample_Log_Report
+		{
+			displayName = "操作記録 一覧"
+			show all rows from Sample_Log_Form
+			(
+				log_time as "日時"
+				actor_name as "操作者"
+				action as "操作"
+				target_id as "対象ID"
+				detail as "内容"
+			)
+		}
+	}
+
+	pages
+	{
+		page Sample_Console
+		{
+			displayname="コンソール"
+			Content=""
+		}
+	}
+
+	share_settings
+	{
+		"Developer"
+		{
+			name = "Developer"
+			type = Developer
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Developer Profile\n"
+		}
+		"Administrator"
+		{
+			name = "Administrator"
+			type = Users_Permissions
+			permissions = {Chat:true, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Full access profile\n"
+		}
+		"Customer"
+		{
+			name = "Customer"
+			type = Customer_Portal
+			permissions = {Chat:false, Predefined:true, ApiAccess:true, PIIAccess:true, ePHIAccess:true}
+			description = "Default portal profile\n"
+		}
+		roles
+		{
+			"CEO"
+			{
+				description = "All access"
+			}
+		}
+	}
+
+	web
+	{
+		forms
+		{
+			form Sample_Item_Form
+			{
+				label placement = left
+			}
+			form Sample_Log_Form
+			{
+				label placement = left
+			}
+		}
+		reports
+		{
+			report Sample_Item_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									item_id as "品目ID"
+									item_name as "品名"
+									category as "区分"
+									qty as "数量"
+									unit_price as "単価"
+									note as "備考"
+									data_json as "付帯情報（JSON）"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									item_id as "品目ID"
+									item_name as "品名"
+									category as "区分"
+									qty as "数量"
+									unit_price as "単価"
+									note as "備考"
+									data_json as "付帯情報（JSON）"
+									is_active as "有効（true/false）"
+									updated_at as "更新日時"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+			report Sample_Log_Report
+			{
+				quickview
+				(
+					layout
+					(
+						type = -1
+						datablock1
+						(
+							layout type = -1
+							fields
+							(
+									log_time as "日時"
+									actor_name as "操作者"
+									action as "操作"
+									target_id as "対象ID"
+									detail as "内容"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+							Add
+							Import
+							Export
+						)
+						record
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+					action
+					(
+						on click
+						(
+							View Record as "レコード表示"
+						)
+					)
+				)
+				detailview
+				(
+					layout
+					(
+						type = 1
+						datablock1
+						(
+							layout type = -2
+							title = "概要"
+							fields
+							(
+									log_time as "日時"
+									actor_name as "操作者"
+									action as "操作"
+									target_id as "対象ID"
+									detail as "内容"
+							)
+						)
+					)
+					menu
+					(
+						header
+						(
+							Edit as "編集"
+							Delete as "削除"
+							Print as "印刷"
+						)
+					)
+				)
+			}
+		}
+		menu
+		{
+			space Space
+			{
+				displayname = "Space"
+				icon = "objects-spaceship"
+				section Section_App
+				{
+					displayname = "サンプル"
+					icon = "files-paper"
+					page Sample_Console
+					{
+						icon = "tech-desktop"
+					}
+					report Sample_Item_Report
+					{
+						icon = "design-todo"
+					}
+					report Sample_Log_Report
+					{
+						icon = "files-archive"
+					}
+					form Sample_Item_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+					form Sample_Log_Form
+					{
+						icon = "ui-2-settings-90"
+					}
+				}
+				section ZC_App_Preferences
+				{
+					displayname = "App Preferences"
+					icon = "design-app"
+					systemcomponent
+					{
+						type = localization
+						displayname = "Language Selection"
+						icon = "education-language"
+					}
+				}
+			}
+			preference
+			{
+				icon
+				{
+					style = solid
+					show = {space,section,component}
+				}
+			}
+		}
+		customize
+		{
+			new theme = 4
+			font = "lato"
+			color options
+			{
+				color = "2"
+			}
+			logo
+			{
+				preference = "none"
+				placement = "left"
+			}
+		}
+	}
+	phone
+	{
+		forms
+		{
+			form Sample_Item_Form
+			{
+				label placement = auto
+			}
+			form Sample_Log_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	tablet
+	{
+		forms
+		{
+			form Sample_Item_Form
+			{
+				label placement = auto
+			}
+			form Sample_Log_Form
+			{
+				label placement = auto
+			}
+		}
+		customize
+		{
+			layout = slidingpane
+			font = "default"
+			style = "3"
+			color options
+			{
+				color = blue
+			}
+			logo
+			{
+				preference = "company_logo"
+			}
+		}
+	}
+	translation
+	{
+		{"Language_Settings":{"LANGAGUE_WITH_LOGIN":"browser"}}
+	}
+}
