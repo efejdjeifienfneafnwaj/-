@@ -481,4 +481,7 @@ if __name__ == "__main__":
     build_lantern()
     build_cone()
     detail.main()
+    import person  # 骨格・アニメーション付きの人物
+    person.build(False)
+    person.build(True)
     print("完了")

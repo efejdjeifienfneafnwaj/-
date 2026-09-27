@@ -445,7 +445,7 @@ def main():
         print("車両:", k)
         build_vehicle(k)
     build_vehicle("sedan", police=True)
-    build_person()
+
     build_pistol()
     build_signal()
     build_tree()

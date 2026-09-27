@@ -1,9 +1,10 @@
 // Blender で生成した glb を読み込んで複製するための窓口
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 
 const NAMES = ['car_sedan', 'car_taxi', 'car_kei', 'car_van', 'car_truck', 'car_bus', 'car_police', 'vending', 'lantern', 'cone',
-  'person', 'pistol', 'signal', 'tree', 'lamp'];
+  'person_m', 'person_f', 'pistol', 'signal', 'tree', 'lamp'];
 
 export async function loadAssets(base = 'assets/models/', onProgress = () => {}) {
   const loader = new GLTFLoader();
@@ -27,10 +28,18 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
       }
     });
     store[n] = root;
+    root.userData.animations = gltf.animations;
     onProgress(++done / NAMES.length);
   }));
   return {
     get: (n) => store[n],
+    // 骨格付きモデルの複製(骨ごと複製する)
+    cloneSkinned(n) {
+      const c = skeletonClone(store[n]);
+      c.traverse((o) => { if (o.isMesh) o.material = o.material.clone(); });
+      c.userData.animations = store[n].userData.animations;
+      return c;
+    },
     clone: (n) => store[n].clone(true),
     // マテリアルも複製する(個体ごとに色を変えるとき用)
     cloneUnique(n) {

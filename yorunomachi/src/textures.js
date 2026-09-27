@@ -409,3 +409,26 @@ export function makeRoadSign(text) {
   g.fillText(text, 256, 82);
   return tex(c);
 }
+
+// 布の織り目(法線マップ): 綾織りの細かい凹凸
+let fabricTex = null;
+export function makeFabricNormal() {
+  if (fabricTex) return fabricTex;
+  const S = 256;
+  const [c, g] = canvas(S, S);
+  const img = g.createImageData(S, S);
+  const h = (x, y) => {
+    const tw = Math.sin((x + y) * 0.9) * 0.5 + 0.5;          // 綾目(斜めの畝)
+    const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return tw * 0.8 + (n - Math.floor(n)) * 0.2;
+  };
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const dx = h(x + 1, y) - h(x - 1, y), dy = h(x, y + 1) - h(x, y - 1);
+    const i = (y * S + x) * 4;
+    img.data[i] = 128 - dx * 90; img.data[i + 1] = 128 - dy * 90; img.data[i + 2] = 255; img.data[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  fabricTex = tex(c, { srgb: false, repeat: true });
+  fabricTex.repeat.set(10, 10);
+  return fabricTex;
+}

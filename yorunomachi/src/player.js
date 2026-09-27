@@ -221,7 +221,7 @@ export class Player {
       // 運転手を引きずり下ろす
       const r = new THREE.Vector3(Math.cos(car.yaw), 0, -Math.sin(car.yaw));
       const p = g.peds.spawnAt(car.pos.x + r.x * 1.6, car.pos.z + r.z * 1.6);
-      if (prev === 'police') p.obj.traverse((m) => { if (m.isMesh && m.material.name === 'Shirt') m.material.color.set(0x1d2c55); });
+      if (prev === 'police') p.obj.traverse((m) => { if (m.isMesh && m.material.name === 'Jacket') m.material.color.set(0x1d2c55); });
       p.scare(this.pos.x, this.pos.z, 1);
       g.wanted.crime(prev === 'police' ? 3 : 1, prev === 'police' ? 'パトカー強奪' : '車両強盗');
       if (car.ai) car.ai = null;

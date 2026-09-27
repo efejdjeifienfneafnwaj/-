@@ -1,12 +1,18 @@
 // 歩行者: 歩道を歩き、銃声や暴走車から逃げる。雨なので多くがビニール傘を差している
 import * as THREE from 'three';
 import { offsetLine, trimLine } from './yaesu.js';
+import { makeFabricNormal } from './textures.js';
 const CURB = 0;
 import { rand, randi, pick, clamp, damp, wrapAngle } from './util.js';
 
-const SHIRTS = [0x2b2f3a, 0x1f2430, 0x3a3a3f, 0xe8e6df, 0x6b2a2a, 0x2d4a3a, 0xc9b28a, 0x8a6a9a, 0x335577, 0xd9d4c5];
-const PANTS = [0x1a1c22, 0x23252c, 0x3b3f4a, 0x2a2f45, 0x4a3f33, 0x111111];
+// 八重洲のオフィス街らしい服の色(スーツの紺・グレー・黒、コートのベージュなど)
+const JACKETS_M = [0x1c2233, 0x23262d, 0x2e3238, 0x15171b, 0x3a3d42, 0x4a4136, 0x2a3346];
+const JACKETS_F = [0x1c2233, 0x2b2c31, 0xb49a78, 0x6b5a4a, 0x8d8a86, 0x3d2a30, 0x1a1a1d, 0xcfc6b8];
+const PANTS = [0x1a1c22, 0x23252c, 0x2a2f45, 0x15161a];
+const SKIN = [0xc79c80, 0xd6ad90, 0xb88d70, 0xe0baa0];
 
+const X = new THREE.Vector3(1, 0, 0);
+const Q_UP = new THREE.Quaternion().setFromAxisAngle(X, -0.55), Q_LO = new THREE.Quaternion().setFromAxisAngle(X, -1.5);
 let umbrellaGeo = null, umbrellaMat = null, handleMat = null;
 function umbrella() {
   if (!umbrellaGeo) {
@@ -23,27 +29,44 @@ function umbrella() {
 export class Ped {
   constructor(game, x, z) {
     this.game = game;
-    const o = game.assets.cloneUnique('person');
+    const female = Math.random() < 0.42;
+    const o = game.assets.cloneSkinned(female ? 'person_f' : 'person_m');
+    const jacket = pick(female ? JACKETS_F : JACKETS_M);
+    const skin = pick(SKIN);
     o.traverse((m) => {
       if (!m.isMesh) return;
-      if (m.material.name === 'Shirt') m.material.color.set(pick(SHIRTS));
-      if (m.material.name === 'Pants') m.material.color.set(pick(PANTS));
+      m.layers.set(1); m.castShadow = true; m.frustumCulled = false; // 骨で動くので境界球が当てにならない
+      const n = m.material.name;
+      // 服は布らしく(織り目の凹凸と、縁が明るく見えるシーン)
+      if (n === 'Jacket' || n === 'Pants') {
+        const old = m.material;
+        m.material = new THREE.MeshPhysicalMaterial({
+          name: n, color: n === 'Jacket' ? jacket : pick(PANTS), roughness: 0.82, sheen: 0.6, sheenRoughness: 0.6,
+          sheenColor: new THREE.Color(0.45, 0.45, 0.5), normalMap: makeFabricNormal(), normalScale: new THREE.Vector2(0.55, 0.55),
+          vertexColors: old.vertexColors,
+        });
+      }
+      if (n === 'Skin') { m.material.color.set(skin); m.material.roughness = 0.55; }
+      if (n === 'Hair') { m.material.roughness = 0.35; }
     });
-    o.traverse((m) => { if (m.isMesh) { m.layers.set(1); m.castShadow = true; } }); // 路面反射には映さない(負荷軽減)
     this.obj = o;
-    this.parts = {
-      armL: o.getObjectByName('ArmL'), armR: o.getObjectByName('ArmR'),
-      legL: o.getObjectByName('LegL'), legR: o.getObjectByName('LegR'), head: o.getObjectByName('HeadPivot'),
-    };
-    const s = rand(0.92, 1.08);
+    // 骨格アニメーション(歩く/走る/立ち止まる)
+    this.mixer = new THREE.AnimationMixer(o);
+    const clip = (name) => THREE.AnimationClip.findByName(o.userData.animations, name);
+    this.actions = {};
+    for (const k of ['walk', 'run', 'idle']) { const c = clip(k); if (c) this.actions[k] = this.mixer.clipAction(c); }
+    this.current = null;
+    this.play('walk');
+    this.mixer.update(rand(0, 2));
+    this.bones = { armUp: o.getObjectByName('b_elbow_L'), armLo: o.getObjectByName('b_wrist_L') };
+    const s = rand(0.93, 1.07) * (female ? 0.97 : 1);
     o.scale.setScalar(s);
     this.height = 1.75 * s;
     if (Math.random() < 0.6) {
       this.umbrella = umbrella();
-      this.umbrella.position.set(0.12, 1.15, -0.1);
+      this.umbrella.position.set(0.16, 1.08, 0.18);
       this.umbrella.traverse((m) => m.layers.set(1));
       o.add(this.umbrella);
-      this.parts.armR.rotation.x = -1.1;
     }
     game.scene.add(o);
     this.pos = new THREE.Vector3(x, CURB, z);
@@ -55,6 +78,14 @@ export class Ped {
     this.fear = 0;
     this.downT = 0;
     this.pickRoute();
+  }
+
+  play(name, fade = 0.25) {
+    const a = this.actions[name];
+    if (!a || this.current === a) return;
+    a.reset().play();
+    if (this.current) this.current.crossFadeTo(a, fade, false);
+    this.current = a;
   }
 
   // 車道の脇(歩道)を区間ごとに歩く。細い道は道の端を歩く
@@ -111,7 +142,6 @@ export class Ped {
   }
 
   update(dt) {
-    const p = this.parts;
     if (this.state === 'down') {
       this.downT += dt;
       const t = Math.min(1, this.downT * 3.5);
@@ -121,7 +151,8 @@ export class Ped {
       this.obj.position.set(this.pos.x, this.game.groundY(this.pos.x, this.pos.z) + 0.1 * t, this.pos.z);
       this.obj.rotation.set(0, this.fallDir, 0);
       this.obj.rotateX(-Math.PI / 2 * (1 - Math.pow(1 - t, 3)));
-      p.armL.rotation.x = -2.6 * t; p.armR.rotation.x = -2.2 * t;
+      this.play('idle', 0.1);
+      this.mixer.update(dt * 0.2);
       if (this.downT > 14) this.dead = true;
       return;
     }
@@ -150,14 +181,19 @@ export class Ped {
     const hit = this.game.city.colliders.resolve(this.pos, 0.3);
     if (hit && this.state === 'flee') this.yaw += 1.2; // 壁にぶつかったら向きを変える
     this.pos.y = this.game.groundY(this.pos.x, this.pos.z);
-    // 歩行アニメーション
-    this.phase += dt * spd * 3.2;
-    const sw = Math.sin(this.phase) * (this.state === 'flee' ? 0.9 : 0.5);
-    p.legL.rotation.x = sw; p.legR.rotation.x = -sw;
-    p.armL.rotation.x = -sw * 0.8;
-    if (!this.umbrella || this.state === 'flee') p.armR.rotation.x = sw * 0.8;
-    if (this.umbrella && this.state === 'flee') this.umbrella.visible = false;
-    this.obj.position.set(this.pos.x, this.pos.y + Math.abs(Math.cos(this.phase)) * 0.04, this.pos.z);
+    // 骨格アニメーション: 速さに合わせて歩き/走りを切り替え、足の運びを合わせる
+    const running = this.state === 'flee';
+    this.play(running ? 'run' : 'walk');
+    if (this.current) this.current.timeScale = running ? spd / 4.2 : spd / 1.3;
+    this.mixer.update(dt);
+    if (this.umbrella && running) this.umbrella.visible = false;
+    // 傘を持つ腕を上げる(アニメーションの上から上書き)
+    if (this.umbrella?.visible && this.bones.armUp) {
+      // 骨のローカル X 軸まわりに前へ上げる(アニメーション結果に掛け合わせる)
+      this.bones.armUp.quaternion.multiply(Q_UP);
+      this.bones.armLo.quaternion.multiply(Q_LO);
+    }
+    this.obj.position.set(this.pos.x, this.pos.y, this.pos.z);
     this.obj.rotation.set(0, this.yaw, 0);
   }
 
