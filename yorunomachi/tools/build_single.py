@@ -56,6 +56,9 @@ def main():
         'minimap': data_uri(os.path.join(map_dir, 'minimap.png'), 'image/png'),
     }
 
+    tex_dir = os.path.join(ROOT, 'assets', 'tex')
+    tex = {f[:-4]: data_uri(os.path.join(tex_dir, f), 'image/jpeg') for f in os.listdir(tex_dir) if f.endswith('.jpg')}
+
     html = open(os.path.join(ROOT, 'index.html'), encoding='utf-8').read()
     css = open(os.path.join(ROOT, 'style.css'), encoding='utf-8').read()
     html = html.replace('<link rel="stylesheet" href="style.css">', f'<style>\n{css}</style>')
@@ -63,7 +66,8 @@ def main():
     j = html.index('</script>', i) + len('</script>')
     html = html[:i] + html[j:]
     embed = ('<script>window.__MODELS = ' + json.dumps(models, separators=(',', ':')) + ';\n'
-             'window.__MAPDATA = ' + json.dumps(mapdata, ensure_ascii=False, separators=(',', ':')) + ';</script>\n')
+             'window.__MAPDATA = ' + json.dumps(mapdata, ensure_ascii=False, separators=(',', ':')) + ';\n'
+             'window.__TEX = ' + json.dumps(tex) + ';</script>\n')
     html = html.replace('<script type="module" src="src/main.js"></script>', embed + '<script type="module">\n' + js + '\n</script>')
     out = os.path.join(DIST, 'yorunomachi.html')
     open(out, 'w', encoding='utf-8').write(html)

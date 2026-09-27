@@ -366,6 +366,18 @@ def main():
     fill_poly(walk_poly, (0, 0, 255))
     fill_poly(road_poly, (255, 0, 0))
 
+    WHITE, YELLOW = (255, 255, 0), (255, 0, 255)
+    marks = []  # 路面標示のポリゴン [x1,z1,x2,z2,x3,z3,x4,z4, 色(0=白,1=黄)]
+
+    def seg_quad(a, b2, width, color):
+        dx, dz = b2[0] - a[0], b2[1] - a[1]
+        ln = math.hypot(dx, dz)
+        if ln < 0.05:
+            return
+        nx, nz = -dz / ln * width / 2, dx / ln * width / 2
+        marks.append([r1(a[0] + nx), r1(a[1] + nz), r1(b2[0] + nx), r1(b2[1] + nz), r1(b2[0] - nx), r1(b2[1] - nz),
+                      r1(a[0] - nx), r1(a[1] - nz), 1 if color == YELLOW else 0])
+
     def line(cs, width, color, dash=None):
         ls = LineString(cs).difference(near_junction)
         for part in getattr(ls, 'geoms', [ls]):
@@ -373,15 +385,18 @@ def main():
                 continue
             if not dash:
                 d.line([px(c) for c in part.coords], fill=color, width=max(1, int(width * S)))
+                pc = list(part.coords)
+                for k in range(len(pc) - 1):
+                    seg_quad(pc[k], pc[k + 1], width, color)
                 continue
             on, off = dash
             t = 0
             while t < part.length:
                 a, b2 = part.interpolate(t), part.interpolate(min(part.length, t + on))
                 d.line([px((a.x, a.y)), px((b2.x, b2.y))], fill=color, width=max(1, int(width * S)))
+                seg_quad((a.x, a.y), (b2.x, b2.y), width, color)
                 t += on + off
 
-    WHITE, YELLOW = (255, 255, 0), (255, 0, 255)
     for e in redges:
         cs = unflat(e['pts'])
         ls = LineString(cs)
@@ -439,12 +454,14 @@ def main():
                 c2 = (b2[0] + nx * 0.45, b2[1] + nz * 0.45)
                 a2 = (a[0] + nx * 0.45, a[1] + nz * 0.45)
                 d.polygon([px(a), px(b2), px(c2), px(a2)], fill=WHITE)
+                marks.append([r1(v) for v in (*a, *b2, *c2, *a2)] + [0])
                 k += 0.9
             # 停止線: 交差点へ向かう車線(=離れる向きの右側)
             sp = (p.x + dx * 5.5, p.y + dz * 5.5)
             a = (sp[0], sp[1])
             b2 = (sp[0] - nx * half, sp[1] - nz * half)
             d.line([px(a), px(b2)], fill=WHITE, width=max(1, int(0.45 * S)))
+            seg_quad(a, b2, 0.45, WHITE)
     img = img.filter(ImageFilter.GaussianBlur(0.6))
     os.makedirs(OUT, exist_ok=True)
     img.save(os.path.join(OUT, 'ground.webp'), quality=88)
@@ -486,6 +503,7 @@ def main():
         'express': [flat(list(p.coords)) for g in express_lines for p in getattr(g, 'geoms', [g]) if p.geom_type == 'LineString'],
         'landmarks': [{'n': b['n'], 'h': b['h'], 'c': [r1(v) for v in Polygon(unflat(b['p'])).centroid.coords[0]]}
                       for b in buildings if b['n']],
+        'marks': marks,
         'lamps': lamps, 'trees': trees, 'fences': fences, 'signals': signals, 'vendings': vendings, 'signs': signs,
     }
     with open(os.path.join(OUT, 'yaesu.json'), 'w') as f:

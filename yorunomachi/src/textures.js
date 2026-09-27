@@ -1,6 +1,6 @@
 // キャンバスで手続き生成するテクスチャ類(外部画像ファイル不要)
 import * as THREE from 'three';
-import { rand, pick } from './util.js';
+import { rand, randi, pick } from './util.js';
 
 function canvas(w, h) {
   const c = document.createElement('canvas');
@@ -81,35 +81,58 @@ export function makeFacade(style) {
   return { map: tex(c, { repeat: true }), emissive: tex(e, { repeat: true }) };
 }
 
-// 1階の店舗ファサード(シャッター/ガラス張り)
+// 1階の店舗ファサード: アルミの枠・ガラス越しの店内(棚・照明)・自動ドア・シャッター
 export function makeStorefronts() {
-  const W = 1024, H = 128;
+  const W = 2048, H = 256;               // 1 枚 = 48m × 4.5m、6m 幅の店が 8 軒
   const [c, g] = canvas(W, H);
   const [e, ge] = canvas(W, H);
   ge.fillStyle = '#000'; ge.fillRect(0, 0, W, H);
   const n = 8, cw = W / n;
   for (let i = 0; i < n; i++) {
     const x = i * cw;
-    const kind = i % 4;
-    if (kind === 0) { // シャッター
-      g.fillStyle = '#7b7f84'; g.fillRect(x, 0, cw, H);
-      for (let y = 8; y < H; y += 5) { g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(x, y, cw, 2); }
-      g.fillStyle = 'rgba(40,40,40,.6)';
-      g.font = 'bold 18px sans-serif'; g.fillText(pick(['テナント募集', '貸店舗', '本日休業']), x + 12, 70);
-    } else { // 明るいガラス店舗
-      const col = pick(['#e8c9a0', '#bfe3ee', '#e9c3cf', '#e9df9f', '#c9e8c0']);
-      g.fillStyle = '#222'; g.fillRect(x, 0, cw, H);
-      g.fillStyle = col; g.fillRect(x + 6, 14, cw - 12, H - 20);
-      ge.fillStyle = col; ge.fillRect(x + 6, 14, cw - 12, H - 20);
-      // 棚・人影
-      for (let k = 0; k < 6; k++) {
-        const sx = x + 10 + k * 20, sh = rand(20, 60);
-        g.fillStyle = `hsl(${rand(0, 360)},40%,45%)`; g.fillRect(sx, H - 6 - sh, 14, sh);
-        ge.fillStyle = 'rgba(0,0,0,.55)'; ge.fillRect(sx, H - 6 - sh, 14, sh);
-      }
-      g.fillStyle = '#333'; ge.fillStyle = '#000';
-      for (let k = 0; k < 3; k++) { g.fillRect(x + 6 + k * (cw - 12) / 3, 14, 3, H - 20); ge.fillRect(x + 6 + k * (cw - 12) / 3, 14, 3, H - 20); }
+    const kind = pick(['shop', 'shop', 'cafe', 'conbini', 'shutter', 'office']);
+    // 建物の腰壁と枠
+    g.fillStyle = '#3b3d40'; g.fillRect(x, 0, cw, H);
+    if (kind === 'shutter') {
+      g.fillStyle = '#8b8e91'; g.fillRect(x + 8, 20, cw - 16, H - 24);
+      for (let y = 24; y < H; y += 6) { g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(x + 8, y, cw - 16, 2); g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x + 8, y + 2, cw - 16, 1); }
+      for (let k = 0; k < 30; k++) { g.fillStyle = `rgba(40,40,40,${rand(0.05, 0.2)})`; g.fillRect(x + rand(10, cw - 30), rand(40, H - 20), rand(4, 30), rand(2, 14)); } // 落書き・汚れ
+      continue;
     }
+    const inner = { shop: ['#e9dcc4', '#d8d2c8'], cafe: ['#f0c894', '#d9a86a'], conbini: ['#f6fbff', '#eef6ff'], office: ['#dde6ee', '#c9d3dc'] }[kind];
+    const gx = x + 10, gy = 18, gw = cw - 20, gh = H - 26;
+    // 店内: 奥の壁・天井の照明・棚・人影
+    const grd = g.createLinearGradient(0, gy, 0, gy + gh);
+    grd.addColorStop(0, inner[0]); grd.addColorStop(1, inner[1]);
+    g.fillStyle = grd; g.fillRect(gx, gy, gw, gh);
+    ge.fillStyle = grd; ge.globalAlpha = 0.85; ge.fillRect(gx, gy, gw, gh); ge.globalAlpha = 1;
+    for (let k = 0; k < 5; k++) { ge.fillStyle = '#fff'; ge.fillRect(gx + 10 + k * gw / 5, gy + 6, gw / 5 - 24, 4); g.fillStyle = '#fff'; g.fillRect(gx + 10 + k * gw / 5, gy + 6, gw / 5 - 24, 4); }
+    if (kind !== 'office') {
+      for (let sx = gx + 12; sx < gx + gw - 30; sx += rand(40, 70)) {   // 陳列棚
+        const sh = rand(80, 150), sw = rand(26, 44);
+        g.fillStyle = '#6d6a66'; g.fillRect(sx, gy + gh - sh, sw, sh);
+        for (let yy = gy + gh - sh + 6; yy < gy + gh - 4; yy += 16)
+          for (let xx = sx + 2; xx < sx + sw - 4; xx += 5) { g.fillStyle = `hsl(${rand(0, 360)},${rand(15, 45)}%,${rand(35, 65)}%)`; g.fillRect(xx, yy, 4, 11); }
+        ge.fillStyle = 'rgba(0,0,0,.45)'; ge.fillRect(sx, gy + gh - sh, sw, sh);
+      }
+    } else {
+      g.fillStyle = '#8a8680'; g.fillRect(gx + gw * 0.3, gy + gh - 70, gw * 0.4, 36); // 受付
+    }
+    for (let k = 0; k < randi(0, 3); k++) { // 人影
+      const px = gx + rand(20, gw - 30);
+      g.fillStyle = 'rgba(40,38,40,.8)'; g.fillRect(px, gy + gh - 110, 18, 110); g.beginPath(); g.arc(px + 9, gy + gh - 120, 10, 0, 7); g.fill();
+      ge.fillStyle = 'rgba(0,0,0,.7)'; ge.fillRect(px, gy + gh - 130, 18, 130);
+    }
+    // ガラスの映り込み(斜めのハイライト)
+    g.fillStyle = 'rgba(255,255,255,.12)';
+    g.beginPath(); g.moveTo(gx + gw * 0.2, gy); g.lineTo(gx + gw * 0.35, gy); g.lineTo(gx + gw * 0.15, gy + gh); g.lineTo(gx, gy + gh); g.fill();
+    // アルミのサッシと自動ドア
+    g.fillStyle = '#9ea3a8';
+    g.fillRect(gx - 4, gy - 4, gw + 8, 5); g.fillRect(gx - 4, gy + gh - 2, gw + 8, 6);
+    for (const f of [0, 0.34, 0.5, 0.66, 1]) g.fillRect(gx + gw * f - 3, gy, 6, gh);
+    ge.fillStyle = '#000'; for (const f of [0, 0.34, 0.5, 0.66, 1]) ge.fillRect(gx + gw * f - 3, gy, 6, gh);
+    // ポスター
+    if (Math.random() < 0.6) { const px = gx + gw * rand(0.05, 0.2); g.fillStyle = `hsl(${rand(0, 360)},50%,55%)`; g.fillRect(px, gy + 40, 34, 48); g.fillStyle = 'rgba(255,255,255,.7)'; g.fillRect(px + 4, gy + 70, 26, 4); }
   }
   return { map: tex(c, { repeat: true }), emissive: tex(e, { repeat: true }) };
 }
@@ -319,6 +342,7 @@ export function makeFacade2(style) {
         const wx = x + (pitch - win) / 2 * px, wy = y + 1.0 * px, ww = win * px, wh = 2.2 * px;
         g.fillStyle = '#1c2029'; g.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
         const on = floorLit ? lit(0.8) : lit(0.08);
+        gr.fillStyle = '#181818'; gr.fillRect(wx, wy, ww, wh); // 窓マスク(粗さ小)
         if (on) {
           g.fillStyle = tone; g.fillRect(wx, wy, ww, wh);
           ge.globalAlpha = rand(0.4, 0.8); ge.fillStyle = tone; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1;
@@ -355,6 +379,7 @@ export function makeFacade2(style) {
         g.fillStyle = '#d8d2c2'; g.fillRect(wx - 5, wy - 5, ww + 10, wh + 10);
         const on = lit(0.6);
         g.fillStyle = on ? '#ffd08a' : '#1a1a20'; g.fillRect(wx, wy, ww, wh);
+        gr.fillStyle = '#181818'; gr.fillRect(wx, wy, ww, wh);
         if (on) { ge.fillStyle = '#ffc070'; ge.globalAlpha = 0.8; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1; }
       }
     }

@@ -5,6 +5,8 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { loadAssets } from './assets.js';
 import { buildYaesu, loadMapData } from './yaesu.js';
 const groundY = () => 0;
@@ -57,6 +59,21 @@ scene.add(rain);
 // ---------------------------------------------------------------- ポストエフェクト
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
+// 非数(NaN)・無限大の画素を消す(ブルームで画面全体に広がって真っ黒になるのを防ぐ)
+composer.addPass(new ShaderPass({
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+  fragmentShader: 'uniform sampler2D tDiffuse; varying vec2 vUv; void main(){ vec4 c = texture2D(tDiffuse, vUv); if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0); gl_FragColor = min(c, vec4(64.0)); }',
+}));
+// 物の接地部分・隅の陰り(GTAO)。軽量モードでは省く
+const lowQ = params.get('q') === 'low';
+const gtao = lowQ ? null : new GTAOPass(scene, camera, innerWidth, innerHeight);
+if (gtao) {
+  gtao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.5, thickness: 2, scale: 1.4, samples: 12 });
+  gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+  gtao.blendIntensity = 0.9;
+  composer.addPass(gtao);
+}
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth / 2, innerHeight / 2), 0.55, 0.45, 0.92);
 composer.addPass(bloom);
 const finalPass = new ShaderPass({
@@ -87,6 +104,8 @@ const finalPass = new ShaderPass({
 });
 composer.addPass(finalPass);
 composer.addPass(new OutputPass());
+// 輪郭のギザギザ取り(SMAA)
+if (!lowQ) composer.addPass(new SMAAPass(innerWidth * pixelRatio, innerHeight * pixelRatio));
 
 // ---------------------------------------------------------------- ゲーム
 const game = {
@@ -146,6 +165,8 @@ async function init() {
   game.hud = new Hud(game);
   setupPlaces();
   game.startPos = game.places.start;
+  applyMode(params.get('mode') === 'day' ? 'day' : 'night');
+  document.querySelectorAll('.mode button').forEach((x) => x.classList.toggle('on', x.dataset.mode === game.mode));
   game.player = new Player(game, game.startPos.x, game.startPos.z);
   game.traffic = new Traffic(game, params.get('q') === 'low' ? 16 : 24);
   game.police = new Police(game);
@@ -372,6 +393,49 @@ function endScreen(main, sub, cls) {
   b.onclick = () => location.reload();
 }
 
+// ---------------------------------------------------------------- 昼(曇り雨) / 夜 の切り替え
+const hemi = scene.children.find((o) => o.isHemisphereLight);
+function applyMode(mode) {
+  game.mode = mode;
+  const day = mode === 'day';
+  const L = game.city.look;
+  scene.fog.color.set(day ? 0x8f98a2 : 0x070812);
+  scene.fog.density = day ? 0.0042 : 0.0095;
+  hemi.color.set(day ? 0xc4ccd6 : 0x3d4a80); hemi.groundColor.set(day ? 0x4d4a47 : 0x1a1016);
+  hemi.intensity = day ? 1.9 : 0.8;
+  moon.color.set(day ? 0xeef1f5 : 0x9aa8ff); moon.intensity = day ? 1.4 : 0.8;
+  renderer.toneMapping = day ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = day ? 1.15 : 0.9;
+  sky.material.uniforms.uDay.value = day ? 1 : 0;
+  for (const m of L.facadeMats) m.emissiveIntensity = m.userData.baseEmissive * (day ? 0.1 : 1);
+  L.storeMat.emissiveIntensity = day ? 0.3 : 0.9;
+  L.vSignMat.color.setScalar(day ? 0.85 : 1.8); L.hSignMat.color.setScalar(day ? 0.8 : 1.3);
+  L.groundU.uLightAmt.value = day ? 0 : 1;
+  L.groundU.uWetness.value = day ? 0.55 : 1;
+  L.uDay.value = day ? 1 : 0;
+  L.aviMat.visible = !day;
+  L.glow().visible = !day;
+  L.glow().uniforms.uScale.value = day ? 0 : 600;
+  for (const m of L.lampMats) m.emissiveIntensity = day ? 0.05 : 6;
+  bloom.strength = day ? 0.18 : 0.55;
+  rain.material.uniforms.uAmount.value = day ? 0.7 : 1;
+  game.startMinutes = day ? 13 * 60 : 23 * 60;
+  game.endMinutes = day ? 19 * 60 : 29 * 60;
+  // 映り込み用の環境マップも撮り直す
+  const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+  const cube = new THREE.CubeCamera(1, 1500, rt);
+  cube.position.set(40, 30, -20);
+  scene.add(cube); cube.update(renderer, scene); scene.remove(cube);
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromCubemap(rt.texture).texture;
+  scene.environmentIntensity = day ? 0.9 : 0.55;
+}
+game.applyMode = applyMode;
+document.querySelectorAll('.mode button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('.mode button').forEach((x) => x.classList.toggle('on', x === b));
+  if (game.city) applyMode(b.dataset.mode);
+}));
+
 // ---------------------------------------------------------------- 開始
 function startGame() {
   if (game.state !== 'title') return;
@@ -498,7 +562,7 @@ function renderFrame(dt) {
   }
   g.hurtFlash = damp(g.hurtFlash, 0, 2.5, dt);
   // 夜明けが近づくと空が明るむ
-  const dawn = clamp((g.clockMinutes() - (g.endMinutes - 60)) / 60, 0, 1);
+  const dawn = g.mode === 'day' ? 0 : clamp((g.clockMinutes() - (g.endMinutes - 60)) / 60, 0, 1);
   sky.material.uniforms.uDawn.value = dawn;
   sky.material.uniforms.uTime.value = t;
   sky.position.copy(camera.position);
@@ -520,7 +584,8 @@ function renderFrame(dt) {
   fpsAcc += dt; fpsN++;
   if (fpsAcc > 2) {
     const fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0;
-    if (fps < 38 && pixelRatio > 0.6) { pixelRatio = Math.max(0.6, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
+    if (fps < 38 && gtao && gtao.enabled) { gtao.enabled = false; }
+    else if (fps < 38 && pixelRatio > 0.6) { pixelRatio = Math.max(0.6, pixelRatio - 0.15); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
     else if (fps > 58 && pixelRatio < Math.min(devicePixelRatio, 1.25)) { pixelRatio = Math.min(1.25, pixelRatio + 0.1); renderer.setPixelRatio(pixelRatio); composer.setPixelRatio(pixelRatio); }
     game.fps = fps;
   }
@@ -597,6 +662,7 @@ function explode(c) {
 
 // デバッグ・自動テスト用
 window.__game = game;
+game.passes = { bloom, gtao, finalPass };
 // 描画せずにシミュレーションだけ進める(自動テスト用)
 window.__step = (dt, n = 1) => { for (let i = 0; i < n; i++) simulate(dt); };
 init().catch((e) => { loadingEl.textContent = '読み込みに失敗しました: ' + e.message; console.error(e); });

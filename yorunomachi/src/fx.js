@@ -118,10 +118,10 @@ export function makeRain(count = 9000) {
 export function makeSky() {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { uTime: { value: 0 }, uDawn: { value: 0 } },
+    uniforms: { uTime: { value: 0 }, uDawn: { value: 0 }, uDay: { value: 0 } },
     vertexShader: 'varying vec3 vP; void main(){ vP = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }',
     fragmentShader: /* glsl */`
-      varying vec3 vP; uniform float uTime, uDawn;
+      varying vec3 vP; uniform float uTime, uDawn, uDay;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
         return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
@@ -136,6 +136,10 @@ export function makeSky() {
         vec2 uv = d.xz / (d.y + 0.15) * 1.3 + vec2(uTime * 0.01, 0.0);
         float c = fbm(uv);
         col += vec3(0.09, 0.07, 0.09) * smoothstep(0.35, 0.8, c) * (1.0 - h * 0.6) * (1.0 - uDawn * 0.5);
+        // 昼(曇り): 明るい灰色の雲に覆われた空
+        vec3 dayC = mix(vec3(0.78, 0.8, 0.82), vec3(0.55, 0.58, 0.62), pow(h, 0.6));
+        dayC *= 0.88 + 0.16 * fbm(uv * 0.7 + uTime * 0.005);
+        col = mix(col, dayC * 1.6, uDay);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });

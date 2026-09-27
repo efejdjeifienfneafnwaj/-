@@ -143,3 +143,10 @@ body.driving #ammo { display: none; }
 /* 照準器を覗いている間は十字線を消す */
 body.aiming #crosshair { opacity: 0; }
 #crosshair { transition: opacity .12s; }
+
+/* 時間帯の切り替え */
+.mode { display: flex; gap: 8px; margin: -8px 0 18px; }
+.mode button { font: 700 13px "Zen Kaku Gothic New"; letter-spacing: .1em; padding: 8px 16px; border-radius: 2px; cursor: pointer;
+  color: #cfcde0; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+.mode button.on { color: #fff; border-color: var(--cyan); background: rgba(53,232,255,.14); }
+.mode button:focus-visible, #start:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }

@@ -19,6 +19,22 @@ function loadImage(src) {
   return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
 }
 
+// Blender で焼いた PBR テクスチャ(単体 HTML 版では埋め込み)
+const TEX_NAMES = ['asphalt', 'pavers', 'concrete', 'tiles'];
+export async function loadPbr() {
+  const loader = new THREE.TextureLoader();
+  const out = {};
+  await Promise.all(TEX_NAMES.flatMap((n) => ['albedo', 'normal', 'rough'].map(async (k) => {
+    const src = window.__TEX?.[`${n}_${k}`] ?? `assets/tex/${n}_${k}.jpg`;
+    const t = await loader.loadAsync(src);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    if (k === 'albedo') t.colorSpace = THREE.SRGBColorSpace;
+    (out[n] ??= {})[k] = t;
+  })));
+  return out;
+}
+
 const pts2 = (a) => { const o = []; for (let i = 0; i < a.length; i += 2) o.push([a[i], a[i + 1]]); return o; };
 
 // ---------------------------------------------------------------- 当たり判定(線分)
@@ -251,6 +267,9 @@ export function trimLine(p, t0, t1) {
 export async function buildYaesu(game, mapData) {
   const { scene, assets } = game;
   const M = mapData.json;
+  const pbr = await loadPbr();
+  const facadeMats = [];
+  const uDay = { value: 0 }; // 昼モード(窓を空が映る暗いガラスにする)
   const group = new THREE.Group();
   scene.add(group);
   const col = new Colliders();
@@ -380,21 +399,109 @@ export async function buildYaesu(game, mapData) {
     else {
       const f = facades[G.style][G.variant];
       const glass = G.style === 'glass';
+      // 外壁の素材(Blender で焼いたタイル/コンクリートの凹凸と汚れ)を 4m ピッチで重ねる
+      const detail = G.style === 'mixed' || G.style === 'brick' ? pbr.tiles : pbr.concrete;
+      const nrm = detail.normal.clone(); nrm.repeat.set(T.FW / 4, T.FH / 4); nrm.needsUpdate = true;
       m = new THREE.MeshStandardMaterial({
         map: f.map, emissiveMap: f.emissive, emissive: 0xffffff, emissiveIntensity: glass ? 1.3 : 1.0,
         roughnessMap: f.rough, roughness: 1, metalness: glass ? 0.85 : 0.1, envMapIntensity: glass ? 1.6 : 0.6,
+        normalMap: glass ? null : nrm, normalScale: new THREE.Vector2(0.8, 0.8),
         side: G.style === 'canopy' || G.style === 'granroof' ? THREE.DoubleSide : THREE.FrontSide,
       });
+      // 窓の配置(テクスチャ上の m 単位): ピッチ, 窓の左端, 幅, 下端, 高さ
+      const WIN = { office: [3, 0.3, 2.4, 1.0, 2.2], mixed: [3, 0.6, 1.8, 1.0, 2.2], brick: [3, 0.8, 1.4, 1.1, 2.2], glass: [1.5, 0.0, 1.5, 0.7, 3.3] }[G.style];
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uDetail = { value: detail.albedo };
+        sh.uniforms.uDay = uDay;
+        sh.uniforms.uWin = { value: new THREE.Vector4(WIN?.[0] ?? 3, WIN?.[1] ?? 0, WIN?.[2] ?? 0, WIN?.[3] ?? 0) };
+        sh.uniforms.uWinH = { value: WIN?.[4] ?? 0 };
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vWp; varying vec3 vWN;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWp = (modelMatrix * vec4(position, 1.0)).xyz; vWN = normalize(mat3(modelMatrix) * normal);');
+        sh.fragmentShader = sh.fragmentShader
+          .replace('#include <common>', `#include <common>
+            uniform sampler2D uDetail; uniform float uDay, uWinH; uniform vec4 uWin; varying vec3 vWp; varying vec3 vWN;
+            float gWin, gRoomLit; vec3 gRoom;
+            float hh(vec2 p){ return fract(sin(dot(p, vec2(41.3, 289.1))) * 43758.5453); }`)
+          .replace('#include <map_fragment>', `#include <map_fragment>
+            // 窓マスク(粗さマップの暗い所)
+            gWin = 1.0 - smoothstep(0.12, 0.3, texture2D(roughnessMap, vRoughnessMapUv).g);
+            ${glass ? '' : `vec3 dt = texture2D(uDetail, vNormalMapUv).rgb / 0.5;
+            diffuseColor.rgb *= mix(clamp(dt, 0.6, 1.4), vec3(1.0), gWin);`}
+            // ---- インテリアマッピング: 窓の奥に部屋の箱を置き、視線と交差させる
+            gRoom = vec3(0.0); gRoomLit = 0.0;
+            vec2 mm = vMapUv * vec2(${T.FW.toFixed(1)}, ${T.FH.toFixed(1)});
+            vec2 cell = vec2(floor(mm.x / uWin.x), floor(mm.y / 4.0));
+            vec2 loc = vec2(mod(mm.x, uWin.x) - uWin.y, mod(mm.y, 4.0) - uWin.w);
+            if (uWinH > 0.0 && gWin > 0.5 && abs(vWN.y) < 0.5) {
+              vec3 N = normalize(vec3(vWN.x, 0.0, vWN.z));
+              vec3 Tn = normalize(cross(vec3(0.0, 1.0, 0.0), N));
+              vec3 V = normalize(vWp - cameraPosition);
+              vec3 d = vec3(dot(V, Tn), V.y, -dot(V, N));
+              // 0 除算で NaN が出るとブルームで画面全体に広がるので必ず避ける
+              d = sign(d + 1e-7) * max(abs(d), vec3(1e-4));
+              d.z = max(d.z, 1e-3);
+              vec3 p = vec3(loc, 0.0);
+              vec3 lo = vec3(-0.8, -uWin.w + 0.02, 0.0), hi = vec3(uWin.z + 0.8, 4.0 - uWin.w - 0.35, 4.5);
+              vec3 tA = (lo - p) / d, tB = (hi - p) / d;
+              vec3 tm = max(tA, tB);
+              float t = min(min(tm.x, tm.y), tm.z);
+              vec3 q = p + d * t;
+              // 部屋ごとの点灯(夜の窓明かりのテクスチャと合わせる)
+              vec2 cuv = (vec2(cell.x * uWin.x + uWin.y + uWin.z * 0.5, cell.y * 4.0 + uWin.w + uWinH * 0.5)) / vec2(${T.FW.toFixed(1)}, ${T.FH.toFixed(1)});
+              vec3 litC = texture2D(emissiveMap, cuv).rgb;
+              gRoomLit = clamp(dot(litC, vec3(0.333)) * 1.6, 0.0, 1.0);
+              float r = hh(cell + floor(vMapUv * 7.0));
+              vec3 wallC = mix(vec3(0.62, 0.6, 0.55), vec3(0.55, 0.58, 0.6), r);
+              vec3 c;
+              if (t == tm.z) {           // 奥の壁: 棚・机・人影
+                c = wallC * 0.9;
+                if (q.y < 0.75) c *= 0.45;
+                if (abs(fract(q.x * 0.35 + r) - 0.5) < 0.12 && q.y < 1.9 && hh(cell + 3.0) > 0.5) c *= 0.3;
+              } else if (t == tm.y) {    // 床か天井
+                if (d.y > 0.0) { c = vec3(0.75); float strip = step(0.85, fract(q.z * 0.5)); c += vec3(1.6) * strip * gRoomLit; }
+                else { c = mix(vec3(0.28, 0.27, 0.26), vec3(0.35, 0.3, 0.26), r) * (0.7 + 0.3 * step(0.5, fract(q.x + q.z))); }
+              } else {                   // 左右の壁
+                c = wallC * 0.75;
+              }
+              c *= 1.0 - q.z / 7.0;       // 奥ほど暗く
+              // ブラインドが下りている部屋
+              if (hh(cell + 9.1) > 0.7) { float bl = step(0.5, fract(loc.y * 12.0)); float down = step(uWinH * (1.0 - hh(cell + 2.3) * 0.8), loc.y); c = mix(c, vec3(0.7, 0.7, 0.68) * (0.8 + 0.2 * bl), down); }
+              gRoom = clamp(c * mix(vec3(1.0), litC * 1.4 + 0.1, gRoomLit), 0.0, 4.0);
+              // 昼: 室内は外より暗い。夜: 点灯していない部屋はほぼ真っ暗
+              diffuseColor.rgb = mix(gRoom * mix(0.05, 0.35, uDay), diffuseColor.rgb, 0.0);
+            } else {
+              diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.1, 0.12, 0.14), gWin * uDay);
+            }`)
+          .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+            if (uWinH > 0.0 && gWin > 0.5 && abs(vWN.y) < 0.5) totalEmissiveRadiance = gRoom * gRoomLit * emissive.r * mix(1.0, 2.5, uDay);`)
+          .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+            metalnessFactor = mix(metalnessFactor, 0.0, gWin);`)
+          .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+            roughnessFactor = mix(roughnessFactor, 0.04, gWin);`)
+          .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+            // 窓ガラスの反射(フレネル): 浅い角度ほど空や街が映る
+            if (gWin > 0.5) {
+              vec3 Vv = normalize(vWp - cameraPosition);
+              float fr = 0.04 + 0.96 * pow(1.0 - abs(dot(Vv, normalize(vWN))), 5.0);
+              reflectedLight.indirectSpecular *= mix(0.6, 1.6, fr);
+              reflectedLight.directDiffuse *= 0.3; reflectedLight.indirectDiffuse *= mix(0.3, 1.0, uDay);
+            }`);
+      };
+      m.userData.baseEmissive = m.emissiveIntensity;
+      facadeMats.push(m);
     }
     const mesh = new THREE.Mesh(mk(G), m);
     mesh.castShadow = true; mesh.receiveShadow = true;
     group.add(mesh); buildingMeshes.push(mesh);
   }
-  const storeMesh = new THREE.Mesh(mk(storeG), new THREE.MeshStandardMaterial({ map: store.map, emissiveMap: store.emissive, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.3, metalness: 0.3 }));
+  const storeMat = new THREE.MeshStandardMaterial({ map: store.map, emissiveMap: store.emissive, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.12, metalness: 0.15, envMapIntensity: 1.2 });
+  const storeMesh = new THREE.Mesh(mk(storeG), storeMat);
   storeMesh.receiveShadow = true;
   group.add(storeMesh);
-  group.add(new THREE.Mesh(mk(vSign), new THREE.MeshBasicMaterial({ map: signs.v, color: new THREE.Color(1.8, 1.8, 1.8) })));
-  group.add(new THREE.Mesh(mk(hSign), new THREE.MeshBasicMaterial({ map: signs.h, color: new THREE.Color(1.3, 1.3, 1.3) })));
+  const vSignMat = new THREE.MeshBasicMaterial({ map: signs.v, color: new THREE.Color(1.8, 1.8, 1.8) });
+  const hSignMat = new THREE.MeshBasicMaterial({ map: signs.h, color: new THREE.Color(1.3, 1.3, 1.3) });
+  group.add(new THREE.Mesh(mk(vSign), vSignMat), new THREE.Mesh(mk(hSign), hSignMat));
   if (billG.pos.length) group.add(new THREE.Mesh(mk(billG), new THREE.MeshBasicMaterial({ map: bill, color: new THREE.Color(1.5, 1.5, 1.5), side: THREE.DoubleSide })));
   {
     const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x8d9094, roughness: 0.7 }), roofBoxes.length);
@@ -579,7 +686,9 @@ export async function buildYaesu(game, mapData) {
   const groundU = {
     uMask: { value: maskTex }, uLight: { value: lightmap }, uHalf: { value: HALF }, uGrain: { value: T.makeGrain() },
     tRefl: { value: reflector.getRenderTarget().texture }, uTexMat: { value: reflector.material.uniforms.textureMatrix.value },
-    uTime: { value: 0 }, uRain: { value: 1 },
+    uTime: { value: 0 }, uRain: { value: 1 }, uLightAmt: { value: 1 }, uWetness: { value: 1 },
+    uAsA: { value: pbr.asphalt.albedo }, uAsN: { value: pbr.asphalt.normal }, uAsR: { value: pbr.asphalt.rough },
+    uPvA: { value: pbr.pavers.albedo }, uPvN: { value: pbr.pavers.normal }, uCoA: { value: pbr.concrete.albedo },
   };
   const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.0 });
   groundMat.onBeforeCompile = (sh) => {
@@ -589,7 +698,8 @@ export async function buildYaesu(game, mapData) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRefl = uTexMat * vec4(position, 1.0); vW = (modelMatrix * vec4(position,1.0)).xyz;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>
-        uniform sampler2D uMask, uLight, uGrain, tRefl; uniform float uHalf, uTime, uRain; varying vec4 vRefl; varying vec3 vW;
+        uniform sampler2D uMask, uLight, uGrain, tRefl, uAsA, uAsN, uAsR, uPvA, uPvN, uCoA; uniform float uHalf, uTime, uRain, uLightAmt, uWetness;
+        varying vec4 vRefl; varying vec3 vW;
         float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
         vec2 ripple(vec2 p){ vec2 o = vec2(0.0); vec2 c0 = floor(p * 1.6);
           for (int i=-1;i<=1;i++) for (int j=-1;j<=1;j++){ vec2 c = c0 + vec2(float(i),float(j)); float h = h21(c);
@@ -604,31 +714,38 @@ export async function buildYaesu(game, mapData) {
         gRoad = mk.r * inside; float white = mk.g * inside; float yellow = mk.b * gRoad; gWalk = mk.b * (1.0 - gRoad) * inside;
         gGrain = texture2D(uGrain, vW.xz * 0.35).r;
         gPuddle = smoothstep(0.52, 0.38, texture2D(uGrain, vW.xz * 0.018 + 0.3).r);
-        // 歩道: インターロッキングブロック / 広場: 大判の石
-        vec2 tile = vW.xz / vec2(0.2, 0.1); vec2 ti = floor(tile); vec2 tf = fract(tile);
-        float joint = step(0.92, tf.x) + step(0.9, tf.y);
-        vec3 walkC = mix(vec3(0.34, 0.31, 0.29), vec3(0.42, 0.39, 0.35), h21(ti)) * (1.0 - joint * 0.35);
+        // Blender で焼いた素材: アスファルト(8m), インターロッキング(2m), 広場の石(4m)
+        vec3 asph = texture2D(uAsA, vW.xz / 8.0).rgb * 0.62;
+        vec3 walkC = texture2D(uPvA, vW.xz / 2.0).rgb * 0.95;
         vec2 st = vW.xz / 0.9; vec2 sf = fract(st);
-        vec3 plazaC = vec3(0.3, 0.3, 0.31) * (0.85 + 0.3 * h21(floor(st))) * (1.0 - (step(0.97, sf.x) + step(0.97, sf.y)) * 0.4);
-        vec3 asph = vec3(0.06, 0.062, 0.068) * (0.75 + gGrain * 0.5);
+        vec3 plazaC = texture2D(uCoA, vW.xz / 4.0).rgb * 0.62 * (0.9 + 0.2 * h21(floor(st))) * (1.0 - (step(0.97, sf.x) + step(0.97, sf.y)) * 0.35);
         vec3 base = mix(plazaC, walkC, gWalk);
         base = mix(base, asph, gRoad);
-        base = mix(base, vec3(0.62, 0.62, 0.58), clamp(white - yellow, 0.0, 1.0) * 0.85);
-        base = mix(base, vec3(0.7, 0.5, 0.12), yellow * (1.0 - white) * 0.85);
+        base = mix(base, vec3(0.62, 0.62, 0.58), clamp(white - yellow, 0.0, 1.0) * 0.25);
         diffuseColor.rgb = base;
         gMark = max(white, yellow);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = mix(mix(0.55, 0.35, gRoad), 0.08, gPuddle * gRoad);`)
+        float rAs = texture2D(uAsR, vW.xz / 8.0).r;
+        roughnessFactor = mix(mix(0.6, rAs * 0.7, gRoad), 0.06, gPuddle * gRoad * uWetness);
+        roughnessFactor = mix(roughnessFactor * 1.3, roughnessFactor, uWetness);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        // 路面の凹凸(水たまりでは平ら)
+        vec3 nA = texture2D(uAsN, vW.xz / 8.0).xyz * 2.0 - 1.0;
+        vec3 nP = texture2D(uPvN, vW.xz / 2.0).xyz * 2.0 - 1.0;
+        vec3 tn = mix(nP, nA, gRoad);
+        tn.xy *= (1.0 - gPuddle * gRoad) * 1.2;
+        vec3 wn = normalize(vec3(tn.x, tn.z, -tn.y));
+        normal = normalize((viewMatrix * vec4(wn, 0.0)).xyz);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         vec3 lm = texture2D(uLight, (vW.xz + uHalf) / (2.0 * uHalf)).rgb;
-        totalEmissiveRadiance += diffuseColor.rgb * lm * 2.4;`)
+        totalEmissiveRadiance += diffuseColor.rgb * lm * 2.4 * uLightAmt;`)
       .replace('#include <opaque_fragment>', `
         vec3 toCam = normalize(cameraPosition - vW);
         float fres = 0.06 + 0.94 * pow(1.0 - max(toCam.y, 0.0), 4.0);
         vec2 dist = (vec2(gGrain, texture2D(uGrain, vW.xz * 0.35 + 0.5).r) - 0.5) * 0.03 * (1.0 - gPuddle) + ripple(vW.xz) * gPuddle;
         vec4 ru = vRefl; ru.xy += dist * ru.w;
         vec3 refl = texture2DProj(tRefl, ru).rgb;
-        float wet = mix(0.25, 1.0, gPuddle) * (1.0 - gMark * 0.5) * mix(0.45, 1.0, gRoad);
+        float wet = mix(0.25, 1.0, gPuddle) * (1.0 - gMark * 0.5) * mix(0.45, 1.0, gRoad) * uWetness;
         outgoingLight += refl * fres * wet;
         #include <opaque_fragment>`);
   };
@@ -637,6 +754,34 @@ export async function buildYaesu(game, mapData) {
   ground.receiveShadow = true;
   ground.layers.set(1); // 反射の描画(レイヤー0)には含めない: 自分の反射テクスチャを読むため
   group.add(ground);
+
+  // 路面標示(白線・黄線・横断歩道・停止線)を実際の形状として貼る(遠くでも潰れない)
+  if (M.marks?.length) {
+    const pos = [], col = [];
+    const W = [0.78, 0.78, 0.74], Yc = [0.8, 0.55, 0.1];
+    for (const q of M.marks) {
+      const c = q[8] ? Yc : W;
+      const v = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+      for (const k of [0, 2, 1, 0, 3, 2]) { pos.push(v[k][0], 0.012, v[k][1]); col.push(...c); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.computeVertexNormals();
+    const mm = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: -2, side: THREE.DoubleSide });
+    // 塗料もうっすら濡れて、ライトマップの光を受ける
+    mm.onBeforeCompile = (sh) => {
+      sh.uniforms.uLight = groundU.uLight; sh.uniforms.uHalf = groundU.uHalf; sh.uniforms.uLightAmt = groundU.uLightAmt;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vW2;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvW2 = (modelMatrix * vec4(position,1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vW2; uniform sampler2D uLight; uniform float uHalf, uLightAmt;')
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * texture2D(uLight, (vW2.xz + uHalf) / (2.0 * uHalf)).rgb * 2.0 * uLightAmt;');
+    };
+    const marks = new THREE.Mesh(g, mm);
+    marks.receiveShadow = true;
+    marks.layers.set(1);
+    group.add(marks);
+  }
 
   // ワールドの端(見えない壁)
   const E = HALF - 2;
@@ -658,6 +803,7 @@ export async function buildYaesu(game, mapData) {
   return {
     group, colliders: col, roads, lamps: lampSpots, shopFronts, parkedSpots, vendings, landmarks: M.landmarks, half: HALF,
     buildingMeshes, minimapImg, signals: signalObjs, trains,
+    look: { uDay, facadeMats, storeMat, vSignMat, hSignMat, groundU, aviMat, glow: () => group.userData.glowMat, lampMats: collectLampMats(group) },
     update(t, dt) {
       groundU.uTime.value = t;
       aviMat.opacity = Math.sin(t * 3) > 0 ? 1 : 0.1;
@@ -666,6 +812,12 @@ export async function buildYaesu(game, mapData) {
     },
     setGlowScale(s) { group.userData.glowMat.uniforms.uScale.value = s; },
   };
+}
+
+function collectLampMats(group) {
+  const out = new Set();
+  group.traverse((o) => { if (o.isMesh && o.material?.name === 'Light_LED') out.add(o.material); });
+  return [...out];
 }
 
 // glb の小物をまとめて InstancedMesh にする。

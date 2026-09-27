@@ -72,7 +72,8 @@ export function carTemplate(root, { andon }) {
 
 export function carMaterial(paint) {
   const u = { uPaint: { value: new THREE.Color(paint) }, uBrake: { value: 1 }, uSiren: { value: new THREE.Color(0) } };
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true });
+  // 塗装はクリアコート(二層塗装)で、映り込みがくっきり乗る
+  const m = new THREE.MeshPhysicalMaterial({ vertexColors: true, clearcoat: 1, clearcoatRoughness: 0.06 });
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, u);
     sh.vertexShader = sh.vertexShader
@@ -88,6 +89,7 @@ export function carMaterial(paint) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = vRough;')
       .replace('#include <aomap_fragment>', '#include <aomap_fragment>\nreflectedLight.indirectDiffuse *= vAO; reflectedLight.indirectSpecular *= mix(0.4, 1.0, vAO);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = vMetal;')
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\nmaterial.clearcoat *= (vMask > 0.5 && vMask < 1.5) ? 1.0 : 0.0;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
         if (vEmit > 0.5) {
           float k = vMask > 1.5 && vMask < 2.5 ? uBrake : 1.0;
