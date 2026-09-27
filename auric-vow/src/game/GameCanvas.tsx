@@ -173,7 +173,7 @@ const PCSS_INSTALLED = (() => {
 })()
 
 // ---------------------------------------------------------------------------
-// Skip shadow lookups a surface cannot show.
+// Skip shadow lookups (and direct-light BRDF work) a surface cannot show.
 //
 // For the standard/physical BRDF a direct light contributes nothing to a
 // fragment that faces away from it: every direct term is scaled by
@@ -199,9 +199,20 @@ const SHADOW_FACING_INSTALLED = (() => {
 	#define AURIC_SHADOW_FACING( L ) true
 #endif
 `
+  // Likewise the BRDF itself: a light whose colour is zero at this fragment
+  // (out of range, outside the cone — three marks those !visible) or that the
+  // fragment faces away from adds exactly nothing, so its evaluation is
+  // skipped rather than multiplied by zero. Ten point lights run this per
+  // pixel, and most of them are out of range of most pixels.
+  const re = 'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );'
+  if (src.split(re).length - 1 !== 3) return false
   C.lights_fragment_begin =
     macro +
-    src.split(test).join('( directLight.visible && receiveShadow && AURIC_SHADOW_FACING( directLight.direction ) ) ? getShadow(') +
+    src
+      .split(test)
+      .join('( directLight.visible && receiveShadow && AURIC_SHADOW_FACING( directLight.direction ) ) ? getShadow(')
+      .split(re)
+      .join('if ( directLight.visible && AURIC_SHADOW_FACING( directLight.direction ) ) ' + re) +
     '\n#undef AURIC_SHADOW_FACING\n'
   return true
 })()
