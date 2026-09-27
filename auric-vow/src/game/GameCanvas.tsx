@@ -286,12 +286,19 @@ function GameTick() {
  */
 const DYNRES = {
   maxDpr: 2,
-  minDpr: 0.6,
+  minDpr: 0.5,
+  /** start no denser than this and climb only while the frame rate allows */
+  startDpr: 1,
   windowSec: 1.0,
   lowFps: 50,
   highFps: 58,
   stepDown: 0.85,
+  /** far below target: take a bigger step so a slow machine recovers in seconds */
+  veryLowFps: 25,
+  stepDownFast: 0.7,
   stepUp: 1.08,
+  /** a frame longer than this is a tab switch or a load hitch, not a measurement */
+  ignoreDeltaSec: 2,
 } as const
 
 
@@ -440,19 +447,47 @@ const QA_CAPTURE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('qa')
 
 function QualityWatcher() {
-  const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1 })
+  const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1, fps: 0 })
+  const hud = useRef<HTMLDivElement | null>(null)
+
+  // F2 toggles a small frame-rate readout (not shown in QA captures)
+  useEffect(() => {
+    if (QA_CAPTURE) return
+    const el = document.createElement('div')
+    el.style.cssText =
+      'position:fixed;right:10px;bottom:8px;z-index:50;font:12px/1.2 monospace;color:#f5d38a;' +
+      'background:rgba(0,0,0,.55);padding:3px 7px;border-radius:3px;pointer-events:none;display:none'
+    document.body.appendChild(el)
+    hud.current = el
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'F2') {
+        e.preventDefault()
+        el.style.display = el.style.display === 'none' ? 'block' : 'none'
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      el.remove()
+      hud.current = null
+    }
+  }, [])
 
   useFrame(({ setDpr, gl }, delta) => {
     if (QA_CAPTURE) return
     const a = st.current
     if (a.dpr === 0) {
-      // start at the display's native density: quality first, and only give
-      // resolution back if this machine proves it cannot hold the frame rate
       a.maxDpr = Math.min(window.devicePixelRatio || 1, DYNRES.maxDpr)
-      a.dpr = gl.getPixelRatio() || a.maxDpr
+      // start at a moderate density and earn the rest: a machine that can
+      // hold the frame rate climbs to native within a few seconds, one that
+      // cannot never spends its first seconds at 4x the pixels
+      a.dpr = Math.min(gl.getPixelRatio() || a.maxDpr, DYNRES.startDpr, a.maxDpr)
+      setDpr(a.dpr)
+      return
     }
-    // a tab switch or a long hitch is not a measurement
-    if (delta > 0.25) return
+    // a tab switch or a load hitch is not a measurement — but an evenly slow
+    // machine is, so only truly long gaps are ignored
+    if (delta > DYNRES.ignoreDeltaSec || document.hidden) return
     if (a.warmup > 0) {
       a.warmup -= delta
       return
@@ -461,15 +496,20 @@ function QualityWatcher() {
     a.frames++
     if (a.windowT < DYNRES.windowSec) return
     const fps = a.frames / a.windowT
+    a.fps = fps
     a.windowT = 0
     a.frames = 0
+    if (hud.current && hud.current.style.display !== 'none') {
+      hud.current.textContent = `FPS ${fps.toFixed(0)}  ·  RES ${Math.round((a.dpr / (window.devicePixelRatio || 1)) * 100)}%`
+    }
     if (a.settle > 0) {
       a.settle--
       return
     }
 
     let next = a.dpr
-    if (fps < DYNRES.lowFps) next = Math.max(DYNRES.minDpr, a.dpr * DYNRES.stepDown)
+    if (fps < DYNRES.veryLowFps) next = Math.max(DYNRES.minDpr, a.dpr * DYNRES.stepDownFast)
+    else if (fps < DYNRES.lowFps) next = Math.max(DYNRES.minDpr, a.dpr * DYNRES.stepDown)
     else if (fps > DYNRES.highFps && a.dpr < a.maxDpr) next = Math.min(a.maxDpr, a.dpr * DYNRES.stepUp)
     if (Math.abs(next - a.dpr) < 0.01) return
     a.dpr = next
