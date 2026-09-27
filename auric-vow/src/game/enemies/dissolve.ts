@@ -88,8 +88,15 @@ export function patchDissolve(
     shader.uniforms.uRimPower = { value: rimPower }
     shader.uniforms.uRimStrength = { value: rimStrength }
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vDissolvePos;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDissolvePos = position;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDissolvePos;\nattribute vec4 dsvPos;')
+      // perf/localBatch merges a model's pieces into one mesh per joint and
+      // carries each piece's own object-space position in dsvPos (w = 0), so
+      // the erosion pattern is unchanged. Unmerged meshes never bind dsvPos
+      // and read the generic w = 1.
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvDissolvePos = dsvPos.w < 0.5 ? dsvPos.xyz : position;',
+      )
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
@@ -135,6 +142,8 @@ export function patchDissolve(
   // an unrelated prop starts discarding fragments. world/materials.ts already
   // keys its own injected chunk for the same reason.
   material.customProgramCacheKey = () => 'auric-hostile-shell'
+  // perf/localBatch: bake the object-space position into dsvPos when merging
+  material.userData.objectPosAttr = 'dsvPos'
   // force recompile if the material was already used once
   material.needsUpdate = true
   return {

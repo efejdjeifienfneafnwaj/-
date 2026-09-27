@@ -28,7 +28,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
-export const BATCH_CELL = 36
+/**
+ * Batch cell edge in metres (XZ). Bigger cells mean fewer draw calls but
+ * coarser frustum culling; ?batchcell=N overrides it for QA measurement.
+ */
+export const BATCH_CELL = (() => {
+  const q = typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('batchcell')) : 0
+  return q > 0 ? q : 36
+})()
 
 interface Watched {
   node: THREE.Object3D

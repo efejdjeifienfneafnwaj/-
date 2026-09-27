@@ -14,9 +14,11 @@
  *    through its normal matrix), and inverse-transpose is multiplicative, so
  *    world positions and normals come out as before;
  *  - only stock shaders, the world-surface patch (world position through
- *    modelMatrix) and view-space patches (flagged `viewSafePatch`) qualify —
- *    anything that reads object-space position, like the enemy death
- *    dissolve, is left alone;
+ *    modelMatrix), view-space patches (flagged `viewSafePatch`) and patches
+ *    that read object-space position through a named attribute (flagged
+ *    `objectPosAttr`, like the enemy death dissolve) qualify. For the last
+ *    kind each piece's own object-space position is baked into that
+ *    attribute, so the pattern stays pinned to the piece exactly as before;
  *  - transparent materials are excluded, since merging would change the order
  *    their pieces are sorted and drawn in; a material that turns transparent
  *    later (the player's near-camera fade) dissolves its batches at once;
@@ -58,7 +60,7 @@ function localSafeMaterial(m: THREE.Material): boolean {
   const phys = m as THREE.MeshPhysicalMaterial
   if (phys.isMeshPhysicalMaterial && phys.transmission > 0) return false
   const patched = m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile
-  if (patched && !m.userData.avSurfaceOpts && !m.userData.viewSafePatch) return false
+  if (patched && !m.userData.avSurfaceOpts && !m.userData.viewSafePatch && !m.userData.objectPosAttr) return false
   return true
 }
 
@@ -167,9 +169,21 @@ export class LocalBatcher {
     const parent = first.parent!
     const mirrored = first.matrix.determinant() < 0
     const baked: THREE.BufferGeometry[] = []
+    const posAttr = (first.material as THREE.Material).userData.objectPosAttr as string | undefined
     for (const m of list) {
       const g = m.geometry.clone()
       g.clearGroups()
+      if (posAttr) {
+        // the piece's own object-space position, w = 0 marks it as baked
+        const p = g.attributes.position
+        const a = new Float32Array(p.count * 4)
+        for (let i = 0; i < p.count; i++) {
+          a[i * 4] = p.getX(i)
+          a[i * 4 + 1] = p.getY(i)
+          a[i * 4 + 2] = p.getZ(i)
+        }
+        g.setAttribute(posAttr, new THREE.BufferAttribute(a, 4))
+      }
       _M.copy(m.matrix)
       if (mirrored) _M.premultiply(_S)
       bakeTransform(g, _M, !!(first.material as THREE.Material).userData.avSurfaceOpts)
