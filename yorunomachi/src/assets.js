@@ -9,7 +9,7 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
   const store = {};
   let done = 0;
   await Promise.all(NAMES.map(async (n) => {
-    const gltf = await loader.loadAsync(`${base}${n}.glb`);
+    const gltf = await loader.loadAsync(`${base}${n}${window.__MODEL_EXT ?? '.glb'}`);
     const root = gltf.scene;
     root.traverse((o) => {
       if (o.isMesh) {
