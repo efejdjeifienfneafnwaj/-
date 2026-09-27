@@ -46,6 +46,13 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     requestAnimationFrame(tick)
   })
   await step(130)
+  if (process.env.ABL) await page.evaluate((abl) => {
+    const { scene, gl } = window.__qa
+    if (abl.includes('noshadow')) window.__qa.setShadows(false)
+    const ctorOf = (type) => { let c = null; scene.traverse((o) => { if (!c && o.material && o.material.type === type) c = o.material.constructor }); return c }
+    if (abl.includes('plainstd')) { const C = ctorOf('MeshStandardMaterial'); scene.overrideMaterial = new C({ color: 0x888888, roughness: 0.6, metalness: 0.3 }) }
+    if (abl.includes('basic')) { const C = ctorOf('MeshBasicMaterial'); scene.overrideMaterial = new C({ color: 0x888888 }) }
+  }, process.env.ABL)
   for (const [label, x, y, z, lx, ly, lz] of [['chamber', 0, 0.2, 142, 0, 3, 152], ['arena', 0, 0.2, 180, 0, 1.5, 210]]) {
     await page.evaluate(([x, y, z, lx, ly, lz]) => { window.__qa.teleport(x, y, z); window.__qa.lookAt(lx, ly, lz) }, [x, y, z, lx, ly, lz])
     await step(35)
@@ -56,7 +63,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
     const T = await page.evaluate(() => ({ acc: window.__gt.acc, frames: window.__gt.frames }))
     const rows = Object.entries(T.acc).map(([k, v]) => [k, v / T.frames]).sort((a, b) => b[1] - a[1])
     const tot = rows.reduce((s, r) => s + r[1], 0)
-    console.log(`== ${label} ${W}x${H} ${QUERY}  total GPU ${tot.toFixed(0)} ms/frame`)
+    console.log(`== ${label} ${W}x${H} ${QUERY} ${process.env.ABL || ''}  total GPU ${tot.toFixed(0)} ms/frame`)
     for (const [k, v] of rows.slice(0, 18)) console.log('  ' + ((v / tot) * 100).toFixed(1).padStart(5) + '%  ' + v.toFixed(1).padStart(8) + ' ms  ' + k)
   }
   await b.close(); srv.close()

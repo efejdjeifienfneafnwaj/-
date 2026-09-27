@@ -95,7 +95,11 @@ const CHUNK_AT = 75
 const LOCAL_SCAN_EVERY = 30
 
 /** point lights admitted to the shader each frame */
-const LIGHT_BUDGET = 10
+const LIGHT_BUDGET = (() => {
+  // ?lightbudget=N is a QA measurement switch only
+  const q = typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('lightbudget')) : NaN
+  return Number.isFinite(q) && q >= 0 && new URLSearchParams(window.location.search).has('lightbudget') ? q : 10
+})()
 
 /** a light further than this beyond its own range cannot light anything in view */
 const LIGHT_IRRELEVANT_DIST = 200
