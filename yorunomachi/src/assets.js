@@ -9,7 +9,10 @@ export async function loadAssets(base = 'assets/models/', onProgress = () => {})
   const store = {};
   let done = 0;
   await Promise.all(NAMES.map(async (n) => {
-    const gltf = await loader.loadAsync(`${base}${n}${window.__MODEL_EXT ?? '.glb'}`);
+    // 単体HTML版ではモデルが window.__MODELS に埋め込まれている
+    const gltf = window.__MODELS
+      ? await loader.parseAsync(JSON.stringify(window.__MODELS[n]), '')
+      : await loader.loadAsync(`${base}${n}${window.__MODEL_EXT ?? '.glb'}`);
     const root = gltf.scene;
     root.traverse((o) => {
       if (o.isMesh) {
