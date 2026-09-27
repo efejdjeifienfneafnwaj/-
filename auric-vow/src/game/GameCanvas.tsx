@@ -35,7 +35,7 @@
  * and so is the theory that shadows were not rendering: see Lighting.tsx for
  * the shadows-on/shadows-off control capture that settled it.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import PostFX from './PostFX'
@@ -446,6 +446,31 @@ function ShadowContract() {
 const QA_CAPTURE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('qa')
 
+/**
+ * The pixel ratio the Canvas renders at. It has to be the Canvas's own `dpr`
+ * PROP: R3F re-applies that prop on every re-render of <Canvas>, so a
+ * setDpr() from inside the scene is silently undone the next time anything
+ * above it re-renders. The watcher writes here; <Canvas> subscribes.
+ */
+const dprStore = (() => {
+  let value = 0 // 0 = not decided yet: use the static range
+  const subs = new Set<() => void>()
+  return {
+    get: () => value,
+    set(v: number) {
+      if (v === value) return
+      value = v
+      subs.forEach((f) => f())
+    },
+    subscribe(f: () => void) {
+      subs.add(f)
+      return () => {
+        subs.delete(f)
+      }
+    },
+  }
+})()
+
 function QualityWatcher() {
   const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1, fps: 0, lastDelta: 0 })
   const hud = useRef<HTMLDivElement | null>(null)
@@ -473,7 +498,7 @@ function QualityWatcher() {
     }
   }, [])
 
-  useFrame(({ setDpr, gl }, delta) => {
+  useFrame(({ gl }, delta) => {
     if (QA_CAPTURE) return
     const a = st.current
     if (a.dpr === 0) {
@@ -482,7 +507,7 @@ function QualityWatcher() {
       // hold the frame rate climbs to native within a few seconds, one that
       // cannot never spends its first seconds at 4x the pixels
       a.dpr = Math.min(gl.getPixelRatio() || a.maxDpr, DYNRES.startDpr, a.maxDpr)
-      setDpr(a.dpr)
+      dprStore.set(a.dpr)
       return
     }
     // a tab switch or a one-off load hitch is not a measurement — but an
@@ -518,8 +543,8 @@ function QualityWatcher() {
     if (Math.abs(next - a.dpr) < 0.01) return
     a.dpr = next
     a.settle = 1 // let one window pass at the new size before judging again
-    // setDpr applies the pixel ratio AND resizes the drawing buffer
-    setDpr(next)
+    // the Canvas prop applies the pixel ratio AND resizes the drawing buffer
+    dprStore.set(next)
   })
 
   return null
@@ -759,6 +784,7 @@ function QaBridge() {
 
 export default function GameCanvas() {
   const wrapRef = useRef<HTMLDivElement>(null)
+  const dynDpr = useSyncExternalStore(dprStore.subscribe, dprStore.get)
 
   useEffect(() => {
     const el = wrapRef.current?.querySelector('canvas')
@@ -808,7 +834,7 @@ export default function GameCanvas() {
     >
       <Canvas
         shadows={{ type: AURIC_SHADOW_TYPE }}
-        dpr={[1, 2]}
+        dpr={dynDpr > 0 ? dynDpr : [1, 2]}
         gl={{
           antialias: false, // SMAA in the post stack handles AA
           toneMapping: THREE.ACESFilmicToneMapping,
