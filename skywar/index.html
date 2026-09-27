@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>蒼穹艦隊戦 ─ SKY FLEET ─</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="game"></div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div id="objective"></div>
+  <div class="panel tl">
+    <div class="label">機体耐久</div><div class="bar"><div id="hpBar" class="fill hp"></div></div>
+    <div class="label">ブースト</div><div class="bar"><div id="boostBar" class="fill boost"></div></div>
+    <div class="row"><span>速度</span><span id="speed">0</span><span>km/h</span></div>
+    <div class="row"><span>高度</span><span id="alt">0</span><span>m</span></div>
+  </div>
+  <div class="panel tr">
+    <div class="label">自軍旗艦「アマテラス」耐久</div><div class="bar"><div id="allyBar" class="fill ally"></div></div>
+    <div class="label">敵空母「ベヒモス」</div><div id="enemyStatus" class="status"></div>
+    <div class="row"><span>スコア</span><span id="score">0</span></div>
+    <div class="row"><span>経過</span><span id="time">0:00</span></div>
+  </div>
+  <div id="weapons" class="panel bc">
+    <span>機関砲 ∞</span><span id="missiles">ミサイル ×8</span>
+  </div>
+  <canvas id="radar" width="180" height="180"></canvas>
+  <div id="crosshair"></div>
+  <div id="lock"></div>
+  <div id="markers"></div>
+  <div id="message"></div>
+  <div id="damage"></div>
+  <div id="supply">◆ 格納庫にて補給中 ◆</div>
+</div>
+
+<!-- タイトル -->
+<div id="title" class="screen">
+  <div class="box">
+    <h1>蒼穹艦隊戦</h1>
+    <div class="sub">SKY FLEET ─ 飛行戦艦 vs 飛行空母</div>
+    <p class="story">西暦2189年。雲海の上空で、自軍旗艦「アマテラス」と敵飛行空母「ベヒモス」が激突する。<br>
+      あなたはジェットブースター装備の強襲兵として格納庫から出撃し、敵空母を撃沈せよ。</p>
+    <button id="btnStart">出撃する</button>
+    <button id="btnHelp">操作説明</button>
+    <button id="btnSettings">設定</button>
+    <div id="loadInfo" class="small"></div>
+  </div>
+</div>
+
+<div id="help" class="screen hidden">
+  <div class="box">
+    <h2>操作説明</h2>
+    <table>
+      <tr><td>マウス</td><td>視点移動</td></tr>
+      <tr><td>W / A / S / D</td><td>前進 / 左 / 後退 / 右</td></tr>
+      <tr><td>スペース / C（Ctrl）</td><td>上昇 / 下降</td></tr>
+      <tr><td>Shift（押しっぱなし）</td><td>ジェットブースト（高速移動）</td></tr>
+      <tr><td>左クリック</td><td>機関砲</td></tr>
+      <tr><td>右クリック / F</td><td>ホーミングミサイル（照準に敵を捉えてロックオン）</td></tr>
+      <tr><td>Esc</td><td>一時停止</td></tr>
+    </table>
+    <h2>作戦目標</h2>
+    <ol>
+      <li>敵空母の<b>対空砲台（6基）</b>を全て破壊し、機関部のシールドを解除せよ。</li>
+      <li>空母後部の<b>機関コア（2基）</b>を破壊して撃沈せよ。</li>
+      <li>敵空母の主砲（黄色いプラズマ弾）は旗艦を狙う。撃ち落として旗艦を守れ。</li>
+      <li>自軍の<b>格納庫</b>に戻ると機体の修理とミサイル補給ができる。</li>
+    </ol>
+    <p class="small">敗北条件：あなたの機体、または旗艦「アマテラス」の耐久が0になる。</p>
+    <button class="back">戻る</button>
+  </div>
+</div>
+
+<div id="settings" class="screen hidden">
+  <div class="box">
+    <h2>設定</h2>
+    <label>マウス感度 <input id="sens" type="range" min="0.3" max="2.5" step="0.1" value="1"> <span id="sensVal">1.0</span></label>
+    <label><input id="invertY" type="checkbox"> 上下反転</label>
+    <label>音量 <input id="volume" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    <label>難易度
+      <select id="difficulty">
+        <option value="0.7">イージー</option>
+        <option value="1" selected>ノーマル</option>
+        <option value="1.5">ハード</option>
+      </select>
+    </label>
+    <button class="back">戻る</button>
+  </div>
+</div>
+
+<div id="pause" class="screen hidden">
+  <div class="box">
+    <h2>一時停止中</h2>
+    <button id="btnResume">再開する</button>
+    <button id="btnRetry2">最初からやり直す</button>
+    <button id="btnTitle">タイトルへ戻る</button>
+  </div>
+</div>
+
+<div id="result" class="screen hidden">
+  <div class="box">
+    <h2 id="resultTitle"></h2>
+    <p id="resultText"></p>
+    <button id="btnRetry">もう一度出撃</button>
+    <button id="btnTitle2">タイトルへ戻る</button>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

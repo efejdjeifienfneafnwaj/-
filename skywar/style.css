@@ -1,0 +1,52 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #dff6ff;
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif; user-select: none; }
+#game canvas { display: block; }
+.hidden { display: none !important; }
+
+.screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(5,20,40,.55), rgba(0,0,0,.85)); z-index: 20; }
+.box { width: min(640px, 92vw); max-height: 92vh; overflow: auto; padding: 32px; text-align: center;
+  background: rgba(8,24,44,.82); border: 1px solid #3cc8ff; box-shadow: 0 0 30px rgba(60,200,255,.35); }
+h1 { font-size: 56px; margin: 0; letter-spacing: .2em; color: #fff; text-shadow: 0 0 18px #3cc8ff; }
+h2 { color: #7fe0ff; margin-top: 0; }
+.sub { color: #7fe0ff; letter-spacing: .15em; margin-bottom: 18px; }
+.story { line-height: 1.8; font-size: 15px; }
+.small { font-size: 12px; opacity: .75; }
+button { display: block; width: 260px; margin: 12px auto; padding: 12px; font-size: 18px; cursor: pointer;
+  color: #dff6ff; background: rgba(20,80,120,.6); border: 1px solid #3cc8ff; font-family: inherit; }
+button:hover { background: rgba(60,200,255,.4); }
+table { margin: 0 auto 16px; border-collapse: collapse; text-align: left; }
+td { padding: 5px 14px; border-bottom: 1px solid rgba(60,200,255,.2); }
+ol { text-align: left; line-height: 1.8; }
+label { display: block; margin: 14px 0; }
+select, input { font-family: inherit; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; font-size: 13px; }
+.panel { position: absolute; background: rgba(0,20,40,.45); border: 1px solid rgba(60,200,255,.5); padding: 10px 14px; }
+.tl { top: 16px; left: 16px; width: 230px; }
+.tr { top: 16px; right: 16px; width: 260px; }
+.bc { bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 30px; font-size: 16px; }
+.label { margin: 4px 0 2px; color: #7fe0ff; }
+.bar { height: 10px; background: rgba(255,255,255,.12); margin-bottom: 6px; }
+.fill { height: 100%; width: 100%; transition: width .1s; }
+.fill.hp { background: #4dff9a; } .fill.boost { background: #3cc8ff; } .fill.ally { background: #6aa8ff; }
+.row { display: flex; gap: 8px; } .row span:nth-child(2) { margin-left: auto; font-weight: bold; }
+.status { line-height: 1.6; margin-bottom: 6px; }
+#objective { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); font-size: 17px;
+  padding: 6px 18px; background: rgba(0,20,40,.5); border: 1px solid rgba(255,200,60,.6); color: #ffd86a; white-space: nowrap; }
+#radar { position: absolute; right: 16px; bottom: 16px; border-radius: 50%; background: rgba(0,30,20,.5); border: 1px solid rgba(80,255,160,.6); }
+#crosshair { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+  border: 2px solid rgba(120,240,255,.8); border-radius: 50%; }
+#crosshair::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; background: #7fe0ff; }
+#lock { position: absolute; width: 50px; height: 50px; border: 2px dashed #ffd86a; display: none; transform: translate(-50%,-50%); }
+#lock.locked { border: 3px solid #ff4040; }
+#lock::after { content: attr(data-t); position: absolute; top: 52px; left: 50%; transform: translateX(-50%); font-size: 11px; white-space: nowrap; color: inherit; }
+.marker { position: absolute; transform: translate(-50%,-50%); font-size: 10px; text-align: center; white-space: nowrap; }
+.marker::before { content: "◇"; display: block; font-size: 18px; }
+.marker.turret { color: #ff8060; } .marker.core { color: #ff40ff; } .marker.plasma { color: #ffe040; } .marker.drone { color: #ff5050; }
+.marker.shield { color: #60a0ff; }
+#message { position: absolute; top: 30%; width: 100%; text-align: center; font-size: 26px; color: #fff;
+  text-shadow: 0 0 10px #3cc8ff; transition: opacity .4s; }
+#damage { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,0,0,.9); opacity: 0; transition: opacity .25s; }
+#supply { position: absolute; top: 62%; width: 100%; text-align: center; color: #4dff9a; font-size: 18px; display: none; }
