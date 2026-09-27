@@ -34,7 +34,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
  */
 export const BATCH_CELL = (() => {
   const q = typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('batchcell')) : 0
-  return q > 0 ? q : 36
+  return q > 0 ? q : 96
 })()
 
 interface Watched {
