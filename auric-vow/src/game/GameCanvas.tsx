@@ -447,7 +447,7 @@ const QA_CAPTURE =
   typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('qa')
 
 function QualityWatcher() {
-  const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1, fps: 0 })
+  const st = useRef({ warmup: 2, windowT: 0, frames: 0, settle: 0, dpr: 0, maxDpr: 1, fps: 0, lastDelta: 0 })
   const hud = useRef<HTMLDivElement | null>(null)
 
   // F2 toggles a small frame-rate readout (not shown in QA captures)
@@ -485,9 +485,13 @@ function QualityWatcher() {
       setDpr(a.dpr)
       return
     }
-    // a tab switch or a load hitch is not a measurement — but an evenly slow
-    // machine is, so only truly long gaps are ignored
-    if (delta > DYNRES.ignoreDeltaSec || document.hidden) return
+    // a tab switch or a one-off load hitch is not a measurement — but an
+    // evenly slow machine is, so a long gap is ignored only when the frame
+    // before it was a normal one
+    if (document.hidden) return
+    const prev = a.lastDelta
+    a.lastDelta = delta
+    if (delta > DYNRES.ignoreDeltaSec && prev < 0.5) return
     if (a.warmup > 0) {
       a.warmup -= delta
       return
