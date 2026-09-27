@@ -6,7 +6,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { loadAssets } from './assets.js';
-import { buildCity, groundY, districtAt, P, N, EXTENT } from './city.js';
+import { buildYaesu, loadMapData } from './yaesu.js';
+const groundY = () => 0;
 import { Traffic, Police, resolveCarCollisions } from './vehicles.js';
 import { Peds } from './peds.js';
 import { Player } from './player.js';
@@ -28,6 +29,8 @@ let pixelRatio = Math.min(devicePixelRatio, params.get('q') === 'low' ? 0.75 : 1
 renderer.setPixelRatio(pixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.info.autoReset = false;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x070812, 0.0095);
@@ -35,10 +38,17 @@ scene.background = new THREE.Color(0x05060b);
 const camera = new THREE.PerspectiveCamera(74, innerWidth / innerHeight, 0.05, 1200);
 camera.layers.enable(1);
 scene.add(camera);
-scene.add(new THREE.HemisphereLight(0x4a5a9a, 0x1a1016, 1.1));
-const moon = new THREE.DirectionalLight(0x8090ff, 0.35);
-moon.position.set(-100, 200, 60);
-scene.add(moon);
+scene.add(new THREE.HemisphereLight(0x3d4a80, 0x1a1016, 0.8));
+// 月明かり(影を落とす)。プレイヤーの周囲だけを高解像度のシャドウマップで覆う
+const moon = new THREE.DirectionalLight(0x9aa8ff, 0.8);
+moon.castShadow = true;
+moon.shadow.mapSize.set(2048, 2048);
+Object.assign(moon.shadow.camera, { left: -70, right: 70, top: 70, bottom: -70, near: 1, far: 500 });
+moon.shadow.bias = -0.0004; moon.shadow.normalBias = 0.04;
+scene.add(moon, moon.target);
+// 爆発の閃光用(常駐させて明るさだけ変える)
+const flashLight = new THREE.PointLight(0xff8a3a, 0, 40, 1.5);
+scene.add(flashLight);
 const sky = makeSky();
 scene.add(sky);
 const rain = makeRain(params.get('q') === 'low' ? 4000 : 9000);
@@ -80,7 +90,7 @@ composer.addPass(new OutputPass());
 
 // ---------------------------------------------------------------- ゲーム
 const game = {
-  scene, camera, renderer,
+  scene, camera, renderer, flashLight,
   money: 0, goal: 3000000, time: 0,
   startMinutes: 23 * 60, endMinutes: 29 * 60, // 23:00 → 翌5:00
   timeScale: 12,  // 現実1秒 = ゲーム内12秒(約30分で夜明け)
@@ -91,7 +101,7 @@ const game = {
   audio: new Audio(),
   input: new Input(canvas),
   clockMinutes() { return this.startMinutes + this.time * this.timeScale / 60; },
-  areaName() { return districtAt(this.player.pos.x, this.player.pos.z); },
+  areaName() { return this.areaCache ?? '八重洲'; },
   allCars() { return this.traffic.cars; },
   shake(a) { this.shakeAmt = Math.max(this.shakeAmt, a); },
   addMoney(v, fx = true) {
@@ -115,22 +125,31 @@ async function init() {
   game.assets = await loadAssets('assets/models/', (p) => { loadingEl.textContent = `アセット読み込み中… ${Math.round(p * 100)}%`; });
   loadingEl.textContent = '街を生成中…';
   await new Promise((r) => setTimeout(r, 30));
-  game.city = buildCity(scene, game.assets);
-  // 路面反射はレイヤー0のみ(人・雨・光のにじみは映さない)
-  const g0 = game.city.ground;
-  const origGet = g0.getReflectionCamera;
-  g0.getReflectionCamera = (cam) => { const rc = origGet.call(g0, cam); rc.layers.set(0); return rc; };
+  const mapData = await loadMapData();
+  game.city = await buildYaesu(game, mapData);
+  // 街の景色を環境マップに焼く(ガラス・車体・濡れた路面への映り込み)
+  {
+    const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const cube = new THREE.CubeCamera(1, 1500, rt);
+    cube.position.set(40, 30, -20);
+    scene.add(cube);
+    cube.update(renderer, scene);
+    const pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromCubemap(rt.texture).texture;
+    scene.environmentIntensity = 0.55;
+    scene.remove(cube);
+  }
 
   game.sparks = new Particles(scene, game.glowTex, true, 1200);
   game.smoke = new Particles(scene, game.glowTex, false, 600);
   game.tracers = new Tracers(scene);
   game.hud = new Hud(game);
-  const k = game.city.specials;
-  game.startPos = { x: 3 * P + 5.6, z: 2 * P + 24 };
+  setupPlaces();
+  game.startPos = game.places.start;
   game.player = new Player(game, game.startPos.x, game.startPos.z);
   game.traffic = new Traffic(game, params.get('q') === 'low' ? 16 : 24);
   game.police = new Police(game);
-  game.peds = new Peds(game, params.get('q') === 'low' ? 26 : 40);
+  game.peds = new Peds(game, params.get('q') === 'low' ? 20 : 32);
   game.wanted = new Wanted(game);
   game.missions = new Missions(game);
   // 最初に街を埋める
@@ -139,6 +158,70 @@ async function init() {
   loadingEl.textContent = '';
   startBtn.disabled = false;
   if (params.has('autostart')) startGame();
+}
+
+// ---------------------------------------------------------------- 実在の地名に合わせた重要地点
+function freeSpot(x, z) {
+  const col = game.city.colliders;
+  for (let r = 0; r < 40; r += 1.5) for (let a = 0; a < 6.28; a += 0.5) {
+    const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+    if (!col.inside(px, pz, 1.2)) return { x: px, z: pz };
+  }
+  return { x, z };
+}
+function roadside(x, z) {
+  // 最寄りの車道の路肩
+  const r = game.city.roads.nearestEdge(x, z);
+  const a = r.e.pts[r.i], b = r.e.pts[r.i + 1];
+  const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+  const nx = (b[1] - a[1]) / l, nz = -(b[0] - a[0]) / l;
+  const s = (x - mx) * nx + (z - mz) * nz > 0 ? 1 : -1;
+  return { x: mx + nx * s * (r.e.w / 2 - 1.2), z: mz + nz * s * (r.e.w / 2 - 1.2), yaw: Math.atan2(-(b[0] - a[0]), -(b[1] - a[1])) };
+}
+function setupPlaces() {
+  const c = game.city;
+  const lm = (name) => c.landmarks.find((l) => l.n.includes(name));
+  const roads = c.roads;
+  // 八重洲通り × 外堀通り の交差点(東京駅八重洲口前)
+  const startNode = roads.nodes.find((n) => {
+    const names = new Set(roads.edges.filter((e) => e.a === n.i || e.b === n.i).map((e) => e.name));
+    return names.has('八重洲通り') && names.has('外堀通り');
+  }) ?? roads.nearestNode(0, 0);
+  const mid = lm('東京ミッドタウン八重洲')?.c ?? [9, 81];
+  const sp = freeSpot(startNode.x + 14, startNode.z + 10);
+  const kb = freeSpot(-45, -40);
+  const nearFront = (x, z, style) => c.shopFronts.filter((s) => !style || s.b.s === style)
+    .reduce((b, s) => (Math.hypot(s.x - x, s.z - z) < Math.hypot(b.x - x, b.z - z) ? s : b));
+  const yaesuDori = roads.edges.filter((e) => e.name === '八重洲通り').sort((a, b) => b.len - a.len)[0];
+  game.places = {
+    start: { ...sp, yaw: Math.atan2(-(mid[0] - sp.x), -(mid[1] - sp.z)) },
+    hospital: freeSpot(260, 240),
+    kaneda: nearFront(185, -70, 'mixed'),
+    ramen: nearFront(240, 170, 'mixed'),
+    chop: roadside(360, 360),
+    titlePath: yaesuDori ? yaesuDori.pts : [[0, 0], [100, 0]],
+  };
+  // 交番(八重洲口)
+  const k = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(6, 4.2, 5), new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.8 }));
+  body.position.y = 2.1; body.castShadow = body.receiveShadow = true; k.add(body);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.4, 5.6), new THREE.MeshStandardMaterial({ color: 0x2e3033 }));
+  roof.position.y = 4.4; k.add(roof);
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 0.2, 0.15) }));
+  lamp.position.set(0, 3.8, -2.6); k.add(lamp);
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 128;
+  const g2 = cv.getContext('2d');
+  g2.fillStyle = '#1d3f8f'; g2.fillRect(0, 0, 512, 128);
+  g2.fillStyle = '#fff'; g2.font = '900 72px "Zen Kaku Gothic New", sans-serif'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+  g2.fillText('八重洲口交番', 256, 66);
+  const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.8), new THREE.MeshBasicMaterial({ map: tx, color: new THREE.Color(1.5, 1.5, 1.5) }));
+  sign.position.set(0, 3.2, -2.52); sign.rotation.y = Math.PI; k.add(sign);
+  k.position.set(kb.x, 0, kb.z);
+  scene.add(k);
+  c.colliders.addBox(kb.x, kb.z, 3, 2.5, 0, 'building');
+  game.places.koban = freeSpot(kb.x, kb.z - 4);
 }
 
 // ---------------------------------------------------------------- 射撃判定
@@ -244,8 +327,8 @@ function wasted() {
   const fee = Math.round(game.money * 0.1);
   game.money -= fee;
   game.audio.jingle(false);
-  const s = game.city.specials.shrine;
-  respawn(s.x, s.z + 6, '病院送り', `治療費 −${yen(fee)}　…神社で目を覚ました`, 'red');
+  const s = game.places.hospital;
+  respawn(s.x, s.z, '病院送り', `治療費 −${yen(fee)}　…救急病院の前で目を覚ました`, 'red');
   game.time += 20 * 60 / game.timeScale; // 20分経過
 }
 function busted() {
@@ -253,8 +336,8 @@ function busted() {
   game.money -= fee;
   game.player.ammo = 12; game.player.reserve = 24;
   game.audio.jingle(false);
-  const k = game.city.specials.koban;
-  respawn(k.x, k.z - 2, '逮捕', `罰金 −${yen(fee)}　…交番で説教を食らった`, 'red');
+  const k = game.places.koban;
+  respawn(k.x, k.z, '逮捕', `罰金 −${yen(fee)}　…八重洲口の交番で説教を食らった`, 'red');
   game.time += 30 * 60 / game.timeScale;
 }
 game.win = () => {
@@ -300,7 +383,7 @@ function startGame() {
   game.state = 'play';
   const sp = game.startPos;
   game.player.pos.set(sp.x, groundY(sp.x, sp.z), sp.z);
-  game.player.yaw = Math.PI; // 通りの奥(南)を向く
+  game.player.yaw = game.startPos.yaw; // 東京ミッドタウン八重洲の方を向く
   game.peds.populate(sp.x, sp.z, 90);
   setTimeout(() => game.hud.say('金田', 'おう、俺だ。…三百万、夜明けまでに耳を揃えて持ってこい。', 5), 800);
   setTimeout(() => !game.missions.active && game.hud.say('金田', '仕事なら回してやる。事務所（黄色い印）に来い。車が売りたきゃヤマ自動車（紫）だ。', 6), 6500);
@@ -358,6 +441,14 @@ function simulate(dt) {
       p.update(dt, input);
       if (input.hit('KeyQ') && p.inCar) g.hud.radio(g.audio.nextStation().replace('ラジオ OFF', ''));
       g.wanted.update(dt);
+      // 現在地の通り名(0.5秒ごと)
+      g.areaT = (g.areaT ?? 0) - dt;
+      if (g.areaT <= 0) {
+        g.areaT = 0.5;
+        const r = g.city.roads.nearestEdge(p.pos.x, p.pos.z);
+        const dist = p.pos.x < -120 ? '丸の内' : p.pos.z < -260 ? '日本橋' : p.pos.z > 260 ? '京橋' : '八重洲';
+        g.areaCache = r && r.d < r.e.w / 2 + 8 && r.e.name ? `${dist} · ${r.e.name}` : dist;
+      }
       const pr = g.missions.update(dt, t);
       let prompt = pr;
       if (!prompt && !p.inCar) {
@@ -372,12 +463,17 @@ function simulate(dt) {
       if (g.clockMinutes() >= g.endMinutes) dawnFail();
     } else if (g.state === 'title') {
       // タイトル: 夜の大通りをゆっくり進むカメラ
+      // タイトル: 八重洲通りをゆっくり進むカメラ
       titleT += dt;
-      const x = (titleT * 4) % (EXTENT - 40) + 20;
-      camera.position.set(x, 3.2, 3 * P - 2.5);
-      camera.rotation.set(-0.03, -Math.PI / 2 + 0.25 + Math.sin(titleT * 0.1) * 0.08, 0, 'YXZ');
-      p.pos.set(x, 0, 3 * P);
-      if (!g.titlePop) { g.titlePop = true; g.peds.populate(x + 40, 3 * P, 90); }
+      const path = g.places.titlePath;
+      const L = path.length - 1;
+      const f = (titleT * 0.06) % L, i0 = Math.floor(f), u = f - i0;
+      const a = path[i0], b = path[Math.min(L, i0 + 1)];
+      const x = a[0] + (b[0] - a[0]) * u, z = a[1] + (b[1] - a[1]) * u;
+      camera.position.set(x, 3.4, z);
+      camera.rotation.set(0.02, Math.atan2(-(b[0] - a[0]), -(b[1] - a[1])) + 0.2 + Math.sin(titleT * 0.1) * 0.08, 0, 'YXZ');
+      p.pos.set(x, 0, z);
+      if (!g.titlePop) { g.titlePop = true; g.peds.populate(x, z, 90); }
       p.gunHolder.visible = false;
     }
     g.traffic.update(dt);
@@ -408,7 +504,10 @@ function renderFrame(dt) {
   sky.position.copy(camera.position);
   rain.material.uniforms.uTime.value = t;
   rain.material.uniforms.uCam.value.copy(camera.position);
-  g.city.update(t);
+  g.city.update(t, dt);
+  // 影を落とす範囲をプレイヤーに追従させる
+  moon.target.position.set(camera.position.x, 0, camera.position.z);
+  moon.position.set(camera.position.x - 60, 140, camera.position.z + 50);
   const fovScale = renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
   g.city.setGlowScale(fovScale);
   g.sparks.mat.uniforms.uScale.value = g.smoke.mat.uniforms.uScale.value = fovScale;
@@ -480,9 +579,9 @@ function explode(c) {
   g.audio.crash(1); g.audio.gunshot();
   for (let i = 0; i < 60; i++) g.sparks.emit({ x: c.pos.x, y: 1, z: c.pos.z, vx: rand(-8, 8), vy: rand(2, 10), vz: rand(-8, 8), life: rand(0.4, 1.1), s0: 1.6, s1: 0.2, c: [1, 0.55, 0.2], grav: 6, drag: 1.5 });
   for (let i = 0; i < 20; i++) g.smoke.emit({ x: c.pos.x + rand(-1, 1), y: 1.5, z: c.pos.z + rand(-1, 1), vx: rand(-1, 1), vy: rand(1, 3), vz: rand(-1, 1), life: 4, s0: 1.5, s1: 6, c: [0.06, 0.06, 0.07], a: 0.7 });
-  const flash = new THREE.PointLight(0xff8a3a, 400, 40, 1.5);
-  flash.position.set(c.pos.x, 2, c.pos.z); g.scene.add(flash);
-  let k = 1; const fade = () => { k *= 0.85; flash.intensity = 400 * k; if (k > 0.02) requestAnimationFrame(fade); else g.scene.remove(flash); }; fade();
+  const flash = g.flashLight;
+  flash.position.set(c.pos.x, 2, c.pos.z);
+  let k = 1; const fade = () => { k *= 0.85; flash.intensity = 400 * k; if (k > 0.02) requestAnimationFrame(fade); else flash.intensity = 0; }; fade();
   const d = Math.hypot(g.player.pos.x - c.pos.x, g.player.pos.z - c.pos.z);
   g.shake(Math.max(0, 1 - d / 40));
   if (g.player.inCar === c) g.hurtPlayer(200, 'fire');

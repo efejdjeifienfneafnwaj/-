@@ -263,3 +263,124 @@ export function makeGlowSprite() {
   g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
   return tex(c);
 }
+
+// ---------------------------------------------------------------- 八重洲版の外壁
+// 1枚 = 横 24m × 縦 32m(8階分, 階高4m)。map / emissive / roughness(G)
+export const FW = 24, FH = 32;
+export function makeFacade2(style) {
+  const S = 1024;
+  const [c, g] = canvas(S, S);
+  const [e, ge] = canvas(S, S);
+  const [r, gr] = canvas(S, S);
+  ge.fillStyle = '#000'; ge.fillRect(0, 0, S, S);
+  const px = S / FW;            // 1m あたりのピクセル
+  const floorH = 4 * px;
+  const lit = (p) => Math.random() < p;
+  if (style === 'glass') {
+    // カーテンウォール: 1.5m ピッチの方立、階ごとのスパンドレル、横の日除けフィン
+    g.fillStyle = '#18222e'; g.fillRect(0, 0, S, S);
+    gr.fillStyle = '#101010'; gr.fillRect(0, 0, S, S);   // 低い粗さ = よく映り込む
+    for (let f = 0; f < 8; f++) {
+      const y = f * floorH;
+      const on = lit(0.72);
+      const tone = pick(['#dfe9ff', '#eef6ff', '#fff4e0', '#d8ecff']);
+      for (let x = 0; x < S; x += 1.5 * px) {
+        const cellOn = on && lit(0.85);
+        const grd = g.createLinearGradient(x, y, x + 1.5 * px, y + floorH);
+        grd.addColorStop(0, '#2a3a4e'); grd.addColorStop(1, '#141c26');
+        g.fillStyle = grd; g.fillRect(x, y + 0.7 * px, 1.5 * px, floorH - 0.7 * px);
+        if (cellOn) {
+          ge.globalAlpha = rand(0.5, 0.85);
+          ge.fillStyle = tone; ge.fillRect(x, y + 0.9 * px, 1.5 * px, floorH - 1.1 * px);
+          // 天井の照明の列
+          ge.globalAlpha = 0.9; ge.fillStyle = '#ffffff';
+          ge.fillRect(x, y + 0.95 * px, 1.5 * px, 0.08 * px);
+          ge.globalAlpha = 1;
+          if (lit(0.3)) { ge.fillStyle = 'rgba(0,0,0,.6)'; ge.fillRect(x + rand(0, px), y + 2.2 * px, rand(0.2, 0.5) * px, 1.8 * px); }
+        }
+      }
+      // スパンドレル(床の帯)と横フィン
+      g.fillStyle = '#3b4652'; g.fillRect(0, y, S, 0.7 * px);
+      gr.fillStyle = '#707070'; gr.fillRect(0, y, S, 0.7 * px);
+      g.fillStyle = '#8a95a0'; g.fillRect(0, y + 0.66 * px, S, 0.06 * px);
+    }
+    for (let x = 0; x < S; x += 1.5 * px) { g.fillStyle = '#56616c'; g.fillRect(x, 0, 0.08 * px, S); ge.fillStyle = '#000'; ge.fillRect(x, 0, 0.08 * px, S); }
+  } else if (style === 'office' || style === 'mixed') {
+    const wall = style === 'office' ? pick(['#6f7378', '#8a8479', '#575b61', '#9a9a94']) : pick(['#7d7468', '#6b6d70', '#8c8175', '#4f5257', '#a39b8e']);
+    g.fillStyle = wall; g.fillRect(0, 0, S, S);
+    gr.fillStyle = '#d0d0d0'; gr.fillRect(0, 0, S, S);
+    for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(0,0,0,${rand(0.02, 0.08)})`; g.fillRect(rand(0, S), rand(0, S), rand(1, 3), rand(3, 40)); }
+    const win = style === 'office' ? 2.4 : 1.8, pitch = style === 'office' ? 3 : 3;
+    for (let f = 0; f < 8; f++) {
+      const y = f * floorH;
+      const floorLit = lit(style === 'office' ? 0.55 : 0.4);
+      const tone = style === 'office' ? pick(['#e8f2ff', '#f4f8ff', '#fff6e8']) : pick(['#ffdcae', '#ffe9c8', '#dff0ff', '#ffd1d1']);
+      for (let x = 0; x < S; x += pitch * px) {
+        const wx = x + (pitch - win) / 2 * px, wy = y + 1.0 * px, ww = win * px, wh = 2.2 * px;
+        g.fillStyle = '#1c2029'; g.fillRect(wx - 3, wy - 3, ww + 6, wh + 6);
+        const on = floorLit ? lit(0.8) : lit(0.08);
+        if (on) {
+          g.fillStyle = tone; g.fillRect(wx, wy, ww, wh);
+          ge.globalAlpha = rand(0.4, 0.8); ge.fillStyle = tone; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1;
+          if (lit(0.4)) { ge.fillStyle = 'rgba(0,0,0,.55)'; for (let yy = wy; yy < wy + wh; yy += 5) ge.fillRect(wx, yy, ww, 2); }
+        } else {
+          const grd = g.createLinearGradient(wx, wy, wx, wy + wh);
+          grd.addColorStop(0, '#29313e'); grd.addColorStop(1, '#10141b');
+          g.fillStyle = grd; g.fillRect(wx, wy, ww, wh);
+          gr.fillStyle = '#202020'; gr.fillRect(wx, wy, ww, wh);
+        }
+        g.fillStyle = 'rgba(20,20,24,.9)'; g.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+        ge.fillStyle = '#000'; ge.fillRect(wx + ww / 2 - 1.5, wy, 3, wh);
+      }
+      if (style === 'office') { // 八重洲に多い横ルーバー
+        g.fillStyle = 'rgba(210,214,218,.9)'; g.fillRect(0, y + 3.4 * px, S, 0.18 * px);
+        g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, y + 3.58 * px, S, 0.12 * px);
+      } else if (lit(0.25)) {
+        g.fillStyle = '#b8b8b2';
+        for (let x = 0; x < S; x += pitch * px * 2) g.fillRect(x + 0.2 * px, y + 3.1 * px, 0.8 * px, 0.6 * px); // 室外機
+      }
+    }
+  } else if (style === 'brick') {
+    // 東京駅丸の内駅舎風: 赤レンガ + 白い石の帯
+    g.fillStyle = '#7a3122'; g.fillRect(0, 0, S, S);
+    for (let y = 0; y < S; y += 6) for (let x = (y / 6) % 2 ? 0 : 7; x < S; x += 14) {
+      g.fillStyle = `rgb(${110 + rand(-20, 20)},${45 + rand(-10, 10)},${32 + rand(-8, 8)})`; g.fillRect(x, y, 13, 5);
+    }
+    gr.fillStyle = '#e0e0e0'; gr.fillRect(0, 0, S, S);
+    for (let f = 0; f < 8; f++) {
+      const y = f * floorH;
+      g.fillStyle = '#d8d2c2'; g.fillRect(0, y + 3.6 * px, S, 0.4 * px);
+      for (let x = 0; x < S; x += 3 * px) {
+        const wx = x + 0.8 * px, wy = y + 1.1 * px, ww = 1.4 * px, wh = 2.2 * px;
+        g.fillStyle = '#d8d2c2'; g.fillRect(wx - 5, wy - 5, ww + 10, wh + 10);
+        const on = lit(0.6);
+        g.fillStyle = on ? '#ffd08a' : '#1a1a20'; g.fillRect(wx, wy, ww, wh);
+        if (on) { ge.fillStyle = '#ffc070'; ge.globalAlpha = 0.8; ge.fillRect(wx, wy, ww, wh); ge.globalAlpha = 1; }
+      }
+    }
+  } else { // canopy / granroof / viaduct
+    const base = style === 'granroof' ? '#e8ecef' : style === 'viaduct' ? '#5d5f62' : '#6d7075';
+    g.fillStyle = base; g.fillRect(0, 0, S, S);
+    gr.fillStyle = '#c0c0c0'; gr.fillRect(0, 0, S, S);
+    for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(0,0,0,${rand(0.02, 0.1)})`; g.fillRect(rand(0, S), rand(0, S), rand(1, 4), rand(4, 60)); }
+    if (style === 'viaduct') { // ガード下のアーチ
+      for (let x = 0; x < S; x += 8 * px) {
+        g.fillStyle = '#2b2c2f';
+        g.beginPath(); g.moveTo(x + 1 * px, S); g.lineTo(x + 1 * px, S - 4 * px); g.arc(x + 4 * px, S - 4 * px, 3 * px, Math.PI, 0); g.lineTo(x + 7 * px, S); g.fill();
+      }
+    }
+  }
+  const t = (cv, srgb) => { const x = tex(cv, { repeat: true, srgb }); return x; };
+  return { map: t(c, true), emissive: t(e, true), rough: t(r, false) };
+}
+
+// 青い案内標識(通り名)
+export function makeRoadSign(text) {
+  const [c, g] = canvas(512, 160);
+  g.fillStyle = '#1f4fa8'; g.fillRect(0, 0, 512, 160);
+  g.strokeStyle = '#fff'; g.lineWidth = 6; g.strokeRect(8, 8, 496, 144);
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  fitText(g, text, 440, 700, '"Zen Kaku Gothic New", sans-serif', 64);
+  g.fillText(text, 256, 82);
+  return tex(c);
+}

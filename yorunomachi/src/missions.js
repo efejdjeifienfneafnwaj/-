@@ -1,6 +1,5 @@
 // 仕事(ミッション)と解体屋。報酬で借金 300 万円の返済を目指す
 import * as THREE from 'three';
-import { P, N } from './city.js';
 import { rand, pick, yen } from './util.js';
 import { Car } from './vehicles.js';
 
@@ -38,13 +37,8 @@ class Beacon {
 export class Missions {
   constructor(game) {
     this.game = game;
-    const c = game.city;
-    const nearestFront = (x, z) => c.shopFronts.reduce((b, s) => (Math.hypot(s.x - x, s.z - z) < Math.hypot(b.x - x, b.z - z) ? s : b));
-    this.places = {
-      kaneda: nearestFront(3.5 * P, 2.1 * P),
-      ramen: nearestFront(4.6 * P, 4.2 * P),
-      chop: c.specials.chop,
-    };
+    const pl = game.places;
+    this.places = { kaneda: pl.kaneda, ramen: pl.ramen, chop: pl.chop };
     this.jobs = [
       { id: 'demae', giver: 'ramen', title: '出前', who: 'ラーメン龍 店主', desc: 'ラーメンを冷める前に、こぼさず届ける' },
       { id: 'shukin', giver: 'kaneda', title: '集金', who: '金田', desc: '滞納者3人から取り立てる' },
@@ -67,7 +61,7 @@ export class Missions {
       m.push({ x: this.places.ramen.x, z: this.places.ramen.z, color: COLORS.job, size: 6, always: true });
     }
     m.push({ x: this.places.chop.x, z: this.places.chop.z, color: COLORS.chop, size: 6, shape: 'square', always: true });
-    const kb = this.game.city.specials.koban;
+    const kb = this.game.places.koban;
     m.push({ x: kb.x, z: kb.z, color: COLORS.koban, size: 4 });
     if (this.active?.target) m.push({ x: this.active.target.x, z: this.active.target.z, color: COLORS.target, size: 7, always: true });
     return m;
@@ -83,7 +77,8 @@ export class Missions {
     const p = this.game.player.pos;
     const list = this.game.city.shopFronts.filter((s) => {
       const d = Math.hypot(s.x - p.x, s.z - p.z);
-      return d > minD && d < maxD && s.x > 5 && s.z > 5 && s.x < N * P - 5 && s.z < N * P - 5;
+      const H = this.game.city.half - 15;
+      return d > minD && d < maxD && Math.abs(s.x) < H && Math.abs(s.z) < H;
     });
     return pick(list.length ? list : this.game.city.shopFronts);
   }

@@ -2,7 +2,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const NAMES = ['car_kei', 'car_taxi', 'car_police', 'vending', 'pole', 'lantern', 'cone', 'person', 'pistol', 'torii'];
+const NAMES = ['car_sedan', 'car_taxi', 'car_kei', 'car_van', 'car_truck', 'car_bus', 'car_police', 'vending', 'lantern', 'cone',
+  'person', 'pistol', 'signal', 'tree', 'lamp'];
 
 export async function loadAssets(base = 'assets/models/', onProgress = () => {}) {
   const loader = new GLTFLoader();

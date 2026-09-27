@@ -139,3 +139,7 @@ body.driving #ammo { display: none; }
 .lg { width: 10px; height: 10px; display: inline-block; border-radius: 50%; margin-left: 10px; }
 .lg.job { background: var(--amber); } .lg.shop { background: #b36bff; } .lg.koban { background: #4d8dff; } .lg.you { background: #fff; }
 .hint { color: #888; font-size: 13px; }
+
+/* 照準器を覗いている間は十字線を消す */
+body.aiming #crosshair { opacity: 0; }
+#crosshair { transition: opacity .12s; }

@@ -44,13 +44,16 @@ export class Player {
     // プレイヤーの車用ヘッドライト(実ライト)
     this.headlight = new THREE.SpotLight(0xfff0d8, 0, 70, 0.55, 0.5, 1.4);
     this.headlight.target = new THREE.Object3D();
+    // 光源の数が変わるとシェーダーが再コンパイルされるので、最初から置いて明るさだけ変える
+    game.scene.add(this.headlight, this.headlight.target);
   }
 
   get eye() { return new THREE.Vector3(this.pos.x, this.pos.y + EYE, this.pos.z); }
 
   update(dt, input) {
     const g = this.game;
-    const [lx, ly] = input.consumeLook();
+    // 覗き込み中は視野に合わせて感度を下げる
+    const [lx, ly] = input.consumeLook(this.inCar ? 1 : 1 - (this.aimT ?? 0) * 0.45);
     if (this.inCar) this.updateCar(dt, input, lx, ly);
     else this.updateFoot(dt, input, lx, ly);
     if (input.hit('KeyF')) this.inCar ? this.exitCar() : this.tryEnter();
@@ -102,7 +105,9 @@ export class Player {
     const cam = g.camera;
     cam.position.set(this.pos.x, this.pos.y + EYE + Math.sin(this.bob * 2) * 0.035 * Math.min(1, moving / 4), this.pos.z);
     cam.rotation.set(this.pitch + this.recoil * 0.05, this.yaw, Math.sin(this.bob) * 0.006 * moving, 'YXZ');
-    cam.fov = damp(cam.fov, run && moving > 5 ? 80 : 74, 6, dt);
+    this.aimT = damp(this.aimT ?? 0, input.aim && this.reloadT <= 0 ? 1 : 0, 14, dt);
+    cam.fov = damp(cam.fov, (run && moving > 5 ? 80 : 74) * (1 - this.aimT * 0.38), 10, dt);
+    document.body.classList.toggle('aiming', this.aimT > 0.5);
     cam.updateProjectionMatrix();
     this.updateGun(dt, input, moving);
   }
@@ -123,9 +128,13 @@ export class Player {
     }
     // 拳銃の位置(揺れ・反動・リロード時は下げる)
     const rl = this.reloadT > 0 ? Math.sin(Math.min(1, (1.3 - this.reloadT) / 1.3) * Math.PI) : 0;
-    const sway = Math.sin(this.bob) * 0.012 * Math.min(1, moving / 4);
-    this.gunHolder.position.set(0.16 + sway, -0.15 - Math.abs(Math.cos(this.bob)) * 0.008 - rl * 0.15, -0.36 + this.recoil * 0.05);
-    this.gunHolder.rotation.set(this.recoil * 0.25 - rl * 0.6, 0.04, rl * 0.4);
+    const k = this.aimT ?? 0;
+    const sway = Math.sin(this.bob) * 0.012 * Math.min(1, moving / 4) * (1 - k * 0.8);
+    // 腰だめ位置と照準位置(照星と照門の上端を画面中央に合わせる: 0.08 × 0.85)
+    const hip = [0.16, -0.15 - Math.abs(Math.cos(this.bob)) * 0.008, -0.36];
+    const ads = [-0.019, -0.055, -0.27];
+    this.gunHolder.position.set(hip[0] + (ads[0] - hip[0]) * k + sway, hip[1] + (ads[1] - hip[1]) * k - rl * 0.15, hip[2] + (ads[2] - hip[2]) * k + this.recoil * 0.05);
+    this.gunHolder.rotation.set(this.recoil * (0.25 - k * 0.15) - rl * 0.6, 0.04 * (1 - k), rl * 0.4);
     this.muzzle.position.set(0, 0.06, -0.2);
     this.flash.intensity = damp(this.flash.intensity, 0, 30, dt);
     if (this.muzzleT > 0) { this.muzzleT -= dt; if (this.muzzleT <= 0) this.muzzle.visible = false; }
@@ -134,7 +143,8 @@ export class Player {
   fire() {
     const g = this.game;
     this.ammo--; this.cool = 0.16; this.recoil = 1;
-    this.pitch += 0.018; this.yaw += rand(-0.006, 0.006);
+    const steady = 1 - (this.aimT ?? 0) * 0.6;
+    this.pitch += 0.018 * steady; this.yaw += rand(-0.006, 0.006) * steady;
     g.audio.gunshot();
     this.flash.intensity = 25; this.muzzle.visible = true; this.muzzleT = 0.05;
     this.muzzle.material.rotation = rand(0, 6);
@@ -225,7 +235,6 @@ export class Player {
     const e = car.spec.eye;
     this.cockpit.position.set(e[0], e[1], e[2]);
     this.cockpit.userData.fit(car.spec);
-    g.scene.add(this.headlight, this.headlight.target);
     g.audio.door();
     document.body.classList.add('driving');
     g.hud.toast(`${car.spec.name}に乗った`);
@@ -244,7 +253,7 @@ export class Player {
     }
     car.driver = null;
     car.obj.remove(this.cockpit);
-    g.scene.remove(this.headlight, this.headlight.target);
+    this.headlight.intensity = 0;
     this.inCar = null;
     this.yaw = car.yaw; this.pitch = 0;
     g.audio.door();
@@ -309,8 +318,6 @@ function makeCockpit() {
       omamori.position.set(-0.38, 0.04, -0.6);
     },
   };
-  const dashLight = new THREE.PointLight(0x5ad0ff, 0.6, 1.2, 1.5);
-  dashLight.position.set(0, -0.2, -0.45); g.add(dashLight);
   g.traverse((o) => { if (o.isMesh) o.layers.set(1); });
   return g;
 }

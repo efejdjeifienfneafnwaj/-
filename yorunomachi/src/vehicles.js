@@ -1,19 +1,39 @@
 // 車両: 物理(アーケード寄り)、一般車の交通AI、パトカーの追跡AI
 import * as THREE from 'three';
-import { P, N, ROAD, groundY, nodeAt, nearestNode } from './city.js';
+import { signalState } from './yaesu.js';
 import { rand, randi, pick, clamp, wrapAngle, damp } from './util.js';
 import { makeGlowSprite } from './textures.js';
 import { carTemplate, carMaterial } from './carmodel.js';
 
 export const SPECS = {
-  kei:    { model: 'car_kei',    L: 3.4, W: 1.48, maxSpeed: 31, acc: 11, price: 45000,  eye: [0.34, 1.3, 0.2],  name: '軽自動車' },
-  sedan:  { model: 'car_taxi',   L: 4.7, W: 1.72, maxSpeed: 40, acc: 14, price: 90000,  eye: [0.38, 1.18, 0.45], name: 'セダン' },
-  taxi:   { model: 'car_taxi',   L: 4.7, W: 1.72, maxSpeed: 38, acc: 13, price: 70000,  eye: [0.38, 1.18, 0.45], name: 'タクシー' },
-  police: { model: 'car_police', L: 4.7, W: 1.72, maxSpeed: 46, acc: 17, price: 260000, eye: [0.38, 1.18, 0.45], name: 'パトカー' },
+  kei:    { model: 'car_kei',    L: 3.4, W: 1.48, maxSpeed: 31, acc: 11, price: 45000,  eye: [0.34, 1.34, 0.25], name: '軽自動車' },
+  sedan:  { model: 'car_sedan',  L: 4.9, W: 1.8,  maxSpeed: 42, acc: 14, price: 110000, eye: [0.4, 1.18, 0.45], name: 'セダン' },
+  taxi:   { model: 'car_taxi',   L: 4.4, W: 1.7,  maxSpeed: 36, acc: 12, price: 80000,  eye: [0.38, 1.36, 0.1], name: 'タクシー' },
+  police: { model: 'car_police', L: 4.9, W: 1.8,  maxSpeed: 47, acc: 17, price: 260000, eye: [0.4, 1.18, 0.45], name: 'パトカー' },
+  van:    { model: 'car_van',    L: 4.7, W: 1.7,  maxSpeed: 33, acc: 10, price: 90000,  eye: [0.4, 1.55, -1.6], name: 'バン' },
+  truck:  { model: 'car_truck',  L: 6.2, W: 1.9,  maxSpeed: 28, acc: 8,  price: 140000, eye: [0.45, 1.85, -2.4], name: '2tトラック' },
+  bus:    { model: 'car_bus',    L: 10.5, W: 2.5, maxSpeed: 24, acc: 6,  price: 200000, eye: [0.8, 2.3, -4.3], name: '都営バス' },
 };
 const KEI_COLORS = [0xf2f2ee, 0xb9bcc0, 0x16171a, 0x9fd9c8, 0xf0b7c4, 0xe8d36a, 0x7aa0d8, 0xc4402f];
-const SEDAN_COLORS = [0x1a1b20, 0xe9e9e6, 0x8d9096, 0x2a3550, 0x5a1b1e];
-const TAXI_COLORS = [0xf2c230, 0x1d2b4a, 0x2e6b3a];
+const SEDAN_COLORS = [0x1a1b20, 0xe9e9e6, 0x8d9096, 0x2a3550, 0x5a1b1e, 0xdadbd6];
+const TAXI_COLORS = [0x1d2340, 0x1d2340, 0x1d2340, 0xf2c230, 0x2e6b3a];   // JPN TAXI の深藍が多い
+const VAN_COLORS = [0xf0f0ee, 0xf0f0ee, 0xb9bcc0];
+const TRUCK_COLORS = [0x3f8a4c, 0xe9e9e6, 0x2e5fa8];
+function paintFor(kind) {
+  return { police: 0x0d0d0f, taxi: pick(TAXI_COLORS), kei: pick(KEI_COLORS), van: pick(VAN_COLORS), truck: pick(TRUCK_COLORS), bus: 0xe9ece6 }[kind] ?? pick(SEDAN_COLORS);
+}
+
+let blobMat = null;
+function blobMaterial() {
+  if (blobMat) return blobMat;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 4, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(0,0,0,0.75)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  blobMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+  return blobMat;
+}
 
 let headTex = null;
 function headlightTexture() {
@@ -35,18 +55,23 @@ export class Car {
     this.kind = kind;
     this.spec = SPECS[kind];
     const src = game.assets.get(this.spec.model);
-    const tpl = carTemplate(src, { andon: kind === 'taxi' });
-    const paint = color ?? (kind === 'police' ? 0x0d0d0f : kind === 'taxi' ? pick(TAXI_COLORS) : kind === 'kei' ? pick(KEI_COLORS) : pick(SEDAN_COLORS));
+    const tpl = carTemplate(src, { andon: true });
+    const paint = color ?? paintFor(kind);
     this.mat = carMaterial(paint);
     this.obj = new THREE.Group();
     this.bodyMesh = new THREE.Mesh(tpl.body, this.mat);
+    this.bodyMesh.castShadow = true; this.bodyMesh.receiveShadow = true;
     this.obj.add(this.bodyMesh);
+    // 車体の下の接地影(夜は光源が多いので、ぼかした暗がりを足す)
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(this.spec.W * 1.5, this.spec.L * 1.15), blobMaterial());
+    blob.rotation.x = -Math.PI / 2; blob.position.y = 0.03; blob.layers.set(1);
+    this.obj.add(blob);
     // タイヤ(回転・操舵するので別メッシュ。路面反射には映さない)
     const order = ['FL', 'FR', 'RL', 'RR'];
     this.wheels = order.map((t) => {
       const w = tpl.wheels.find((q) => q.tag === t);
       const m = new THREE.Mesh(w.geo, this.mat);
-      m.position.copy(w.pos); m.rotation.order = 'YXZ'; m.layers.set(1);
+      m.position.copy(w.pos); m.rotation.order = 'YXZ'; m.layers.set(1); m.castShadow = true;
       this.obj.add(m);
       return m;
     });
@@ -78,9 +103,13 @@ export class Car {
 
   get fwd() { return _v.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw)); }
   circles() {
+    // 車長に応じて円を並べる(バスは5個ほど)
+    const n = Math.max(2, Math.round(this.spec.L / this.spec.W));
     const f = this.spec.L / 2 - this.spec.W / 2;
     const fx = -Math.sin(this.yaw), fz = -Math.cos(this.yaw);
-    return [{ x: this.pos.x + fx * f, z: this.pos.z + fz * f }, { x: this.pos.x - fx * f, z: this.pos.z - fz * f }];
+    const out = [];
+    for (let k = 0; k < n; k++) { const t = -f + (2 * f * k) / (n - 1); out.push({ x: this.pos.x + fx * t, z: this.pos.z + fz * t }); }
+    return out;
   }
   get radius() { return this.spec.W / 2 + 0.1; }
 
@@ -122,11 +151,13 @@ export class Car {
   integrate(dt) {
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.y * dt;
-    // 建物との衝突(前後2つの円)
+    // 建物との衝突(車体に沿って並べた円)
     const r = this.radius;
+    const n = Math.max(2, Math.round(this.spec.L / this.spec.W));
     const f = this.spec.L / 2 - this.spec.W / 2;
-    for (const sgn of [1, -1]) {
-      const fx = -Math.sin(this.yaw) * f * sgn, fz = -Math.cos(this.yaw) * f * sgn;
+    for (let k = 0; k < n; k++) {
+      const t = -f + (2 * f * k) / (n - 1);
+      const fx = -Math.sin(this.yaw) * t, fz = -Math.cos(this.yaw) * t;
       const c = { x: this.pos.x + fx, z: this.pos.z + fz };
       const hit = this.game.city.colliders.resolve(c, r);
       if (hit) {
@@ -139,7 +170,7 @@ export class Car {
         }
       }
     }
-    this.pos.y = damp(this.pos.y, groundY(this.pos.x, this.pos.z) * 0.6, 12, dt);
+    this.pos.y = 0;
   }
 
   impact(v, what) {
@@ -179,11 +210,91 @@ export class Car {
   remove() { this.game.scene.remove(this.obj); this.dead = true; }
 }
 
-// ---------------------------------------------------------------- 一般車の交通
-const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-const LANE = 2.1;
+// ---------------------------------------------------------------- 一般車の交通(実際の道路網・左側通行・信号)
+function bezier(p0, p1, p2, n = 8) {
+  const out = [];
+  for (let k = 1; k <= n; k++) {
+    const u = k / n, iu = 1 - u;
+    out.push([iu * iu * p0[0] + 2 * iu * u * p1[0] + u * u * p2[0], iu * iu * p0[1] + 2 * iu * u * p1[1] + u * u * p2[1]]);
+  }
+  return out;
+}
 
-function laneOffset(dx, dz) { return [dz * LANE, -dx * LANE]; } // 左側通行: 進行方向の左
+// 道路を走るための経路(折れ線)を順に消費していく。
+// junctions: 各区間の終点(=交差点の手前)の点番号・ノード・進入方向
+class Route {
+  constructor(graph) { this.g = graph; this.pts = []; this.i = 0; this.u = 0; this.junctions = []; }
+  static start(graph, out, lane, s0) {
+    const r = new Route(graph);
+    r.lane = Math.min(lane, graph.laneCount(out.e) - 1);
+    r.appendLeg(out, graph.lanePath(out.e, out.dir, r.lane));
+    r.advance(s0);
+    return r;
+  }
+  appendLeg(out, p) {
+    this.last = out;
+    this.pts.push(...(this.pts.length ? p.slice(1) : p));
+    const a = p[Math.max(0, p.length - 2)], b = p[p.length - 1];
+    this.junctions.push({ idx: this.pts.length - 1, node: this.g.nodes[out.to], yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) });
+  }
+  lenFromHere(idx) {
+    let L = -this.u;
+    for (let k = this.i; k < idx && k + 1 < this.pts.length; k++) L += Math.hypot(this.pts[k + 1][0] - this.pts[k][0], this.pts[k + 1][1] - this.pts[k][1]);
+    return L;
+  }
+  remaining() { return this.lenFromHere(this.pts.length - 1); }
+  // 次の交差点(まだ通過していないもの)
+  nextJunction() {
+    while (this.junctions.length && this.junctions[0].idx < this.i) this.junctions.shift();
+    const j = this.junctions[0];
+    return j ? { ...j, dist: this.lenFromHere(j.idx) } : null;
+  }
+  // 行き先の区間を選び、交差点内のカーブと次の区間をつなげる
+  chooseNext(prefer) {
+    const n = this.g.nodes[this.last.to];
+    let opts = n.out.filter((o) => o.e !== this.last.e);
+    if (!opts.length) opts = n.out;
+    if (!opts.length) return false;
+    const next = prefer ? prefer(opts) : pick(opts);
+    const nl = Math.min(this.lane, this.g.laneCount(next.e) - 1);
+    const np = this.g.lanePath(next.e, next.dir, nl);
+    const end = this.pts[this.pts.length - 1], prev = this.pts[this.pts.length - 2] ?? end;
+    const start = np[0];
+    const gap = Math.hypot(start[0] - end[0], start[1] - end[1]);
+    const d0 = [end[0] - prev[0], end[1] - prev[1]], l0 = Math.hypot(d0[0], d0[1]) || 1;
+    const ctrl = [end[0] + (d0[0] / l0) * gap * 0.5, end[1] + (d0[1] / l0) * gap * 0.5];
+    this.pts.push(...bezier(end, ctrl, start, 8).slice(0, -1));
+    this.lane = nl;
+    this.appendLeg(next, np);
+    if (this.i > 60) { // 消費済みの点を捨てる
+      const cut = this.i;
+      this.pts = this.pts.slice(cut); this.i = 0;
+      for (const j of this.junctions) j.idx -= cut;
+    }
+    return true;
+  }
+  advance(d) {
+    while (d > 0 && this.i + 1 < this.pts.length) {
+      const a = this.pts[this.i], b = this.pts[this.i + 1];
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (this.u + d < l) { this.u += d; d = 0; }
+      else { d -= l - this.u; this.u = 0; this.i++; }
+    }
+  }
+  pos() {
+    const a = this.pts[this.i], b = this.pts[Math.min(this.i + 1, this.pts.length - 1)];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const t = this.u / l;
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, Math.atan2(-(b[0] - a[0]), -(b[1] - a[1]))];
+  }
+}
+
+const TRAFFIC_MIX = [['sedan', 26], ['taxi', 24], ['kei', 14], ['van', 12], ['truck', 10], ['bus', 5]];
+function pickKind() {
+  let r = Math.random() * TRAFFIC_MIX.reduce((s, [, w]) => s + w, 0);
+  for (const [k, w] of TRAFFIC_MIX) { if ((r -= w) <= 0) return k; }
+  return 'sedan';
+}
 
 export class Traffic {
   constructor(game, count = 26) {
@@ -193,21 +304,24 @@ export class Traffic {
   }
 
   spawnNpc(nearX, nearZ, minD = 70, maxD = 170) {
-    for (let tries = 0; tries < 20; tries++) {
-      const i = randi(0, N), k = randi(0, N);
-      const [dx, dz] = pick(DIRS);
-      const a = nodeAt(i, k), b = nodeAt(i + dx, k + dz);
-      if (!a || !b) continue;
-      const s = rand(12, P - 12);
-      const [lx, lz] = laneOffset(dx, dz);
-      const x = a.x + dx * s + lx, z = a.z + dz * s + lz;
+    const g = this.game.city.roads;
+    for (let tries = 0; tries < 25; tries++) {
+      const e = pick(g.edges);
+      if (e.len < 30) continue;
+      const dirs = e.ow ? [1] : [1, -1];
+      const dir = pick(dirs);
+      const out = { e, dir, to: dir > 0 ? e.b : e.a };
+      const lane = randi(0, g.laneCount(e) - 1);
+      const route = Route.start(g, out, lane, rand(0, e.len * 0.5));
+      const [x, z, yaw] = route.pos();
       const d = Math.hypot(x - nearX, z - nearZ);
       if (d < minD || d > maxD) continue;
-      if (this.game.allCars().some((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 12)) continue;
-      const kind = Math.random() < 0.3 ? 'taxi' : Math.random() < 0.55 ? 'kei' : 'sedan';
-      const car = new Car(this.game, kind, x, z, Math.atan2(-dx, -dz));
+      if (this.game.allCars().some((c) => Math.hypot(c.pos.x - x, c.pos.z - z) < 14)) continue;
+      const kind = e.w < 7 && Math.random() < 0.6 ? 'kei' : pickKind();
+      if (kind === 'bus' && e.w < 10) continue;
+      const car = new Car(this.game, kind, x, z, yaw);
       car.driver = 'npc';
-      car.ai = { a, b, dx, dz, s, turn: null, speed: 0, wait: 0, cruise: rand(9, 13), honk: 0 };
+      car.ai = { route, speed: 0, wait: 0, cruise: rand(9, 13) * (kind === 'bus' || kind === 'truck' ? 0.8 : 1), honk: 0 };
       this.cars.push(car);
       return car;
     }
@@ -217,113 +331,102 @@ export class Traffic {
   update(dt) {
     const g = this.game;
     const px = g.player.pos.x, pz = g.player.pos.z;
-    // 遠すぎる車は消して、プレイヤーの周囲に補充
     for (const c of this.cars) {
-      if (c.driver === 'npc' && Math.hypot(c.pos.x - px, c.pos.z - pz) > 220) c.remove();
+      if (c.driver === 'npc' && Math.hypot(c.pos.x - px, c.pos.z - pz) > 230) c.remove();
     }
     this.cars = this.cars.filter((c) => !c.dead);
     const npcCount = this.cars.filter((c) => c.driver === 'npc').length;
     if (npcCount < this.target) this.spawnNpc(px, pz);
-
     for (const car of this.cars) {
       if (car.driver === 'npc') this.steerNpc(car, dt);
-      else if (car.driver === null) {
-        // 無人の車は慣性で止まる
-        car.drive(dt, 0, 0, true);
-      }
+      else if (car.driver === null) car.drive(dt, 0, 0, true);
       car.sync(dt);
     }
   }
 
   steerNpc(car, dt) {
-    const ai = car.ai;
-    const g = this.game;
-    // 前方の障害物を確認(車・プレイヤー・歩行者)
+    const ai = car.ai, g = this.game, r = ai.route;
     const fx = -Math.sin(car.yaw), fz = -Math.cos(car.yaw);
     let block = 99;
+    const look = 14 + car.spec.L / 2;
     const check = (x, z, w) => {
       const rx = x - car.pos.x, rz = z - car.pos.z;
       const ahead = rx * fx + rz * fz;
       const side = Math.abs(rx * -fz + rz * fx);
-      if (ahead > 0 && ahead < 16 && side < w) block = Math.min(block, ahead);
+      if (ahead > 0 && ahead < look && side < w) block = Math.min(block, ahead);
     };
-    for (const o of g.allCars()) if (o !== car) check(o.pos.x, o.pos.z, 2.2);
-    check(g.player.pos.x, g.player.pos.z, 1.8);
-    for (const p of g.peds.list) if (p.state !== 'down') check(p.pos.x, p.pos.z, 1.4);
+    for (const o of g.allCars()) if (o !== car) check(o.pos.x, o.pos.z, 1.9 + o.spec.W / 2);
+    // 人は自分の車線上にいるときだけ止まる(歩道の人には反応しない)
+    check(g.player.pos.x, g.player.pos.z, car.spec.W / 2 + 0.35);
+    for (const p of g.peds.list) if (p.state !== 'down') check(p.pos.x, p.pos.z, car.spec.W / 2 + 0.25);
     let target = ai.cruise;
-    if (ai.turn) target = Math.min(target, 6.5);
-    if (block < 16) target = Math.min(target, Math.max(0, (block - 5.5) * 1.1));
+    // 信号: 交差点の手前で赤・黄なら停止線で止まる
+    const jn = r.nextJunction();
+    if (jn && jn.node.deg >= 3 && jn.node.maxW >= 10 && jn.dist < 40) {
+      const st = signalState(jn.node.i, jn.yaw, g.time);
+      if (st !== 'G' && !(st === 'Y' && jn.dist < 6)) target = Math.min(target, Math.max(0, (jn.dist - 1.5) * 0.8));
+    }
+    if (r.remaining() < 40) r.chooseNext();
+    const curv = this.curvatureAhead(r);
+    target = Math.min(target, 5 + 16 / (1 + curv * 25));
+    // 前の車に塞がれて長く動けないときは、少しの間だけすり抜ける(交差点での膠着を防ぐ)
+    if (ai.ghost > 0) { ai.ghost -= dt; block = 99; }
+    if (block < look) {
+      target = Math.min(target, Math.max(0, (block - car.spec.L / 2 - 4) * 1.1));
+      ai.blockedT = (ai.blockedT ?? 0) + (ai.speed < 0.5 ? dt : 0);
+      if (ai.blockedT > 7 && car.pos.distanceTo(g.player.pos) > 12) { ai.ghost = 3; ai.blockedT = 0; }
+    } else ai.blockedT = 0;
     if (ai.wait > 0) { ai.wait -= dt; target = 0; }
     ai.speed = damp(ai.speed, target, target < ai.speed ? 5 : 1.5, dt);
     car.braking = target < ai.speed - 0.5 || ai.speed < 0.3;
-    if (block < 7 && ai.speed < 0.5) {
+    if (block < 8 && ai.speed < 0.5) {
       ai.honk -= dt;
       if (ai.honk < 0) { ai.honk = rand(3, 6); if (car.pos.distanceTo(g.player.pos) < 35) g.audio.horn(car.pos); }
     }
-    const move = ai.speed * dt;
-    const prev = car.pos.clone();
-    if (!ai.turn) {
-      ai.s += move;
-      const [lx, lz] = laneOffset(ai.dx, ai.dz);
-      car.pos.set(ai.a.x + ai.dx * ai.s + lx, 0, ai.a.z + ai.dz * ai.s + lz);
-      car.yaw = Math.atan2(-ai.dx, -ai.dz);
-      if (ai.s > P - 10) this.beginTurn(car);
-    } else {
-      const t = ai.turn;
-      t.u = Math.min(1, t.u + move / t.len);
-      const u = t.u, iu = 1 - u;
-      const x = iu * iu * t.p0[0] + 2 * iu * u * t.p1[0] + u * u * t.p2[0];
-      const z = iu * iu * t.p0[1] + 2 * iu * u * t.p1[1] + u * u * t.p2[1];
-      car.pos.set(x, 0, z);
-      const dxz = [car.pos.x - prev.x, car.pos.z - prev.z];
-      if (Math.hypot(dxz[0], dxz[1]) > 1e-4) car.yaw = Math.atan2(-dxz[0], -dxz[1]);
-      if (u >= 1) { ai.turn = null; ai.s = 10; }
-    }
+    r.advance(ai.speed * dt);
+    const [x, z, yaw] = r.pos();
+    const dyaw = wrapAngle(yaw - car.yaw);
+    car.pos.set(x, 0, z);
+    car.yaw += dyaw * Math.min(1, dt * 10);
+    car.steer = clamp(dyaw * 4, -1, 1);
     car.speed = ai.speed;
     car.vel.set(-Math.sin(car.yaw) * ai.speed, -Math.cos(car.yaw) * ai.speed);
-    car.steer = ai.turn ? ai.turn.dir * 0.6 : 0;
   }
 
-  beginTurn(car) {
-    const ai = car.ai;
-    const b = ai.b;
-    const options = DIRS.filter(([dx, dz]) => !(dx === -ai.dx && dz === -ai.dz) && nodeAt(b.i + dx, b.k + dz));
-    const [ndx, ndz] = options.length ? pick(options) : [-ai.dx, -ai.dz];
-    const [lx, lz] = laneOffset(ai.dx, ai.dz);
-    const [nlx, nlz] = laneOffset(ndx, ndz);
-    const p0 = [b.x - ai.dx * 10 + lx, b.z - ai.dz * 10 + lz];
-    const p2 = [b.x + ndx * 10 + nlx, b.z + ndz * 10 + nlz];
-    // 直進なら中点、曲がるなら角
-    const straight = ndx === ai.dx && ndz === ai.dz;
-    const p1 = straight ? [(p0[0] + p2[0]) / 2, (p0[1] + p2[1]) / 2] : [b.x + lx + nlx, b.z + lz + nlz];
-    const cross = ai.dx * ndz - ai.dz * ndx;
-    ai.turn = { p0, p1, p2, u: 0, len: straight ? 20 : 15, dir: straight ? 0 : -Math.sign(cross) };
-    ai.a = b; ai.b = nodeAt(b.i + ndx, b.k + ndz); ai.dx = ndx; ai.dz = ndz;
+  curvatureAhead(r) {
+    const p = r.pts, i = r.i;
+    let turn = 0;
+    for (let k = i; k < Math.min(p.length - 2, i + 6); k++) {
+      const a = Math.atan2(p[k + 1][0] - p[k][0], p[k + 1][1] - p[k][1]);
+      const b = Math.atan2(p[k + 2][0] - p[k + 1][0], p[k + 2][1] - p[k + 1][1]);
+      turn = Math.max(turn, Math.abs(wrapAngle(b - a)));
+    }
+    return turn;
   }
 }
 
-// ---------------------------------------------------------------- パトカー
+// ---------------------------------------------------------------- パトカー(最短経路で追跡)
 export class Police {
   constructor(game) {
     this.game = game;
     this.cars = [];
     this.light = new THREE.PointLight(0xff0000, 0, 30, 1.6);
     game.scene.add(this.light);
+    this.distT = 0;
   }
 
   wantedCount(stars) { return [0, 1, 2, 3, 5, 6][stars]; }
 
   spawn() {
-    const g = this.game;
+    const g = this.game, roads = g.city.roads;
     const p = g.player.pos;
-    for (let tries = 0; tries < 30; tries++) {
-      const i = randi(0, N), k = randi(0, N);
-      const n = nodeAt(i, k);
+    for (let tries = 0; tries < 40; tries++) {
+      const n = pick(roads.nodes);
       const d = Math.hypot(n.x - p.x, n.z - p.z);
-      if (d < 90 || d > 190) continue;
+      if (d < 90 || d > 200) continue;
       const car = new Car(g, 'police', n.x, n.z, Math.atan2(n.x - p.x, n.z - p.z));
       car.driver = 'police';
-      car.ai = { wp: null, stuck: 0, reverse: 0, lost: 0 };
+      car.ai = { wp: null, stuck: 0, reverse: 0 };
       this.cars.push(car);
       g.traffic.cars.push(car);
       return;
@@ -339,21 +442,26 @@ export class Police {
       this.spawnTimer = (this.spawnTimer ?? 0) - dt;
       if (this.spawnTimer <= 0) { this.spawn(); this.spawnTimer = 4; }
     }
+    // プレイヤー最寄りの交差点までの距離表を定期的に更新
+    this.distT -= dt;
+    if (stars > 0 && this.distT <= 0) {
+      this.distT = 1.5;
+      const tgt = g.player.inCar ? g.player.inCar.pos : g.player.pos;
+      this.dist = g.city.roads.distancesTo(g.city.roads.nearestNode(tgt.x, tgt.z));
+    }
     let nearest = null, nd = 1e9;
     for (const car of active) {
       const d = car.pos.distanceTo(g.player.pos);
       if (stars === 0) {
-        // 手配が消えたら去っていく
         car.siren = false;
-        this.patrol(car, dt);
-        if (d > 160) { car.remove(); }
+        car.drive(dt, 0.4, 0, false);
+        if (d > 160) car.remove();
         continue;
       }
       car.siren = true;
       this.chase(car, dt, d);
       if (d < nd) { nd = d; nearest = car; }
     }
-    // サイレンの赤青ライト(最寄りの1台だけ実ライト)
     if (nearest && nd < 60) {
       const ph = Math.floor(performance.now() / 166) % 2;
       this.light.color.set(ph ? 0xff1010 : 0x1030ff);
@@ -363,39 +471,25 @@ export class Police {
     this.nearest = nearest ? nd : 1e9;
   }
 
-  patrol(car, dt) {
-    car.drive(dt, 0.4, 0, false);
-  }
-
-  chase(car, dt, dist) {
-    const g = this.game;
-    const ai = car.ai;
+  chase(car, dt) {
+    const g = this.game, ai = car.ai, roads = g.city.roads;
     const tgt = g.player.inCar ? g.player.inCar.pos : g.player.pos;
     const col = g.city.colliders;
     const dx = tgt.x - car.pos.x, dz = tgt.z - car.pos.z;
     const d = Math.hypot(dx, dz);
-    // 見通しが良ければ直接、そうでなければ交差点を経由
-    const clear = col.raycast(car.pos.x, car.pos.z, dx / d, dz / d, d) >= d - 0.5;
+    const clear = d < 70 && col.raycast(car.pos.x, car.pos.z, dx / d, dz / d, d) >= d - 0.5;
     let aim;
-    if (clear || d < 14) {
-      aim = tgt; ai.wp = null;
-      ai.lost = 0;
-    } else {
-      ai.lost += dt;
-      if (!ai.wp || Math.hypot(ai.wp.x - car.pos.x, ai.wp.z - car.pos.z) < 9) {
-        // いまいる交差点(または最寄り)から、目標に一番近づく隣の交差点へ
-        const here = nearestNode(car.pos.x, car.pos.z);
-        const atNode = Math.hypot(here.x - car.pos.x, here.z - car.pos.z) < 12;
-        if (!atNode) ai.wp = here;
+    if (clear || d < 14) { aim = tgt; ai.wp = null; }
+    else {
+      if (!ai.wp || Math.hypot(ai.wp.x - car.pos.x, ai.wp.z - car.pos.z) < 10) {
+        // 近くの交差点から、プレイヤーに一番近づく隣の交差点へ
+        const here = roads.nearestNode(car.pos.x, car.pos.z);
+        const atNode = Math.hypot(here.x - car.pos.x, here.z - car.pos.z) < 14;
+        if (!atNode || !this.dist) ai.wp = here;
         else {
           let best = null, bd = 1e9;
-          for (const [ox, oz] of DIRS) {
-            const n = nodeAt(here.i + ox, here.k + oz);
-            if (!n) continue;
-            const nd = Math.hypot(n.x - tgt.x, n.z - tgt.z);
-            if (nd < bd) { bd = nd; best = n; }
-          }
-          ai.wp = best;
+          for (const o of here.out) { const v = this.dist[o.to] + o.e.len; if (v < bd) { bd = v; best = roads.nodes[o.to]; } }
+          ai.wp = best ?? here;
         }
       }
       aim = ai.wp;
@@ -405,10 +499,8 @@ export class Police {
     let steer = clamp(diff * 2.2, -1, 1);
     let throttle = 1;
     if (Math.abs(diff) > 1.2 && car.speed > 12) throttle = -0.6;
-    // 徒歩のプレイヤーの前では止まる(逮捕に来る)
-    const stopDist = 7 + (car.speed * car.speed) / 30; // 制動距離を見込んで手前から減速
+    const stopDist = 7 + (car.speed * car.speed) / 30;
     if (!g.player.inCar && d < stopDist) throttle = car.speed > 1 ? -1 : 0;
-    // 引っかかったらバック
     if (ai.reverse > 0) { ai.reverse -= dt; throttle = -1; steer = -steer; }
     else if (Math.abs(car.speed) < 1.2 && throttle > 0.5) {
       ai.stuck += dt;

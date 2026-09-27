@@ -129,13 +129,13 @@ export function makeSky() {
       void main(){
         vec3 d = normalize(vP);
         float h = max(d.y, 0.0);
-        vec3 top = mix(vec3(0.012, 0.014, 0.03), vec3(0.08, 0.12, 0.25), uDawn);
-        vec3 glow = mix(vec3(0.22, 0.09, 0.14), vec3(0.9, 0.45, 0.3), uDawn);
+        vec3 top = mix(vec3(0.01, 0.013, 0.028), vec3(0.08, 0.12, 0.25), uDawn);
+        vec3 glow = mix(vec3(0.16, 0.1, 0.13), vec3(0.9, 0.45, 0.3), uDawn);
         vec3 col = mix(glow, top, pow(h, 0.45));
         // 低い雨雲(街の光で下から照らされる)
         vec2 uv = d.xz / (d.y + 0.15) * 1.3 + vec2(uTime * 0.01, 0.0);
         float c = fbm(uv);
-        col += vec3(0.16, 0.08, 0.12) * smoothstep(0.35, 0.8, c) * (1.0 - h * 0.6) * (1.0 - uDawn * 0.5);
+        col += vec3(0.09, 0.07, 0.09) * smoothstep(0.35, 0.8, c) * (1.0 - h * 0.6) * (1.0 - uDawn * 0.5);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });

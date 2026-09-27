@@ -473,14 +473,12 @@ def build_bench_and_sign():
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.modules.setdefault("build_assets", sys.modules[__name__])
+    import detail  # 作り込み版(車・人・拳銃・信号・街路樹・街灯)
     print("夜ノ街: アセット生成開始")
-    for k in ("kei", "taxi", "police"):
-        build_car(k)
     build_vending()
-    build_pole()
     build_lantern()
     build_cone()
-    build_person()
-    build_pistol()
-    build_bench_and_sign()
+    detail.main()
     print("完了")

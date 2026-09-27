@@ -1,11 +1,11 @@
 // 歩行者: 歩道を歩き、銃声や暴走車から逃げる。雨なので多くがビニール傘を差している
 import * as THREE from 'three';
-import { P, N, CURB } from './city.js';
+import { offsetLine, trimLine } from './yaesu.js';
+const CURB = 0;
 import { rand, randi, pick, clamp, damp, wrapAngle } from './util.js';
 
 const SHIRTS = [0x2b2f3a, 0x1f2430, 0x3a3a3f, 0xe8e6df, 0x6b2a2a, 0x2d4a3a, 0xc9b28a, 0x8a6a9a, 0x335577, 0xd9d4c5];
 const PANTS = [0x1a1c22, 0x23252c, 0x3b3f4a, 0x2a2f45, 0x4a3f33, 0x111111];
-const W = 5.6; // 歩道の中心線(道路中心から)
 
 let umbrellaGeo = null, umbrellaMat = null, handleMat = null;
 function umbrella() {
@@ -29,7 +29,7 @@ export class Ped {
       if (m.material.name === 'Shirt') m.material.color.set(pick(SHIRTS));
       if (m.material.name === 'Pants') m.material.color.set(pick(PANTS));
     });
-    o.traverse((m) => { if (m.isMesh) m.layers.set(1); }); // 路面反射には映さない(負荷軽減)
+    o.traverse((m) => { if (m.isMesh) { m.layers.set(1); m.castShadow = true; } }); // 路面反射には映さない(負荷軽減)
     this.obj = o;
     this.parts = {
       armL: o.getObjectByName('ArmL'), armR: o.getObjectByName('ArmR'),
@@ -57,31 +57,40 @@ export class Ped {
     this.pickRoute();
   }
 
-  // 自分のいる街区の歩道をぐるっと回る。角で時々道路を渡る
+  // 車道の脇(歩道)を区間ごとに歩く。細い道は道の端を歩く
+  sideOffset(e) { return e.w < 8 ? e.w / 2 - 0.7 : e.w / 2 + 2.4; }
+  startOn(e, dir, side, t0 = 0) {
+    const g = this.game.city.roads;
+    const p = dir > 0 ? e.pts : [...e.pts].reverse();
+    const n0 = g.nodes[dir > 0 ? e.a : e.b], n1 = g.nodes[dir > 0 ? e.b : e.a];
+    const line = offsetLine(p, side * this.sideOffset(e));
+    this.path = trimLine(line, Math.min(n0.deg >= 3 ? n0.maxW / 2 : 0, e.len * 0.3), Math.min(n1.deg >= 3 ? n1.maxW / 2 : 0, e.len * 0.3));
+    this.pi = 1; this.edge = e; this.dir = dir; this.side = side; this.toNode = n1;
+    if (t0) { for (let k = 0; k < t0 && this.pi < this.path.length - 1; k++) this.pi++; }
+  }
   pickRoute() {
-    const i = clamp(Math.floor(this.pos.x / P), 0, N - 1);
-    const k = clamp(Math.floor(this.pos.z / P), 0, N - 1);
-    this.block = [i, k];
-    this.corners = [[i * P + W, k * P + W], [(i + 1) * P - W, k * P + W], [(i + 1) * P - W, (k + 1) * P - W], [i * P + W, (k + 1) * P - W]];
-    let best = 0, bd = 1e9;
-    this.corners.forEach(([x, z], n) => { const d = Math.hypot(x - this.pos.x, z - this.pos.z); if (d < bd) { bd = d; best = n; } });
-    this.ci = best;
-    this.dirSign = Math.random() < 0.5 ? 1 : -1;
-    this.target = this.corners[this.ci];
+    const r = this.game.city.roads.nearestEdge(this.pos.x, this.pos.z);
+    if (!r) return;
+    const e = r.e;
+    this.startOn(e, Math.random() < 0.5 ? 1 : -1, Math.random() < 0.5 ? 1 : -1);
+    // 一番近い経路点から歩き出す
+    let best = 1, bd = 1e9;
+    this.path.forEach(([x, z], k) => { const d = Math.hypot(x - this.pos.x, z - this.pos.z); if (d < bd) { bd = d; best = k; } });
+    this.pi = best;
   }
-
-  nextCorner() {
-    if (Math.random() < 0.25) {
-      // 横断歩道を渡って隣の街区へ
-      const [x, z] = this.target;
-      const opts = [[x - 2 * W, z], [x + 2 * W, z], [x, z - 2 * W], [x, z + 2 * W]]
-        .filter(([ax, az]) => ax > 0 && az > 0 && ax < N * P && az < N * P
-          && (Math.floor(ax / P) !== this.block[0] || Math.floor(az / P) !== this.block[1]));
-      if (opts.length) { this.target = pick(opts); this.crossing = true; return; }
-    }
-    this.ci = (this.ci + this.dirSign + 4) % 4;
-    this.target = this.corners[this.ci];
+  nextLeg() {
+    const n = this.toNode;
+    const opts = n.out.length ? n.out : [{ e: this.edge, dir: -this.dir }];
+    // 一方通行でも歩行者は両方向に歩ける: 逆向きの区間も候補にする
+    const all = [...opts];
+    for (const e of this.game.city.roads.edges) if ((e.a === n.i || e.b === n.i) && !all.some((o) => o.e === e)) all.push({ e, dir: e.a === n.i ? 1 : -1 });
+    let c = all.filter((o) => o.e !== this.edge);
+    if (!c.length) c = all;
+    const o = pick(c);
+    const dir = o.e.a === n.i ? 1 : -1;
+    this.startOn(o.e, dir, Math.random() < 0.8 ? this.side : -this.side);
   }
+  get target() { return this.path?.[this.pi] ?? [this.pos.x, this.pos.z]; }
 
   scare(x, z, amount) {
     if (this.state === 'down') return;
@@ -128,9 +137,9 @@ export class Ped {
       spd = 4.6;
     } else {
       [tx, tz] = this.target;
-      if (Math.hypot(tx - this.pos.x, tz - this.pos.z) < 0.8) {
-        if (this.crossing) { this.crossing = false; this.pickRoute(); }
-        else this.nextCorner();
+      if (Math.hypot(tx - this.pos.x, tz - this.pos.z) < 1.0) {
+        this.pi++;
+        if (!this.path || this.pi >= this.path.length) this.nextLeg();
         [tx, tz] = this.target;
       }
     }
@@ -160,16 +169,21 @@ export class Peds {
 
   spawnAt(x, z) { const p = new Ped(this.game, x, z); this.list.push(p); return p; }
 
-  // 歩道上のランダムな地点(建物・電柱に重ならない場所)
+  // 歩道上のランダムな地点(建物・柱に重ならない場所)
   sidewalkPoint(cx, cz, minD, maxD) {
-    const col = this.game.city.colliders;
-    for (let t = 0; t < 12; t++) {
-      const i = randi(0, N - 1), k = randi(0, N - 1);
-      const side = randi(0, 3), u = rand(W, P - W);
-      const x = i * P + [u, P - W, u, W][side], z = k * P + [W, u, P - W, u][side];
+    const col = this.game.city.colliders, roads = this.game.city.roads;
+    for (let t = 0; t < 20; t++) {
+      const e = pick(roads.edges);
+      const k = randi(0, e.pts.length - 2);
+      const a = e.pts[k], b = e.pts[k + 1], u = Math.random();
+      const px = a[0] + (b[0] - a[0]) * u, pz = a[1] + (b[1] - a[1]) * u;
+      const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const off = side * (e.w < 8 ? e.w / 2 - 0.7 : e.w / 2 + 2.4);
+      const x = px + ((b[1] - a[1]) / l) * off, z = pz - ((b[0] - a[0]) / l) * off;
       const d = Math.hypot(x - cx, z - cz);
       if (d < minD || d > maxD) continue;
-      if ([...col.near(x, z, 1)].some((c) => x > c.minX - 0.5 && x < c.maxX + 0.5 && z > c.minZ - 0.5 && z < c.maxZ + 0.5)) continue;
+      if (col.inside(x, z, 0.5)) continue;
       return [x, z];
     }
     return null;

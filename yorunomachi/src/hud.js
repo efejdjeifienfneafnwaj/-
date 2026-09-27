@@ -1,10 +1,8 @@
 // HUD(DOM) とミニマップ
-import { P, N, ROAD, EXTENT } from './city.js';
 import { yen } from './util.js';
 
 const $ = (id) => document.getElementById(id);
-const K = 2; // 地図のピクセル/メートル
-const M = P;  // 地図の余白(メートル)
+let K = 1, M = 450; // 地図のピクセル/メートル、原点のずれ(m)
 
 export class Hud {
   constructor(game) {
@@ -24,29 +22,11 @@ export class Hud {
   }
 
   drawBase() {
-    const size = (EXTENT + M * 2) * K;
-    const c = document.createElement('canvas'); c.width = c.height = size;
-    const g = c.getContext('2d');
-    g.fillStyle = '#0b0c14'; g.fillRect(0, 0, size, size);
-    const w = (x) => (x + M) * K;
-    // 街区
-    for (let i = -1; i <= N; i++) for (let k = -1; k <= N; k++) {
-      const special = (i === 3 && k === 3) ? '#15301f' : (i === 6 && k === 1) ? '#2a2233' : (i === 2 && k === 1) ? '#1d2230' : '#1a1c28';
-      g.fillStyle = special;
-      g.fillRect(w(i * P + ROAD), w(k * P + ROAD), (P - ROAD * 2) * K, (P - ROAD * 2) * K);
-    }
-    // 道路
-    g.strokeStyle = '#3d4152'; g.lineWidth = ROAD * 2 * K;
-    for (let l = 0; l <= N; l++) {
-      g.beginPath(); g.moveTo(w(l * P), w(0)); g.lineTo(w(l * P), w(EXTENT)); g.stroke();
-      g.beginPath(); g.moveTo(w(0), w(l * P)); g.lineTo(w(EXTENT), w(l * P)); g.stroke();
-    }
-    g.strokeStyle = 'rgba(255,255,255,.08)'; g.lineWidth = 1;
-    for (let l = 0; l <= N; l++) {
-      g.beginPath(); g.moveTo(w(l * P), w(0)); g.lineTo(w(l * P), w(EXTENT)); g.stroke();
-      g.beginPath(); g.moveTo(w(0), w(l * P)); g.lineTo(w(EXTENT), w(l * P)); g.stroke();
-    }
-    return c;
+    // 実データから作った八重洲の地図画像
+    const img = this.game.city.minimapImg;
+    M = this.game.city.half;
+    K = img.width / (M * 2);
+    return img;
   }
 
   // ---------- 表示更新
@@ -90,7 +70,7 @@ export class Hud {
   drawMini() {
     const g = this.game, p = g.player;
     const ctx = this.mini, S = 220, R = S / 2;
-    const scale = 0.5; // 画面px / 地図px  → 1m = 1px
+    const scale = 1.1 / K; // 画面上で 1m = 1.1px
     ctx.save();
     ctx.clearRect(0, 0, S, S);
     ctx.beginPath(); ctx.arc(R, R, R, 0, Math.PI * 2); ctx.clip();
