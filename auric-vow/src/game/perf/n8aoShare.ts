@@ -17,6 +17,7 @@
  * transparent materials in the scene (energy, glass, HUD-space VFX).
  */
 import type { WebGLRenderer, WebGLRenderTarget } from 'three'
+import { PerfStats } from './stats'
 
 interface N8AOPassLike {
   configuration: { transparencyAware: boolean }
@@ -31,8 +32,15 @@ interface N8AOPassLike {
 export function shareN8AOTransparency(firstObj: unknown, secondObj: unknown): () => void {
   const first = firstObj as N8AOPassLike
   const second = secondObj as N8AOPassLike
-  if (!first || !second || first === second) return () => {}
-  if (typeof second.renderTransparency !== 'function' || typeof second.render !== 'function') return () => {}
+  if (!first || !second || first === second) {
+    PerfStats.aoShare = !first ? 'no-first' : !second ? 'no-second' : 'same-pass'
+    return () => {}
+  }
+  if (typeof second.renderTransparency !== 'function' || typeof second.render !== 'function') {
+    PerfStats.aoShare = 'not-n8ao'
+    return () => {}
+  }
+  PerfStats.aoShare = 'shared'
 
   first.autoDetectTransparency = false
   second.autoDetectTransparency = false
@@ -72,6 +80,7 @@ export function shareN8AOTransparency(firstObj: unknown, secondObj: unknown): ()
   disposeOwn()
 
   return () => {
+    PerfStats.aoShare = 'undone'
     second.render = origRender
     second.renderTransparency = origRenderTransparency
     // give it a pair of its own again so it stays self-sufficient

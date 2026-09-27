@@ -1126,11 +1126,31 @@ export default function PostFX() {
 
   const aoOn = qualityTier < 2 && !AO_DISABLED
 
-  // the room tap reuses the cavity tap's transparency renders (perf/n8aoShare)
-  useEffect(() => {
-    if (!aoOn || qualityTier !== 0 || AO_SHARE_DISABLED) return
-    return shareN8AOTransparency(aoCavityRef.current, aoRoomRef.current)
-  }, [aoOn, qualityTier])
+  // The room tap reuses the cavity tap's transparency renders (perf/n8aoShare).
+  // Wired from the frame loop, not an effect: the composer mounts its passes
+  // after this component's effects have run, so the refs are still empty then.
+  const aoShared = useRef<{ a: unknown; b: unknown; undo: () => void } | null>(null)
+  const aoShareWanted = aoOn && qualityTier === 0 && !AO_SHARE_DISABLED
+  useFrame(() => {
+    const a = aoCavityRef.current
+    const b = aoRoomRef.current
+    const cur = aoShared.current
+    if (aoShareWanted && a && b) {
+      if (cur && cur.a === a && cur.b === b) return
+      cur?.undo()
+      aoShared.current = { a, b, undo: shareN8AOTransparency(a, b) }
+    } else if (cur) {
+      cur.undo()
+      aoShared.current = null
+    }
+  })
+  useEffect(
+    () => () => {
+      aoShared.current?.undo()
+      aoShared.current = null
+    },
+    [],
+  )
 
   return (
     /*

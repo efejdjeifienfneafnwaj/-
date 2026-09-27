@@ -22,6 +22,7 @@ export const PerfStats = {
   lightsAdmitted: 0,
   lightsCandidates: 0,
   warmupMs: -1,
+  aoShare: 'unset',
   farShadowRedraws: 0,
   spotShadowRedraws: 0,
 }
