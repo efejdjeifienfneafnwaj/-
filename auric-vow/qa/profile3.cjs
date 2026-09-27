@@ -12,7 +12,7 @@ const srv = http.createServer((q, r) => { let p = q.url.split('?')[0]; if (p ===
   const b = await chromium.launch({ executablePath: CHROME, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-sandbox', '--disable-dev-shm-usage'] })
   const page = await (await b.newContext({ viewport: { width: 640, height: 360 } })).newPage()
   await page.route(/^https?:\/\/(?!localhost)/, (r) => r.abort())
-  await page.goto(`http://localhost:${PORT}/?qa=1`)
+  await page.goto(`http://localhost:${PORT}/?qa=1${process.env.Q || ''}`)
   await page.waitForFunction(() => !!window.__qa && !!window.__qa.gl, null, { timeout: 180000 })
   const step = (n) => page.evaluate((n) => new Promise((res) => { let c = 0; const f = () => { c++; c >= n ? res(1) : requestAnimationFrame(f) }; requestAnimationFrame(f) }), n)
   await page.mouse.click(320, 180); await step(2)
