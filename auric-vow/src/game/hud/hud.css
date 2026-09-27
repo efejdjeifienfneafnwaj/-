@@ -40,7 +40,7 @@
   inset: 0;
   pointer-events: none;
   z-index: 10;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
   color: var(--vellum);
   opacity: 1;
   transition: opacity 0.4s ease;
@@ -724,7 +724,7 @@
   to { background-position: -100% 0; }
 }
 .pb-text {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-weight: 700;
   font-size: clamp(20px, 2.4vmin, 34px);
   letter-spacing: 0.35em;
@@ -899,7 +899,7 @@
   padding: 0 2px 3px;
 }
 .bb-name {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.3em;
@@ -994,7 +994,7 @@
   stroke-width: 3px;
 }
 .ch-label {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-weight: 600;
   font-size: 10px;
   /* the box is gone, so the label needs its own padding and a dark rim to
@@ -1098,7 +1098,7 @@
   inset: 0;
   pointer-events: none;
   z-index: 11;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
 }
 .dmg {
   position: absolute;
@@ -1206,7 +1206,7 @@
   position: fixed;
   inset: 0;
   z-index: 20;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
   color: var(--vellum);
   font-variant-numeric: tabular-nums;
   display: flex;
@@ -1246,7 +1246,7 @@
   padding: 0 24px;
 }
 .avs-eyebrow {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.52em;
@@ -1284,7 +1284,7 @@
 .avs-fil.bl { left: -5px; bottom: -5px; }
 .avs-fil.br { right: -5px; bottom: -5px; }
 .avs-title {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-weight: 700;
   font-size: var(--avs-ramp-hero);
   line-height: 0.98;
@@ -1298,7 +1298,7 @@
   filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.55)) drop-shadow(0 0 26px rgba(255, 184, 53, 0.18));
 }
 .avs-sub {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: var(--avs-ramp-sub);
   font-weight: 600;
   letter-spacing: var(--avs-track-sub);
@@ -1317,7 +1317,7 @@
   position: relative;
   min-width: 268px;
   padding: 11px 34px;
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.34em;
@@ -1349,7 +1349,7 @@
 /* the mission line is a caption, not a second button: no box, no border */
 .avs-caption {
   margin-top: 4px;
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: var(--avs-ramp-caption);
   font-weight: 600;
   letter-spacing: var(--avs-track-caption);
@@ -1418,7 +1418,7 @@
   100% { opacity: 1; transform: rotate(45deg) scale(1); }
 }
 .avs-grade span {
-  font-family: 'Cinzel', serif;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   font-size: 60px;
   font-weight: 700;
   line-height: 1;
@@ -1688,4 +1688,156 @@
 .channel-anchor,
 .obj-marker {
   filter: var(--plate-rim);
+}
+
+/* ================================================================== */
+/* Japanese (:lang(ja)) — tracking, sizes, overflow                    */
+/*                                                                     */
+/* The Latin chrome is set in caps with very wide tracking (0.2–0.56   */
+/* em). Kanji and kana are already full-width squares: the same        */
+/* tracking scatters a word into loose glyphs. Under :lang(ja) the     */
+/* tracking is capped at ~0.08em (0.12em for the big display titles),  */
+/* optical-centring text-indent follows it, and 9–10 px labels rise to */
+/* 11 px so strokes stay legible. The English logo carries lang="en"   */
+/* and keeps its own tracking.                                         */
+/* ================================================================== */
+
+/* ---- front-end screens --------------------------------------------- */
+.avs:lang(ja) {
+  --avs-track-hero: 0.12em;
+  --avs-track-sub: 0.08em;
+  --avs-track-caption: 0.08em;
+}
+/* anything explicitly English inside a Japanese screen (the AURIC VOW
+   logo, the EN toggle) gets the original Latin tracking back */
+.avs :lang(en) {
+  --avs-track-hero: 0.2em;
+  --avs-track-sub: 0.56em;
+  --avs-track-caption: 0.34em;
+}
+.avs-eyebrow:lang(ja) {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+}
+.avs-btn:lang(ja) {
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+}
+.avs-btn.ghost:lang(ja) { font-size: 14px; }
+.avs-hints:lang(ja) {
+  letter-spacing: 0.08em;
+  gap: 22px;
+}
+/* the key caps stay Latin, so they keep a little of their tracking */
+.avs-hints:lang(ja) b { letter-spacing: 0.14em; margin-right: 2px; }
+.avs-row:lang(ja) { letter-spacing: 0.08em; }
+/* Japanese display titles can be long (e.g. 器、断たれる): let them wrap
+   rather than run off a narrow frame */
+.avs-title:lang(ja) { line-height: 1.12; }
+
+/* small Japanese line under the English logo (title screen only) */
+.avs-logo-sub {
+  margin: 2px 0 0;
+  font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
+  font-size: clamp(14px, 2vmin, 19px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-indent: 0.12em;
+  color: #D9C9A0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+/* language toggle — top-right corner, away from the menu and the hints */
+.avs-lang {
+  position: absolute;
+  z-index: 2;
+  top: 22px;
+  right: 26px;
+  padding: 5px 12px 5px 14px;
+  font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  color: var(--ash);
+  background: rgba(7, 9, 13, 0.62);
+  border: 1px solid rgba(138, 143, 163, 0.4);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+.avs-lang:lang(ja) {
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+}
+.avs-lang:hover,
+.avs-lang:focus-visible {
+  color: var(--vellum);
+  border-color: var(--gold-line);
+  background: rgba(201, 162, 75, 0.14);
+  outline: none;
+}
+
+/* ---- in-game HUD ---------------------------------------------------- */
+.pb-text:lang(ja) {
+  letter-spacing: 0.12em;
+  /* ja banners are 2–7 glyphs, far inside 1280 px; the cap is a safety net
+     for narrow frames (wrap to a second line rather than run off-screen) */
+  max-width: calc(100vw - 2 * (120px + 18px) - 48px);
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+}
+/* same timings as pb-in, but the tracking settles at the ja cap */
+.phase-banner:lang(ja) {
+  animation-name: pb-in-ja, pb-out;
+}
+@keyframes pb-in-ja {
+  from { opacity: 0; letter-spacing: 0.4em; }
+  to { opacity: 1; letter-spacing: 0.12em; }
+}
+.mp-verb:lang(ja) {
+  /* the longest ja objective (位置を死守 — 聖遺物を浄化せよ) fits the
+     420px plate at 1280×720, but a narrow frame must wrap, not overflow */
+  min-width: 0;
+  white-space: normal;
+  line-break: strict;
+  letter-spacing: 0.04em;
+}
+.wc-label:lang(ja) { letter-spacing: 0.08em; }
+.bb-name:lang(ja) {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+.bb-sub:lang(ja) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.ch-label:lang(ja) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+  padding: 2px 10px 2px 11px;
+}
+.skip-hint:lang(ja) {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+.radar-label:lang(ja) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+}
+.ammo-name:lang(ja) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.np-name:lang(ja) {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-indent: 0.08em;
+  white-space: nowrap;
 }

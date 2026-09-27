@@ -1,3 +1,5 @@
+// first: resolves the language and sets <html lang> / <title> before any render
+import './i18n'
 import { createRoot } from 'react-dom/client'
 import '@fontsource/cinzel/600.css'
 import '@fontsource/cinzel/700.css'

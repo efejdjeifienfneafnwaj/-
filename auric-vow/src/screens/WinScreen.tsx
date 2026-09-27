@@ -11,6 +11,7 @@ import { COLORS } from '@/game/config'
 import { useShallow } from 'zustand/react/shallow'
 import { useGameStore, gradeForScore, selectTallies } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
+import { T } from '@/i18n'
 import '@/game/hud/hud.css'
 
 interface Props {
@@ -70,10 +71,11 @@ export default function WinScreen({ onRestart }: Props) {
     return () => clearTimeout(t)
   }, [])
 
-  const rows: [string, string][] = [
-    ['KILLS', String(kills)],
-    ['HEADSHOTS', String(headshots)],
-    ['ABILITY KILLS', String(abilityKills)],
+  // [id, label, value] — the id is the stable React key; only the label is localised
+  const rows: [string, string, string][] = [
+    ['kills', T.win.kills, String(kills)],
+    ['headshots', T.win.headshots, String(headshots)],
+    ['abilityKills', T.win.abilityKills, String(abilityKills)],
   ]
 
   return (
@@ -82,7 +84,7 @@ export default function WinScreen({ onRestart }: Props) {
       <div className="avs-vig" />
       <div className="avs-body">
         <p className="avs-eyebrow" style={{ color: COLORS.aureate }}>
-          EXTRACTION COMPLETE
+          {T.win.eyebrow}
         </p>
         <div className="avs-wordmark av-title-in" style={{ padding: '12px 44px 14px' }}>
           <i className="avs-fil tl" />
@@ -90,7 +92,7 @@ export default function WinScreen({ onRestart }: Props) {
           <i className="avs-fil bl" />
           <i className="avs-fil br" />
           <h1 className="avs-title" style={{ fontSize: 'clamp(34px, 5.6vmin, 68px)' }}>
-            VOW FULFILLED
+            {T.win.title}
           </h1>
         </div>
 
@@ -101,15 +103,15 @@ export default function WinScreen({ onRestart }: Props) {
         )}
 
         <div className="avs-rows">
-          {rows.map(([k, v], i) =>
+          {rows.map(([id, k, v], i) =>
             stage >= i + 1 ? (
-              <div className="avs-row avs-reveal" key={k}>
+              <div className="avs-row avs-reveal" key={id}>
                 <span className="k">{k}</span>
                 <span className="dots" />
                 <span className="v">{v}</span>
               </div>
             ) : (
-              <div className="avs-row" key={k} style={{ opacity: 0 }}>
+              <div className="avs-row" key={id} style={{ opacity: 0 }}>
                 <span className="k">{k}</span>
                 <span className="dots" />
                 <span className="v">{v}</span>
@@ -118,7 +120,7 @@ export default function WinScreen({ onRestart }: Props) {
           )}
           {stage >= 5 && (
             <div className="avs-row total avs-reveal">
-              <span className="k">SCORE</span>
+              <span className="k">{T.win.score}</span>
               <span className="dots" />
               <span className="v">{shownScore.toLocaleString()}</span>
             </div>
@@ -134,7 +136,7 @@ export default function WinScreen({ onRestart }: Props) {
                 onRestart()
               }}
             >
-              RETURN TO TITLE
+              {T.win.toTitle}
             </button>
           </div>
         )}

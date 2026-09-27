@@ -71,14 +71,14 @@
   }
   body {
     @apply bg-[#0A0D1F] text-[#F4EFE3];
-    font-family: 'Rajdhani', system-ui, sans-serif;
+    font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", system-ui, sans-serif;
     overflow: hidden;
   }
   .font-display {
-    font-family: 'Cinzel', serif;
+    font-family: 'Cinzel', "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", serif;
   }
   .font-hud {
-    font-family: 'Rajdhani', system-ui, sans-serif;
+    font-family: 'Rajdhani', "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Noto Sans JP", system-ui, sans-serif;
   }
 }
 
@@ -98,3 +98,12 @@
 .av-fade-in { animation: av-fade-in 0.45s ease-out both; }
 .av-title-in { animation: av-title-in 1.1s cubic-bezier(0.16, 1, 0.3, 1) both; }
 .av-pulse-gold { animation: av-pulse-gold 1.8s ease-in-out infinite; }
+
+/* Japanese: the same rise, with the tracking settling at the ja cap. The
+   English logo sets its own tracking (lang="en") so this only ever reaches
+   Japanese titles. */
+@keyframes av-title-in-ja {
+  from { opacity: 0; transform: translateY(14px); letter-spacing: 0.3em; }
+  to { opacity: 1; transform: translateY(0); letter-spacing: 0.12em; }
+}
+.av-title-in:lang(ja) { animation-name: av-title-in-ja; }

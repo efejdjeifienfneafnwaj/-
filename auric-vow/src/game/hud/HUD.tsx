@@ -56,33 +56,24 @@ import {
 import { ammoState, resetAmmo, tickReload } from './ammoState'
 import { enemyState } from './enemyState'
 import { drainHitmarkerEvents, getHudCamera } from './DamageNumbers'
+import { T } from '@/i18n'
 import './hud.css'
 
 // ---------------------------------------------------------------------------
 // Static per-phase copy
 // ---------------------------------------------------------------------------
 
-const PHASE_BANNER: Partial<Record<MissionPhaseId, string>> = {
-  DROPSHIP: MISSION.titleCard,
-  INFILTRATE: 'INFILTRATE',
-  OBJECTIVE: 'THE NULL RELIQUARY',
-  EXTERMINATE: 'EXTERMINATE',
-  EXTRACT: 'EXTRACT',
-}
+// Localised once at module load (src/i18n.ts) — the rAF loop below only ever
+// reads these resolved strings, so the per-frame path stays allocation-free.
+const L = T.hud
+
+const PHASE_BANNER: Partial<Record<MissionPhaseId, string>> = L.phaseBanner
 
 /** verb-first objective copy — one imperative, no sentence case (H11) */
-const PHASE_OBJECTIVE: Record<MissionPhaseId, string> = {
-  DROPSHIP: 'Approach the Anvil of Silence',
-  INFILTRATE: 'Breach the Reliquary chamber',
-  OBJECTIVE: 'Hold position — purify the Reliquary',
-  EXTERMINATE: 'Purge the Cadence',
-  EXTRACT: 'Reach the extraction beacon',
-  WIN: 'Mission complete',
-  LOSE: 'Vessel lost',
-}
+const PHASE_OBJECTIVE: Record<MissionPhaseId, string> = L.phaseObjective
 
 const ABILITY_KEYS = [ABILITIES.A1.key, ABILITIES.A2.key, ABILITIES.A3.key, ABILITIES.A4.key]
-const ABILITY_NAMES = [ABILITIES.A1.name, ABILITIES.A2.name, ABILITIES.A3.name, ABILITIES.A4.name]
+const ABILITY_NAMES = L.abilityNames
 const OVERSHIELD_MAX = ABILITIES.A3.extra?.overshield ?? 100
 const ENERGY_NOTCHES = [25, 50, 75, 150]
 const LOW_HP = PLAYER.maxHealth * 0.3
@@ -94,11 +85,11 @@ const NP_RANGE = ENEMY_FX.nameplate.range
 const NP_HOLD = ENEMY_FX.nameplate.holdSec
 const NP_AIM_COS = Math.cos(THREE.MathUtils.degToRad(ENEMY_FX.nameplate.aimDeg))
 /** per-type nameplate copy — the faction glyph read, not a debug label */
-const NP_NAME: Record<string, string> = {
-  drone: 'CHIRP',
-  trooper: 'VOTARY',
-  heavy: 'CANTOR',
-}
+const NP_NAME: Record<string, string> = L.enemyName
+const NP_FALLBACK = L.hostile
+const BOSS_ENRAGED = L.bossEnraged
+const BOSS_WEAK_POINT = L.bossWeakPoint
+const DIST_UNIT = L.distUnit
 /** reticle turns hostile when the aim axis is inside this cone of an enemy */
 const RET_HOSTILE_COS = Math.cos(THREE.MathUtils.degToRad(3.2))
 
@@ -640,7 +631,7 @@ export default function HUD() {
       const obj = s.objectivePosition
       if (obj) {
         const d = Math.round(PlayerRef.position.distanceTo(obj))
-        const distText = `${d} M`
+        const distText = `${d} ${DIST_UNIT}`
         if (distText !== lastDistText && objDistRef.current) {
           objDistRef.current.textContent = distText
           lastDistText = distText
@@ -931,7 +922,7 @@ export default function HUD() {
           if (bossFillRef.current) bossFillRef.current.style.transform = `scaleX(${frac.toFixed(4)})`
           if (bossStagRef.current)
             bossStagRef.current.style.transform = `scaleX(${(found.stagger / 100).toFixed(3)})`
-          const sub = frac < 0.3 ? 'ENRAGED' : 'REAR REACTOR — WEAK POINT'
+          const sub = frac < 0.3 ? BOSS_ENRAGED : BOSS_WEAK_POINT
           if (sub !== lastBossSub && bossSubRef.current) {
             bossSubRef.current.textContent = sub
             lastBossSub = sub
@@ -991,7 +982,7 @@ export default function HUD() {
         }
         if (npLastId[i] !== en.id) {
           npLastId[i] = en.id
-          part.name.textContent = NP_NAME[en.type] ?? 'HOSTILE'
+          part.name.textContent = NP_NAME[en.type] ?? NP_FALLBACK
           part.root.className = `np np-${en.type}`
         }
         const dist = _camPos.distanceTo(en.headPosition)
@@ -1046,7 +1037,7 @@ export default function HUD() {
             ))}
           </div>
           <canvas ref={radarRef} width={HUD_RADAR.size} height={HUD_RADAR.size} />
-          <div className="radar-label">AUSPEX</div>
+          <div className="radar-label">{L.radar}</div>
         </div>
 
         {/* ---------- bottom-left: vitals → energy → abilities ---------- */}
@@ -1091,7 +1082,7 @@ export default function HUD() {
               <span ref={enTextRef} className="n">
                 {PLAYER.maxEnergy}
               </span>
-              <span className="u">EN</span>
+              <span className="u">{L.energyUnit}</span>
             </div>
           </div>
 
@@ -1125,7 +1116,7 @@ export default function HUD() {
               <span ref={ammoResRef} className="ammo-res">
                 / ∞
               </span>
-              <span className="ammo-name">VOW</span>
+              <span className="ammo-name">{L.weaponName}</span>
               <div ref={reloadArcRef} className="reload-arc" />
             </div>
             <KatanaGlyph />
@@ -1181,7 +1172,7 @@ export default function HUD() {
             <div className="mp-rule" />
             <div className="mp-row2">
               <span className="wc-label">
-                {phase === 'EXTERMINATE' ? `WAVE ${Math.min(wave + 1, waveCount)} / ${waveCount}` : 'THREAT'}
+                {phase === 'EXTERMINATE' ? L.wave(Math.min(wave + 1, waveCount), waveCount) : L.threat}
               </span>
               {phase === 'EXTERMINATE' && (
                 <span className="wc-pips">
@@ -1219,9 +1210,9 @@ export default function HUD() {
 
           <div className="bossbar" ref={bossRef}>
             <div className="bb-head">
-              <span className="bb-name">CANTOR</span>
+              <span className="bb-name">{L.bossName}</span>
               <span ref={bossSubRef} className="bb-sub">
-                REAR REACTOR — WEAK POINT
+                {BOSS_WEAK_POINT}
               </span>
             </div>
             <div className="bb-track">
@@ -1292,7 +1283,7 @@ export default function HUD() {
                 0%
               </text>
             </svg>
-            <span className="ch-label">PURIFYING</span>
+            <span className="ch-label">{L.purifying}</span>
           </div>
         </div>
 
@@ -1307,7 +1298,7 @@ export default function HUD() {
       </div>
 
       {/* dropship skip hint — OUTSIDE #hud, which is faded out in DROPSHIP */}
-      {phase === 'DROPSHIP' && <div className="skip-hint">SPACE · FIRE — SKIP</div>}
+      {phase === 'DROPSHIP' && <div className="skip-hint">{L.skipHint}</div>}
     </>
   )
 }

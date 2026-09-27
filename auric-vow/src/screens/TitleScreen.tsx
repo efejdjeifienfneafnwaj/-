@@ -20,20 +20,14 @@
  */
 import { useEffect, useState } from 'react'
 import { AudioBus } from '@/game/AudioBus'
-import { MISSION } from '@/game/config'
+import { LANG, T, setLang } from '@/i18n'
 import '@/game/hud/hud.css'
 
 interface Props {
   onEngage: () => void
 }
 
-const HINTS: [string, string][] = [
-  ['WASD', 'MOVE'],
-  ['SHIFT', 'SPRINT'],
-  ['LMB', 'RIFLE'],
-  ['F', 'KATANA'],
-  ['1 2 3 4', 'ABILITIES'],
-]
+const COPY = T.title
 
 export default function TitleScreen({ onEngage }: Props) {
   const [ready, setReady] = useState(false)
@@ -53,15 +47,19 @@ export default function TitleScreen({ onEngage }: Props) {
       <div className="avs-vig" />
 
       <div className="avs-body">
-        <p className="avs-eyebrow av-fade-in">VESSEL KAIRO</p>
+        <p className="avs-eyebrow av-fade-in">{COPY.eyebrow}</p>
 
         <div className="avs-wordmark av-title-in">
           <i className="avs-fil tl" />
           <i className="avs-fil tr" />
           <i className="avs-fil bl" />
           <i className="avs-fil br" />
-          <h1 className="avs-title">AURIC VOW</h1>
+          {/* the logo stays in English in every language */}
+          <h1 className="avs-title" lang="en">
+            AURIC VOW
+          </h1>
         </div>
+        {COPY.logoSub && <p className="avs-logo-sub av-fade-in">{COPY.logoSub}</p>}
 
         {ready && (
           <div className="avs-menu avs-reveal">
@@ -72,26 +70,43 @@ export default function TitleScreen({ onEngage }: Props) {
                 engage()
               }}
             >
-              ENGAGE
+              {COPY.engage}
             </button>
             {/* [R2] the mission line was a second outlined button competing
                 with ENGAGE, under a subtitle that printed the same words. The
                 subtitle is gone and this is a caption. */}
             <div className="avs-caption">
-              MISSION · <b>{MISSION.titleCard}</b>
+              {COPY.missionLabel} · <b>{COPY.missionName}</b>
             </div>
           </div>
         )}
       </div>
 
       <div className="avs-hints">
-        {HINTS.map(([k, v]) => (
+        {COPY.hints.map(([k, v]) => (
           <span key={k}>
             <b>{k}</b> {v}
           </span>
         ))}
       </div>
       <div className="avs-rule-b" />
+
+      {/* language toggle — top-right corner, clear of the menu and hints; it
+          must never reach the screen-wide click-to-engage handler */}
+      <button
+        type="button"
+        className="avs-lang"
+        aria-label={COPY.langToggleAria}
+        lang={LANG === 'ja' ? 'en' : 'ja'}
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation()
+          setLang(LANG === 'ja' ? 'en' : 'ja')
+        }}
+      >
+        {COPY.langToggle}
+      </button>
     </div>
   )
 }

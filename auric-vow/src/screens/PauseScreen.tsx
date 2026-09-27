@@ -7,6 +7,7 @@
  */
 import { COLORS } from '@/game/config'
 import { AudioBus } from '@/game/AudioBus'
+import { T } from '@/i18n'
 import '@/game/hud/hud.css'
 
 interface Props {
@@ -29,11 +30,11 @@ export default function PauseScreen({ onResume, onAbandon }: Props) {
           <i className="avs-fil bl" />
           <i className="avs-fil br" />
           <h1 className="avs-title" style={{ fontSize: 'clamp(30px, 4.6vmin, 56px)' }}>
-            PAUSED
+            {T.pause.title}
           </h1>
         </div>
         <p className="avs-sub" style={{ color: COLORS.ash }}>
-          THE VOW HOLDS
+          {T.pause.sub}
         </p>
 
         <div className="avs-menu">
@@ -44,7 +45,7 @@ export default function PauseScreen({ onResume, onAbandon }: Props) {
               onResume()
             }}
           >
-            RESUME
+            {T.pause.resume}
           </button>
           <button
             className="avs-btn ghost"
@@ -53,7 +54,7 @@ export default function PauseScreen({ onResume, onAbandon }: Props) {
               onAbandon()
             }}
           >
-            ABANDON RUN
+            {T.pause.abandon}
           </button>
         </div>
       </div>

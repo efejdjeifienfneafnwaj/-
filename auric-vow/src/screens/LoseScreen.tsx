@@ -8,6 +8,7 @@ import { COLORS } from '@/game/config'
 import { useShallow } from 'zustand/react/shallow'
 import { useGameStore, selectTallies } from '@/game/store'
 import { AudioBus } from '@/game/AudioBus'
+import { T } from '@/i18n'
 import '@/game/hud/hud.css'
 
 interface Props {
@@ -30,9 +31,11 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
   const { kills, score } = useGameStore(useShallow(selectTallies))
   const stage = useStage(4)
 
-  const rows: [string, string][] = [
-    ['KILLS', String(kills)],
-    ['SCORE', score.toLocaleString()],
+  // [id, label, value] — the id is the stable React key and the styling
+  // switch; only the label is localised
+  const rows: [string, string, string][] = [
+    ['kills', T.lose.kills, String(kills)],
+    ['score', T.lose.score, score.toLocaleString()],
   ]
 
   return (
@@ -47,7 +50,7 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
       <div className="avs-vig" />
       <div className="avs-body">
         <p className="avs-eyebrow" style={{ color: COLORS.emberRed }}>
-          SIGNAL LOST
+          {T.lose.eyebrow}
         </p>
         <div className="avs-wordmark av-title-in" style={{ padding: '12px 44px 14px' }}>
           <i className="avs-fil tl" />
@@ -63,21 +66,21 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
               backgroundClip: 'text',
             }}
           >
-            VESSEL SEVERED
+            {T.lose.title}
           </h1>
         </div>
-        <p className="avs-sub">THE CADENCE CLAIMS THE ANVIL</p>
+        <p className="avs-sub">{T.lose.sub}</p>
 
         <div className="avs-rows" style={{ marginTop: 34 }}>
-          {rows.map(([k, v], i) => (
+          {rows.map(([id, k, v], i) => (
             <div
               className={stage >= i + 1 ? 'avs-row avs-reveal' : 'avs-row'}
-              key={k}
+              key={id}
               style={stage >= i + 1 ? undefined : { opacity: 0 }}
             >
               <span className="k">{k}</span>
               <span className="dots" />
-              <span className="v" style={k === 'SCORE' ? { color: COLORS.aureate } : undefined}>
+              <span className="v" style={id === 'score' ? { color: COLORS.aureate } : undefined}>
                 {v}
               </span>
             </div>
@@ -93,7 +96,7 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
                 onRetry()
               }}
             >
-              RETRY
+              {T.lose.retry}
             </button>
             <button
               className="avs-btn ghost"
@@ -102,7 +105,7 @@ export default function LoseScreen({ onRetry, onTitle }: Props) {
                 onTitle()
               }}
             >
-              TITLE
+              {T.lose.toTitle}
             </button>
           </div>
         )}
