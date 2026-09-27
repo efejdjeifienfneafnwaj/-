@@ -101,19 +101,36 @@ import { setEnemiesAlive } from './hud'
 const PCSS_ANCHOR =
   /if \( frustumTest \) \{\s*float depth = texture2D\( shadowMap, shadowCoord\.xy \)\.r;[\s\S]*?\n\t{3}\}/
 
+// The two Vogel discs the filter samples, precomputed. The shader used to
+// evaluate sqrt, cos and sin for every one of its 20 taps on every shadowed
+// light on every pixel — about 60 transcendentals per light per pixel, which
+// made shadow SAMPLING the single largest cost of the main pass. The tap
+// pattern only depends on the tap index; the per-pixel part is one rotation
+// by the interleaved-gradient angle, so the table plus one cos/sin pair gives
+// the same offsets (to float rounding) at a fraction of the cost.
+const GOLDEN = 2.3999632
+const vogel = (n: number, r2: number, phase: number) =>
+  Array.from({ length: n }, (_, i) => {
+    const r = Math.sqrt((i + 0.5) * r2)
+    const t = i * GOLDEN + phase
+    return `vec2( ${(Math.cos(t) * r).toFixed(9)}, ${(Math.sin(t) * r).toFixed(9)} )`
+  }).join(', ')
+const PCSS_TABLES = /* glsl */ `
+const vec2 AURIC_BLOCKER_TAPS[ 8 ] = vec2[ 8 ]( ${vogel(8, 0.125, 0)} );
+const vec2 AURIC_FILTER_TAPS[ 12 ] = vec2[ 12 ]( ${vogel(12, 0.0833333, 1.7)} );
+`
+
 const PCSS_BODY = /* glsl */ `if ( frustumTest ) {
 				float auricTexel = 1.0 / shadowMapSize.x;
 				// interleaved gradient noise rotates the disc per pixel so the
 				// 12 taps read as film grain instead of 12 banded rings
 				float auricPhi = fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ) * PI2;
+				mat2 auricRot = mat2( cos( auricPhi ), sin( auricPhi ), - sin( auricPhi ), cos( auricPhi ) );
 				float auricMaxR = max( shadowRadius, 0.0001 ) * 7.0 * auricTexel;
 				float auricBlockerSum = 0.0;
 				float auricBlockerCount = 0.0;
 				for ( int bi = 0; bi < 8; bi ++ ) {
-					float bf = float( bi );
-					float br = sqrt( ( bf + 0.5 ) * 0.125 );
-					float bt = bf * 2.3999632 + auricPhi;
-					float bd = texture2D( shadowMap, shadowCoord.xy + vec2( cos( bt ), sin( bt ) ) * br * auricMaxR ).r;
+					float bd = texture2D( shadowMap, shadowCoord.xy + ( auricRot * AURIC_BLOCKER_TAPS[ bi ] ) * auricMaxR ).r;
 					#ifdef USE_REVERSED_DEPTH_BUFFER
 						if ( bd > shadowCoord.z ) { auricBlockerSum += bd; auricBlockerCount += 1.0; }
 					#else
@@ -132,10 +149,7 @@ const PCSS_BODY = /* glsl */ `if ( frustumTest ) {
 					float auricFilterR = mix( 0.85 * auricTexel, auricMaxR, auricPen );
 					float auricSum = 0.0;
 					for ( int fi = 0; fi < 12; fi ++ ) {
-						float ff = float( fi );
-						float fr = sqrt( ( ff + 0.5 ) * 0.0833333 );
-						float ft = ff * 2.3999632 + auricPhi + 1.7;
-						float fd = texture2D( shadowMap, shadowCoord.xy + vec2( cos( ft ), sin( ft ) ) * fr * auricFilterR ).r;
+						float fd = texture2D( shadowMap, shadowCoord.xy + ( auricRot * AURIC_FILTER_TAPS[ fi ] ) * auricFilterR ).r;
 						#ifdef USE_REVERSED_DEPTH_BUFFER
 							auricSum += step( fd, shadowCoord.z );
 						#else
@@ -149,11 +163,49 @@ const PCSS_BODY = /* glsl */ `if ( frustumTest ) {
 /** true once the chunk has been rewritten; drives the shadow-map type below */
 const PCSS_INSTALLED = (() => {
   const src = THREE.ShaderChunk.shadowmap_pars_fragment
-  const next = src.replace(PCSS_ANCHOR, PCSS_BODY)
+  let next = src.replace(PCSS_ANCHOR, PCSS_BODY)
   if (next === src) return false
+  // the tap tables sit at file scope of the chunk, ahead of getShadow()
+  next = next.replace('#if NUM_SPOT_LIGHT_COORDS > 0', PCSS_TABLES + '\n#if NUM_SPOT_LIGHT_COORDS > 0')
+  if (!next.includes('AURIC_BLOCKER_TAPS[ 8 ] =')) return false
   THREE.ShaderChunk.shadowmap_pars_fragment = next
   return true
 })()
+
+// ---------------------------------------------------------------------------
+// Skip shadow lookups a surface cannot show.
+//
+// For the standard/physical BRDF a direct light contributes nothing to a
+// fragment that faces away from it: every direct term is scaled by
+// saturate(dot(N, L)) — clearcoat by its own normal — so its shadow factor
+// multiplies zero. three still ran the full filter for it, and with PCSS that
+// is up to 20 taps per shadowed light. The lookup is now skipped exactly when
+// it cannot change the result. Other material models keep the stock line.
+// ---------------------------------------------------------------------------
+const SHADOW_FACING_INSTALLED = (() => {
+  const C = THREE.ShaderChunk
+  const src = C.lights_fragment_begin
+  const test = '( directLight.visible && receiveShadow ) ? getShadow('
+  const count = src.split(test).length - 1
+  if (count !== 2) return false
+  const macro = /* glsl */ `
+#if defined( STANDARD )
+	#ifdef USE_CLEARCOAT
+		#define AURIC_SHADOW_FACING( L ) ( max( dot( geometryNormal, L ), dot( geometryClearcoatNormal, L ) ) > 0.0 )
+	#else
+		#define AURIC_SHADOW_FACING( L ) ( dot( geometryNormal, L ) > 0.0 )
+	#endif
+#else
+	#define AURIC_SHADOW_FACING( L ) true
+#endif
+`
+  C.lights_fragment_begin =
+    macro +
+    src.split(test).join('( directLight.visible && receiveShadow && AURIC_SHADOW_FACING( directLight.direction ) ) ? getShadow(') +
+    '\n#undef AURIC_SHADOW_FACING\n'
+  return true
+})()
+if (!SHADOW_FACING_INSTALLED && typeof console !== 'undefined') console.warn('[shadows] facing skip not installed')
 
 /**
  * BasicShadowMap here does NOT mean "basic shadows" — it means "bind the depth
