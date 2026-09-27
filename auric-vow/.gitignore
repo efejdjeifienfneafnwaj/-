@@ -13,3 +13,4 @@ dist-b4
 dist-b5
 dist-perf
 dist-e*
+dist-*/
